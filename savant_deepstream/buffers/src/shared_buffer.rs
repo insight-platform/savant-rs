@@ -114,6 +114,36 @@ impl SharedBuffer {
         }
     }
 
+    /// Create a temporary [`SurfaceView`] and pass it to the closure.
+    ///
+    /// The view is created, handed to `f`, and **automatically dropped**
+    /// when the closure returns — no manual `drop(view)` needed.  This
+    /// keeps the `Arc` refcount elevated only for the duration of `f`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use deepstream_buffers::{BufferGenerator, NvBufSurfaceMemType, VideoFormat};
+    /// # gstreamer::init().unwrap();
+    /// # let gen = BufferGenerator::new(
+    /// #     VideoFormat::RGBA, 640, 480, 30, 1, 0, NvBufSurfaceMemType::Default,
+    /// # ).unwrap();
+    /// let shared = gen.acquire(None).unwrap();
+    /// shared.with_view(0, |view| {
+    ///     view.memset(0)
+    /// }).unwrap();
+    /// // shared is sole owner again here
+    /// ```
+    ///
+    /// [`SurfaceView`]: crate::SurfaceView
+    pub fn with_view<F, R>(&self, slot: u32, f: F) -> Result<R, crate::NvBufSurfaceError>
+    where
+        F: FnOnce(&crate::SurfaceView) -> Result<R, crate::NvBufSurfaceError>,
+    {
+        let view = crate::SurfaceView::from_buffer(self, slot)?;
+        f(&view)
+    }
+
     /// Replace [`SavantIdMeta`] on the buffer.
     ///
     /// Removes any previously attached meta before adding the new IDs.
@@ -257,5 +287,17 @@ mod tests {
         shared.set_savant_ids(vec![SavantIdMetaKind::Frame(1)]);
         shared.set_savant_ids(vec![SavantIdMetaKind::Frame(99)]);
         assert_eq!(shared.savant_ids(), vec![SavantIdMetaKind::Frame(99)]);
+    }
+
+    /// `with_view` requires a real NvBufSurface-backed buffer (GPU), so the
+    /// ownership-restoring contract is verified via integration tests.  Here
+    /// we only check that view-creation errors propagate correctly.
+    #[test]
+    fn test_with_view_propagates_view_error() {
+        gst::init().unwrap();
+        let shared = SharedBuffer::from(gst::Buffer::new());
+        let result: Result<(), _> = shared.with_view(0, |_view| Ok(()));
+        assert!(result.is_err(), "empty buffer should fail from_buffer");
+        assert_eq!(shared.strong_count(), 1, "no lingering Arc clones on error");
     }
 }

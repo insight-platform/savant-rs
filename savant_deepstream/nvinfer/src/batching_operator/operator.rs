@@ -174,10 +174,6 @@ impl NvInferBatchingOperator {
 
     /// Add a single frame for batched inference.
     ///
-    /// When `same_source_allowed` is `false` in the config and the batch
-    /// already contains a frame from the same source, returns
-    /// [`NvInferError::DuplicateSource`].
-    ///
     /// If adding this frame fills the batch to `max_batch_size`, the batch is
     /// submitted immediately.
     pub fn add_frame(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()> {
@@ -187,14 +183,6 @@ impl NvInferBatchingOperator {
 
         let should_submit = {
             let mut st = self.ctx.state.lock();
-
-            if !self.ctx.config.same_source_allowed {
-                let source_id = frame.get_source_id();
-                if st.sources.contains(&source_id) {
-                    return Err(NvInferError::DuplicateSource(source_id));
-                }
-                st.sources.insert(source_id);
-            }
 
             let is_first = st.frames.is_empty();
             st.frames.push((frame, buffer));

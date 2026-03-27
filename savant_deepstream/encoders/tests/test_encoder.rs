@@ -993,10 +993,9 @@ fn test_raw_rgba_pixel_data_round_trip() {
 
     // Upload the pattern to the GPU surface.
     let shared = encoder.generator().acquire(Some(0)).unwrap();
-    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
-    view.upload(&input_pixels, w, h, 4)
+    shared
+        .with_view(0, |view| view.upload(&input_pixels, w, h, 4))
         .expect("upload_to_surface failed");
-    drop(view);
     let buffer = shared.into_buffer().expect("sole owner");
 
     encoder

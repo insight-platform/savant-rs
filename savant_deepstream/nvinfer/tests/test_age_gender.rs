@@ -9,6 +9,7 @@ use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
     TransformConfig, UniformBatchGenerator, VideoFormat,
 };
+
 use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
@@ -70,7 +71,7 @@ fn make_age_gender_batch(num_frames: u32) -> SharedBuffer {
     }
 
     batch.finalize().unwrap();
-    batch.shared_buffer()
+    batch.into_shared_buffer()
 }
 
 #[test]
@@ -199,10 +200,9 @@ fn test_age_gender_e2e_real_images() {
         .expect("1080p src generator");
 
     let src_shared = src_gen.acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-    view.upload(&canvas, FRAME_W, FRAME_H, 4)
+    src_shared
+        .with_view(0, |view| view.upload(&canvas, FRAME_W, FRAME_H, 4))
         .expect("upload_to_surface");
-    drop(view);
 
     // ---- Create batched surface with one 1920x1080 slot -------------------
     let batched_gen = UniformBatchGenerator::new(
@@ -222,8 +222,7 @@ fn test_age_gender_e2e_real_images() {
     let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
     batch.transform_slot(0, &src_view, None).unwrap();
     batch.finalize().unwrap();
-    let shared = batch.shared_buffer();
-    drop(batch);
+    let shared = batch.into_shared_buffer();
 
     // ---- Build ROIs -------------------------------------------------------
     let roi_vec: Vec<Roi> = placements
@@ -344,10 +343,9 @@ fn test_age_gender_placement_independence() {
             .expect("src generator");
 
         let src_shared = src_gen.acquire(Some(0)).unwrap();
-        let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-        view.upload(&canvas, FRAME_W, FRAME_H, 4)
+        src_shared
+            .with_view(0, |view| view.upload(&canvas, FRAME_W, FRAME_H, 4))
             .expect("upload_to_surface");
-        drop(view);
 
         let batched_gen = UniformBatchGenerator::new(
             VideoFormat::RGBA,
@@ -365,8 +363,7 @@ fn test_age_gender_placement_independence() {
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
         batch.transform_slot(0, &src_view, None).unwrap();
         batch.finalize().unwrap();
-        let shared = batch.shared_buffer();
-        drop(batch);
+        let shared = batch.into_shared_buffer();
 
         let roi_vec: Vec<Roi> = placements
             .iter()

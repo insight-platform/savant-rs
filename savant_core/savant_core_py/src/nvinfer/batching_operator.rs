@@ -36,8 +36,6 @@ type SharedOperatorOutput = Arc<Mutex<Option<OperatorInferenceOutput>>>;
 ///
 /// Args:
 ///     max_batch_size (int): Maximum frames per batch.
-///     same_source_allowed (bool): Allow multiple frames from the same source
-///         in a single batch.
 ///     max_batch_wait_ms (int): Maximum time (milliseconds) to wait before
 ///         submitting a partial batch.
 ///     nvinfer_config (NvInferConfig): Configuration forwarded to the inner
@@ -52,14 +50,12 @@ impl PyNvInferBatchingOperatorConfig {
     #[new]
     fn new(
         max_batch_size: usize,
-        same_source_allowed: bool,
         max_batch_wait_ms: u64,
         nvinfer_config: &PyNvInferConfig,
     ) -> Self {
         Self {
             inner: NvInferBatchingOperatorConfig {
                 max_batch_size,
-                same_source_allowed,
                 max_batch_wait: Duration::from_millis(max_batch_wait_ms),
                 nvinfer: nvinfer_config.inner.clone(),
             },
@@ -70,13 +66,6 @@ impl PyNvInferBatchingOperatorConfig {
     #[getter]
     fn max_batch_size(&self) -> usize {
         self.inner.max_batch_size
-    }
-
-    /// When ``False``, rejects frames whose ``source_id`` is already in the
-    /// pending batch.
-    #[getter]
-    fn same_source_allowed(&self) -> bool {
-        self.inner.same_source_allowed
     }
 
     /// Maximum wait before submitting a partial batch (milliseconds).
@@ -95,10 +84,9 @@ impl PyNvInferBatchingOperatorConfig {
 
     fn __repr__(&self) -> String {
         format!(
-            "NvInferBatchingOperatorConfig(max_batch_size={}, same_source_allowed={}, \
+            "NvInferBatchingOperatorConfig(max_batch_size={}, \
              max_batch_wait_ms={}, gpu_id={})",
             self.inner.max_batch_size,
-            self.inner.same_source_allowed,
             self.inner.max_batch_wait.as_millis(),
             self.inner.nvinfer.gpu_id,
         )
@@ -675,9 +663,7 @@ impl PyNvInferBatchingOperator {
     ///     buffer (Union[SharedBuffer, int]): Frame buffer.
     ///
     /// Raises:
-    ///     RuntimeError: If the operator is shut down, the source is a
-    ///         duplicate (when ``same_source_allowed=False``), or submission
-    ///         fails.
+    ///     RuntimeError: If the operator is shut down or submission fails.
     fn add_frame(
         &self,
         py: Python<'_>,

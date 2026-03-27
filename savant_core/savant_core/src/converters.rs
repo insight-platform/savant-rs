@@ -70,6 +70,23 @@ pub enum ConverterError {
     EmptyTensor,
     /// NMS input validation failed (length mismatch between boxes/confidences/class_ids).
     NmsInputError(String),
+    /// Class id from the model is not usable (wrong type of tensor / column count in message).
+    InvalidClassIndex {
+        /// Tensor index in the format (e.g. 2 for V3Raw class tensor, 3 for V4PostNms).
+        tensor_index: usize,
+        /// Detection row (`0..N`).
+        detection_index: usize,
+        /// Value read from the class-id tensor.
+        raw: f32,
+        /// When `Some(k)`, the id must satisfy `0 <= id < k` (V3Raw score width). When `None`, only
+        /// a finite non-negative value is required (e.g. V4PostNms).
+        num_score_columns: Option<usize>,
+    },
+    /// Scalar detection count tensor (`[1]`) is not a finite non-negative value.
+    InvalidDetectionCount {
+        /// Value read from tensor 0.
+        raw: f32,
+    },
 }
 
 impl fmt::Display for ConverterError {
@@ -90,6 +107,25 @@ impl fmt::Display for ConverterError {
             }
             Self::EmptyTensor => write!(f, "input tensor is empty"),
             Self::NmsInputError(msg) => write!(f, "NMS input error: {msg}"),
+            Self::InvalidClassIndex {
+                tensor_index,
+                detection_index,
+                raw,
+                num_score_columns,
+            } => match num_score_columns {
+                Some(k) => write!(
+                    f,
+                    "tensor {tensor_index}: detection {detection_index}: class id {raw} is not in 0..{k} (score columns)",
+                ),
+                None => write!(
+                    f,
+                    "tensor {tensor_index}: detection {detection_index}: class id {raw} is invalid (must be finite and >= 0)",
+                ),
+            },
+            Self::InvalidDetectionCount { raw } => write!(
+                f,
+                "tensor 0: detection count {raw} is invalid (must be finite and >= 0)",
+            ),
         }
     }
 }

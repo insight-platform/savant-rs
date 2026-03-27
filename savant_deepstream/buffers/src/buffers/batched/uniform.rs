@@ -515,8 +515,38 @@ impl SurfaceBatch {
     ///
     /// Use this to pass the buffer to downstream consumers (encoder, NvInfer)
     /// without consuming the `SurfaceBatch`.
+    ///
+    /// Prefer [`into_shared_buffer`](Self::into_shared_buffer) when the batch
+    /// is no longer needed — it avoids the extra `Arc` clone.
     pub fn shared_buffer(&self) -> crate::SharedBuffer {
         self.buffer.clone()
+    }
+
+    /// Consume the batch and return the inner [`SharedBuffer`](crate::SharedBuffer).
+    ///
+    /// Unlike [`shared_buffer`](Self::shared_buffer) this moves the buffer
+    /// out by value, so the `Arc` refcount stays at 1 — no clone, no
+    /// manual `drop(batch)` needed.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use deepstream_buffers::{
+    /// #     UniformBatchGenerator, NvBufSurfaceMemType, VideoFormat,
+    /// #     SavantIdMetaKind, TransformConfig,
+    /// # };
+    /// # gstreamer::init().unwrap();
+    /// # let gen = UniformBatchGenerator::new(
+    /// #     VideoFormat::RGBA, 640, 640, 4, 2, 0, NvBufSurfaceMemType::Default,
+    /// # ).unwrap();
+    /// let ids = vec![SavantIdMetaKind::Frame(1)];
+    /// let mut batch = gen.acquire_batch(TransformConfig::default(), ids).unwrap();
+    /// batch.finalize().unwrap();
+    /// let shared = batch.into_shared_buffer();
+    /// assert_eq!(shared.strong_count(), 1);
+    /// ```
+    pub fn into_shared_buffer(self) -> crate::SharedBuffer {
+        self.buffer
     }
 
     /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor

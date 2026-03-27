@@ -27,9 +27,6 @@ pub enum NvInferError {
     #[error("GStreamer initialization failed: {0}")]
     GstInit(String),
 
-    #[error("Duplicate source in batch: {0}")]
-    DuplicateSource(String),
-
     #[error("Batch formation failed: {0}")]
     BatchFormationFailed(String),
 
@@ -50,7 +47,6 @@ pub enum NvInferError {
 | `BatchMetaFailed` | `attach_batch_meta_with_rois` or batch meta read fails |
 | `NullPointer` | Null pointer in batch meta / surface extraction |
 | `GstInit` | `gst::init()` fails |
-| `DuplicateSource` | `NvInferBatchingOperator::add_frame` when `same_source_allowed=false` and `source_id` already in pending batch |
 | `BatchFormationFailed` | `SurfaceView::from_buffer`, `NonUniformBatch::add`, or `NonUniformBatch::finalize` fails during batch formation |
 | `OperatorShutdown` | `add_frame`, `flush`, or `submit_batch` called after operator shutdown |
 

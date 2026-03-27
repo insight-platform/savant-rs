@@ -523,30 +523,22 @@ impl NvEncoder {
                 cuda_stream: ctx.cuda_stream.clone(),
             };
 
-            let src_shared = deepstream_buffers::SharedBuffer::from(buffer);
             let src_view =
-                deepstream_buffers::SurfaceView::from_buffer(&src_shared, 0).map_err(|e| {
+                deepstream_buffers::SurfaceView::from_gst_buffer(buffer, 0).map_err(|e| {
                     EncoderError::PipelineError(format!(
                         "Failed to create SurfaceView from source buffer: {}",
                         e
                     ))
                 })?;
-            let dst_shared = ctx
+            let mut native_buf = ctx
                 .native_generator
-                .transform(&src_view, &transform_config, None)
+                .transform_to_buffer(&src_view, &transform_config, None)
                 .map_err(|e| {
                     EncoderError::PipelineError(format!(
                         "NvBufSurfTransform (format conversion) failed: {}",
                         e
                     ))
                 })?;
-            drop(src_view);
-            drop(src_shared);
-            let mut native_buf = dst_shared.into_buffer().map_err(|_| {
-                EncoderError::BufferAcquisitionFailed(
-                    "SharedBuffer has outstanding references".into(),
-                )
-            })?;
 
             {
                 let buf_ref = native_buf.get_mut().ok_or_else(|| {

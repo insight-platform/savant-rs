@@ -57,31 +57,7 @@ fn batch_state_new_is_empty() {
     let state = state::BatchState::new();
     assert!(state.is_empty());
     assert!(state.deadline.is_none());
-    assert!(state.sources.is_empty());
     assert!(state.frames.is_empty());
-}
-
-#[test]
-fn batch_state_source_tracking() {
-    let mut state = state::BatchState::new();
-    assert!(!state.sources.contains("cam1"));
-
-    state.sources.insert("cam1".into());
-    assert!(state.sources.contains("cam1"));
-    assert!(!state.sources.contains("cam2"));
-
-    state.sources.insert("cam2".into());
-    assert!(state.sources.contains("cam1"));
-    assert!(state.sources.contains("cam2"));
-    assert_eq!(state.sources.len(), 2);
-}
-
-#[test]
-fn batch_state_duplicate_source_insert_is_noop() {
-    let mut state = state::BatchState::new();
-    assert!(state.sources.insert("cam1".into()));
-    assert!(!state.sources.insert("cam1".into()));
-    assert_eq!(state.sources.len(), 1);
 }
 
 #[test]
@@ -97,13 +73,11 @@ fn batch_state_deadline_roundtrip() {
 #[test]
 fn batch_state_take_on_empty_returns_empty() {
     let mut state = state::BatchState::new();
-    state.sources.insert("cam1".into());
     state.deadline = Some(std::time::Instant::now() + Duration::from_secs(10));
 
     let taken = state.take();
     assert!(taken.is_empty(), "no frames were pushed");
     assert!(state.is_empty());
-    assert!(state.sources.is_empty());
     assert!(state.deadline.is_none());
 }
 
@@ -121,8 +95,6 @@ fn batch_state_take_returns_frames_and_resets() {
     let mut state = state::BatchState::new();
     state.frames.push((make_frame("s1"), make_shared_buffer()));
     state.frames.push((make_frame("s2"), make_shared_buffer()));
-    state.sources.insert("s1".into());
-    state.sources.insert("s2".into());
     state.deadline = Some(std::time::Instant::now());
 
     let taken = state.take();
@@ -130,7 +102,6 @@ fn batch_state_take_returns_frames_and_resets() {
     assert_eq!(taken[0].0.get_source_id(), "s1");
     assert_eq!(taken[1].0.get_source_id(), "s2");
     assert!(state.is_empty());
-    assert!(state.sources.is_empty());
     assert!(state.deadline.is_none());
 }
 
@@ -138,7 +109,6 @@ fn batch_state_take_returns_frames_and_resets() {
 fn batch_state_take_is_idempotent() {
     let mut state = state::BatchState::new();
     state.frames.push((make_frame("x"), make_shared_buffer()));
-    state.sources.insert("x".into());
     state.deadline = Some(std::time::Instant::now());
 
     let first = state.take();
@@ -156,12 +126,10 @@ fn operator_config_fields() {
     let nvinfer = make_nvinfer_config();
     let config = NvInferBatchingOperatorConfig {
         max_batch_size: 8,
-        same_source_allowed: false,
         max_batch_wait: Duration::from_millis(100),
         nvinfer,
     };
     assert_eq!(config.max_batch_size, 8);
-    assert!(!config.same_source_allowed);
     assert_eq!(config.max_batch_wait, Duration::from_millis(100));
     assert_eq!(config.nvinfer.gpu_id, 0);
 }
@@ -172,13 +140,11 @@ fn operator_config_clone() {
     nvinfer.gpu_id = 1;
     let config = NvInferBatchingOperatorConfig {
         max_batch_size: 4,
-        same_source_allowed: true,
         max_batch_wait: Duration::from_millis(50),
         nvinfer,
     };
     let cloned = config.clone();
     assert_eq!(cloned.max_batch_size, config.max_batch_size);
-    assert_eq!(cloned.same_source_allowed, config.same_source_allowed);
     assert_eq!(cloned.max_batch_wait, config.max_batch_wait);
     assert_eq!(cloned.nvinfer.gpu_id, config.nvinfer.gpu_id);
 }
@@ -187,13 +153,11 @@ fn operator_config_clone() {
 fn operator_config_debug_format() {
     let config = NvInferBatchingOperatorConfig {
         max_batch_size: 2,
-        same_source_allowed: false,
         max_batch_wait: Duration::from_millis(10),
         nvinfer: make_nvinfer_config(),
     };
     let dbg = format!("{config:?}");
     assert!(dbg.contains("max_batch_size"));
-    assert!(dbg.contains("same_source_allowed"));
     assert!(dbg.contains("max_batch_wait"));
     assert!(dbg.contains("nvinfer"));
 }
@@ -233,14 +197,6 @@ fn batch_formation_result_with_entries() {
 }
 
 // ── Error variants ──────────────────────────────────────────────────
-
-#[test]
-fn error_duplicate_source_display() {
-    let err = crate::error::NvInferError::DuplicateSource("cam1".into());
-    let msg = err.to_string();
-    assert!(msg.contains("cam1"), "expected 'cam1' in: {msg}");
-    assert!(msg.contains("Duplicate"), "expected 'Duplicate' in: {msg}");
-}
 
 #[test]
 fn error_operator_shutdown_display() {

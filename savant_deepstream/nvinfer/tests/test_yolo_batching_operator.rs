@@ -17,9 +17,7 @@ mod common;
 use common::yolo_test_utils::{
     load_ground_truth, match_detections, tensor_shape, tensor_to_f32_vec, yolo11n_properties,
 };
-use deepstream_buffers::{
-    BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SurfaceView, VideoFormat,
-};
+use deepstream_buffers::{BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, VideoFormat};
 use nvinfer::{
     BatchFormationResult, ModelColorFormat, ModelInputScaling, NvInferBatchingOperator,
     NvInferBatchingOperatorConfig, NvInferConfig, OperatorInferenceOutput, OperatorResultCallback,
@@ -84,9 +82,9 @@ fn load_image_buffer(name: &str, width: u32, height: u32) -> deepstream_buffers:
         .expect("buffer generator");
 
     let shared = gen.acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(&shared, 0).unwrap();
-    view.upload(&canvas, width, height, 4).expect("upload");
-    drop(view);
+    shared
+        .with_view(0, |view| view.upload(&canvas, width, height, 4))
+        .expect("upload");
     shared
 }
 
@@ -127,7 +125,6 @@ fn test_yolo_batching_operator_mixed_sizes() {
 
     let operator_config = NvInferBatchingOperatorConfig {
         max_batch_size: 2,
-        same_source_allowed: true,
         max_batch_wait: Duration::from_secs(5),
         nvinfer: nvinfer_config,
     };

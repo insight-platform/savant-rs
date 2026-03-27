@@ -227,16 +227,15 @@ fn test_oversized_uniform_batch() {
 
     for (slot, canvas) in [(0u32, &canvas0), (1, &canvas1)] {
         let src = src_gen.acquire(Some(slot as i64)).unwrap();
-        let view = SurfaceView::from_buffer(&src, 0).unwrap();
-        view.upload(canvas, FRAME_W, FRAME_H, 4).expect("upload");
-        drop(view);
-        let src_view = SurfaceView::from_buffer(&src, 0).unwrap();
-        batch.transform_slot(slot, &src_view, None).unwrap();
+        src.with_view(0, |view| {
+            view.upload(canvas, FRAME_W, FRAME_H, 4)?;
+            batch.transform_slot(slot, view, None)
+        })
+        .unwrap();
     }
 
     batch.finalize().unwrap();
-    let shared = batch.shared_buffer();
-    drop(batch);
+    let shared = batch.into_shared_buffer();
 
     let rois: HashMap<u32, Vec<Roi>> = [
         (0u32, rois_from_placements(&p0, 0)),

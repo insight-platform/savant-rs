@@ -191,7 +191,6 @@ let nvinfer_config = NvInferConfig::new(props, "RGBA", 112, 112)
 
 let config = NvInferBatchingOperatorConfig {
     max_batch_size: 8,
-    same_source_allowed: false,
     max_batch_wait: Duration::from_millis(100),
     nvinfer: nvinfer_config,
 };

@@ -12,6 +12,7 @@ use crate::{
     NvBufSurfaceError, NvBufSurfaceMemType, Rect, TransformConfig, UniformBatchGenerator,
     UniformBatchGeneratorBuilder, VideoFormat,
 };
+use gstreamer as gst;
 
 /// Generates GStreamer buffers with single-frame NvBufSurface memory.
 ///
@@ -220,10 +221,34 @@ impl BufferGenerator {
         src_rect: Option<&Rect>,
     ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
         let shared = self.0.acquire(None)?;
-        let dst_view = crate::SurfaceView::from_buffer(&shared, 0)?;
-        src.transform_into(&dst_view, config, src_rect)?;
-        drop(dst_view);
+        shared.with_view(0, |dst_view| src.transform_into(dst_view, config, src_rect))?;
         Ok(shared)
+    }
+
+    /// Transform a source surface and immediately extract the resulting
+    /// `gst::Buffer`.
+    ///
+    /// Equivalent to [`transform`](Self::transform) followed by
+    /// [`SharedBuffer::into_buffer`](crate::SharedBuffer::into_buffer),
+    /// but avoids the need to manage `SharedBuffer` lifetime manually.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - Source [`SurfaceView`](crate::SurfaceView) to transform.
+    /// * `config` - Transform configuration (padding, interpolation, etc.).
+    /// * `src_rect` - Optional source crop rectangle. `None` means full source.
+    pub fn transform_to_buffer(
+        &self,
+        src: &crate::SurfaceView,
+        config: &TransformConfig,
+        src_rect: Option<&Rect>,
+    ) -> Result<gst::Buffer, NvBufSurfaceError> {
+        let shared = self.transform(src, config, src_rect)?;
+        shared.into_buffer().map_err(|_| {
+            NvBufSurfaceError::BufferAcquisitionFailed(
+                "SharedBuffer has outstanding references after transform".into(),
+            )
+        })
     }
 
     /// Get the width of buffers produced by this generator.

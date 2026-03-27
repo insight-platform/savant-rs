@@ -218,8 +218,7 @@ pub fn platform_transform_config() -> TransformConfig {
 #[allow(dead_code)]
 pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
     use deepstream_buffers::{
-        BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SurfaceView, UniformBatchGenerator,
-        VideoFormat,
+        BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, UniformBatchGenerator, VideoFormat,
     };
 
     let src_gen = BufferGenerator::builder(VideoFormat::RGBA, width, height)
@@ -246,14 +245,11 @@ pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
         let ids = vec![SavantIdMetaKind::Frame(-1)];
         let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
         let src_shared = src_gen.acquire(Some(-1)).unwrap();
-        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-        batch.transform_slot(0, &src_view, None).unwrap();
-        drop(src_view);
-        drop(src_shared);
+        src_shared
+            .with_view(0, |src_view| batch.transform_slot(0, src_view, None))
+            .unwrap();
         batch.finalize().unwrap();
-        let shared = batch.shared_buffer();
-        drop(batch);
-        shared
+        batch.into_shared_buffer()
     };
     let _ = engine.infer_sync(shared, None).expect("warmup infer_sync");
     eprintln!("  [warmup] engine primed with {width}x{height} dummy frame");

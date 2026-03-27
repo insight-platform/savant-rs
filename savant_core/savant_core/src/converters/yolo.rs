@@ -78,7 +78,14 @@ impl YoloDetectionConverter {
             });
         }
         let n = shape[1];
-        if data.len() != rows * n {
+        let expected_len = rows
+            .checked_mul(n)
+            .ok_or_else(|| ConverterError::ShapeMismatch {
+                tensor_index: 0,
+                expected: format!("flat length {} * N (dimension overflow)", rows),
+                got: shape.to_vec(),
+            })?;
+        if data.len() != expected_len {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 0,
                 expected: format!("flat length {} * N", rows),
@@ -126,7 +133,14 @@ impl YoloDetectionConverter {
             });
         }
         let n = shape[0];
-        if data.len() != n * stride {
+        let expected_len = n
+            .checked_mul(stride)
+            .ok_or_else(|| ConverterError::ShapeMismatch {
+                tensor_index: 0,
+                expected: format!("flat length N * {} (dimension overflow)", stride),
+                got: shape.to_vec(),
+            })?;
+        if data.len() != expected_len {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 0,
                 expected: format!("flat length N * {}", stride),
@@ -181,7 +195,14 @@ impl YoloDetectionConverter {
                 });
             }
         };
-        if data0.len() != n * 4 {
+        let expected0 = n
+            .checked_mul(4)
+            .ok_or_else(|| ConverterError::ShapeMismatch {
+                tensor_index: 0,
+                expected: "N * 4 elements (dimension overflow)".to_string(),
+                got: shape0.to_vec(),
+            })?;
+        if data0.len() != expected0 {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 0,
                 expected: "N * 4 elements".to_string(),
@@ -196,7 +217,14 @@ impl YoloDetectionConverter {
             });
         }
         let k = shape1[1];
-        if data1.len() != n * k {
+        let expected1 = n
+            .checked_mul(k)
+            .ok_or_else(|| ConverterError::ShapeMismatch {
+                tensor_index: 1,
+                expected: "N * K elements (dimension overflow)".to_string(),
+                got: shape1.to_vec(),
+            })?;
+        if data1.len() != expected1 {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 1,
                 expected: "N * K elements".to_string(),
@@ -250,7 +278,14 @@ impl YoloDetectionConverter {
             });
         }
         let n = shape0[0];
-        if data0.len() != n * 4 {
+        let expected0 = n
+            .checked_mul(4)
+            .ok_or_else(|| ConverterError::ShapeMismatch {
+                tensor_index: 0,
+                expected: "N * 4 elements (dimension overflow)".to_string(),
+                got: shape0.to_vec(),
+            })?;
+        if data0.len() != expected0 {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 0,
                 expected: "N * 4 elements".to_string(),
@@ -265,7 +300,14 @@ impl YoloDetectionConverter {
             });
         }
         let k = shape1[1];
-        if data1.len() != n * k {
+        let expected1 = n
+            .checked_mul(k)
+            .ok_or_else(|| ConverterError::ShapeMismatch {
+                tensor_index: 1,
+                expected: "N * K elements (dimension overflow)".to_string(),
+                got: shape1.to_vec(),
+            })?;
+        if data1.len() != expected1 {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 1,
                 expected: "N * K elements".to_string(),
@@ -292,7 +334,24 @@ impl YoloDetectionConverter {
             let yc = data0[i * 4 + 1];
             let w = data0[i * 4 + 2];
             let h = data0[i * 4 + 3];
-            let class_id = data2[i] as usize;
+            let class_raw = data2[i];
+            if !class_raw.is_finite() || class_raw < 0.0 {
+                return Err(ConverterError::InvalidClassIndex {
+                    tensor_index: 2,
+                    detection_index: i,
+                    raw: class_raw,
+                    num_score_columns: None,
+                });
+            }
+            let class_id = class_raw as usize;
+            if class_id >= k {
+                return Err(ConverterError::InvalidClassIndex {
+                    tensor_index: 2,
+                    detection_index: i,
+                    raw: class_raw,
+                    num_score_columns: Some(k),
+                });
+            }
             let confidence = data1[i * k + class_id];
             out.push(RawDetection {
                 xc,
@@ -326,7 +385,11 @@ impl YoloDetectionConverter {
                 got: shape0.to_vec(),
             });
         }
-        let num_dets = data0[0] as usize;
+        let count_raw = data0[0];
+        if !count_raw.is_finite() || count_raw < 0.0 {
+            return Err(ConverterError::InvalidDetectionCount { raw: count_raw });
+        }
+        let num_dets = count_raw as usize;
         if shape1.len() != 2 || shape1[1] != 4 {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 1,
@@ -335,7 +398,15 @@ impl YoloDetectionConverter {
             });
         }
         let n_boxes = shape1[0];
-        if data1.len() != n_boxes * 4 {
+        let expected_boxes =
+            n_boxes
+                .checked_mul(4)
+                .ok_or_else(|| ConverterError::ShapeMismatch {
+                    tensor_index: 1,
+                    expected: "N * 4 elements (dimension overflow)".to_string(),
+                    got: shape1.to_vec(),
+                })?;
+        if data1.len() != expected_boxes {
             return Err(ConverterError::ShapeMismatch {
                 tensor_index: 1,
                 expected: "N * 4 elements".to_string(),
@@ -381,13 +452,22 @@ impl YoloDetectionConverter {
             let h = bottom - top;
             let xc = left + w * 0.5;
             let yc = top + h * 0.5;
+            let class_raw = data3[i];
+            if !class_raw.is_finite() || class_raw < 0.0 {
+                return Err(ConverterError::InvalidClassIndex {
+                    tensor_index: 3,
+                    detection_index: i,
+                    raw: class_raw,
+                    num_score_columns: None,
+                });
+            }
             out.push(RawDetection {
                 xc,
                 yc,
                 w,
                 h,
                 confidence: data2[i],
-                class_id: data3[i] as usize,
+                class_id: class_raw as usize,
             });
         }
         Ok(out)
@@ -701,6 +781,106 @@ mod tests {
         assert_eq!(dets.len(), 1);
         // Confidence must be 0.3 (score for class 2), not 0.9 (max across all)
         assert!((dets[0].0 - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn v3_raw_rejects_class_id_out_of_range() {
+        let n = 1usize;
+        let k = 2usize;
+        let d0 = [0.0_f32, 0.0, 1.0, 1.0];
+        let d1 = [0.1_f32, 0.2];
+        let d2 = [2.0_f32];
+        let s0 = [n, 4];
+        let s1 = [n, k];
+        let s2 = [n];
+        let tensors = [(&d0[..], &s0[..]), (&d1[..], &s1[..]), (&d2[..], &s2[..])];
+        let conv = default_converter(YoloFormat::V3Raw);
+        let err = conv.decode(&tensors).unwrap_err();
+        match err {
+            ConverterError::InvalidClassIndex {
+                tensor_index,
+                detection_index,
+                raw,
+                num_score_columns,
+            } => {
+                assert_eq!(tensor_index, 2);
+                assert_eq!(detection_index, 0);
+                assert!((raw - 2.0).abs() < 1e-6);
+                assert_eq!(num_score_columns, Some(k));
+            }
+            _ => panic!("expected InvalidClassIndex, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn v4_post_nms_rejects_invalid_detection_count() {
+        let mw = 100.0_f32;
+        let mh = 100.0_f32;
+        let n = 2usize;
+        let d0 = [-1.0_f32];
+        let d1 = [0.0_f32; 8];
+        let d2 = [0.0_f32; 2];
+        let d3 = [0.0_f32; 2];
+        let s0 = [1usize];
+        let s1 = [n, 4];
+        let s2 = [n];
+        let s3 = [n];
+        let tensors = [
+            (&d0[..], &s0[..]),
+            (&d1[..], &s1[..]),
+            (&d2[..], &s2[..]),
+            (&d3[..], &s3[..]),
+        ];
+        let conv = default_converter(YoloFormat::V4PostNms {
+            model_width: mw,
+            model_height: mh,
+        });
+        let err = conv.decode(&tensors).unwrap_err();
+        match err {
+            ConverterError::InvalidDetectionCount { raw } => {
+                assert!((raw - (-1.0)).abs() < 1e-6);
+            }
+            _ => panic!("expected InvalidDetectionCount, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn v4_post_nms_rejects_invalid_class_id() {
+        let mw = 100.0_f32;
+        let mh = 100.0_f32;
+        let n = 1usize;
+        let d0 = [1.0_f32];
+        let d1 = [0.0_f32, 0.0, 1.0, 1.0];
+        let d2 = [0.9_f32];
+        let d3 = [f32::NAN];
+        let s0 = [1usize];
+        let s1 = [n, 4];
+        let s2 = [n];
+        let s3 = [n];
+        let tensors = [
+            (&d0[..], &s0[..]),
+            (&d1[..], &s1[..]),
+            (&d2[..], &s2[..]),
+            (&d3[..], &s3[..]),
+        ];
+        let conv = default_converter(YoloFormat::V4PostNms {
+            model_width: mw,
+            model_height: mh,
+        });
+        let err = conv.decode(&tensors).unwrap_err();
+        match err {
+            ConverterError::InvalidClassIndex {
+                tensor_index,
+                detection_index,
+                num_score_columns,
+                ..
+            } => {
+                assert_eq!(tensor_index, 3);
+                assert_eq!(detection_index, 0);
+                assert!(num_score_columns.is_none());
+            }
+            _ => panic!("expected InvalidClassIndex, got {err:?}"),
+        }
     }
 
     #[test]

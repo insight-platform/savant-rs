@@ -87,9 +87,9 @@ fn infer_one_image(
         .expect("src generator");
 
     let src_shared = src_gen.acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-    view.upload(&canvas, frame_w, frame_h, 4).expect("upload");
-    drop(view);
+    src_shared
+        .with_view(0, |view| view.upload(&canvas, frame_w, frame_h, 4))
+        .expect("upload");
 
     let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
@@ -107,8 +107,7 @@ fn infer_one_image(
     let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
     batch.transform_slot(0, &src_view, None).unwrap();
     batch.finalize().unwrap();
-    let shared = batch.shared_buffer();
-    drop(batch);
+    let shared = batch.into_shared_buffer();
 
     let output = engine.infer_sync(shared, None).expect("infer_sync");
     assert_eq!(

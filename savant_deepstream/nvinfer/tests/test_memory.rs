@@ -63,7 +63,7 @@ fn make_identity_batch(num_frames: u32) -> SharedBuffer {
     }
 
     batch.finalize().unwrap();
-    batch.shared_buffer()
+    batch.into_shared_buffer()
 }
 
 fn identity_engine() -> Option<NvInfer> {
@@ -267,10 +267,12 @@ fn make_nonuniform_batch_with_rois() -> (SharedBuffer, HashMap<u32, Vec<Roi>>) {
                 .expect("src generator");
 
             let src_shared = gen.acquire(Some(id)).unwrap();
-            let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-            view.memset(fill).expect("memset_surface");
-            batch.add(&view).unwrap();
-            drop(view);
+            src_shared
+                .with_view(0, |view| {
+                    view.memset(fill)?;
+                    batch.add(view)
+                })
+                .unwrap();
             ids.push(SavantIdMetaKind::Frame(id));
         }
 

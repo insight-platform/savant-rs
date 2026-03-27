@@ -110,16 +110,17 @@ fn canvas_to_batch_with_fullframe_roi(canvas: &[u8]) -> (SharedBuffer, HashMap<u
         unsafe { dump_surface_params("source (pre-upload)", guard.as_ref()) };
     }
 
-    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-    eprintln!(
-        "  [SurfaceView] width={}, height={}, pitch={}",
-        view.width(),
-        view.height(),
-        view.pitch()
-    );
-    view.upload(canvas, FRAME_W, FRAME_H, 4)
+    src_shared
+        .with_view(0, |view| {
+            eprintln!(
+                "  [SurfaceView] width={}, height={}, pitch={}",
+                view.width(),
+                view.height(),
+                view.pitch()
+            );
+            view.upload(canvas, FRAME_W, FRAME_H, 4)
+        })
         .expect("upload_to_surface");
-    drop(view);
 
     let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
@@ -140,7 +141,7 @@ fn canvas_to_batch_with_fullframe_roi(canvas: &[u8]) -> (SharedBuffer, HashMap<u
     batch.transform_slot(0, &src_view, None).unwrap();
     batch.finalize().unwrap();
 
-    let shared = batch.shared_buffer();
+    let shared = batch.into_shared_buffer();
     {
         let guard = shared.lock();
         unsafe { dump_surface_params("batched (post-fill+finalize)", guard.as_ref()) };

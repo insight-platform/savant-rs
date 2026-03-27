@@ -262,7 +262,6 @@ the entire frame (no per-object ROIs). `Rois(vec)` infers on specific regions.
 ```rust
 pub struct NvInferBatchingOperatorConfig {
     pub max_batch_size: usize,
-    pub same_source_allowed: bool,
     pub max_batch_wait: Duration,
     pub nvinfer: NvInferConfig,
 }
@@ -271,7 +270,6 @@ pub struct NvInferBatchingOperatorConfig {
 | Field | Description |
 |---|---|
 | `max_batch_size` | Maximum batch size; triggers immediate submission when reached |
-| `same_source_allowed` | When `false`, rejects frames whose `source_id` is already present in the pending batch |
 | `max_batch_wait` | Maximum time before submitting a partial batch |
 | `nvinfer` | Forwarded to the inner `NvInfer` pipeline |
 
@@ -315,7 +313,7 @@ batches and delivers per-frame results via `OperatorResultCallback`.
 | Method | Signature | Notes |
 |---|---|---|
 | `new` | `(config, batch_formation, result_callback) → Result<Self>` | Spawns inner `NvInfer` + timer thread |
-| `add_frame` | `(&self, frame: VideoFrameProxy, buffer: SharedBuffer) → Result<()>` | Add frame; submits when batch full. Returns `DuplicateSource` if same source and `same_source_allowed=false` |
+| `add_frame` | `(&self, frame: VideoFrameProxy, buffer: SharedBuffer) → Result<()>` | Add frame; submits when batch full |
 | `flush` | `(&self) → Result<()>` | Submit current partial batch immediately |
 | `shutdown` | `(&mut self) → Result<()>` | Flush, stop timer, shut down `NvInfer` |
 

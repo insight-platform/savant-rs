@@ -456,8 +456,6 @@ class NvInferBatchingOperatorConfig:
 
     Args:
         max_batch_size: Maximum batch size; triggers inference when reached.
-        same_source_allowed: When ``False``, rejects frames whose source_id
-            is already present in the pending batch.
         max_batch_wait_ms: Maximum time in milliseconds to wait before
             submitting a partial batch.
         nvinfer_config: Configuration forwarded to the inner NvInfer engine.
@@ -466,14 +464,11 @@ class NvInferBatchingOperatorConfig:
     def __init__(
         self,
         max_batch_size: int,
-        same_source_allowed: bool,
         max_batch_wait_ms: int,
         nvinfer_config: NvInferConfig,
     ) -> None: ...
     @property
     def max_batch_size(self) -> int: ...
-    @property
-    def same_source_allowed(self) -> bool: ...
     @property
     def max_batch_wait_ms(self) -> int: ...
     @property
@@ -726,9 +721,6 @@ class NvInferBatchingOperator:
         self, frame: VideoFrame, buffer: Union[SharedBuffer, int]
     ) -> None:
         """Add a single frame for batched inference.
-
-        When ``same_source_allowed`` is ``False`` and the batch already
-        contains a frame from the same source, raises ``RuntimeError``.
 
         If adding this frame fills the batch to ``max_batch_size``, the
         batch is submitted immediately.

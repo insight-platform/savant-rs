@@ -29,9 +29,6 @@ pub enum NvInferError {
     #[error("GStreamer initialization failed: {0}")]
     GstInit(String),
 
-    #[error("Duplicate source in batch: {0}")]
-    DuplicateSource(String),
-
     #[error("Batch formation failed: {0}")]
     BatchFormationFailed(String),
 

@@ -199,18 +199,12 @@ fn decode_and_reencode(
     // if B-frames leaked through, it returns Err which we propagate.
     let mut submit_and_drain = |buf_ref: &gst::BufferRef, idx: usize| {
         let owned = buf_ref.to_owned();
-        let src_shared = deepstream_buffers::SharedBuffer::from(owned);
-        let src_view = deepstream_buffers::SurfaceView::from_buffer(&src_shared, 0)
+        let src_view = deepstream_buffers::SurfaceView::from_gst_buffer(owned, 0)
             .unwrap_or_else(|e| panic!("SurfaceView failed at frame {idx}: {e}"));
-        let dst_shared = encoder
+        let enc_buf = encoder
             .generator()
-            .transform(&src_view, &transform_cfg, None)
+            .transform_to_buffer(&src_view, &transform_cfg, None)
             .unwrap_or_else(|e| panic!("transform failed at frame {idx}: {e}"));
-        drop(src_view);
-        drop(src_shared);
-        let enc_buf = dst_shared.into_buffer().unwrap_or_else(|_| {
-            panic!("into_buffer failed at frame {idx}: outstanding references")
-        });
 
         let pts = idx as u64 * frame_dur_ns;
         encoder

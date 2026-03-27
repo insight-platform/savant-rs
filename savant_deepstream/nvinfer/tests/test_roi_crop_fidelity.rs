@@ -98,10 +98,9 @@ fn build_composite(images: &[(String, Vec<u8>)], seed: u64) -> CompositeResult {
         .expect("1080p src generator");
 
     let src_shared = src_gen.acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-    view.upload(&canvas, FRAME_W, FRAME_H, 4)
+    src_shared
+        .with_view(0, |view| view.upload(&canvas, FRAME_W, FRAME_H, 4))
         .expect("upload_to_surface");
-    drop(view);
 
     let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
@@ -120,7 +119,7 @@ fn build_composite(images: &[(String, Vec<u8>)], seed: u64) -> CompositeResult {
     let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
     batch.transform_slot(0, &src_view, None).unwrap();
     batch.finalize().unwrap();
-    let shared = batch.shared_buffer();
+    let shared = batch.into_shared_buffer();
 
     let roi_vec: Vec<Roi> = placements
         .iter()
