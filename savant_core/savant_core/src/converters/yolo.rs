@@ -292,20 +292,14 @@ impl YoloDetectionConverter {
             let yc = data0[i * 4 + 1];
             let w = data0[i * 4 + 2];
             let h = data0[i * 4 + 3];
-            let mut best_score = f32::NEG_INFINITY;
-            for c in 0..k {
-                let s = data1[i * k + c];
-                if s > best_score {
-                    best_score = s;
-                }
-            }
             let class_id = data2[i] as usize;
+            let confidence = data1[i * k + class_id];
             out.push(RawDetection {
                 xc,
                 yc,
                 w,
                 h,
-                confidence: best_score,
+                confidence,
                 class_id,
             });
         }
@@ -680,6 +674,33 @@ mod tests {
         let out = conv.decode(&tensors).unwrap();
         assert!(out.get(&1).is_some());
         assert!(out.get(&0).is_some());
+    }
+
+    #[test]
+    fn v3_raw_confidence_uses_preselected_class() {
+        let n = 1usize;
+        let k = 3usize;
+        let d0 = vec![50.0_f32, 50.0, 10.0, 10.0];
+        // Class scores: class0=0.1, class1=0.9 (highest), class2=0.3
+        let d1 = vec![0.1_f32, 0.9, 0.3];
+        // Pre-selected class is 2 (NOT the argmax class 1)
+        let d2 = vec![2.0_f32];
+        let s0 = [n, 4];
+        let s1 = [n, k];
+        let s2 = [n];
+        let tensors = [(&d0[..], &s0[..]), (&d1[..], &s1[..]), (&d2[..], &s2[..])];
+        let conv = YoloDetectionConverter::new(
+            YoloFormat::V3Raw,
+            0.0,
+            HashMap::new(),
+            None,
+            NmsKind::None { top_k: 100 },
+        );
+        let out = conv.decode(&tensors).unwrap();
+        let dets = out.get(&2).expect("should have class_id=2");
+        assert_eq!(dets.len(), 1);
+        // Confidence must be 0.3 (score for class 2), not 0.9 (max across all)
+        assert!((dets[0].0 - 0.3).abs() < 1e-6);
     }
 
     #[test]
