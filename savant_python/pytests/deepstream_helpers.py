@@ -34,7 +34,23 @@ def make_gen(
 LEAK_ITERATIONS = 200
 WARMUP_ITERATIONS = 10
 CPU_GROWTH_LIMIT_KB = 10_000  # 10 MB
-GPU_GROWTH_LIMIT_MB = 20
+
+
+def _default_gpu_growth_limit_mb() -> int:
+    """On Jetson (unified memory), gpu_mem_used_mib reads /proc/meminfo which
+    includes system-level noise from caches and other processes. Use a larger
+    threshold to avoid false positives."""
+    try:
+        from savant_rs.deepstream import is_jetson_kernel
+
+        if is_jetson_kernel():
+            return 100
+    except ImportError:
+        pass
+    return 20
+
+
+GPU_GROWTH_LIMIT_MB = _default_gpu_growth_limit_mb()
 
 
 def gpu_mem_used_mb() -> int:

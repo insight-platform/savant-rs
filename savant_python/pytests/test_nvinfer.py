@@ -26,6 +26,7 @@ try:
         UniformBatchGenerator,
         SurfaceView,
         TransformConfig,
+        VideoFormat,
         init_cuda,
         nvbuf_as_gpu_mat,
     )
@@ -66,7 +67,6 @@ def age_gender_properties() -> Dict[str, str]:
     d = ASSETS_DIR
     return {
         "gpu-id": "0",
-        "gie-unique-id": "2",
         "net-scale-factor": "0.007843137254902",
         "offsets": "127.5;127.5;127.5",
         "onnx-file": os.path.join(d, "age_gender_mobilenet_v2_dynBatch.onnx"),
@@ -76,9 +76,6 @@ def age_gender_properties() -> Dict[str, str]:
         ),
         "batch-size": "32",
         "network-mode": "2",
-        "network-type": "100",
-        "infer-dims": "3;112;112",
-        "model-color-format": "0",
     }
 
 
@@ -243,9 +240,9 @@ def test_age_gender_e2e_real_images():
     props = age_gender_properties()
     nvinfer_config = NvInferConfig(
         nvinfer_properties=props,
-        input_format="RGBA",
-        input_width=FRAME_W,
-        input_height=FRAME_H,
+        input_format=VideoFormat.RGBA,
+        model_width=FACE_SZ,
+        model_height=FACE_SZ,
     )
     engine = NvInfer(nvinfer_config, callback=lambda _output: None)
 
@@ -379,9 +376,9 @@ def test_age_gender_e2e_nonuniform_callback():
     props = age_gender_properties()
     nvinfer_config = NvInferConfig(
         nvinfer_properties=props,
-        input_format="RGBA",
-        input_width=FRAME_W,
-        input_height=FRAME_H,
+        input_format=VideoFormat.RGBA,
+        model_width=FACE_SZ,
+        model_height=FACE_SZ,
     )
     engine = NvInfer(nvinfer_config, callback=on_output)
 

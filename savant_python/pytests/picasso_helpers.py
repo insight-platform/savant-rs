@@ -19,6 +19,7 @@ from savant_rs.deepstream import (
     TransformConfig,
     VideoFormat,
     has_nvenc,
+    is_jetson_kernel,
 )
 from savant_rs.draw_spec import (
     BoundingBoxDraw,
@@ -37,6 +38,8 @@ from savant_rs.picasso import (
     EncoderConfig,
     EncoderProperties,
     H264DgpuProps,
+    H264JetsonProps,
+    JetsonPresetLevel,
     JpegProps,
     ObjectDrawSpec,
     PngProps,
@@ -188,15 +191,20 @@ def build_h264_encoder_config(
     height: int = HEIGHT,
     fps: int = FPS,
 ) -> EncoderConfig:
-    """Build H.264 dGPU encoder config."""
-    props = EncoderProperties.h264_dgpu(
-        H264DgpuProps(
-            bitrate=4_000_000,
-            preset=DgpuPreset.P1,
-            tuning_info=TuningPreset.LOW_LATENCY,
-            iframeinterval=30,
+    """Build H.264 encoder config, selecting Jetson or dGPU properties."""
+    if is_jetson_kernel():
+        props = EncoderProperties.h264_jetson(
+            H264JetsonProps(preset_level=JetsonPresetLevel.ULTRA_FAST)
         )
-    )
+    else:
+        props = EncoderProperties.h264_dgpu(
+            H264DgpuProps(
+                bitrate=4_000_000,
+                preset=DgpuPreset.P1,
+                tuning_info=TuningPreset.LOW_LATENCY,
+                iframeinterval=30,
+            )
+        )
     cfg = EncoderConfig(Codec.H264, width, height)
     cfg.format(VideoFormat.RGBA)
     cfg.fps(fps, 1)
