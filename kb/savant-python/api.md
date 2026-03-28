@@ -314,7 +314,7 @@ from savant_rs.nvinfer import (
 )
 ```
 
-See `savant_python/kb/nvinfer/` for detailed API reference.
+See `kb/nvinfer-python/` for detailed API reference.
 
 ---
 
@@ -332,4 +332,4 @@ from savant_rs.picasso import (
 )
 ```
 
-See `savant_python/kb/picasso/` for detailed API reference.
+See `kb/picasso-python/` for detailed API reference.

@@ -49,11 +49,7 @@ where
             index % 8
         };
         let mask = 1 << bit_index;
-        if val {
-            byte | mask
-        } else {
-            byte & !mask
-        }
+        if val { byte | mask } else { byte & !mask }
     }
     #[inline]
     pub fn set_bit(&mut self, index: usize, val: bool) {
@@ -2197,7 +2193,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_array_prepend_vals(array: *mut GArray, data: gconstpointer, len: guint)
-        -> *mut GArray;
+    -> *mut GArray;
 }
 unsafe extern "C" {
     pub fn g_array_insert_vals(
@@ -2446,7 +2442,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_byte_array_remove_index_fast(array: *mut GByteArray, index_: guint)
-        -> *mut GByteArray;
+    -> *mut GByteArray;
 }
 unsafe extern "C" {
     pub fn g_byte_array_remove_range(
@@ -3804,7 +3800,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn getloadavg(__loadavg: *mut f64, __nelem: ::std::os::raw::c_int)
-        -> ::std::os::raw::c_int;
+    -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn g_thread_error_quark() -> GQuark;
@@ -4527,7 +4523,7 @@ pub type _bindgen_ty_8 = ::std::os::raw::c_uint;
 pub type __sighandler_t = ::std::option::Option<unsafe extern "C" fn(arg1: ::std::os::raw::c_int)>;
 unsafe extern "C" {
     pub fn __sysv_signal(__sig: ::std::os::raw::c_int, __handler: __sighandler_t)
-        -> __sighandler_t;
+    -> __sighandler_t;
 }
 unsafe extern "C" {
     pub fn signal(__sig: ::std::os::raw::c_int, __handler: __sighandler_t) -> __sighandler_t;
@@ -4571,11 +4567,11 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn sigaddset(__set: *mut sigset_t, __signo: ::std::os::raw::c_int)
-        -> ::std::os::raw::c_int;
+    -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn sigdelset(__set: *mut sigset_t, __signo: ::std::os::raw::c_int)
-        -> ::std::os::raw::c_int;
+    -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn sigismember(
@@ -6958,7 +6954,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_canonicalize_filename(filename: *const gchar, relative_to: *const gchar)
-        -> *mut gchar;
+    -> *mut gchar;
 }
 unsafe extern "C" {
     pub fn g_strip_context(msgid: *const gchar, msgval: *const gchar) -> *const gchar;
@@ -7219,7 +7215,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_node_find_child(node: *mut GNode, flags: GTraverseFlags, data: gpointer)
-        -> *mut GNode;
+    -> *mut GNode;
 }
 unsafe extern "C" {
     pub fn g_node_child_position(node: *mut GNode, child: *mut GNode) -> gint;
@@ -7272,7 +7268,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_list_insert_sorted(list: *mut GList, data: gpointer, func: GCompareFunc)
-        -> *mut GList;
+    -> *mut GList;
 }
 unsafe extern "C" {
     pub fn g_list_insert_sorted_with_data(
@@ -7593,7 +7589,7 @@ pub struct _GHmac {
 pub type GHmac = _GHmac;
 unsafe extern "C" {
     pub fn g_hmac_new(digest_type: GChecksumType, key: *const guchar, key_len: gsize)
-        -> *mut GHmac;
+    -> *mut GHmac;
 }
 unsafe extern "C" {
     pub fn g_hmac_copy(hmac: *const GHmac) -> *mut GHmac;
@@ -8930,7 +8926,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_unicode_canonical_decomposition(ch: gunichar, result_len: *mut gsize)
-        -> *mut gunichar;
+    -> *mut gunichar;
 }
 unsafe extern "C" {
     pub static g_utf8_skip: *const gchar;
@@ -9040,7 +9036,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_utf8_validate(str_: *const gchar, max_len: gssize, end: *mut *const gchar)
-        -> gboolean;
+    -> gboolean;
 }
 unsafe extern "C" {
     pub fn g_utf8_validate_len(
@@ -9429,7 +9425,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_string_insert_unichar(string: *mut GString, pos: gssize, wc: gunichar)
-        -> *mut GString;
+    -> *mut GString;
 }
 unsafe extern "C" {
     pub fn g_string_overwrite(string: *mut GString, pos: gsize, val: *const gchar) -> *mut GString;
@@ -13842,7 +13838,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_sequence_insert_before(iter: *mut GSequenceIter, data: gpointer)
-        -> *mut GSequenceIter;
+    -> *mut GSequenceIter;
 }
 unsafe extern "C" {
     pub fn g_sequence_move(src: *mut GSequenceIter, dest: *mut GSequenceIter);
@@ -16339,7 +16335,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn pthread_barrierattr_destroy(__attr: *mut pthread_barrierattr_t)
-        -> ::std::os::raw::c_int;
+    -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn pthread_barrierattr_getpshared(
@@ -17702,7 +17698,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_param_spec_pool_list_owned(pool: *mut GParamSpecPool, owner_type: GType)
-        -> *mut GList;
+    -> *mut GList;
 }
 unsafe extern "C" {
     pub fn g_param_spec_pool_list(
@@ -20001,7 +19997,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_flags_get_first_value(flags_class: *mut GFlagsClass, value: guint)
-        -> *mut GFlagsValue;
+    -> *mut GFlagsValue;
 }
 unsafe extern "C" {
     pub fn g_flags_get_value_by_name(
@@ -21763,7 +21759,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_object_has_as_ancestor(object: *mut GstObject, ancestor: *mut GstObject)
-        -> gboolean;
+    -> gboolean;
 }
 unsafe extern "C" {
     pub fn gst_object_has_ancestor(object: *mut GstObject, ancestor: *mut GstObject) -> gboolean;
@@ -21986,7 +21982,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_clock_set_resolution(clock: *mut GstClock, resolution: GstClockTime)
-        -> GstClockTime;
+    -> GstClockTime;
 }
 unsafe extern "C" {
     pub fn gst_clock_get_resolution(clock: *mut GstClock) -> GstClockTime;
@@ -25877,7 +25873,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_query_new_custom(type_: GstQueryType, structure: *mut GstStructure)
-        -> *mut GstQuery;
+    -> *mut GstQuery;
 }
 unsafe extern "C" {
     pub fn gst_query_get_structure(query: *mut GstQuery) -> *const GstStructure;
@@ -26358,7 +26354,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_device_create_element(device: *mut GstDevice, name: *const gchar)
-        -> *mut GstElement;
+    -> *mut GstElement;
 }
 unsafe extern "C" {
     pub fn gst_device_get_caps(device: *mut GstDevice) -> *mut GstCaps;
@@ -26831,7 +26827,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_message_new_clock_lost(src: *mut GstObject, clock: *mut GstClock)
-        -> *mut GstMessage;
+    -> *mut GstMessage;
 }
 unsafe extern "C" {
     pub fn gst_message_parse_clock_lost(message: *mut GstMessage, clock: *mut *mut GstClock);
@@ -27257,7 +27253,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_event_new_custom(type_: GstEventType, structure: *mut GstStructure)
-        -> *mut GstEvent;
+    -> *mut GstEvent;
 }
 unsafe extern "C" {
     pub fn gst_event_get_structure(event: *mut GstEvent) -> *const GstStructure;
@@ -28455,7 +28451,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_pad_new_from_template(templ: *mut GstPadTemplate, name: *const gchar)
-        -> *mut GstPad;
+    -> *mut GstPad;
 }
 unsafe extern "C" {
     pub fn gst_pad_new_from_static_template(
@@ -29973,7 +29969,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_element_get_request_pad(element: *mut GstElement, name: *const gchar)
-        -> *mut GstPad;
+    -> *mut GstPad;
 }
 unsafe extern "C" {
     pub fn gst_element_request_pad_simple(
@@ -30050,7 +30046,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_element_post_message(element: *mut GstElement, message: *mut GstMessage)
-        -> gboolean;
+    -> gboolean;
 }
 unsafe extern "C" {
     pub fn _gst_element_error_printf(format: *const gchar, ...) -> *mut gchar;
@@ -30104,7 +30100,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_element_set_state(element: *mut GstElement, state: GstState)
-        -> GstStateChangeReturn;
+    -> GstStateChangeReturn;
 }
 unsafe extern "C" {
     pub fn gst_element_abort_state(element: *mut GstElement);
@@ -30742,7 +30738,7 @@ pub type GstDebugGraphDetails = ::std::os::raw::c_int;
 unsafe extern "C" {
     #[doc = " pipeline graphs"]
     pub fn gst_debug_bin_to_dot_data(bin: *mut GstBin, details: GstDebugGraphDetails)
-        -> *mut gchar;
+    -> *mut gchar;
 }
 unsafe extern "C" {
     pub fn gst_debug_bin_to_dot_file(
@@ -31619,7 +31615,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_info_vasprintf(result: *mut *mut gchar, format: *const gchar, args: va_list)
-        -> gint;
+    -> gint;
 }
 unsafe extern "C" {
     pub fn gst_info_strdup_vprintf(format: *const gchar, args: va_list) -> *mut gchar;
@@ -32237,7 +32233,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_poll_fd_ctl_pri(set: *mut GstPoll, fd: *mut GstPollFD, active: gboolean)
-        -> gboolean;
+    -> gboolean;
 }
 unsafe extern "C" {
     pub fn gst_poll_fd_ignored(set: *mut GstPoll, fd: *mut GstPollFD);
@@ -32981,7 +32977,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_type_find_peek(find: *mut GstTypeFind, offset: gint64, size: guint)
-        -> *const guint8;
+    -> *const guint8;
 }
 unsafe extern "C" {
     pub fn gst_type_find_suggest(find: *mut GstTypeFind, probability: guint, caps: *mut GstCaps);
@@ -33091,7 +33087,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_parse_context_get_missing_elements(context: *mut GstParseContext)
-        -> *mut *mut gchar;
+    -> *mut *mut gchar;
 }
 unsafe extern "C" {
     pub fn gst_parse_context_free(context: *mut GstParseContext);
@@ -34157,7 +34153,7 @@ pub const GstVideoTransferFunction_GST_VIDEO_TRANSFER_BT601: GstVideoTransferFun
 pub type GstVideoTransferFunction = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub fn gst_video_color_transfer_encode(func: GstVideoTransferFunction, val: gdouble)
-        -> gdouble;
+    -> gdouble;
 }
 unsafe extern "C" {
     pub fn gst_video_transfer_function_encode(
@@ -34167,7 +34163,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_video_color_transfer_decode(func: GstVideoTransferFunction, val: gdouble)
-        -> gdouble;
+    -> gdouble;
 }
 unsafe extern "C" {
     pub fn gst_video_transfer_function_decode(
@@ -34591,7 +34587,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_video_info_align(info: *mut GstVideoInfo, align: *mut GstVideoAlignment)
-        -> gboolean;
+    -> gboolean;
 }
 unsafe extern "C" {
     pub fn gst_video_info_align_full(
@@ -35184,7 +35180,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_color_balance_get_balance_type(balance: *mut GstColorBalance)
-        -> GstColorBalanceType;
+    -> GstColorBalanceType;
 }
 unsafe extern "C" {
     pub fn gst_color_balance_value_changed(
@@ -35729,7 +35725,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_video_aggregator_pad_has_current_buffer(pad: *mut GstVideoAggregatorPad)
-        -> gboolean;
+    -> gboolean;
 }
 unsafe extern "C" {
     pub fn gst_video_aggregator_pad_get_current_buffer(
@@ -39576,7 +39572,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_video_overlay_composition_get_seqnum(comp: *mut GstVideoOverlayComposition)
-        -> guint;
+    -> guint;
 }
 unsafe extern "C" {
     pub fn gst_video_overlay_composition_blend(
@@ -42761,7 +42757,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Gets the string name of the status.\n\n @param[in] status    An inference status code.\n @return  A pointer to a string containing the status's name, or NULL if\n  the status is unrecognized. Memory is owned by the function; the caller\n  may not free it."]
     pub fn NvDsInferContext_GetStatusName(status: NvDsInferStatus)
-        -> *const ::std::os::raw::c_char;
+    -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
     #[doc = " Creates a new NvDsInferContext object with specified\n initialization parameters.\n\n @param[out] handle       A pointer to an NvDsInferContext handle.\n @param[in]  initParams   A pointer to a parameter structure to be used to\n                          initialize the context.\n @param[in]  userCtx      A pointer to an opaque user context, with callbacks,\n                          generated by the NvDsInferContext instance.\n @param[in] logFunc       A log callback for the instance.\n @return  NVDSINFER_SUCCESS if creation was successful, or an error status\n  otherwise."]

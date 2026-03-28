@@ -97,5 +97,5 @@ From `pyproject.toml`:
 ## Sub-crate KB Locations
 
 For detailed API docs on DeepStream submodules, see:
-- **nvinfer**: `savant_python/kb/nvinfer/`
-- **picasso**: `savant_python/kb/picasso/`
+- **nvinfer**: `kb/nvinfer-python/`
+- **picasso**: `kb/picasso-python/`
