@@ -50,13 +50,13 @@ use gstreamer as gst;
 ///     SavantIdMetaKind::Frame(2),
 /// ]).unwrap();
 /// ```
-pub struct DsNvNonUniformSurfaceBuffer {
+pub struct NonUniformBatch {
     params: Vec<ffi::NvBufSurfaceParams>,
     parents: Vec<SharedBuffer>,
     gpu_id: u32,
 }
 
-impl DsNvNonUniformSurfaceBuffer {
+impl NonUniformBatch {
     /// Create a new heterogeneous batch builder.
     ///
     /// No `gst::Buffer` is allocated until [`finalize`](Self::finalize) is

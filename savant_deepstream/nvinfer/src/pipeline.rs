@@ -22,6 +22,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 /// Callback type invoked when inference completes (async mode).
@@ -131,7 +132,7 @@ impl NvInfer {
         }
 
         // Bridge SavantIdMeta across nvinfer so output buffers carry per-frame IDs.
-        bridge_savant_id_meta(&nvinfer);
+        bridge_savant_id_meta(&nvinfer)?;
 
         let elements: Vec<gst::Element> = if config.queue_depth > 0 {
             let queue = gst::ElementFactory::make("queue")
@@ -252,16 +253,17 @@ impl NvInfer {
         self.push_buffer(batch, rois, pts)
     }
 
-    /// Synchronous inference – blocks until results arrive (up to 30 s).
+    /// Synchronous inference with a configurable timeout.
     ///
     /// The buffer is **consumed**: if the [`SharedBuffer`] has outstanding
     /// references, an error is returned.
     ///
     /// Parameters are the same as [`submit`](NvInfer::submit).
-    pub fn infer_sync(
+    pub fn infer_sync_with_timeout(
         &self,
         batch: SharedBuffer,
         rois: Option<&HashMap<u32, Vec<Roi>>>,
+        timeout: Duration,
     ) -> Result<BatchInferenceOutput> {
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
@@ -283,13 +285,14 @@ impl NvInfer {
             self.delivery.sync_tx.lock().remove(&pts);
             return Err(e);
         }
-        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        match rx.recv_timeout(timeout) {
             Ok(output) => Ok(output),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 self.delivery.sync_tx.lock().remove(&pts);
-                Err(NvInferError::PipelineError(
-                    "infer_sync timed out after 30s".into(),
-                ))
+                Err(NvInferError::PipelineError(format!(
+                    "infer_sync timed out after {}ms",
+                    timeout.as_millis()
+                )))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 self.delivery.sync_tx.lock().remove(&pts);
@@ -298,6 +301,20 @@ impl NvInfer {
                 ))
             }
         }
+    }
+
+    /// Synchronous inference – blocks until results arrive (up to 30 s).
+    ///
+    /// The buffer is **consumed**: if the [`SharedBuffer`] has outstanding
+    /// references, an error is returned.
+    ///
+    /// Parameters are the same as [`submit`](NvInfer::submit).
+    pub fn infer_sync(
+        &self,
+        batch: SharedBuffer,
+        rois: Option<&HashMap<u32, Vec<Roi>>>,
+    ) -> Result<BatchInferenceOutput> {
+        self.infer_sync_with_timeout(batch, rois, Duration::from_secs(30))
     }
 
     /// Internal: attach ROI metadata, set PTS, push to appsrc.

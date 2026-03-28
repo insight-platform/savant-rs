@@ -37,6 +37,25 @@ impl ReleaseSeal {
         }
     }
 
+    /// Blocks until [`Self::release`] has been called **or** `timeout` elapses.
+    ///
+    /// Returns `true` if the seal was released, `false` on timeout.
+    pub fn wait_timeout(&self, timeout: std::time::Duration) -> bool {
+        let mut released = self.released.lock();
+        let deadline = std::time::Instant::now() + timeout;
+        while !*released {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let result = self.condvar.wait_for(&mut released, remaining);
+            if result.timed_out() && !*released {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Returns whether [`Self::release`] has been called (non-blocking).
     pub fn is_released(&self) -> bool {
         *self.released.lock()
@@ -76,5 +95,26 @@ mod tests {
         assert!(!seal.is_released());
         seal.release();
         assert!(seal.is_released());
+    }
+
+    #[test]
+    fn wait_timeout_returns_true_when_released() {
+        let seal = Arc::new(ReleaseSeal::new());
+        let t = {
+            let seal = Arc::clone(&seal);
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(20));
+                seal.release();
+            })
+        };
+        assert!(seal.wait_timeout(Duration::from_secs(5)));
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn wait_timeout_returns_false_on_expiry() {
+        let seal = ReleaseSeal::new();
+        assert!(!seal.wait_timeout(Duration::from_millis(30)));
+        assert!(!seal.is_released());
     }
 }

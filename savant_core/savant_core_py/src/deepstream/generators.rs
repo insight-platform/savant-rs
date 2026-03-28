@@ -7,7 +7,7 @@ use super::enums::{
 };
 use super::surface_view::PySurfaceView;
 use deepstream_buffers::{
-    BufferGenerator, DsNvNonUniformSurfaceBuffer, NvBufSurfaceMemType, SharedBuffer, SurfaceBatch,
+    BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SharedBuffer, SurfaceBatch,
     UniformBatchGenerator,
 };
 use gstreamer as gst;
@@ -413,7 +413,7 @@ impl PySurfaceBatch {
 ///     gpu_id (int): GPU device ID (default 0).
 #[pyclass(name = "NonUniformBatch", module = "savant_rs.deepstream", unsendable)]
 pub struct PyNonUniformBatch {
-    inner: Option<DsNvNonUniformSurfaceBuffer>,
+    inner: Option<NonUniformBatch>,
     gpu_id: u32,
 }
 
@@ -423,7 +423,7 @@ impl PyNonUniformBatch {
     #[pyo3(signature = (gpu_id=0))]
     fn new(gpu_id: u32) -> Self {
         Self {
-            inner: Some(DsNvNonUniformSurfaceBuffer::new(gpu_id)),
+            inner: Some(NonUniformBatch::new(gpu_id)),
             gpu_id,
         }
     }

@@ -27,6 +27,16 @@ impl DataType {
             DataType::Int8 => 1,
         }
     }
+
+    /// Human-readable name of the data type.
+    pub fn name(self) -> &'static str {
+        match self {
+            DataType::Float => "float32",
+            DataType::Half => "float16",
+            DataType::Int8 => "int8",
+            DataType::Int32 => "int32",
+        }
+    }
 }
 
 impl From<NvDsInferDataType> for DataType {

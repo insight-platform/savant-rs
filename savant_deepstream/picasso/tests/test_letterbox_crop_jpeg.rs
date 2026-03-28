@@ -214,7 +214,7 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let enc_config = EncoderConfig::new(Codec::Jpeg, DST_W, DST_H)
         .format(VideoFormat::RGBA)
@@ -412,7 +412,7 @@ fn letterbox_crop_two_sources_one_engine() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let make_spec = |padding: Padding| -> SourceSpec {
         let enc_config = EncoderConfig::new(Codec::Jpeg, DST_W, DST_H)

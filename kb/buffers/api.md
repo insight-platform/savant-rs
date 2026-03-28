@@ -4,13 +4,24 @@ Crate: `deepstream_buffers`
 
 ---
 
+## Prelude
+
+`use deepstream_buffers::prelude::*;` re-exports all commonly used types:
+`CudaStream`, `SharedBuffer`, `SurfaceView`, `ComputeMode`, `DstPadding`,
+`Interpolation`, `Padding`, `Rect`, `TransformConfig`, `TransformConfigBuilder`,
+`TransformError`, `BufferGenerator`, `BufferGeneratorBuilder`, `NonUniformBatch`,
+`NvBufSurfaceError`, `NvBufSurfaceMemType`, `SavantIdMetaKind`, `SurfaceBatch`,
+`UniformBatchGenerator`, `UniformBatchGeneratorBuilder`, `VideoFormat`.
+
+---
+
 ## Top-Level Exports (lib.rs)
 
 ### Functions
 | Function | Signature | Notes |
 |---|---|---|
 | `cuda_init` | `(gpu_id: u32) → Result<(), NvBufSurfaceError>` | Must call before creating generators outside DeepStream |
-| `bridge_savant_id_meta` | `(element: &gst::Element)` | PTS-keyed meta bridge for encoders |
+| `bridge_savant_id_meta` | `(element: &gst::Element) → Result<(), NvBufSurfaceError>` | PTS-keyed meta bridge for encoders. Returns `Err(MissingPad("sink"|"src"))` if the element lacks the required static pads |
 
 ### Enums
 | Enum | Variants |
@@ -32,7 +43,7 @@ pub use SkiaRenderer;                                    // from skia_renderer
 pub use BufferGenerator, BufferGeneratorBuilder;  // from buffers/single
 pub use UniformBatchGenerator, UniformBatchGeneratorBuilder,
         SurfaceBatch;  // from buffers/batched/uniform
-pub use NonUniformBatch;     // type alias for DsNvNonUniformSurfaceBuffer (from buffers/batched/non_uniform)
+pub use NonUniformBatch;     // from buffers/batched/non_uniform (re-exported via buffers::*)
 pub use pipeline::{BufferGeneratorExt, UniformBatchGeneratorExt};  // from pipeline.rs
 ```
 
@@ -175,13 +186,8 @@ not deferred to `finalize`. This is consistent with `acquire()` for single frame
 
 ## NonUniformBatch (batched, heterogeneous)
 
-`NonUniformBatch` is a **type alias** for `DsNvNonUniformSurfaceBuffer`:
 ```rust
-pub type NonUniformBatch = DsNvNonUniformSurfaceBuffer;
-```
-
-```rust
-pub struct DsNvNonUniformSurfaceBuffer {
+pub struct NonUniformBatch {
     params: Vec<NvBufSurfaceParams>,
     parents: Vec<SharedBuffer>,
     gpu_id: u32,
@@ -321,7 +327,8 @@ Safe RAII wrapper around a CUDA stream handle. Implements `Send`, `Sync`, `Debug
 | `as_raw` | `(&self) → *mut c_void` | Raw CUDA stream pointer |
 | `is_default` | `(&self) → bool` | True if null (legacy default stream) |
 | `is_owned` | `(&self) → bool` | True if this handle will destroy the stream on drop |
-| `synchronize` | `(&self)` | Block until all enqueued work completes |
+| `synchronize` | `(&self) → Result<(), NvBufSurfaceError>` | Block until all enqueued work completes; returns error on CUDA failure |
+| `synchronize_or_log` | `(&self)` | Same as `synchronize()` but logs a warning instead of returning an error |
 
 | Trait | Behaviour |
 |---|---|
@@ -346,6 +353,16 @@ pub struct TransformConfig {
 
 Implements `Default`, `Send`, `Sync`, `Clone` (not `Copy`).
 
+| Constructor | Signature | Notes |
+|---|---|---|
+| `builder` | `() → TransformConfigBuilder` | Fluent builder starting from `Default` |
+
+### TransformConfigBuilder
+
+Builder methods (all return `Self`): `padding(Padding)`, `dst_padding(DstPadding)`,
+`interpolation(Interpolation)`, `compute_mode(ComputeMode)`, `cuda_stream(CudaStream)`,
+`build() → TransformConfig`.
+
 ---
 
 ## DstPadding
@@ -365,17 +382,30 @@ reduces the effective destination area before the letterbox rect is computed.
 Padding regions are filled with black. Validation: `pad_left + pad_right < dst_w`
 and `pad_top + pad_bottom < dst_h`.
 
+| Constructor | Signature | Notes |
+|---|---|---|
+| `new` | `(left: u32, top: u32, right: u32, bottom: u32) → Self` | Per-side values |
+| `uniform` | `(value: u32) → Self` | Same value on all four sides |
+
 ---
 
 ## Padding / Interpolation / ComputeMode
 
 ```rust
 pub enum Padding { None, RightBottom, #[default] Symmetric }
-pub enum Interpolation { Nearest, #[default] Bilinear, Algo1, Algo2, Algo3, Algo4, Default }
+pub enum Interpolation {
+    Nearest, #[default] Bilinear,
+    GpuCubicVic5Tap, GpuSuperVic10Tap, GpuLanczosVicSmart, GpuIgnoredVicNicest,
+    Default,
+}
 pub enum ComputeMode { #[default] Default, Gpu, Vic }
 ```
 
-All have `from_str_name(&str) → Option<Self>` for CLI parsing.
+`Interpolation` and `Padding` implement `FromStr` for CLI parsing (e.g. `"gpu_cubic_vic_5tap".parse::<Interpolation>()`).
+Legacy names `"cubic"`, `"super"`, `"lanczos"`, `"nicest"` and `"algo1"`–`"algo4"` are accepted for backward compatibility.
+Underscores are stripped before matching, so `"GPU_CUBIC_VIC_5TAP"` and `"GpuCubicVic5Tap"` both work.
+
+**Python API:** `Padding.from_name(name)` and `Interpolation.from_name(name)` parse a string name into the corresponding enum variant (raises `ValueError` on unknown input).
 
 ---
 
@@ -384,6 +414,10 @@ All have `from_str_name(&str) → Option<Self>` for CLI parsing.
 ```rust
 pub struct Rect { pub top: u32, pub left: u32, pub width: u32, pub height: u32 }
 ```
+
+| Constructor | Signature | Notes |
+|---|---|---|
+| `new` | `(left: u32, top: u32, width: u32, height: u32) → Self` | Convenience constructor |
 
 ---
 

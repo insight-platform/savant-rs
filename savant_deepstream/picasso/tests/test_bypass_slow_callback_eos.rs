@@ -66,7 +66,7 @@ fn bypass_eos_delivered_via_on_bypass_frame() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 60,
             ..Default::default()
@@ -121,7 +121,7 @@ fn bypass_slow_callback_delivers_all_frames_and_eos() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 60,
             ..Default::default()

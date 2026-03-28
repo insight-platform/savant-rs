@@ -54,7 +54,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         .build()
         .unwrap_or_else(|_| panic!("Failed to create {}", config.enc_name));
 
-    bridge_savant_id_meta(&enc);
+    bridge_savant_id_meta(&enc).expect("bridge_savant_id_meta");
 
     let sink_elem = gst::ElementFactory::make("appsink")
         .name("sink")

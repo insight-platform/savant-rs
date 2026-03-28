@@ -109,7 +109,7 @@ fn e2e_async_drain_delivers_independently() {
 
     let enc_count = Arc::new(AtomicUsize::new(0));
     let eos_count = Arc::new(AtomicUsize::new(0));
-    let mut engine = setup_engine(&enc_count, &eos_count);
+    let engine = setup_engine(&enc_count, &eos_count);
 
     engine.set_source_spec("drain", jpeg_spec()).unwrap();
     let gen = make_generator();
@@ -148,7 +148,7 @@ fn e2e_draw_spec_hot_swap_preserves_drain() {
 
     let enc_count = Arc::new(AtomicUsize::new(0));
     let eos_count = Arc::new(AtomicUsize::new(0));
-    let mut engine = setup_engine(&enc_count, &eos_count);
+    let engine = setup_engine(&enc_count, &eos_count);
 
     let draw_spec = {
         use savant_core::draw::*;
@@ -262,7 +262,7 @@ fn e2e_sustained_throughput_no_frame_loss() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()
@@ -343,7 +343,7 @@ fn e2e_eos_flushes_all_in_flight() {
 
     let enc_count = Arc::new(AtomicUsize::new(0));
     let eos_count = Arc::new(AtomicUsize::new(0));
-    let mut engine = setup_engine(&enc_count, &eos_count);
+    let engine = setup_engine(&enc_count, &eos_count);
 
     engine.set_source_spec("flush", jpeg_spec()).unwrap();
     let gen = make_generator();

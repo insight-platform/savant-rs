@@ -382,7 +382,7 @@ impl NvEncoder {
             let pre_enc: Option<gst::Element> = None;
 
             // Bridge SavantIdMeta across the encoder element.
-            bridge_savant_id_meta(enc);
+            bridge_savant_id_meta(enc)?;
 
             // Apply typed encoder properties.
             if let Some(ref params) = config.encoder_params {

@@ -3,8 +3,28 @@
 //! Provides [`compute_letterbox_params`] to convert a GPU letterbox/resize
 //! operation into [`VideoFrameTransformation::LetterBox`] parameters.
 
-use anyhow::{bail, Result};
+use crate::error::PicassoError;
 use deepstream_buffers::{DstPadding, Padding, MIN_EFFECTIVE_DIM};
+
+/// Result of a letterbox parameter computation.
+///
+/// Describes the padding applied around the scaled image within the
+/// destination surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LetterboxParams {
+    /// Full destination width (unchanged from input `dst_w`).
+    pub outer_width: u64,
+    /// Full destination height (unchanged from input `dst_h`).
+    pub outer_height: u64,
+    /// Left padding in pixels.
+    pub pad_left: u64,
+    /// Top padding in pixels.
+    pub pad_top: u64,
+    /// Right padding in pixels.
+    pub pad_right: u64,
+    /// Bottom padding in pixels.
+    pub pad_bottom: u64,
+}
 
 /// Compute [`VideoFrameTransformation::LetterBox`] parameters that describe
 /// the GPU letterbox/resize from `(src_w, src_h)` to `(dst_w, dst_h)` with the
@@ -12,10 +32,8 @@ use deepstream_buffers::{DstPadding, Padding, MIN_EFFECTIVE_DIM};
 ///
 /// # Errors
 ///
-/// Returns an error if `dst_padding` reduces the effective width or height
-/// below [`MIN_EFFECTIVE_DIM`].
-///
-/// Returns `Ok((outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom))`.
+/// Returns [`PicassoError::InvalidLetterboxParams`] if `dst_padding` reduces
+/// the effective width or height below [`MIN_EFFECTIVE_DIM`].
 pub fn compute_letterbox_params(
     src_w: u64,
     src_h: u64,
@@ -23,7 +41,7 @@ pub fn compute_letterbox_params(
     dst_h: u64,
     padding: Padding,
     dst_padding: Option<DstPadding>,
-) -> Result<(u64, u64, u64, u64, u64, u64)> {
+) -> Result<LetterboxParams, PicassoError> {
     let (eff_w, eff_h, offset_left, offset_top) = match dst_padding {
         Some(p) => (
             dst_w
@@ -39,21 +57,25 @@ pub fn compute_letterbox_params(
     };
 
     if eff_w < MIN_EFFECTIVE_DIM as u64 {
-        bail!("effective width after dst_padding must be >= {MIN_EFFECTIVE_DIM} px, got {eff_w}");
+        return Err(PicassoError::InvalidLetterboxParams(format!(
+            "effective width after dst_padding must be >= {MIN_EFFECTIVE_DIM} px, got {eff_w}"
+        )));
     }
     if eff_h < MIN_EFFECTIVE_DIM as u64 {
-        bail!("effective height after dst_padding must be >= {MIN_EFFECTIVE_DIM} px, got {eff_h}");
+        return Err(PicassoError::InvalidLetterboxParams(format!(
+            "effective height after dst_padding must be >= {MIN_EFFECTIVE_DIM} px, got {eff_h}"
+        )));
     }
 
     if padding == Padding::None {
-        return Ok((
-            dst_w,
-            dst_h,
-            offset_left,
-            offset_top,
-            dst_padding.map_or(0u64, |p| p.right as u64),
-            dst_padding.map_or(0u64, |p| p.bottom as u64),
-        ));
+        return Ok(LetterboxParams {
+            outer_width: dst_w,
+            outer_height: dst_h,
+            pad_left: offset_left,
+            pad_top: offset_top,
+            pad_right: dst_padding.map_or(0u64, |p| p.right as u64),
+            pad_bottom: dst_padding.map_or(0u64, |p| p.bottom as u64),
+        });
     }
 
     let src_aspect = src_w as f64 / src_h as f64;
@@ -75,26 +97,26 @@ pub fn compute_letterbox_params(
             let pad_top = (eff_h - scaled_h) / 2;
             let pad_right = eff_w - scaled_w - pad_left;
             let pad_bottom = eff_h - scaled_h - pad_top;
-            (
-                dst_w,
-                dst_h,
-                offset_left + pad_left,
-                offset_top + pad_top,
-                dst_padding.map_or(pad_right, |p| p.right as u64 + pad_right),
-                dst_padding.map_or(pad_bottom, |p| p.bottom as u64 + pad_bottom),
-            )
+            LetterboxParams {
+                outer_width: dst_w,
+                outer_height: dst_h,
+                pad_left: offset_left + pad_left,
+                pad_top: offset_top + pad_top,
+                pad_right: dst_padding.map_or(pad_right, |p| p.right as u64 + pad_right),
+                pad_bottom: dst_padding.map_or(pad_bottom, |p| p.bottom as u64 + pad_bottom),
+            }
         }
         Padding::RightBottom => {
             let pad_right = eff_w - scaled_w;
             let pad_bottom = eff_h - scaled_h;
-            (
-                dst_w,
-                dst_h,
-                offset_left,
-                offset_top,
-                dst_padding.map_or(pad_right, |p| p.right as u64 + pad_right),
-                dst_padding.map_or(pad_bottom, |p| p.bottom as u64 + pad_bottom),
-            )
+            LetterboxParams {
+                outer_width: dst_w,
+                outer_height: dst_h,
+                pad_left: offset_left,
+                pad_top: offset_top,
+                pad_right: dst_padding.map_or(pad_right, |p| p.right as u64 + pad_right),
+                pad_bottom: dst_padding.map_or(pad_bottom, |p| p.bottom as u64 + pad_bottom),
+            }
         }
         Padding::None => unreachable!(),
     })
@@ -106,58 +128,62 @@ mod tests {
 
     #[test]
     fn letterbox_params_no_padding() {
-        let (ow, oh, pl, pt, pr, pb) =
-            compute_letterbox_params(800, 600, 1600, 1200, Padding::None, None).unwrap();
-        assert_eq!((ow, oh), (1600, 1200));
-        assert_eq!((pl, pt, pr, pb), (0, 0, 0, 0));
+        let lp = compute_letterbox_params(800, 600, 1600, 1200, Padding::None, None).unwrap();
+        assert_eq!((lp.outer_width, lp.outer_height), (1600, 1200));
+        assert_eq!(
+            (lp.pad_left, lp.pad_top, lp.pad_right, lp.pad_bottom),
+            (0, 0, 0, 0)
+        );
     }
 
     #[test]
     fn letterbox_params_symmetric_800x600_to_800x800() {
-        let (ow, oh, pl, pt, pr, pb) =
-            compute_letterbox_params(800, 600, 800, 800, Padding::Symmetric, None).unwrap();
-        assert_eq!((ow, oh), (800, 800));
-        assert_eq!((pl, pr), (0, 0));
-        assert_eq!(pt + pb, 200);
-        assert_eq!(pt, 100);
-        assert_eq!(pb, 100);
+        let lp = compute_letterbox_params(800, 600, 800, 800, Padding::Symmetric, None).unwrap();
+        assert_eq!((lp.outer_width, lp.outer_height), (800, 800));
+        assert_eq!((lp.pad_left, lp.pad_right), (0, 0));
+        assert_eq!(lp.pad_top + lp.pad_bottom, 200);
+        assert_eq!(lp.pad_top, 100);
+        assert_eq!(lp.pad_bottom, 100);
     }
 
     #[test]
     fn letterbox_params_right_bottom_1920x1080_to_800x600() {
-        let (ow, oh, pl, pt, pr, pb) =
+        let lp =
             compute_letterbox_params(1920, 1080, 800, 600, Padding::RightBottom, None).unwrap();
-        assert_eq!((ow, oh), (800, 600));
-        assert_eq!((pl, pt), (0, 0));
-        assert_eq!(pr, 0);
-        assert_eq!(pb, 150);
+        assert_eq!((lp.outer_width, lp.outer_height), (800, 600));
+        assert_eq!((lp.pad_left, lp.pad_top), (0, 0));
+        assert_eq!(lp.pad_right, 0);
+        assert_eq!(lp.pad_bottom, 150);
     }
 
     #[test]
     fn letterbox_params_symmetric_pillarbox() {
-        let (ow, oh, pl, pt, pr, pb) =
-            compute_letterbox_params(600, 800, 800, 800, Padding::Symmetric, None).unwrap();
-        assert_eq!((ow, oh), (800, 800));
-        assert_eq!(pl + pr, 200);
-        assert_eq!(pl, 100);
-        assert_eq!(pr, 100);
-        assert_eq!((pt, pb), (0, 0));
+        let lp = compute_letterbox_params(600, 800, 800, 800, Padding::Symmetric, None).unwrap();
+        assert_eq!((lp.outer_width, lp.outer_height), (800, 800));
+        assert_eq!(lp.pad_left + lp.pad_right, 200);
+        assert_eq!(lp.pad_left, 100);
+        assert_eq!(lp.pad_right, 100);
+        assert_eq!((lp.pad_top, lp.pad_bottom), (0, 0));
     }
 
     #[test]
     fn letterbox_params_no_padding_different_aspect() {
-        let (ow, oh, pl, pt, pr, pb) =
-            compute_letterbox_params(800, 600, 800, 800, Padding::None, None).unwrap();
-        assert_eq!((ow, oh), (800, 800));
-        assert_eq!((pl, pt, pr, pb), (0, 0, 0, 0));
+        let lp = compute_letterbox_params(800, 600, 800, 800, Padding::None, None).unwrap();
+        assert_eq!((lp.outer_width, lp.outer_height), (800, 800));
+        assert_eq!(
+            (lp.pad_left, lp.pad_top, lp.pad_right, lp.pad_bottom),
+            (0, 0, 0, 0)
+        );
     }
 
     #[test]
     fn letterbox_params_same_aspect_symmetric() {
-        let (ow, oh, pl, pt, pr, pb) =
-            compute_letterbox_params(1280, 720, 1920, 1080, Padding::Symmetric, None).unwrap();
-        assert_eq!((ow, oh), (1920, 1080));
-        assert_eq!((pl, pt, pr, pb), (0, 0, 0, 0));
+        let lp = compute_letterbox_params(1280, 720, 1920, 1080, Padding::Symmetric, None).unwrap();
+        assert_eq!((lp.outer_width, lp.outer_height), (1920, 1080));
+        assert_eq!(
+            (lp.pad_left, lp.pad_top, lp.pad_right, lp.pad_bottom),
+            (0, 0, 0, 0)
+        );
     }
 
     #[test]
@@ -202,13 +228,12 @@ mod tests {
             right: 10,
             bottom: 20,
         };
-        let (ow, oh, pl, pt, pr, pb) =
-            compute_letterbox_params(800, 600, 820, 640, Padding::Symmetric, Some(dst_pad))
-                .unwrap();
-        assert_eq!((ow, oh), (820, 640));
-        assert_eq!(pl, 10);
-        assert_eq!(pt, 20);
-        assert_eq!(pr, 10);
-        assert_eq!(pb, 20);
+        let lp = compute_letterbox_params(800, 600, 820, 640, Padding::Symmetric, Some(dst_pad))
+            .unwrap();
+        assert_eq!((lp.outer_width, lp.outer_height), (820, 640));
+        assert_eq!(lp.pad_left, 10);
+        assert_eq!(lp.pad_top, 20);
+        assert_eq!(lp.pad_right, 10);
+        assert_eq!(lp.pad_bottom, 20);
     }
 }

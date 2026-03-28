@@ -7,6 +7,7 @@
 use crate::cuda_stream::CudaStream;
 use crate::ffi;
 use crate::ffi::transform_ffi;
+use crate::NvBufSurfaceError;
 
 /// Minimum effective dimension (width or height) after applying
 /// [`DstPadding`]. Prevents division-by-zero and degenerate transforms
@@ -30,20 +31,26 @@ pub enum Padding {
 }
 
 /// Interpolation method used during scaling.
+///
+/// Variants whose behaviour differs between GPU (dGPU / x86_64) and VIC
+/// (Video Image Compositor / Jetson) carry compound names that reflect
+/// both backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Interpolation {
+    /// Nearest-neighbor (same on GPU and VIC).
     Nearest,
+    /// Bilinear (same on GPU and VIC).
     #[default]
     Bilinear,
-    /// GPU: Cubic, VIC: 5-tap
-    Algo1,
-    /// GPU: Super, VIC: 10-tap
-    Algo2,
-    /// GPU: Lanczos, VIC: Smart
-    Algo3,
-    /// GPU: Ignored, VIC: Nicest
-    Algo4,
-    /// Default (GPU: Nearest, VIC: Nearest)
+    /// GPU: Cubic interpolation. VIC: 5-tap filter.
+    GpuCubicVic5Tap,
+    /// GPU: Super-sampling. VIC: 10-tap filter.
+    GpuSuperVic10Tap,
+    /// GPU: Lanczos interpolation. VIC: Smart filter.
+    GpuLanczosVicSmart,
+    /// GPU: Ignored (no-op). VIC: Nicest quality.
+    GpuIgnoredVicNicest,
+    /// Platform default (GPU: Nearest, VIC: Nearest).
     Default,
 }
 
@@ -56,16 +63,16 @@ impl Interpolation {
             Interpolation::Bilinear => {
                 transform_ffi::NvBufSurfTransform_Inter_NvBufSurfTransformInter_Bilinear
             }
-            Interpolation::Algo1 => {
+            Interpolation::GpuCubicVic5Tap => {
                 transform_ffi::NvBufSurfTransform_Inter_NvBufSurfTransformInter_Algo1
             }
-            Interpolation::Algo2 => {
+            Interpolation::GpuSuperVic10Tap => {
                 transform_ffi::NvBufSurfTransform_Inter_NvBufSurfTransformInter_Algo2
             }
-            Interpolation::Algo3 => {
+            Interpolation::GpuLanczosVicSmart => {
                 transform_ffi::NvBufSurfTransform_Inter_NvBufSurfTransformInter_Algo3
             }
-            Interpolation::Algo4 => {
+            Interpolation::GpuIgnoredVicNicest => {
                 transform_ffi::NvBufSurfTransform_Inter_NvBufSurfTransformInter_Algo4
             }
             Interpolation::Default => {
@@ -73,18 +80,21 @@ impl Interpolation {
             }
         }
     }
+}
 
-    /// Parse from a string name (e.g. CLI arguments).
-    pub fn from_str_name(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "nearest" => Some(Interpolation::Nearest),
-            "bilinear" => Some(Interpolation::Bilinear),
-            "algo1" | "cubic" => Some(Interpolation::Algo1),
-            "algo2" | "super" => Some(Interpolation::Algo2),
-            "algo3" | "lanczos" => Some(Interpolation::Algo3),
-            "algo4" | "nicest" => Some(Interpolation::Algo4),
-            "default" => Some(Interpolation::Default),
-            _ => None,
+impl std::str::FromStr for Interpolation {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().replace('_', "").as_str() {
+            "nearest" => Ok(Interpolation::Nearest),
+            "bilinear" => Ok(Interpolation::Bilinear),
+            "gpucubicvic5tap" | "cubic" | "algo1" => Ok(Interpolation::GpuCubicVic5Tap),
+            "gpusupervic10tap" | "super" | "algo2" => Ok(Interpolation::GpuSuperVic10Tap),
+            "gpulanczosvicsmart" | "lanczos" | "algo3" => Ok(Interpolation::GpuLanczosVicSmart),
+            "gpuignoredvicnicest" | "nicest" | "algo4" => Ok(Interpolation::GpuIgnoredVicNicest),
+            "default" => Ok(Interpolation::Default),
+            _ => Err(format!("unknown interpolation: '{s}'")),
         }
     }
 }
@@ -130,6 +140,47 @@ pub struct DstPadding {
     pub bottom: u32,
 }
 
+impl DstPadding {
+    /// Create destination padding with per-side values.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use deepstream_buffers::DstPadding;
+    /// let p = DstPadding::new(10, 20, 10, 20);
+    /// assert_eq!(p.left, 10);
+    /// assert_eq!(p.top, 20);
+    /// assert_eq!(p.right, 10);
+    /// assert_eq!(p.bottom, 20);
+    /// ```
+    pub fn new(left: u32, top: u32, right: u32, bottom: u32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    /// Create destination padding with equal values on all sides.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use deepstream_buffers::DstPadding;
+    /// let p = DstPadding::uniform(15);
+    /// assert_eq!(p, DstPadding::new(15, 15, 15, 15));
+    /// ```
+    pub fn uniform(value: u32) -> Self {
+        Self {
+            left: value,
+            top: value,
+            right: value,
+            bottom: value,
+        }
+    }
+}
+
 /// A rectangle in pixel coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -140,6 +191,27 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// Create a new rectangle from pixel coordinates.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use deepstream_buffers::Rect;
+    /// let r = Rect::new(10, 20, 640, 480);
+    /// assert_eq!(r.left, 10);
+    /// assert_eq!(r.top, 20);
+    /// assert_eq!(r.width, 640);
+    /// assert_eq!(r.height, 480);
+    /// ```
+    pub fn new(left: u32, top: u32, width: u32, height: u32) -> Self {
+        Self {
+            top,
+            left,
+            width,
+            height,
+        }
+    }
+
     pub(crate) fn to_ffi(self) -> transform_ffi::NvBufSurfTransformRect {
         transform_ffi::NvBufSurfTransformRect {
             top: self.top,
@@ -169,6 +241,67 @@ pub struct TransformConfig {
     /// streams. Set to a non-blocking stream created via
     /// [`CudaStream::new_non_blocking()`] to avoid global GPU serialization.
     pub cuda_stream: CudaStream,
+}
+
+impl TransformConfig {
+    /// Create a new builder starting from default values.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use deepstream_buffers::{TransformConfig, Interpolation, ComputeMode};
+    /// let config = TransformConfig::builder()
+    ///     .interpolation(Interpolation::GpuCubicVic5Tap)
+    ///     .compute_mode(ComputeMode::Gpu)
+    ///     .build();
+    /// ```
+    pub fn builder() -> TransformConfigBuilder {
+        TransformConfigBuilder {
+            inner: TransformConfig::default(),
+        }
+    }
+}
+
+/// Builder for [`TransformConfig`].
+pub struct TransformConfigBuilder {
+    inner: TransformConfig,
+}
+
+impl TransformConfigBuilder {
+    /// Set the padding mode for letterboxing.
+    pub fn padding(mut self, padding: Padding) -> Self {
+        self.inner.padding = padding;
+        self
+    }
+
+    /// Set optional per-side destination padding.
+    pub fn dst_padding(mut self, dst_padding: DstPadding) -> Self {
+        self.inner.dst_padding = Some(dst_padding);
+        self
+    }
+
+    /// Set the interpolation method.
+    pub fn interpolation(mut self, interpolation: Interpolation) -> Self {
+        self.inner.interpolation = interpolation;
+        self
+    }
+
+    /// Set the compute backend.
+    pub fn compute_mode(mut self, compute_mode: ComputeMode) -> Self {
+        self.inner.compute_mode = compute_mode;
+        self
+    }
+
+    /// Set the CUDA stream for the transform operation.
+    pub fn cuda_stream(mut self, cuda_stream: CudaStream) -> Self {
+        self.inner.cuda_stream = cuda_stream;
+        self
+    }
+
+    /// Finish building and return the [`TransformConfig`].
+    pub fn build(self) -> TransformConfig {
+        self.inner
+    }
 }
 
 /// Extract a `*mut NvBufSurface` from a GstBuffer that was allocated by
@@ -509,10 +642,10 @@ pub(crate) unsafe fn do_transform(
     //
     // For the legacy default stream (null), this is effectively a no-op
     // because the default stream already has implicit sync semantics.
-    let ret = ffi::cudaStreamSynchronize(config.cuda_stream.as_raw());
-    if ret != 0 {
-        return Err(TransformError::CudaError(ret));
-    }
+    config.cuda_stream.synchronize().map_err(|e| match e {
+        NvBufSurfaceError::CudaInitFailed(code) => TransformError::CudaError(code),
+        _ => unreachable!("CudaStream::synchronize only returns CudaInitFailed, got {e:?}"),
+    })?;
 
     Ok(())
 }
@@ -553,14 +686,15 @@ pub(crate) unsafe fn do_transform_to_slot(
     )
 }
 
-impl Padding {
-    /// Parse from a string name (e.g. CLI arguments).
-    pub fn from_str_name(s: &str) -> Option<Self> {
+impl std::str::FromStr for Padding {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "none" => Some(Padding::None),
-            "right_bottom" | "rightbottom" => Some(Padding::RightBottom),
-            "symmetric" => Some(Padding::Symmetric),
-            _ => None,
+            "none" => Ok(Padding::None),
+            "right_bottom" | "rightbottom" => Ok(Padding::RightBottom),
+            "symmetric" => Ok(Padding::Symmetric),
+            _ => Err(format!("unknown padding: '{s}'")),
         }
     }
 }
@@ -625,5 +759,55 @@ mod tests {
         assert_eq!(r.top, 20);
         assert_eq!(r.width, 800);
         assert_eq!(r.height, 600);
+    }
+
+    #[test]
+    fn rect_new() {
+        let r = Rect::new(10, 20, 640, 480);
+        assert_eq!(r.left, 10);
+        assert_eq!(r.top, 20);
+        assert_eq!(r.width, 640);
+        assert_eq!(r.height, 480);
+    }
+
+    #[test]
+    fn dst_padding_new() {
+        let p = DstPadding::new(1, 2, 3, 4);
+        assert_eq!(p.left, 1);
+        assert_eq!(p.top, 2);
+        assert_eq!(p.right, 3);
+        assert_eq!(p.bottom, 4);
+    }
+
+    #[test]
+    fn dst_padding_uniform() {
+        let p = DstPadding::uniform(15);
+        assert_eq!(p, DstPadding::new(15, 15, 15, 15));
+    }
+
+    #[test]
+    fn dst_padding_default_is_zero() {
+        let p = DstPadding::default();
+        assert_eq!(p, DstPadding::uniform(0));
+    }
+
+    #[test]
+    fn transform_config_builder_default() {
+        let config = TransformConfig::builder().build();
+        let default = TransformConfig::default();
+        assert_eq!(config.padding, default.padding);
+        assert_eq!(config.interpolation, default.interpolation);
+        assert_eq!(config.compute_mode, default.compute_mode);
+        assert!(config.dst_padding.is_none());
+    }
+
+    #[test]
+    fn transform_config_builder_overrides() {
+        let config = TransformConfig::builder()
+            .interpolation(Interpolation::GpuCubicVic5Tap)
+            .padding(Padding::None)
+            .build();
+        assert_eq!(config.interpolation, Interpolation::GpuCubicVic5Tap);
+        assert_eq!(config.padding, Padding::None);
     }
 }

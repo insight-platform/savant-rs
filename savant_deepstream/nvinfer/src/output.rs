@@ -52,6 +52,60 @@ impl TensorView {
         let len = self.byte_length / std::mem::size_of::<T>();
         std::slice::from_raw_parts(self.host_ptr as *const T, len)
     }
+
+    /// Access host tensor data as an `f32` slice.
+    ///
+    /// Returns an error if the data type is not [`DataType::Float`],
+    /// host copy is disabled, or the host pointer is null.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use nvinfer::output::TensorView;
+    /// # fn example(tv: &TensorView) {
+    /// let floats = tv.as_f32s().expect("float tensor with host data");
+    /// println!("first value: {}", floats[0]);
+    /// # }
+    /// ```
+    pub fn as_f32s(&self) -> crate::Result<&[f32]> {
+        self.checked_host_slice::<f32>(DataType::Float, "float32")
+    }
+
+    /// Access host tensor data as an `i32` slice.
+    ///
+    /// Returns an error if the data type is not [`DataType::Int32`],
+    /// host copy is disabled, or the host pointer is null.
+    pub fn as_i32s(&self) -> crate::Result<&[i32]> {
+        self.checked_host_slice::<i32>(DataType::Int32, "int32")
+    }
+
+    /// Access host tensor data as an `i8` slice.
+    ///
+    /// Returns an error if the data type is not [`DataType::Int8`],
+    /// host copy is disabled, or the host pointer is null.
+    pub fn as_i8s(&self) -> crate::Result<&[i8]> {
+        self.checked_host_slice::<i8>(DataType::Int8, "int8")
+    }
+
+    fn checked_host_slice<T>(
+        &self,
+        expected_type: DataType,
+        type_name: &'static str,
+    ) -> crate::Result<&[T]> {
+        if !self.host_copy_enabled || self.host_ptr.is_null() || self.byte_length == 0 {
+            return Err(crate::NvInferError::HostDataUnavailable);
+        }
+        if self.data_type != expected_type {
+            return Err(crate::NvInferError::TensorTypeMismatch {
+                expected: type_name,
+                actual: self.data_type.name(),
+            });
+        }
+        let len = self.byte_length / std::mem::size_of::<T>();
+        // SAFETY: host_copy_enabled is true, pointer is non-null, and the data
+        // type matches `T`. CUDA allocators guarantee alignment for all primitive types.
+        Ok(unsafe { std::slice::from_raw_parts(self.host_ptr as *const T, len) })
+    }
 }
 
 /// Per-element inference output for one ROI in one frame.
@@ -183,5 +237,94 @@ impl std::fmt::Debug for BatchInferenceOutput {
             .field("clear_on_drop", &self.clear_on_drop)
             .field("host_copy_enabled", &self.host_copy_enabled)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nvinfer_types::DataType;
+    use std::ffi::c_void;
+
+    fn make_tensor<T>(data: &[T], data_type: DataType, host_copy_enabled: bool) -> TensorView {
+        let num = data.len() as u32;
+        TensorView {
+            name: "test".into(),
+            dims: InferDims {
+                dimensions: vec![num],
+                num_elements: num,
+            },
+            data_type,
+            host_ptr: if host_copy_enabled {
+                data.as_ptr() as *const c_void
+            } else {
+                std::ptr::null()
+            },
+            device_ptr: std::ptr::null(),
+            byte_length: data.len() * std::mem::size_of::<T>(),
+            host_copy_enabled,
+        }
+    }
+
+    #[test]
+    fn as_f32s_succeeds_for_float_tensor() {
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0];
+        let tv = make_tensor(&data, DataType::Float, true);
+        let slice = tv.as_f32s().unwrap();
+        assert_eq!(slice, &[1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn as_i32s_succeeds_for_int32_tensor() {
+        let data: Vec<i32> = vec![10, 20, 30];
+        let tv = make_tensor(&data, DataType::Int32, true);
+        let slice = tv.as_i32s().unwrap();
+        assert_eq!(slice, &[10, 20, 30]);
+    }
+
+    #[test]
+    fn as_i8s_succeeds_for_int8_tensor() {
+        let data: Vec<i8> = vec![-1, 0, 1, 127];
+        let tv = make_tensor(&data, DataType::Int8, true);
+        let slice = tv.as_i8s().unwrap();
+        assert_eq!(slice, &[-1, 0, 1, 127]);
+    }
+
+    #[test]
+    fn as_f32s_fails_for_wrong_type() {
+        let data: Vec<i32> = vec![1, 2, 3, 4];
+        let tv = make_tensor(&data, DataType::Int32, true);
+        let err = tv.as_f32s().unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("expected float32"), "unexpected error: {msg}");
+        assert!(msg.contains("got int32"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn as_f32s_fails_when_host_copy_disabled() {
+        let data: Vec<f32> = vec![1.0];
+        let tv = make_tensor(&data, DataType::Float, false);
+        let err = tv.as_f32s().unwrap_err();
+        assert!(
+            err.to_string().contains("unavailable"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn as_f32s_fails_when_byte_length_zero() {
+        let tv = TensorView {
+            name: "empty".into(),
+            dims: InferDims {
+                dimensions: vec![0],
+                num_elements: 0,
+            },
+            data_type: DataType::Float,
+            host_ptr: 0x1 as *const c_void, // non-null but zero length
+            device_ptr: std::ptr::null(),
+            byte_length: 0,
+            host_copy_enabled: true,
+        };
+        assert!(tv.as_f32s().is_err());
     }
 }

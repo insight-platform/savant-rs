@@ -24,7 +24,7 @@ use deepstream_encoders::prelude::*;
 use picasso::prelude::*;
 use picasso::skia::context::DrawContext;
 use picasso::skia::object::draw_object;
-use picasso::transform::compute_letterbox_params;
+use picasso::transform::{compute_letterbox_params, LetterboxParams};
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
@@ -213,7 +213,14 @@ fn render_cpu() -> Vec<u8> {
 
     let frame = create_frame("cpu");
     let mut fm = frame.clone();
-    let (ow, oh, pl, pt, pr, pb) = compute_letterbox_params(
+    let LetterboxParams {
+        outer_width,
+        outer_height,
+        pad_left,
+        pad_top,
+        pad_right,
+        pad_bottom,
+    } = compute_letterbox_params(
         SRC_W as u64,
         SRC_H as u64,
         DST_W as u64,
@@ -222,7 +229,14 @@ fn render_cpu() -> Vec<u8> {
         None,
     )
     .expect("compute_letterbox_params");
-    fm.add_transformation(VideoFrameTransformation::LetterBox(ow, oh, pl, pt, pr, pb));
+    fm.add_transformation(VideoFrameTransformation::LetterBox(
+        outer_width,
+        outer_height,
+        pad_left,
+        pad_top,
+        pad_right,
+        pad_bottom,
+    ));
     fm.transform_forward().unwrap();
 
     let draw_spec = build_draw_spec();
@@ -305,7 +319,7 @@ fn render_gpu() -> Vec<u8> {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let enc_config = common::h264_encoder_config(DST_W, DST_H);
 
@@ -418,7 +432,7 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let enc_config = EncoderConfig::new(Codec::Jpeg, DST_W, DST_H)
         .format(VideoFormat::RGBA)

@@ -198,6 +198,23 @@ side — see `patterns.md` for `tensor_to_numpy` / `tensor_to_cupy` helpers.
 `numpy_dtype` maps `data_type` to a NumPy-compatible string:
 FLOAT → `"float32"`, HALF → `"float16"`, INT8 → `"int8"`, INT32 → `"int32"`.
 
+### `as_numpy()`
+
+```python
+def as_numpy(self) -> numpy.ndarray:
+    """Return tensor data as a NumPy array (zero-copy view).
+
+    Automatically selects dtype from ``data_type``, reshapes to
+    ``dims.dimensions``, and validates host data availability.
+
+    Raises:
+        RuntimeError: If host data is unavailable (host copy disabled
+            or null pointer).
+    """
+```
+
+Preferred over the manual `ctypes` approach for typical use — see `patterns.md`.
+
 ⚠ Raises `RuntimeError` if `BatchInferenceOutput` has been dropped.
 
 ---
@@ -261,6 +278,7 @@ class NvInfer:
         self,
         batch: SharedBuffer,
         rois: Optional[Dict[int, List[Roi]]] = None,
+        timeout_ms: int = 30000,
     ) -> BatchInferenceOutput: ...
 
     def shutdown(self) -> None: ...
@@ -268,8 +286,8 @@ class NvInfer:
 
 - `submit()` — async, results arrive via callback. The buffer is consumed
   (internally deconstructed from `SharedBuffer` to `gst::Buffer`).
-- `infer_sync()` — blocks up to 30 s, returns result directly. Same buffer
-  consumption semantics.
+- `infer_sync()` — blocks up to `timeout_ms` milliseconds (default 30 000),
+  returns result directly. Same buffer consumption semantics.
 - `shutdown()` — sends EOS, drains, stops pipeline. Raises if already shut down.
 
 ### Rust API
@@ -418,7 +436,7 @@ model-space predictions to absolute frame coordinates.
 ## OperatorTensorView
 
 Same interface as `TensorView` — `name`, `dims`, `data_type`, `byte_length`,
-`host_ptr`, `device_ptr`, `has_host_data`, `numpy_dtype`.
+`host_ptr`, `device_ptr`, `has_host_data`, `numpy_dtype`, `as_numpy()`.
 
 ---
 
@@ -429,14 +447,17 @@ class SealedDeliveries:
     def __len__(self) -> int: ...
     def is_empty(self) -> bool: ...
     def is_released(self) -> bool: ...
-    def unseal(self) -> list[tuple[VideoFrame, SharedBuffer]]: ...
+    def unseal(self, timeout_ms: Optional[int] = None) -> list[tuple[VideoFrame, SharedBuffer]]: ...
     def try_unseal(self) -> Optional[list[tuple[VideoFrame, SharedBuffer]]]: ...
 ```
 
 A batch of `(VideoFrame, SharedBuffer)` pairs sealed until the
 `OperatorInferenceOutput` is dropped.
 
-- `unseal()` — **blocking**, releases the GIL internally during the wait.
+- `unseal(timeout_ms=None)` — **blocking**, releases the GIL internally
+  during the wait.  When `timeout_ms` is `None` (default), blocks
+  indefinitely.  When a timeout is given, raises `TimeoutError` if the seal
+  is not released within the specified duration.
 - `try_unseal()` — non-blocking, returns `None` if still sealed.
 - Dropping without calling `unseal()` is safe.
 

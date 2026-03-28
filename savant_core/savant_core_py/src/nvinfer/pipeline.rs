@@ -105,7 +105,7 @@ impl PyNvInfer {
         })
     }
 
-    /// Synchronous inference -- blocks until results arrive (up to 30 s).
+    /// Synchronous inference -- blocks until results arrive.
     ///
     /// The buffer is **consumed**: the ``SharedBuffer``
     /// becomes invalid after this call.
@@ -113,6 +113,7 @@ impl PyNvInfer {
     /// Args:
     ///     batch (Union[SharedBuffer, int]): Batched NvBufSurface buffer.
     ///     rois (Optional[Dict[int, List[Roi]]]): Per-slot ROI lists.
+    ///     timeout_ms (int): Maximum time to wait in milliseconds (default: 30000).
     ///
     /// Returns:
     ///     BatchInferenceOutput: Inference results.
@@ -120,12 +121,13 @@ impl PyNvInfer {
     /// Raises:
     ///     RuntimeError: If the engine has been shut down, submission fails,
     ///         or inference times out.
-    #[pyo3(signature = (batch, rois=None))]
+    #[pyo3(signature = (batch, rois=None, timeout_ms=30000))]
     fn infer_sync(
         &self,
         py: Python<'_>,
         batch: &Bound<'_, PyAny>,
         rois: Option<&Bound<'_, PyAny>>,
+        timeout_ms: u64,
     ) -> PyResult<PyBatchInferenceOutput> {
         let engine = self
             .inner
@@ -133,9 +135,10 @@ impl PyNvInfer {
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
         let shared = take_shared_buffer(batch)?;
         let rust_rois = rois.map(extract_rois).transpose()?;
+        let timeout = std::time::Duration::from_millis(timeout_ms);
         let output = py.detach(|| {
             engine
-                .infer_sync(shared, rust_rois.as_ref())
+                .infer_sync_with_timeout(shared, rust_rois.as_ref(), timeout)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
         Ok(PyBatchInferenceOutput::from_rust(output))

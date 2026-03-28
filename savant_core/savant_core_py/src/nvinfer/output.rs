@@ -8,7 +8,7 @@ use super::enums::PyDataType;
 use nvinfer::BatchInferenceOutput;
 use parking_lot::Mutex;
 use pyo3::prelude::*;
-use pyo3::types::PyList;
+use pyo3::types::{PyList, PyTuple};
 use std::sync::Arc;
 
 type SharedOutput = Arc<Mutex<Option<BatchInferenceOutput>>>;
@@ -120,6 +120,25 @@ impl PyTensorView {
             PyDataType::Int8 => "int8",
             PyDataType::Int32 => "int32",
         }
+    }
+
+    /// Return tensor data as a NumPy array (zero-copy view).
+    ///
+    /// The returned array shares memory with the inference output buffer;
+    /// it is valid as long as the parent ``BatchInferenceOutput`` is alive.
+    ///
+    /// Raises:
+    ///     RuntimeError: If host data is unavailable (``has_host_data`` is
+    ///         ``False``) or the host pointer is null.
+    fn as_numpy<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        tensor_as_numpy(
+            py,
+            self.has_host_data,
+            self.host_ptr,
+            self.byte_length,
+            self.data_type,
+            &self.dims.dims,
+        )
     }
 
     fn __repr__(&self) -> String {
@@ -281,4 +300,70 @@ impl PyBatchInferenceOutput {
             self.num_elements, self.has_host_data,
         )
     }
+}
+
+/// Build a zero-copy NumPy array from a raw host-side tensor pointer.
+///
+/// Uses `ctypes` to create a memory view at `host_ptr`, then wraps it
+/// with `numpy.ctypeslib.as_array`.  The caller must guarantee that
+/// the pointer remains valid for the lifetime of the returned array
+/// (enforced by the `SharedOutput` / `SharedOperatorOutput` Arc).
+pub(super) fn tensor_as_numpy(
+    py: Python<'_>,
+    has_host_data: bool,
+    host_ptr: usize,
+    byte_length: usize,
+    data_type: PyDataType,
+    dims: &[u32],
+) -> PyResult<Py<PyAny>> {
+    if !has_host_data || host_ptr == 0 || byte_length == 0 {
+        return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "host tensor data unavailable (host copy disabled or null pointer)",
+        ));
+    }
+
+    let np = py.import("numpy")?;
+    let ctypes_mod = py.import("ctypes")?;
+
+    let element_size: usize = match data_type {
+        PyDataType::Float => 4,
+        PyDataType::Half => 2,
+        PyDataType::Int8 => 1,
+        PyDataType::Int32 => 4,
+    };
+    let num_elements = byte_length / element_size;
+
+    // Map data type to a ctypes scalar (float16 backed by uint16)
+    let c_type = match data_type {
+        PyDataType::Float => ctypes_mod.getattr("c_float")?,
+        PyDataType::Half => ctypes_mod.getattr("c_uint16")?,
+        PyDataType::Int8 => ctypes_mod.getattr("c_int8")?,
+        PyDataType::Int32 => ctypes_mod.getattr("c_int32")?,
+    };
+
+    // (c_type * num_elements).from_address(host_ptr)  — zero-copy view
+    let array_type = c_type.call_method1("__mul__", (num_elements,))?;
+    let c_array = array_type.call_method1("from_address", (host_ptr,))?;
+
+    let flat = np
+        .getattr("ctypeslib")?
+        .call_method1("as_array", (&c_array,))?;
+
+    // Reinterpret uint16 backing as float16
+    let typed = if matches!(data_type, PyDataType::Half) {
+        let dt = np.getattr("dtype")?.call1(("float16",))?;
+        flat.call_method1("view", (dt,))?
+    } else {
+        flat
+    };
+
+    // Reshape to tensor dimensions
+    let result = if !dims.is_empty() {
+        let shape = PyTuple::new(py, dims)?;
+        typed.call_method1("reshape", (shape,))?
+    } else {
+        typed
+    };
+
+    Ok(result.unbind())
 }

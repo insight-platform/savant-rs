@@ -111,7 +111,7 @@ fn encode_attribute_gate_drops_frames_without_attr() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -186,7 +186,7 @@ fn render_attribute_gate_skips_rendering_without_attr() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -267,7 +267,7 @@ fn both_gates_active() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -378,7 +378,7 @@ fn no_gates_all_frames_pass() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {

@@ -11,20 +11,28 @@ Prelude: `use nvinfer::*;` (or explicit imports)
 pub use batch_meta_builder::attach_batch_meta_with_rois;
 pub use batching_operator::{
     BatchFormationCallback, BatchFormationResult, CoordinateScaler,
-    NvInferBatchingOperator, NvInferBatchingOperatorConfig, OperatorElement,
+    NvInferBatchingOperator, NvInferBatchingOperatorConfig,
+    NvInferBatchingOperatorConfigBuilder, OperatorElement,
     OperatorFrameOutput, OperatorInferenceOutput, OperatorResultCallback,
     SealedDeliveries,
 };
 pub use config::NvInferConfig;
 pub use deepstream::{InferDims, InferTensorMeta};
+pub use deepstream_buffers::VideoFormat;
+pub use deepstream_buffers::{DstPadding, Rect, SharedBuffer, SurfaceView, TransformConfig};
 pub use error::{NvInferError, Result};
 pub use meta_clear_policy::MetaClearPolicy;
+pub use model_color_format::ModelColorFormat;
 pub use model_input_scaling::ModelInputScaling;
 pub use nvinfer_types::DataType;
 pub use output::{BatchInferenceOutput, ElementOutput, TensorView};
 pub use pipeline::NvInfer;
 pub use roi::{Roi, RoiKind};
 ```
+
+### Prelude
+
+`use nvinfer::prelude::*;` re-exports all of the above plus `VideoFormat`.
 
 ---
 
@@ -59,7 +67,8 @@ Builds `appsrc ! [queue] ! nvinfer ! appsink`. Operates in `process-mode=2`
 |---|---|---|
 | `new` | `(config: NvInferConfig, callback: InferCallback) → Result<Self>` | Spawns pipeline; callback invoked when inference completes (async mode) |
 | `submit` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<()>` | **Consumes** batch. Requires sole ownership (`into_buffer()` succeeds). Async: results delivered to callback. |
-| `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to 30s. Same ROI semantics as `submit`. |
+| `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to 30s. Delegates to `infer_sync_with_timeout`. |
+| `infer_sync_with_timeout` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>, timeout: Duration) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to `timeout`. Same ROI semantics as `submit`. |
 | `shutdown` | `(&mut self) → Result<()>` | Graceful shutdown: sends EOS, waits up to 10s for drain, sets pipeline to Null. |
 | `input_width` | `(&self) → u32` | Model input width (0 for flexible config). |
 | `input_height` | `(&self) → u32` | Model input height (0 for flexible config). |
@@ -130,6 +139,10 @@ pub struct Roi {
 }
 ```
 
+| Constructor | Signature |
+|---|---|
+| `new` | `(id: i64, bbox: RBBox) → Self` |
+
 Region of interest: identifier + bounding box. Passed per batch slot to `submit`/`infer_sync`.
 `object_id = roi.id as u64` in `NvDsObjectMeta`; returned in `ElementOutput::roi_id`.
 When `RBBox` has non-zero angle, axis-aligned wrapping box is computed automatically.
@@ -187,9 +200,14 @@ pub struct TensorView {
 Zero-copy view into a single output tensor. Valid while parent `BatchInferenceOutput` is alive.
 When `host_copy_enabled` is `false`, host pointers contain stale data — only `device_ptr` is usable.
 
-| Method | Signature |
-|---|---|
-| `unsafe as_slice<T>` | `(&self) → &[T]` — interpret host data as typed slice; returns `&[]` when host copy disabled |
+| Method | Signature | Notes |
+|---|---|---|
+| `unsafe as_slice<T>` | `(&self) → &[T]` | Interpret host data as typed slice; returns `&[]` when host copy disabled |
+| `as_f32s` | `(&self) → Result<&[f32]>` | Safe typed accessor for `DataType::Float` tensors |
+| `as_i32s` | `(&self) → Result<&[i32]>` | Safe typed accessor for `DataType::Int32` tensors |
+| `as_i8s` | `(&self) → Result<&[i8]>` | Safe typed accessor for `DataType::Int8` tensors |
+
+`as_f32s` / `as_i32s` / `as_i8s` return `Err(NvInferError::TensorTypeMismatch)` if `data_type` does not match, or `Err(NvInferError::HostDataUnavailable)` if host copy is disabled / pointer is null / byte length is zero.
 
 ---
 
@@ -217,9 +235,10 @@ pub enum MetaClearPolicy {
 pub enum DataType { Float, Half, Int8, Int32 }
 ```
 
-| Method | Signature |
-|---|---|
-| `element_size` | `(self) → usize` |
+| Method | Signature | Notes |
+|---|---|---|
+| `element_size` | `(self) → usize` | Size in bytes |
+| `name` | `(self) → &'static str` | `"float32"`, `"float16"`, `"int8"`, `"int32"` |
 
 ---
 
@@ -273,6 +292,14 @@ pub struct NvInferBatchingOperatorConfig {
 | `max_batch_size` | Maximum batch size; triggers immediate submission when reached |
 | `max_batch_wait` | Maximum time before submitting a partial batch |
 | `nvinfer` | Forwarded to the inner `NvInfer` pipeline |
+
+### `NvInferBatchingOperatorConfig::builder(nvinfer_config)`
+
+Returns a `NvInferBatchingOperatorConfigBuilder`. Defaults: `max_batch_size = 1`,
+`max_batch_wait = 50 ms`.
+
+Builder methods (all return `Self`): `max_batch_size(usize)`,
+`max_batch_wait(Duration)`, `build() → NvInferBatchingOperatorConfig`.
 
 ---
 
@@ -358,6 +385,7 @@ while sealed.
 | `is_empty` | `(&self) → bool` | |
 | `is_released` | `(&self) → bool` | Non-blocking check |
 | `unseal` | `(self) → Vec<(VideoFrameProxy, SharedBuffer)>` | **Blocks** on Condvar until seal released |
+| `unseal_timeout` | `(self, timeout: Duration) → Result<Vec<…>, Self>` | Blocks up to `timeout`; `Err(self)` if timeout expires |
 | `try_unseal` | `(self) → Result<Vec<…>, Self>` | Non-blocking; `Err(self)` if still sealed |
 
 `unsafe impl Send for SealedDeliveries` — all fields are `Send`.
@@ -432,3 +460,31 @@ Precomputed affine coefficients for `frame_xy = offset + model_xy * scale`.
 For rotated boxes, the trig from `RBBox::scale` is inlined to produce a
 single `RBBox::new()` call (no intermediate atomics). Under non-uniform
 scaling (Fill mode, scale_x ≠ scale_y), the angle is recomputed.
+
+---
+
+## NvInferError
+
+```rust
+pub enum NvInferError {
+    PipelineError(String),
+    ElementCreationFailed(String),
+    LinkFailed(String),
+    InvalidProperty(String),
+    InvalidConfig(String),
+    BatchMetaFailed(String),
+    NullPointer(String),
+    GstInit(String),
+    BatchFormationFailed(String),
+    OperatorShutdown,
+    TensorTypeMismatch { expected: &'static str, actual: &'static str },
+    HostDataUnavailable,
+    Buffer(#[from] NvBufSurfaceError),
+}
+```
+
+| Variant | Trigger |
+|---|---|
+| `TensorTypeMismatch` | `as_f32s()` / `as_i32s()` / `as_i8s()` called on wrong `DataType` |
+| `HostDataUnavailable` | Typed accessor called when host copy disabled, null pointer, or zero bytes |
+| `Buffer` | Wraps `deepstream_buffers::NvBufSurfaceError` via `From` |

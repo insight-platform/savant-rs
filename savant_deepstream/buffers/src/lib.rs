@@ -28,6 +28,7 @@
 
 pub mod cuda_stream;
 pub mod ffi;
+pub mod prelude;
 pub mod transform;
 
 pub mod buffers;
@@ -52,7 +53,7 @@ pub use skia_renderer::SkiaRenderer;
 pub use transform::extract_nvbufsurface;
 pub use transform::{
     buffer_gpu_id, ComputeMode, DstPadding, Interpolation, Padding, Rect, TransformConfig,
-    TransformError, MIN_EFFECTIVE_DIM,
+    TransformConfigBuilder, TransformError, MIN_EFFECTIVE_DIM,
 };
 
 // Re-export so downstream crates (benches, examples) can use these directly.
@@ -60,8 +61,6 @@ pub use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
 pub use savant_gstreamer::VideoFormat;
 
 pub use buffers::*;
-
-pub type NonUniformBatch = DsNvNonUniformSurfaceBuffer;
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -122,6 +121,12 @@ pub enum NvBufSurfaceError {
 
     #[error("{0}")]
     InvalidInput(String),
+
+    #[error("Element missing required pad: {0}")]
+    MissingPad(String),
+
+    #[error("Transform error: {0}")]
+    Transform(#[from] crate::transform::TransformError),
 }
 
 /// NvBufSurface memory types.
@@ -254,9 +259,10 @@ const MAX_BRIDGE_MAP_SIZE: usize = 256;
 /// B-frame reordering is handled naturally because lookups are by value,
 /// not by order.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if `element` does not have both `sink` and `src` static pads.
+/// Returns [`NvBufSurfaceError::MissingPad`] if `element` does not have
+/// both `sink` and `src` static pads.
 ///
 /// # Example
 ///
@@ -268,18 +274,18 @@ const MAX_BRIDGE_MAP_SIZE: usize = 256;
 /// let enc = gst::ElementFactory::make("nvv4l2h265enc")
 ///     .build()
 ///     .unwrap();
-/// bridge_savant_id_meta(&enc);
+/// bridge_savant_id_meta(&enc).unwrap();
 /// // From this point, SavantIdMeta on buffers entering the encoder's
 /// // sink pad will automatically appear on the encoder's src pad output.
 /// ```
-pub fn bridge_savant_id_meta(element: &gst::Element) {
+pub fn bridge_savant_id_meta(element: &gst::Element) -> Result<(), NvBufSurfaceError> {
     let map: Arc<Mutex<HashMap<u64, Vec<SavantIdMetaKind>>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // ── Sink pad probe: extract meta, store by PTS ──────────────────────
     let sink_map = map.clone();
     let sink_pad = element
         .static_pad("sink")
-        .expect("bridge_savant_id_meta: element has no 'sink' pad");
+        .ok_or_else(|| NvBufSurfaceError::MissingPad("sink".to_string()))?;
 
     sink_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
         if let Some(buffer) = info.buffer() {
@@ -308,7 +314,7 @@ pub fn bridge_savant_id_meta(element: &gst::Element) {
     let src_map = map;
     let src_pad = element
         .static_pad("src")
-        .expect("bridge_savant_id_meta: element has no 'src' pad");
+        .ok_or_else(|| NvBufSurfaceError::MissingPad("src".to_string()))?;
 
     src_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
         if let Some(buffer) = info.buffer_mut() {
@@ -321,6 +327,30 @@ pub fn bridge_savant_id_meta(element: &gst::Element) {
         }
         gst::PadProbeReturn::Ok
     });
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transform::TransformError;
+
+    #[test]
+    fn transform_error_into_nvbufsurface_error() {
+        let te = TransformError::TransformFailed(42);
+        let nbe: NvBufSurfaceError = te.into();
+        assert!(matches!(nbe, NvBufSurfaceError::Transform(_)));
+    }
+
+    #[test]
+    fn transform_error_via_question_mark() {
+        fn inner() -> Result<(), NvBufSurfaceError> {
+            Err(TransformError::InvalidBuffer("test"))?
+        }
+        let err = inner().unwrap_err();
+        assert!(matches!(err, NvBufSurfaceError::Transform(_)));
+    }
 }
 
 // PyO3 Python bindings have been moved to savant_core_py::deepstream.

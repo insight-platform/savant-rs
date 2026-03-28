@@ -60,36 +60,79 @@ class Padding:
     RIGHT_BOTTOM: Padding
     SYMMETRIC: Padding
 
+    @staticmethod
+    def from_name(name: str) -> Padding:
+        """Parse a padding mode from a string name.
+
+        Accepts ``"none"``, ``"right_bottom"`` / ``"rightbottom"``,
+        ``"symmetric"``. Case-insensitive.
+
+        Args:
+            name: Padding mode name.
+
+        Returns:
+            The parsed padding mode.
+
+        Raises:
+            ValueError: If the name is not recognized.
+        """
+        ...
+
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 @final
 class Interpolation:
     """Interpolation method for scaling.
 
-    - ``NEAREST``  -- nearest-neighbor.
-    - ``BILINEAR`` -- bilinear (default).
-    - ``ALGO1``    -- GPU: cubic, VIC: 5-tap.
-    - ``ALGO2``    -- GPU: super, VIC: 10-tap.
-    - ``ALGO3``    -- GPU: Lanczos, VIC: smart.
-    - ``ALGO4``    -- GPU: (ignored), VIC: nicest.
-    - ``DEFAULT``  -- GPU: nearest, VIC: nearest.
+    Variants whose behaviour differs between GPU (dGPU / x86_64) and VIC
+    (Video Image Compositor / Jetson) carry compound names.
+
+    - ``NEAREST``                -- nearest-neighbor (same on both).
+    - ``BILINEAR``               -- bilinear (default, same on both).
+    - ``GPU_CUBIC_VIC_5TAP``     -- GPU: cubic, VIC: 5-tap.
+    - ``GPU_SUPER_VIC_10TAP``    -- GPU: super-sampling, VIC: 10-tap.
+    - ``GPU_LANCZOS_VIC_SMART``  -- GPU: Lanczos, VIC: smart.
+    - ``GPU_IGNORED_VIC_NICEST`` -- GPU: ignored (no-op), VIC: nicest.
+    - ``DEFAULT``                -- platform default (nearest on both).
     """
 
     NEAREST: Interpolation
     BILINEAR: Interpolation
-    ALGO1: Interpolation
-    ALGO2: Interpolation
-    ALGO3: Interpolation
-    ALGO4: Interpolation
+    GPU_CUBIC_VIC_5TAP: Interpolation
+    GPU_SUPER_VIC_10TAP: Interpolation
+    GPU_LANCZOS_VIC_SMART: Interpolation
+    GPU_IGNORED_VIC_NICEST: Interpolation
     DEFAULT: Interpolation
+
+    @staticmethod
+    def from_name(name: str) -> Interpolation:
+        """Parse an interpolation method from a string name.
+
+        Accepts canonical names (``"gpu_cubic_vic_5tap"``, ``"gpu_lanczos_vic_smart"``,
+        etc.), legacy short names (``"cubic"``, ``"lanczos"``, ``"nicest"``),
+        and DeepStream names (``"algo1"``–``"algo4"``). Case-insensitive,
+        underscores are stripped before matching.
+
+        Args:
+            name: Interpolation method name.
+
+        Returns:
+            The parsed interpolation method.
+
+        Raises:
+            ValueError: If the name is not recognized.
+        """
+        ...
 
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 @final
 class DstPadding:
@@ -111,6 +154,18 @@ class DstPadding:
         right: int = 0,
         bottom: int = 0,
     ) -> None: ...
+    @staticmethod
+    def uniform(value: int) -> DstPadding:
+        """Create destination padding with equal values on all sides.
+
+        Args:
+            value: Padding value applied to left, top, right, and bottom.
+
+        Returns:
+            A new ``DstPadding`` with all sides set to *value*.
+        """
+        ...
+
     def __repr__(self) -> str: ...
 
 @final

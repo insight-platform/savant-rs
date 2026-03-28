@@ -178,6 +178,25 @@ fn operator_config_debug_format() {
     assert!(dbg.contains("nvinfer"));
 }
 
+#[test]
+fn operator_config_builder_defaults() {
+    let nvinfer_config = make_nvinfer_config();
+    let config = NvInferBatchingOperatorConfig::builder(nvinfer_config).build();
+    assert_eq!(config.max_batch_size, 1);
+    assert_eq!(config.max_batch_wait, Duration::from_millis(50));
+}
+
+#[test]
+fn operator_config_builder_overrides() {
+    let nvinfer_config = make_nvinfer_config();
+    let config = NvInferBatchingOperatorConfig::builder(nvinfer_config)
+        .max_batch_size(16)
+        .max_batch_wait(Duration::from_millis(100))
+        .build();
+    assert_eq!(config.max_batch_size, 16);
+    assert_eq!(config.max_batch_wait, Duration::from_millis(100));
+}
+
 // ── BatchFormationResult ────────────────────────────────────────────
 
 #[test]

@@ -88,7 +88,7 @@ def test_e2e():
 
         for elem in output.elements:
             for tensor in elem.tensors:
-                arr = tensor_to_numpy(tensor)       # CPU, zero-copy
+                arr = tensor.as_numpy()              # CPU, zero-copy (preferred)
                 arr_gpu = tensor_to_cupy(tensor).get()  # GPU -> CPU
                 np.testing.assert_array_equal(arr, arr_gpu)
                 # ... decode + validate ...
@@ -218,6 +218,21 @@ rois = {
 ```
 
 ## Zero-copy tensor access
+
+### Preferred: `as_numpy()` (zero-copy, auto-typed)
+
+`TensorView` and `OperatorTensorView` now provide `as_numpy()` which
+handles dtype selection, reshaping, and null checks automatically:
+
+```python
+for tensor in elem.tensors:
+    arr = tensor.as_numpy()  # shaped ndarray, correct dtype
+```
+
+The manual `tensor_to_numpy` / `ctypes` approach remains available for
+advanced use (custom dtype reinterpretation, partial views, etc.).
+
+### Manual: ctypes / CuPy
 
 `TensorView` exposes `host_ptr` (CPU) and `device_ptr` (GPU) as plain
 integer addresses plus `numpy_dtype` and `byte_length`.  Use `ctypes` for
@@ -393,7 +408,7 @@ def result_callback(output):
     for frame_out in output.frames:
         for elem in frame_out.elements:
             for tensor in elem.tensors:
-                arr = tensor_to_numpy(tensor)
+                arr = tensor.as_numpy()
                 # ... decode, process ...
 
     # 2. Extract sealed deliveries (buffers inaccessible while sealed)

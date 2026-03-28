@@ -81,7 +81,7 @@ fn pts_reset_eos_policy_fires_eos_and_reencodes() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             pts_reset_policy: PtsResetPolicy::EosOnDecreasingPts,
@@ -196,7 +196,7 @@ fn pts_reset_recreate_policy_no_eos() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             pts_reset_policy: PtsResetPolicy::RecreateOnDecreasingPts,
@@ -295,7 +295,7 @@ fn pts_reset_triggered_by_equal_pts() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             pts_reset_policy: PtsResetPolicy::EosOnDecreasingPts,
@@ -376,7 +376,7 @@ fn pts_reset_multiple_consecutive_resets() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             pts_reset_policy: PtsResetPolicy::EosOnDecreasingPts,
@@ -464,7 +464,7 @@ fn encode_attribute_gate_discards_unmarked_frames() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()

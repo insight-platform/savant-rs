@@ -54,7 +54,7 @@ fn engine_auto_creates_worker() {
         idle_timeout_secs: 60,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let frame = make_frame("auto-create");
     let view = make_surface_view();
@@ -77,7 +77,7 @@ fn engine_bypass_multi_source() {
         idle_timeout_secs: 60,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Bypass,
@@ -126,7 +126,7 @@ fn engine_eos_sends_sentinel() {
         idle_timeout_secs: 60,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Bypass,
@@ -155,7 +155,7 @@ fn engine_remove_source() {
         idle_timeout_secs: 60,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec::default();
     engine.set_source_spec("removable", spec).unwrap();
@@ -175,7 +175,7 @@ fn engine_shutdown_rejects_new_frames() {
         idle_timeout_secs: 60,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
     engine.shutdown();
 
     let frame = make_frame("rejected");
@@ -197,7 +197,7 @@ fn engine_spec_hot_swap() {
         idle_timeout_secs: 60,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let drop_spec = SourceSpec {
         codec: CodecSpec::Drop,

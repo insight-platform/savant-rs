@@ -43,7 +43,7 @@
 `NONE`, `RIGHT_BOTTOM`, `SYMMETRIC` (DEF)
 
 ## Interpolation (from savant_rs.deepstream)
-`NEAREST`, `BILINEAR` (DEF), `ALGO1`-`ALGO4`, `DEFAULT`
+`NEAREST`, `BILINEAR` (DEF), `GPU_CUBIC_VIC_5TAP`, `GPU_SUPER_VIC_10TAP`, `GPU_LANCZOS_VIC_SMART`, `GPU_IGNORED_VIC_NICEST`, `DEFAULT`
 
 ## ComputeMode (from savant_rs.deepstream)
 `DEFAULT`, `GPU`, `VIC`

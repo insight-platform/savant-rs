@@ -34,7 +34,7 @@ from savant_rs.deepstream import (
     VideoFormat,          # pixel format enum
     init_cuda,            # CUDA context init
     Padding,              # NONE, RIGHT_BOTTOM, SYMMETRIC
-    Interpolation,        # NEAREST, BILINEAR, ALGO1-4, DEFAULT
+    Interpolation,        # NEAREST, BILINEAR, GPU_CUBIC_VIC_5TAP, GPU_SUPER_VIC_10TAP, GPU_LANCZOS_VIC_SMART, GPU_IGNORED_VIC_NICEST, DEFAULT
     ComputeMode,          # DEFAULT, GPU, VIC
     # Pure-Python helpers (injected at import time, see note below)
     GpuMatCudaArray,      # __cuda_array_interface__ wrapper for cv2.cuda.GpuMat

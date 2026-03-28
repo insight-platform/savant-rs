@@ -106,7 +106,7 @@ fn e2e_on_gpumat_fires_when_enabled() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()
@@ -186,7 +186,7 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()
@@ -241,7 +241,7 @@ fn e2e_external_cuda_stream_rejected() {
     cuda_init(0).unwrap();
 
     let callbacks = Callbacks::default();
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()
@@ -295,7 +295,7 @@ fn e2e_callback_order_gpumat_skia() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()
@@ -370,7 +370,7 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()

@@ -8,15 +8,20 @@ Prelude: `use picasso::prelude::*;`
 ## prelude re-exports
 ```rust
 pub use crate::callbacks::{
-    Callbacks, OnBypassFrame, OnEncodedFrame, OnEviction, OnGpuMat, OnObjectDrawSpec, OnRender,
-    OnStreamReset, StreamResetReason,
+    Callbacks, CallbacksBuilder, OnBypassFrame, OnEncodedFrame, OnEviction, OnGpuMat,
+    OnObjectDrawSpec, OnRender, OnStreamReset, StreamResetReason,
 };
 pub use crate::engine::PicassoEngine;
 pub use crate::error::PicassoError;
 pub use crate::message::OutputMessage;
 pub use crate::spec::{
     CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec,
-    ObjectDrawSpec, PtsResetPolicy, SourceSpec,
+    GeneralSpecBuilder, ObjectDrawSpec, PtsResetPolicy, SourceSpec, SourceSpecBuilder,
+};
+pub use crate::transform::LetterboxParams;
+pub use deepstream_buffers::{
+    DstPadding, Rect, SharedBuffer, SurfaceView, TransformConfig, TransformConfigBuilder,
+    VideoFormat,
 };
 ```
 
@@ -41,7 +46,7 @@ pub struct PicassoEngine { /* private */ }
 | `remove_source_spec` | `(&self, source_id: &str)` | Sends Shutdown to worker, removes from map |
 | `send_frame` | `(&self, source_id: &str, frame: VideoFrameProxy, view: SurfaceView, src_rect: Option<Rect>) → Result<(), PicassoError>` | Auto-creates worker with default Drop spec if source unknown. `src_rect` is optional per-frame crop. `SurfaceView` from `deepstream_buffers`. |
 | `send_eos` | `(&self, source_id: &str) → Result<(), PicassoError>` | No-op if source not found |
-| `shutdown` | `(&mut self)` | Drains all workers, joins watchdog. Idempotent via flag. |
+| `shutdown` | `(&self)` | Drains all workers, joins watchdog. Idempotent via flag. |
 
 - Implements `Drop` (calls `shutdown` if not already done).
 - ⚠ `send_frame`/`send_eos`/`set_source_spec` return `Err(PicassoError::Shutdown)` after shutdown.
@@ -60,6 +65,13 @@ pub struct GeneralSpec {
 }
 ```
 Implements `Default`. `DEFAULT_INFLIGHT_QUEUE_SIZE` constant = 8.
+
+### `GeneralSpec::builder()`
+
+Returns a `GeneralSpecBuilder` with `Default` values for all fields.
+Builder methods (all return `Self`): `name(impl Into<String>)`,
+`idle_timeout_secs(u64)`, `inflight_queue_size(usize)`,
+`pts_reset_policy(PtsResetPolicy)`, `build() → GeneralSpec`.
 
 ---
 
@@ -112,6 +124,14 @@ pub struct SourceSpec {
 ```
 Implements `Default`.
 
+### `SourceSpec::builder()`
+
+Returns a `SourceSpecBuilder` with `Default` values for all fields.
+Builder methods (all return `Self`): `codec(CodecSpec)`, `conditional(ConditionalSpec)`,
+`draw(ObjectDrawSpec)`, `font_family(impl Into<String>)`, `idle_timeout_secs(u64)`,
+`use_on_render(bool)`, `use_on_gpumat(bool)`, `callback_order(CallbackInvocationOrder)`,
+`build() → SourceSpec`.
+
 ---
 
 ## ConditionalSpec
@@ -162,6 +182,21 @@ pub struct Callbacks {
     pub on_stream_reset:  Option<Arc<dyn OnStreamReset>>,
 }
 ```
+
+### `Callbacks::builder()`
+
+Returns a `CallbacksBuilder` — avoids writing `None` for every unused slot:
+
+```rust
+let cbs = Callbacks::builder()
+    .on_encoded_frame(my_cb)
+    .on_render(my_render_cb)
+    .build();
+```
+
+`CallbacksBuilder` has one method per callback slot (same names as the
+struct fields), each accepting `impl OnXxx` and wrapping it in `Arc`.
+Call `.build()` to produce the `Callbacks`.
 
 ### Callback Traits (all `Send + Sync + 'static`)
 
@@ -219,17 +254,17 @@ sources is delivered via `OutputMessage::EndOfStream` through `on_bypass_frame`.
 
 ---
 
-## WorkerMessage (pub, used in tests)
+## WorkerMessage (pub(crate))
 
 ```rust
-pub enum WorkerMessage {
+pub(crate) enum WorkerMessage {
     Frame(VideoFrameProxy, SurfaceView, Option<Rect>),
     Eos,
     UpdateSpec(Box<SourceSpec>),
     Shutdown,
 }
 ```
-Path: `picasso::message::WorkerMessage`
+Path: `picasso::message::WorkerMessage` — not part of the public API.
 
 ---
 
@@ -239,11 +274,14 @@ Path: `picasso::message::WorkerMessage`
 pub struct SourceWorker { /* private */ }
 ```
 
-| Method | Signature |
-|---|---|
-| `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration, queue_size: usize, pts_reset_policy: PtsResetPolicy) → Self` |
-| `send` | `(&self, msg: WorkerMessage) → Result<(), SendError<WorkerMessage>>` |
-| `is_alive` | `(&self) → bool` |
+| Method | Signature | Notes |
+|---|---|---|
+| `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration, queue_size: usize, pts_reset_policy: PtsResetPolicy) → Self` | |
+| `send_frame` | `(&self, frame: VideoFrameProxy, view: SurfaceView, src_rect: Option<Rect>) → Result<(), PicassoError>` | Public convenience method |
+| `send_eos` | `(&self) → Result<(), PicassoError>` | Public convenience method |
+| `send_update_spec` | `(&self, spec: SourceSpec) → Result<(), PicassoError>` | Public convenience method |
+| `send` | `(&self, msg: WorkerMessage) → Result<(), SendError<WorkerMessage>>` | `pub(crate)` — internal |
+| `is_alive` | `(&self) → bool` | |
 
 Path: `picasso::worker::SourceWorker`
 
@@ -267,17 +305,34 @@ Appends GPU operations (crop + letterbox) to frame's transformation chain and ca
 
 ---
 
+## LetterboxParams
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LetterboxParams {
+    pub outer_width: u64,
+    pub outer_height: u64,
+    pub pad_left: u64,
+    pub pad_top: u64,
+    pub pad_right: u64,
+    pub pad_bottom: u64,
+}
+```
+Path: `picasso::transform::LetterboxParams`
+
+---
+
 ## transform::compute_letterbox_params (pub)
 
 ```rust
 pub fn compute_letterbox_params(
     src_w: u64, src_h: u64, dst_w: u64, dst_h: u64, padding: Padding,
     dst_padding: Option<DstPadding>,
-) → anyhow::Result<(outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom)>
+) → Result<LetterboxParams, PicassoError>
 ```
 Path: `picasso::transform::compute_letterbox_params`
 
-Returns `Err` if `dst_padding` reduces the effective width or height below `MIN_EFFECTIVE_DIM` (16 px).
+Returns `Err(PicassoError::InvalidLetterboxParams)` if `dst_padding` reduces the effective width or height below `MIN_EFFECTIVE_DIM` (16 px).
 
 ---
 

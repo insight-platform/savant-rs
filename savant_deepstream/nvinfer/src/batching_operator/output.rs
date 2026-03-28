@@ -196,6 +196,22 @@ impl SealedDeliveries {
         self.deliveries
     }
 
+    /// Block until the seal is released, with a timeout.
+    ///
+    /// Returns the deliveries if the seal is released within `timeout`,
+    /// or returns `Err(self)` if the timeout expires (so the caller
+    /// can retry or drop).
+    pub fn unseal_timeout(
+        self,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {
+        if self.seal.wait_timeout(timeout) {
+            Ok(self.deliveries)
+        } else {
+            Err(self)
+        }
+    }
+
     /// Non-blocking attempt to unseal.  Returns `Err(self)` if the seal
     /// has not yet been released.
     pub fn try_unseal(self) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {

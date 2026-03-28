@@ -1,4 +1,5 @@
 use crate::callbacks::{Callbacks, StreamResetReason};
+use crate::error::PicassoError;
 use crate::message::{OutputMessage, WorkerMessage};
 use crate::pipeline::encode::{
     DrainHandle, DrainNotify, RenderOpts, SharedEncoder, SharedPendingFrames,
@@ -71,9 +72,32 @@ impl SourceWorker {
         }
     }
 
-    /// Send a message to this worker.
+    /// Send a frame to this worker.
+    pub fn send_frame(
+        &self,
+        frame: VideoFrameProxy,
+        view: deepstream_buffers::SurfaceView,
+        src_rect: Option<deepstream_buffers::Rect>,
+    ) -> Result<(), PicassoError> {
+        self.send(WorkerMessage::Frame(frame, view, src_rect))
+            .map_err(|_| PicassoError::SourceWorkerSendFailed)
+    }
+
+    /// Send end-of-stream to this worker.
+    pub fn send_eos(&self) -> Result<(), PicassoError> {
+        self.send(WorkerMessage::Eos)
+            .map_err(|_| PicassoError::SourceWorkerSendFailed)
+    }
+
+    /// Hot-swap the source processing spec.
+    pub fn send_update_spec(&self, spec: SourceSpec) -> Result<(), PicassoError> {
+        self.send(WorkerMessage::UpdateSpec(Box::new(spec)))
+            .map_err(|_| PicassoError::SourceWorkerSendFailed)
+    }
+
+    /// Send a message to this worker (crate-internal).
     #[allow(clippy::result_large_err)]
-    pub fn send(
+    pub(crate) fn send(
         &self,
         msg: WorkerMessage,
     ) -> Result<(), crossbeam::channel::SendError<WorkerMessage>> {
