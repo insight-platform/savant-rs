@@ -23,6 +23,7 @@ members = [
     "savant_deepstream/encoders",
     "savant_deepstream/nvidia_gpu_utils",
     "savant_deepstream/nvinfer",
+    "savant_deepstream/nvtracker",
     "savant_deepstream/picasso",
     # picasso_py bindings migrated to savant_core_py::picasso (deepstream feature)
 ]

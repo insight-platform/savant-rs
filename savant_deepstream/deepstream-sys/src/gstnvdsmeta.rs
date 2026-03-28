@@ -42821,6 +42821,324 @@ unsafe extern "C" {
         value: ::std::os::raw::c_uint,
     ) -> *const ::std::os::raw::c_char;
 }
+pub const TRACKER_STATE_EMPTY: TRACKER_STATE = 0;
+#[doc = "\\ The corresponding tracker is no longer is in use"]
+pub const TRACKER_STATE_ACTIVE: TRACKER_STATE = 1;
+#[doc = "\\ tracking is being confirmed by detectors and actively reporting outputs"]
+pub const TRACKER_STATE_INACTIVE: TRACKER_STATE = 2;
+#[doc = "\\ tracking is not confirmed or w/ low confidence, so not reporting the outputs, but keep tracking (i.e., Shadow Tracking)"]
+pub const TRACKER_STATE_TENTATIVE: TRACKER_STATE = 3;
+#[doc = "\\ tracking is just started and in a probational period. Waiting to become ACTIVE"]
+pub const TRACKER_STATE_PROJECTED: TRACKER_STATE = 4;
+pub type TRACKER_STATE = ::std::os::raw::c_uint;
+#[doc = " A single frame of misc data for a given Target"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsTargetMiscDataFrame {
+    #[doc = " Frame number."]
+    pub frameNum: u32,
+    #[doc = " Bounding box."]
+    pub tBbox: NvOSD_RectParams,
+    #[doc = " Tracking confidence."]
+    pub confidence: f32,
+    #[doc = " Tracking age."]
+    pub age: u32,
+    #[doc = " Curret Tracker State"]
+    pub trackerState: TRACKER_STATE,
+    #[doc = "bbox visibility with respect to the image border"]
+    pub visibility: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsTargetMiscDataFrame"]
+        [::std::mem::size_of::<_NvDsTargetMiscDataFrame>() - 128usize];
+    ["Alignment of _NvDsTargetMiscDataFrame"]
+        [::std::mem::align_of::<_NvDsTargetMiscDataFrame>() - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataFrame::frameNum"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataFrame, frameNum) - 0usize];
+    ["Offset of field: _NvDsTargetMiscDataFrame::tBbox"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataFrame, tBbox) - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataFrame::confidence"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataFrame, confidence) - 112usize];
+    ["Offset of field: _NvDsTargetMiscDataFrame::age"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataFrame, age) - 116usize];
+    ["Offset of field: _NvDsTargetMiscDataFrame::trackerState"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataFrame, trackerState) - 120usize];
+    ["Offset of field: _NvDsTargetMiscDataFrame::visibility"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataFrame, visibility) - 124usize];
+};
+#[doc = " A single frame of misc data for a given Target"]
+pub type NvDsTargetMiscDataFrame = _NvDsTargetMiscDataFrame;
+#[doc = " All misc data output for a single target"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsTargetMiscDataObject {
+    #[doc = " Pointer to a list per-frame information of the target."]
+    pub list: *mut NvDsTargetMiscDataFrame,
+    #[doc = " Number of frames this target appreared in the past."]
+    pub numObj: u32,
+    #[doc = " Maximum number of frames allocated."]
+    pub numAllocated: u32,
+    #[doc = " Target tracking id."]
+    pub uniqueId: u64,
+    #[doc = " Target class id."]
+    pub classId: u16,
+    #[doc = " An array of the string describing the target class."]
+    pub objLabel: [::std::os::raw::c_char; 128usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsTargetMiscDataObject"]
+        [::std::mem::size_of::<_NvDsTargetMiscDataObject>() - 160usize];
+    ["Alignment of _NvDsTargetMiscDataObject"]
+        [::std::mem::align_of::<_NvDsTargetMiscDataObject>() - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataObject::list"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataObject, list) - 0usize];
+    ["Offset of field: _NvDsTargetMiscDataObject::numObj"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataObject, numObj) - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataObject::numAllocated"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataObject, numAllocated) - 12usize];
+    ["Offset of field: _NvDsTargetMiscDataObject::uniqueId"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataObject, uniqueId) - 16usize];
+    ["Offset of field: _NvDsTargetMiscDataObject::classId"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataObject, classId) - 24usize];
+    ["Offset of field: _NvDsTargetMiscDataObject::objLabel"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataObject, objLabel) - 26usize];
+};
+#[doc = " All misc data output for a single target"]
+pub type NvDsTargetMiscDataObject = _NvDsTargetMiscDataObject;
+#[doc = " All misc targets data for a given stream"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsTargetMiscDataStream {
+    #[doc = " Pointer to targets inside this stream."]
+    pub list: *mut NvDsTargetMiscDataObject,
+    #[doc = " Stream id the same as frame_meta->pad_index."]
+    pub streamID: u32,
+    #[doc = " Stream id used inside tracker plugin."]
+    pub surfaceStreamID: u64,
+    #[doc = " Maximum number of objects allocated."]
+    pub numAllocated: u32,
+    #[doc = " Number of objects in this frame."]
+    pub numFilled: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsTargetMiscDataStream"]
+        [::std::mem::size_of::<_NvDsTargetMiscDataStream>() - 32usize];
+    ["Alignment of _NvDsTargetMiscDataStream"]
+        [::std::mem::align_of::<_NvDsTargetMiscDataStream>() - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataStream::list"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataStream, list) - 0usize];
+    ["Offset of field: _NvDsTargetMiscDataStream::streamID"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataStream, streamID) - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataStream::surfaceStreamID"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataStream, surfaceStreamID) - 16usize];
+    ["Offset of field: _NvDsTargetMiscDataStream::numAllocated"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataStream, numAllocated) - 24usize];
+    ["Offset of field: _NvDsTargetMiscDataStream::numFilled"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataStream, numFilled) - 28usize];
+};
+#[doc = " All misc targets data for a given stream"]
+pub type NvDsTargetMiscDataStream = _NvDsTargetMiscDataStream;
+#[doc = " Batch of all streams of a given target misc output"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsTargetMiscDataBatch {
+    #[doc = " Pointer to array of stream lists."]
+    pub list: *mut NvDsTargetMiscDataStream,
+    #[doc = " Number of blocks allocated for the list."]
+    pub numAllocated: u32,
+    #[doc = " Number of filled blocks in the list."]
+    pub numFilled: u32,
+    #[doc = " Pointer to internal buffer pool needed by gst pipelines to return buffers."]
+    pub priv_data: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsTargetMiscDataBatch"]
+        [::std::mem::size_of::<_NvDsTargetMiscDataBatch>() - 24usize];
+    ["Alignment of _NvDsTargetMiscDataBatch"]
+        [::std::mem::align_of::<_NvDsTargetMiscDataBatch>() - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataBatch::list"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataBatch, list) - 0usize];
+    ["Offset of field: _NvDsTargetMiscDataBatch::numAllocated"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataBatch, numAllocated) - 8usize];
+    ["Offset of field: _NvDsTargetMiscDataBatch::numFilled"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataBatch, numFilled) - 12usize];
+    ["Offset of field: _NvDsTargetMiscDataBatch::priv_data"]
+        [::std::mem::offset_of!(_NvDsTargetMiscDataBatch, priv_data) - 16usize];
+};
+#[doc = " Batch of all streams of a given target misc output"]
+pub type NvDsTargetMiscDataBatch = _NvDsTargetMiscDataBatch;
+#[doc = " ReID tensor of the batch."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsReidTensorBatch {
+    #[doc = " Each target's ReID vector length."]
+    pub featureSize: u32,
+    #[doc = " Number of reid vectors in the batch."]
+    pub numFilled: u32,
+    #[doc = " ReID vector on CPU."]
+    pub ptr_host: *mut f32,
+    #[doc = " ReID vector on GPU."]
+    pub ptr_dev: *mut f32,
+    #[doc = " Pointer to internal buffer pool needed by gst pipelines to return buffers."]
+    pub priv_data: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsReidTensorBatch"][::std::mem::size_of::<_NvDsReidTensorBatch>() - 32usize];
+    ["Alignment of _NvDsReidTensorBatch"][::std::mem::align_of::<_NvDsReidTensorBatch>() - 8usize];
+    ["Offset of field: _NvDsReidTensorBatch::featureSize"]
+        [::std::mem::offset_of!(_NvDsReidTensorBatch, featureSize) - 0usize];
+    ["Offset of field: _NvDsReidTensorBatch::numFilled"]
+        [::std::mem::offset_of!(_NvDsReidTensorBatch, numFilled) - 4usize];
+    ["Offset of field: _NvDsReidTensorBatch::ptr_host"]
+        [::std::mem::offset_of!(_NvDsReidTensorBatch, ptr_host) - 8usize];
+    ["Offset of field: _NvDsReidTensorBatch::ptr_dev"]
+        [::std::mem::offset_of!(_NvDsReidTensorBatch, ptr_dev) - 16usize];
+    ["Offset of field: _NvDsReidTensorBatch::priv_data"]
+        [::std::mem::offset_of!(_NvDsReidTensorBatch, priv_data) - 24usize];
+};
+#[doc = " ReID tensor of the batch."]
+pub type NvDsReidTensorBatch = _NvDsReidTensorBatch;
+#[doc = " Batch of trajectory data in all streams."]
+pub type NvDsTrajectoryBatch = NvDsTargetMiscDataBatch;
+#[doc = " @brief Holds convex hull information"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsObjConvexHull {
+    #[doc = " Holds a pointer to a list or array of object information blocks."]
+    pub list: *mut ::std::os::raw::c_int,
+    #[doc = " Holds the number of blocks allocated for the list."]
+    pub numPointsAllocated: u32,
+    #[doc = " Holds the number of points in the list."]
+    pub numPoints: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsObjConvexHull"][::std::mem::size_of::<_NvDsObjConvexHull>() - 16usize];
+    ["Alignment of _NvDsObjConvexHull"][::std::mem::align_of::<_NvDsObjConvexHull>() - 8usize];
+    ["Offset of field: _NvDsObjConvexHull::list"]
+        [::std::mem::offset_of!(_NvDsObjConvexHull, list) - 0usize];
+    ["Offset of field: _NvDsObjConvexHull::numPointsAllocated"]
+        [::std::mem::offset_of!(_NvDsObjConvexHull, numPointsAllocated) - 8usize];
+    ["Offset of field: _NvDsObjConvexHull::numPoints"]
+        [::std::mem::offset_of!(_NvDsObjConvexHull, numPoints) - 12usize];
+};
+#[doc = " @brief Holds convex hull information"]
+pub type NvDsObjConvexHull = _NvDsObjConvexHull;
+#[doc = " @brief Holds Reid Vector information for an object"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _NvDsObjReid {
+    #[doc = " ReID vector length."]
+    pub featureSize: u32,
+    #[doc = " ReID vector pointer on CPU."]
+    pub ptr_host: *mut f32,
+    #[doc = " ReID vector pointer on GPU."]
+    pub ptr_dev: *mut f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsObjReid"][::std::mem::size_of::<_NvDsObjReid>() - 24usize];
+    ["Alignment of _NvDsObjReid"][::std::mem::align_of::<_NvDsObjReid>() - 8usize];
+    ["Offset of field: _NvDsObjReid::featureSize"]
+        [::std::mem::offset_of!(_NvDsObjReid, featureSize) - 0usize];
+    ["Offset of field: _NvDsObjReid::ptr_host"]
+        [::std::mem::offset_of!(_NvDsObjReid, ptr_host) - 8usize];
+    ["Offset of field: _NvDsObjReid::ptr_dev"]
+        [::std::mem::offset_of!(_NvDsObjReid, ptr_dev) - 16usize];
+};
+#[doc = " @brief Holds Reid Vector information for an object"]
+pub type NvDsObjReid = _NvDsObjReid;
+#[doc = " Specifies a custom event to indicate Pad Added."]
+pub const GstNvEventType_GST_NVEVENT_PAD_ADDED: GstNvEventType = 102430;
+#[doc = " Specifies a custom event to indicate Pad Deleted."]
+pub const GstNvEventType_GST_NVEVENT_PAD_DELETED: GstNvEventType = 102686;
+#[doc = " Specifies a custom event to indicate EOS of a particular stream\nin a batch."]
+pub const GstNvEventType_GST_NVEVENT_STREAM_EOS: GstNvEventType = 102942;
+#[doc = " Specifies a custom event to indicate a stream segment."]
+pub const GstNvEventType_GST_NVEVENT_STREAM_SEGMENT: GstNvEventType = 103198;
+#[doc = " Specifies a custom event to indicate reset of a particular stream\nin a batch."]
+pub const GstNvEventType_GST_NVEVENT_STREAM_RESET: GstNvEventType = 103454;
+#[doc = " Specifies a custom event to indicate start of a particular stream\nin a batch."]
+pub const GstNvEventType_GST_NVEVENT_STREAM_START: GstNvEventType = 103710;
+#[doc = " Specifies a custom event to indicate update in caps of particular stream\nin a batch."]
+pub const GstNvEventType_GST_NVEVENT_UPDATE_CAPS: GstNvEventType = 103966;
+#[doc = " Defines supported types of custom events.\n  STICKY and STICKY_MULTI flags are used to ensure that events are not\n  dropped in case of leaky queue."]
+pub type GstNvEventType = ::std::os::raw::c_uint;
+unsafe extern "C" {
+    #[doc = " Creates a \"custom pad added\" event for the specified source.\n\n @param[in] source_id     Source ID of the stream to be added to the pipeline;\n                          also the pad ID of the sinkpad of the\n                          Gst-nvstreammux plugin for which the source\n                          is configured.\n @return  A pointer to the event corresponding to the request if successful,\n  or NULL otherwise."]
+    pub fn gst_nvevent_new_pad_added(source_id: guint) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Creates a \"custom pad deleted\" event for the specified source.\n\n @param[in] source_id     Source ID of the stream to be removed\n                          from the pipeline; also the pad ID of the sinkpad\n                          of the Gst-nvstreammux plugin for which\n                          the source is configured.\n @return  A pointer to the event corresponding to the request if successful,\n  or NULL otherwise."]
+    pub fn gst_nvevent_new_pad_deleted(source_id: guint) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Creates a \"custom EOS\" event for the specified source.\n\n @param[in] source_id     Source ID of the stream for which EOS is to be sent;\n                          also the pad ID  of the sinkpad of the\n                          Gst-nvstreammux plugin for which\n                          the source is configured.\n @return  A pointer to the event corresponding to request if sucxessful,\n  or NULL otherwise."]
+    pub fn gst_nvevent_new_stream_eos(source_id: guint) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Creates a \"custom segment\" event for the specified source.\n\n @param[in] source_id     Source ID of the stream for which a segment event\n                          is to be sent; also the pad ID of the sinkpad\n                          of the Gst-nvstreammux plugin for which the source\n                          is configured.\n @param[in] segment       A pointer to a copy of the segment to be sent\n                          with the event; corresponds to the original segment\n                          for the specified source.\n @return  A pointer to the event corresponding to the request if successful,\n  or NULL otherwise."]
+    pub fn gst_nvevent_new_stream_segment(
+        source_id: guint,
+        segment: *mut GstSegment,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Creates a \"custom reset\" event for the specified source.\n\n @param[in] source_id     Source ID of the stream for which reset is to be sent;\n                          also the pad ID  of the sinkpad of the\n                          Gst-nvstreammux plugin for which\n                          the source is configured.\n @return  A pointer to the event corresponding to request if sucxessful,\n  or NULL otherwise."]
+    pub fn gst_nvevent_new_stream_reset(source_id: guint) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Creates a \"updated caps\" event for the specified source.\n\n @param[in] pad_id        PadID of the stream for which caps has to be updated;\n @param[in] width_val     Width the stream for which caps has to be updated;\n @param[in] height_val    Height the stream for which caps has to be updated;\n @param[in] caps_str      Incoming CAPS the stream for which caps has to be\n \t\t\t\t\t\t\t\t updated;\n @param[in] stream_id_str String of stream id of the stream for which caps has\n  \t\t\t\t\t\t\t\t to be updated;\n @param[in] is_audio      Audio/Video flag of the stream for which caps has to\n \t\t\t\t\t\t\t\t be updated;\n @return  A pointer to the event corresponding to request if sucxessful,\n  or NULL otherwise."]
+    pub fn gst_nvevent_new_update_caps(
+        pad_id: guint,
+        width_val: guint,
+        height_val: guint,
+        caps_str: *mut GstStructure,
+        stream_id_str: *mut gchar,
+        is_audio: gboolean,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Parses a \"pad added\" event received on the sinkpad.\n\n @param[in] event         A pointer to the event received on the sinkpad\n                          when the pad is added to Gst-nvstreammux.\n @param[out] source_id    A pointer to the parsed source ID for the event."]
+    pub fn gst_nvevent_parse_pad_added(event: *mut GstEvent, source_id: *mut guint);
+}
+unsafe extern "C" {
+    #[doc = " Parses a \"pad deleted\" event received on the sinkpad.\n\n @param[in] event         A pointer to the event received on the sinkpad\n                          when the pad is deleted from Gst-nvstreammux.\n @param[out] source_id    A pointer to the parsed source ID for the event."]
+    pub fn gst_nvevent_parse_pad_deleted(event: *mut GstEvent, source_id: *mut guint);
+}
+unsafe extern "C" {
+    #[doc = " Parses a \"stream EOS\" event received on the sinkpad.\n\n @param[in] event         A pointer to the event received on the sinkpad\n                          when the source ID sends the EOS event.\n @param[out] source_id    A pointer to the parsed source ID for the event."]
+    pub fn gst_nvevent_parse_stream_eos(event: *mut GstEvent, source_id: *mut guint);
+}
+unsafe extern "C" {
+    #[doc = " Parses a \"stream segment\" event received on the sinkpad.\n\n @param[in] event         The event received on the sinkpad\n                          when the source ID sends a segment event.\n @param[out] source_id    A pointer to the parsed source ID for which\n                          the event is sent.\n @param[out] segment      A double pointer to the parsed segment\n                          corresponding to source ID for the event."]
+    pub fn gst_nvevent_parse_stream_segment(
+        event: *mut GstEvent,
+        source_id: *mut guint,
+        segment: *mut *mut GstSegment,
+    );
+}
+unsafe extern "C" {
+    #[doc = " Parses a \"stream reset\" event received on the sinkpad.\n\n @param[in] event         A pointer to the event received on the sinkpad\n                          when the source ID sends the reset event.\n @param[out] source_id    A pointer to the parsed source ID for the event."]
+    pub fn gst_nvevent_parse_stream_reset(event: *mut GstEvent, source_id: *mut guint);
+}
+unsafe extern "C" {
+    #[doc = " Creates a new \"stream start\" event.\n\n @param[out] source_id    Source ID of the stream for which stream-start is to be sent\n @param[out] stream_id    The stream-id string obtained from sink pad with\n                          gst_pad_get_stream_id(pad)\n                          corresponding to source ID for the event."]
+    pub fn gst_nvevent_new_stream_start(source_id: guint, stream_id: *mut gchar) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    #[doc = " Parses a \"stream start\" event received on the sinkpad.\n\n @param[in] event         The event received on the sinkpad\n                          when the source ID sends a stream-start event.\n @param[out] source_id    A pointer to the parsed source ID for which\n                          the event is sent.\n @param[out] segment      A double pointer to the parsed stream-id\n                          corresponding to source ID for the event."]
+    pub fn gst_nvevent_parse_stream_start(
+        event: *mut GstEvent,
+        source_id: *mut guint,
+        stream_id: *mut *mut gchar,
+    );
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct __locale_data {

@@ -1,0 +1,19 @@
+%YAML:1.0
+BaseConfig:
+  minDetectorConfidence: 0.0
+TargetManagement:
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 150
+  minIouDiff4NewTarget: 0.5
+  probationAge: 0
+  maxShadowTrackingAge: 30
+  earlyTerminationAge: 1
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 0
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.0
+  minMatchingScore4SizeSimilarity: 0.0
+  minMatchingScore4Iou: 0.0
+  matchingScoreWeight4SizeSimilarity: 0.0
+  matchingScoreWeight4Iou: 1.0
