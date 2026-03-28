@@ -85,6 +85,10 @@ pub struct NvTracker {
     source_lru: Arc<Mutex<LruCache<u32, String>>>,
     /// Per `pad_index`, next `frame_num` to assign (monotonic across batches).
     frame_counters: Arc<Mutex<HashMap<u32, i32>>>,
+    /// Last observed frame resolution `(w, h)` per `pad_index`.
+    last_source_dims: Arc<Mutex<HashMap<u32, (u32, u32)>>>,
+    /// Last observed input frame PTS per `pad_index` (nanoseconds).
+    last_source_pts: Arc<Mutex<HashMap<u32, u64>>>,
     /// Whether `shutdown()` has already been called.
     is_shut_down: bool,
 }
@@ -153,6 +157,12 @@ impl NvTracker {
             "tracking-id-reset-mode",
             config.tracking_id_reset_mode.as_u32(),
         );
+        // Keep past-frame metadata enabled by default so shadow/terminated lists can be emitted
+        // by tracker backends that support them.
+        if nvtracker.find_property("enable-past-frame").is_some() {
+            Self::set_element_property(&nvtracker, "enable-past-frame", "1")?;
+        }
+
         for (key, value) in &config.element_properties {
             if key == "sub-batches" {
                 return Err(NvTrackerError::ConfigError(
@@ -298,6 +308,8 @@ impl NvTracker {
             next_pts: AtomicU64::new(0),
             source_lru: lru_inner,
             frame_counters: Arc::new(Mutex::new(HashMap::new())),
+            last_source_dims: Arc::new(Mutex::new(HashMap::new())),
+            last_source_pts: Arc::new(Mutex::new(HashMap::new())),
             is_shut_down: false,
         })
     }
@@ -306,8 +318,8 @@ impl NvTracker {
     /// internally from the per-frame buffers.
     pub fn track(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        let (batch, slots) = self.prepare_batch(frames, ids)?;
-        self.push_buffer(batch, &slots, pts)
+        let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
+        self.push_buffer(batch, &slots, &input_pts, pts)
     }
 
     /// Push frames through the tracker; block until the result is available (up to 30 s).
@@ -321,14 +333,14 @@ impl NvTracker {
         {
             self.delivery.sync_tx.lock().insert(pts, tx);
         }
-        let (batch, slots) = match self.prepare_batch(frames, ids) {
+        let (batch, slots, input_pts) = match self.prepare_batch(frames, ids) {
             Ok(v) => v,
             Err(e) => {
                 self.delivery.sync_tx.lock().remove(&pts);
                 return Err(e);
             }
         };
-        if let Err(e) = self.push_buffer(batch, &slots, pts) {
+        if let Err(e) = self.push_buffer(batch, &slots, &input_pts, pts) {
             self.delivery.sync_tx.lock().remove(&pts);
             return Err(e);
         }
@@ -354,7 +366,7 @@ impl NvTracker {
         &self,
         frames: &[TrackedFrame],
         ids: Vec<SavantIdMetaKind>,
-    ) -> Result<(gst::Buffer, ClassifiedSlots)> {
+    ) -> Result<(gst::Buffer, ClassifiedSlots, Vec<Option<u64>>)> {
         if frames.is_empty() {
             return Err(NvTrackerError::batch_meta(
                 "prepare_batch",
@@ -397,11 +409,18 @@ impl NvTracker {
                 (f.source.clone(), flat)
             })
             .collect();
+        let input_pts: Vec<Option<u64>> = frames.iter().map(|f| f.buffer.pts_ns()).collect();
 
-        Ok((batch, slots))
+        Ok((batch, slots, input_pts))
     }
 
-    fn push_buffer(&self, mut batch: gst::Buffer, slots: &ClassifiedSlots, pts: u64) -> Result<()> {
+    fn push_buffer(
+        &self,
+        mut batch: gst::Buffer,
+        slots: &ClassifiedSlots,
+        input_pts: &[Option<u64>],
+        pts: u64,
+    ) -> Result<()> {
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
 
         let slot_dims = if num_filled > 0 {
@@ -416,8 +435,19 @@ impl NvTracker {
                 format!("slots.len() {} != num_filled {}", slots.len(), num_filled),
             ));
         }
+        if input_pts.len() != slots.len() {
+            return Err(NvTrackerError::batch_meta(
+                "push_buffer",
+                format!(
+                    "input_pts.len() {} != slots.len() {}",
+                    input_pts.len(),
+                    slots.len()
+                ),
+            ));
+        }
 
         validate_per_source_resolution(slots, &slot_dims, num_filled)?;
+        self.enforce_source_continuity(slots, &slot_dims, input_pts)?;
 
         let meta_slots: Vec<(u32, Vec<(i32, Roi)>)> = slots
             .iter()
@@ -512,9 +542,20 @@ impl NvTracker {
 
     /// Send `GST_NVEVENT_STREAM_RESET` for the stream identified by `source_id` (crc32 → pad id).
     pub fn reset_stream(&self, source_id: &str) -> Result<()> {
+        self.reset_stream_with_reason(source_id, "manual")
+    }
+
+    fn reset_stream_with_reason(&self, source_id: &str, reason: &str) -> Result<()> {
         let pad = crc32fast::hash(source_id.as_bytes());
+        info!(
+            "Resetting tracker stream state: source_id='{}' pad_index={} reason={}",
+            source_id, pad, reason
+        );
         self.source_lru.lock().put(pad, source_id.to_string());
         self.frame_counters.lock().insert(pad, 0);
+        self.last_source_dims.lock().remove(&pad);
+        self.last_source_pts.lock().remove(&pad);
+
         let ev_ptr = unsafe { deepstream_sys::gst_nvevent_new_stream_reset(pad) };
         if ev_ptr.is_null() {
             return Err(NvTrackerError::PipelineError(
@@ -527,6 +568,91 @@ impl NvTracker {
                 "appsrc send_event(stream_reset) rejected".into(),
             ));
         }
+        Ok(())
+    }
+
+    fn enforce_source_continuity(
+        &self,
+        slots: &ClassifiedSlots,
+        slot_dims: &[(u32, u32)],
+        input_pts: &[Option<u64>],
+    ) -> Result<()> {
+        let mut projected_dims = HashMap::new();
+        let mut projected_pts = HashMap::new();
+        {
+            let dims = self.last_source_dims.lock();
+            let pts = self.last_source_pts.lock();
+            for (sid, _) in slots.iter() {
+                let pad = crc32fast::hash(sid.as_bytes());
+                if let Some(dim) = dims.get(&pad).copied() {
+                    projected_dims.insert(pad, dim);
+                }
+                if let Some(p) = pts.get(&pad).copied() {
+                    projected_pts.insert(pad, p);
+                }
+            }
+        }
+
+        let mut reset_reasons: HashMap<u32, (String, Vec<String>)> = HashMap::new();
+
+        for (idx, ((sid, _), (w, h))) in slots.iter().zip(slot_dims.iter()).enumerate() {
+            let pad = crc32fast::hash(sid.as_bytes());
+            let current_dim = (*w, *h);
+
+            if let Some((prev_w, prev_h)) = projected_dims.get(&pad).copied() {
+                if (prev_w, prev_h) != current_dim {
+                    let entry = reset_reasons
+                        .entry(pad)
+                        .or_insert_with(|| (sid.clone(), Vec::new()));
+                    entry.1.push(format!(
+                        "resolution_change old={}x{} new={}x{}",
+                        prev_w, prev_h, current_dim.0, current_dim.1
+                    ));
+                }
+            }
+
+            if let Some(current_pts) = input_pts[idx] {
+                if let Some(prev_pts) = projected_pts.get(&pad).copied() {
+                    if current_pts < prev_pts {
+                        let entry = reset_reasons
+                            .entry(pad)
+                            .or_insert_with(|| (sid.clone(), Vec::new()));
+                        entry.1.push(format!(
+                            "pts_regression prev_pts={} new_pts={}",
+                            prev_pts, current_pts
+                        ));
+                    }
+                }
+                projected_pts.insert(pad, current_pts);
+            }
+
+            projected_dims.insert(pad, current_dim);
+        }
+
+        for (_pad, (source_id, reasons)) in reset_reasons.iter() {
+            let reason = reasons.join(", ");
+            self.reset_stream_with_reason(source_id, &reason)?;
+        }
+
+        {
+            let mut dims = self.last_source_dims.lock();
+            for (sid, _) in slots.iter() {
+                let pad = crc32fast::hash(sid.as_bytes());
+                if let Some(dim) = projected_dims.get(&pad).copied() {
+                    dims.insert(pad, dim);
+                }
+            }
+        }
+        {
+            let mut pts = self.last_source_pts.lock();
+            for (sid, _) in slots.iter() {
+                let pad = crc32fast::hash(sid.as_bytes());
+                if let Some(p) = projected_pts.get(&pad).copied() {
+                    pts.insert(pad, p);
+                }
+            }
+        }
+
         Ok(())
     }
 
