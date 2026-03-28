@@ -17,7 +17,7 @@ mod types;
 
 pub use config::NvInferBatchingOperatorConfig;
 pub use operator::NvInferBatchingOperator;
-pub use output::{OperatorElement, OperatorFrameOutput, OperatorInferenceOutput};
+pub use output::{OperatorElement, OperatorFrameOutput, OperatorInferenceOutput, SealedDeliveries};
 pub use scaler::CoordinateScaler;
 pub use types::{BatchFormationCallback, BatchFormationResult, OperatorResultCallback};
 

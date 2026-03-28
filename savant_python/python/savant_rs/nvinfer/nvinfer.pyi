@@ -30,6 +30,7 @@ __all__ = [
     "OperatorTensorView",
     "OperatorElementOutput",
     "OperatorFrameOutput",
+    "SealedDeliveries",
     "OperatorInferenceOutput",
     "NvInferBatchingOperator",
 ]
@@ -642,7 +643,11 @@ class OperatorElementOutput:
 
 @final
 class OperatorFrameOutput:
-    """Per-frame inference result paired with the original frame and buffer.
+    """Per-frame inference result (callback view — no buffer access).
+
+    The per-frame buffer is held internally and only accessible after
+    calling ``OperatorInferenceOutput.take_deliveries()`` and then
+    ``SealedDeliveries.unseal()``.
 
     Tensor data remains valid as long as the parent
     ``OperatorInferenceOutput`` is alive.
@@ -654,13 +659,62 @@ class OperatorFrameOutput:
         ...
 
     @property
-    def buffer(self) -> SharedBuffer:
-        """The original individual frame buffer submitted for this frame."""
-        ...
-
-    @property
     def elements(self) -> List[OperatorElementOutput]:
         """Inference results for this frame."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class SealedDeliveries:
+    """A batch of ``(VideoFrame, SharedBuffer)`` pairs sealed until the
+    associated ``OperatorInferenceOutput`` is dropped.
+
+    Individual buffers are inaccessible while sealed.  Call :meth:`unseal`
+    (blocking) or :meth:`try_unseal` (non-blocking) to obtain the pairs.
+
+    **Drop safety**: dropping ``SealedDeliveries`` without calling
+    ``unseal()`` is safe — contained buffers are freed and no deadlock
+    can occur.
+    """
+
+    def __len__(self) -> int:
+        """Number of frames in the sealed batch."""
+        ...
+
+    def is_empty(self) -> bool:
+        """Whether the batch is empty."""
+        ...
+
+    def is_released(self) -> bool:
+        """Whether the seal has been released (non-blocking check).
+
+        Returns ``True`` once the ``OperatorInferenceOutput`` has been
+        dropped.
+        """
+        ...
+
+    def unseal(self) -> List[Tuple[VideoFrame, SharedBuffer]]:
+        """Block until the ``OperatorInferenceOutput`` is dropped, then
+        return all deliveries as ``list[tuple[VideoFrame, SharedBuffer]]``.
+
+        The GIL is released during the blocking wait so the callback
+        thread (which needs the GIL to drop the output) can proceed.
+
+        Raises:
+            RuntimeError: If already consumed by a previous call.
+        """
+        ...
+
+    def try_unseal(self) -> Optional[List[Tuple[VideoFrame, SharedBuffer]]]:
+        """Non-blocking attempt to unseal.
+
+        Returns ``list[tuple[VideoFrame, SharedBuffer]]`` if the seal
+        has been released, or ``None`` if still sealed.
+
+        Raises:
+            RuntimeError: If already consumed by a previous call.
+        """
         ...
 
     def __repr__(self) -> str: ...
@@ -672,11 +726,14 @@ class OperatorInferenceOutput:
     Takes over lifetime management of tensor data from the underlying
     NvInfer output. Tensor pointers in ``OperatorFrameOutput.elements``
     remain valid as long as this object is alive.
+
+    Call :meth:`take_deliveries` to extract a :class:`SealedDeliveries`
+    containing the ``(VideoFrame, SharedBuffer)`` pairs for downstream.
     """
 
     @property
     def frames(self) -> List[OperatorFrameOutput]:
-        """Per-frame outputs with the original frame and buffer."""
+        """Per-frame outputs (inference results only — no buffer access)."""
         ...
 
     @property
@@ -687,6 +744,14 @@ class OperatorInferenceOutput:
     @property
     def num_frames(self) -> int:
         """Number of frames in the batch."""
+        ...
+
+    def take_deliveries(self) -> Optional[SealedDeliveries]:
+        """Extract sealed deliveries while keeping tensor data alive.
+
+        Returns a :class:`SealedDeliveries` on the first call.
+        Subsequent calls return ``None``.
+        """
         ...
 
     def __repr__(self) -> str: ...

@@ -78,14 +78,15 @@ with "infer_sync timed out" is returned.
 
 ---
 
-## 8. OperatorInferenceOutput Drop Clears Buffer
+## 8. OperatorInferenceOutput Drop — Three-Step Cleanup
 
-`OperatorInferenceOutput::drop` **unconditionally** calls
-`clear_all_frame_objects` on the output buffer. The `output_buffer` field is
-declared last in the struct so Rust's field drop order destroys `frames`
-(and their `TensorView` raw pointers) before the buffer that backs them.
+`OperatorInferenceOutput::drop` performs three steps in order:
 
-Do not hold references to tensor data after `OperatorInferenceOutput` is dropped.
+1. Calls `clear_all_frame_objects` on the output buffer (invalidates tensor pointers).
+2. Drops `output_buffer` via `self.output_buffer.take()` — this buffer is a parent to the per-frame buffers in deliveries and must be fully released before downstream is unblocked.
+3. Calls `self.seal.release()` to unblock any `SealedDeliveries::unseal()` call.
+
+The `output_buffer` is wrapped in `Option<SharedBuffer>` specifically so that step 2 can eagerly release it before step 3.  Do not hold references to tensor data after `OperatorInferenceOutput` is dropped.
 
 ---
 
@@ -134,3 +135,40 @@ into the `PendingBatch` (because the original `rois` are also destructured
 into a `HashMap` for `NvInfer::submit`). The `rois` field in `submit.rs` is
 iterated by reference (`.iter()`) and cloned per-entry when building the
 `rois_map`.
+
+---
+
+## 13. SealedDeliveries Condvar and GIL
+
+`SealedDeliveries::unseal()` blocks on a `parking_lot::Condvar` until `OperatorInferenceOutput` is dropped.  In PyO3 bindings, the GIL **must** be released before calling `unseal()` (via `py.detach()`), otherwise deadlock occurs:
+
+- `unseal()` holds the GIL and waits on the Condvar.
+- `OperatorInferenceOutput::drop()` (running on the Rust callback thread that uses `Python::attach`) needs the GIL to proceed.
+- Neither can make progress → deadlock.
+
+The binding implementation releases the GIL correctly:
+```rust
+let pairs = py.detach(move || sealed.unseal());
+```
+
+---
+
+## 14. Buffer No Longer Accessible Inside the Result Callback
+
+`OperatorFrameOutput` no longer exposes a `buffer` field.  The per-frame `SharedBuffer` is held privately inside `OperatorInferenceOutput` and extracted via `take_deliveries()`.  Use the sealed delivery pattern:
+
+1. Process tensors via `output.frames()`.
+2. Call `output.take_deliveries()` to get `SealedDeliveries`.
+3. Drop (or let go out of scope) `output`.
+4. Call `sealed.unseal()` to get `Vec<(VideoFrameProxy, SharedBuffer)>`.
+
+---
+
+## 15. Early Drop of SealedDeliveries is Safe
+
+Dropping `SealedDeliveries` without calling `unseal()` is safe:
+
+- The contained `SharedBuffer`s are freed normally.
+- When `OperatorInferenceOutput` later drops, `seal.release()` + `notify_all()` runs against zero waiters (a harmless no-op).
+- `take_deliveries()` returns `Option<SealedDeliveries>` — second call returns `None`, never panics.
+- All drop orderings (`SealedDeliveries` first, `OperatorInferenceOutput` first, or never taken) are safe.

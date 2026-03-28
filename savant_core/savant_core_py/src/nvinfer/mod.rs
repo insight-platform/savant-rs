@@ -31,6 +31,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<batching_operator::PyOperatorTensorView>()?;
     m.add_class::<batching_operator::PyOperatorElementOutput>()?;
     m.add_class::<batching_operator::PyOperatorFrameOutput>()?;
+    m.add_class::<batching_operator::PySealedDeliveries>()?;
     m.add_class::<batching_operator::PyOperatorInferenceOutput>()?;
     m.add_class::<batching_operator::PyNvInferBatchingOperator>()?;
     Ok(())

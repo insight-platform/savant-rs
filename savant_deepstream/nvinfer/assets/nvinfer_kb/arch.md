@@ -128,6 +128,27 @@ User calls add_frame(frame, buffer)
           → Deliver OperatorInferenceOutput to OperatorResultCallback
 ```
 
+### Sealed Delivery Flow
+
+The batching operator callback delivers results in two phases:
+
+1. **Callback phase**: `OperatorResultCallback` receives `OperatorInferenceOutput`
+   containing `frames()` (tensor pointers alive, no buffer access).
+2. **Delivery phase**: `take_deliveries()` → `SealedDeliveries` → `unseal()`
+   (blocks until output dropped) → `Vec<(VideoFrameProxy, SharedBuffer)>`.
+
+```
+callback receives OperatorInferenceOutput
+   ├── frames() — read tensors, modify VideoFrameProxy
+   ├── take_deliveries() → SealedDeliveries (one Arc<Seal> per batch)
+   ├── send(sealed) to downstream channel
+   └── output drops → clear_all_frame_objects → drop output_buffer → seal.release()
+
+downstream receives SealedDeliveries
+   ├── unseal() — blocks on Condvar until seal released
+   └── for (frame, buffer) in pairs { buffer.into_buffer() → sole owner }
+```
+
 ### PendingBatch
 
 When a batch is submitted, `PendingBatch` is stored in the `PendingMap`:

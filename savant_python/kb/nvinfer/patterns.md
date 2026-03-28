@@ -364,3 +364,79 @@ batch.add(src_view)
 gst_buffer = batch.finalize(ids=[(SavantIdMetaKind.FRAME, 0)])
 del batch, src_view, view, src_buf, src_gen  # release Arc refs before consumption
 ```
+
+## Batching Operator with Sealed Deliveries
+
+```python
+from savant_rs.nvinfer import (
+    NvInferBatchingOperator,
+    NvInferBatchingOperatorConfig,
+    NvInferConfig,
+    BatchFormationResult,
+    RoiKind,
+    SealedDeliveries,
+)
+from savant_rs.deepstream import SavantIdMetaKind, VideoFormat, init_cuda
+
+init_cuda(0)
+
+sealed_holder = []
+done = threading.Event()
+
+def batch_formation_callback(frames):
+    ids = [(SavantIdMetaKind.FRAME, i) for i in range(len(frames))]
+    rois = [RoiKind.full_frame() for _ in frames]
+    return BatchFormationResult(ids=ids, rois=rois)
+
+def result_callback(output):
+    # 1. Process inference results (tensor pointers alive)
+    for frame_out in output.frames:
+        for elem in frame_out.elements:
+            for tensor in elem.tensors:
+                arr = tensor_to_numpy(tensor)
+                # ... decode, process ...
+
+    # 2. Extract sealed deliveries (buffers inaccessible while sealed)
+    sealed = output.take_deliveries()
+    assert sealed is not None
+
+    # 3. Store sealed for downstream; output drops at callback end
+    #    → tensor cleanup → seal.release()
+    sealed_holder.append(sealed)
+    done.set()
+
+config = NvInferConfig(
+    nvinfer_properties=props,
+    input_format=VideoFormat.RGBA,
+    model_width=W,
+    model_height=H,
+)
+op_config = NvInferBatchingOperatorConfig(
+    max_batch_size=4,
+    max_batch_wait_ms=5000,
+    nvinfer_config=config,
+)
+
+operator = NvInferBatchingOperator(
+    config=op_config,
+    batch_formation_callback=batch_formation_callback,
+    result_callback=result_callback,
+)
+
+# ... add frames, flush ...
+
+done.wait(timeout=30)
+sealed = sealed_holder[0]
+
+# 4. unseal() blocks until seal released (GIL released internally)
+pairs = sealed.unseal()
+for frame, buffer in pairs:
+    # buffer is now accessible; use buffer for downstream processing
+    pass
+```
+
+**GIL safety:** `unseal()` releases the GIL internally during the blocking
+wait.  This is essential because the callback thread (Rust) acquires the GIL
+via `Python::attach` to drop `OperatorInferenceOutput`.  If `unseal()` held
+the GIL, both threads would deadlock.  A successful `unseal()` return proves
+the GIL is properly released.

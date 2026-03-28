@@ -13,6 +13,7 @@ pub use batching_operator::{
     BatchFormationCallback, BatchFormationResult, CoordinateScaler,
     NvInferBatchingOperator, NvInferBatchingOperatorConfig, OperatorElement,
     OperatorFrameOutput, OperatorInferenceOutput, OperatorResultCallback,
+    SealedDeliveries,
 };
 pub use config::NvInferConfig;
 pub use deepstream::{InferDims, InferTensorMeta};
@@ -335,8 +336,33 @@ buffer — declared last in the struct so frames are dropped first.
 |---|---|
 | `frames` | `(&self) → &[OperatorFrameOutput]` |
 | `host_copy_enabled` | `(&self) → bool` |
+| `take_deliveries` | `(&mut self) → Option<SealedDeliveries>` — first call returns `Some`, subsequent calls return `None` |
 
-⚠ **Drop:** Unconditionally calls `clear_all_frame_objects` on the output buffer.
+⚠ **Drop:** Three-step cleanup: (1) clears `NvDsObjectMeta` on the output buffer, (2) drops `output_buffer` via `Option::take()`, (3) calls `seal.release()` to unblock downstream `SealedDeliveries::unseal()`.
+
+---
+
+## SealedDeliveries
+
+```rust
+pub struct SealedDeliveries { /* private */ }
+```
+
+A batch of `(VideoFrameProxy, SharedBuffer)` pairs sealed until the associated
+`OperatorInferenceOutput` is dropped.  Individual buffers are inaccessible
+while sealed.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `len` | `(&self) → usize` | Number of frames |
+| `is_empty` | `(&self) → bool` | |
+| `is_released` | `(&self) → bool` | Non-blocking check |
+| `unseal` | `(self) → Vec<(VideoFrameProxy, SharedBuffer)>` | **Blocks** on Condvar until seal released |
+| `try_unseal` | `(self) → Result<Vec<…>, Self>` | Non-blocking; `Err(self)` if still sealed |
+
+`unsafe impl Send for SealedDeliveries` — all fields are `Send`.
+
+⚠ **Drop safety:** Dropping `SealedDeliveries` without calling `unseal()` is safe — contained `SharedBuffer`s are freed and `Condvar::notify_all` to zero waiters is a no-op.
 
 ---
 
@@ -345,12 +371,13 @@ buffer — declared last in the struct so frames are dropped first.
 ```rust
 pub struct OperatorFrameOutput {
     pub frame: VideoFrameProxy,
-    pub buffer: SharedBuffer,
     pub elements: Vec<OperatorElement>,
 }
 ```
 
-Per-frame inference result paired with the original frame and buffer.
+Per-frame inference result (callback view — no buffer access).
+
+Per-frame inference result. The per-frame `SharedBuffer` is held internally by the parent `OperatorInferenceOutput` and is only accessible after calling `take_deliveries()` then `SealedDeliveries::unseal()`.
 
 ---
 

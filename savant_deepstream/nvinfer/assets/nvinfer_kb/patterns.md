@@ -236,6 +236,53 @@ operator.shutdown()?;
 
 ---
 
+## Sealed Delivery Pattern (Async)
+
+```rust
+let (tx, rx) = mpsc::channel::<SealedDeliveries>();
+
+let result_callback: OperatorResultCallback =
+    Box::new(move |mut output: OperatorInferenceOutput| {
+        for frame_out in output.frames() {
+            for elem in &frame_out.elements {
+                // read tensors, scale coordinates, modify frame
+            }
+        }
+
+        let sealed = output.take_deliveries().expect("first call");
+        tx.send(sealed).unwrap();
+        // output drops here → tensor cleanup → seal.release()
+    });
+
+// Downstream thread:
+let sealed = rx.recv().unwrap();
+let pairs = sealed.unseal();  // blocks until seal released
+for (frame, buffer) in pairs {
+    let gst_buf = buffer.into_buffer().unwrap();  // sole owner
+}
+```
+
+---
+
+## Sealed Delivery Pattern (Sync)
+
+```rust
+let result_callback: OperatorResultCallback =
+    Box::new(move |mut output: OperatorInferenceOutput| {
+        for frame_out in output.frames() {
+            for elem in &frame_out.elements { /* process tensors */ }
+        }
+        let sealed = output.take_deliveries().expect("first call");
+        drop(output);  // cleanup + seal released
+        let pairs = sealed.unseal();  // returns immediately
+        for (frame, buffer) in pairs {
+            downstream_tx.send((frame, buffer)).unwrap();
+        }
+    });
+```
+
+---
+
 ## Coordinate Scaling in Result Callback
 
 ```rust

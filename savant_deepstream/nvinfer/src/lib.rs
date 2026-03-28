@@ -20,7 +20,7 @@ pub use batch_meta_builder::attach_batch_meta_with_rois;
 pub use batching_operator::{
     BatchFormationCallback, BatchFormationResult, CoordinateScaler, NvInferBatchingOperator,
     NvInferBatchingOperatorConfig, OperatorElement, OperatorFrameOutput, OperatorInferenceOutput,
-    OperatorResultCallback,
+    OperatorResultCallback, SealedDeliveries,
 };
 pub use config::NvInferConfig;
 pub use deepstream::{InferDims, InferTensorMeta};

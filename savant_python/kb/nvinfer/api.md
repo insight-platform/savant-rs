@@ -293,3 +293,154 @@ ref-counted owned `gst::Buffer` without copying.
 
 Pipeline correlation (PTS) is auto-generated internally — callers do not
 provide a `batch_id`.
+
+---
+
+# Batching Operator Layer
+
+## NvInferBatchingOperatorConfig
+
+```python
+class NvInferBatchingOperatorConfig:
+    def __init__(
+        self,
+        max_batch_size: int,
+        max_batch_wait_ms: int,
+        nvinfer_config: NvInferConfig,
+    ) -> None: ...
+
+    @property
+    def max_batch_size(self) -> int: ...
+    @property
+    def max_batch_wait_ms(self) -> int: ...
+    @property
+    def nvinfer_config(self) -> NvInferConfig: ...
+```
+
+---
+
+## BatchFormationResult
+
+```python
+class BatchFormationResult:
+    def __init__(
+        self,
+        ids: list[tuple[SavantIdMetaKind, int]],
+        rois: list[RoiKind],
+    ) -> None: ...
+```
+
+Returned by the batch formation callback.  `ids` is per-frame Savant IDs;
+`rois` is per-frame ROI specification (parallel to the frames list).
+
+---
+
+## NvInferBatchingOperator
+
+```python
+class NvInferBatchingOperator:
+    def __init__(
+        self,
+        config: NvInferBatchingOperatorConfig,
+        batch_formation_callback: Callable[[list[VideoFrame]], BatchFormationResult],
+        result_callback: Callable[[OperatorInferenceOutput], None],
+    ) -> None: ...
+
+    def add_frame(self, frame: VideoFrame, buffer: SharedBuffer) -> None: ...
+    def flush(self) -> None: ...
+    def shutdown(self) -> None: ...
+```
+
+Higher-level batching layer over `NvInfer`.  Accepts individual
+`(VideoFrame, SharedBuffer)` pairs, accumulates them into batches,
+and delivers per-frame results via `result_callback`.
+
+---
+
+## OperatorInferenceOutput
+
+```python
+class OperatorInferenceOutput:
+    @property
+    def frames(self) -> list[OperatorFrameOutput]: ...
+    @property
+    def host_copy_enabled(self) -> bool: ...
+    @property
+    def num_frames(self) -> int: ...
+
+    def take_deliveries(self) -> Optional[SealedDeliveries]: ...
+```
+
+Full batch result.  `take_deliveries()` returns `SealedDeliveries` on
+the first call, `None` on subsequent calls.  Tensor pointers in
+`frames[].elements[].tensors` remain valid while this object is alive.
+
+---
+
+## OperatorFrameOutput
+
+```python
+class OperatorFrameOutput:
+    @property
+    def frame(self) -> VideoFrame: ...
+    @property
+    def elements(self) -> list[OperatorElementOutput]: ...
+```
+
+Per-frame inference result (callback view — **no buffer access**).
+The per-frame buffer is held internally and only accessible after
+`take_deliveries()` + `unseal()`.
+
+---
+
+## OperatorElementOutput
+
+```python
+class OperatorElementOutput:
+    @property
+    def roi_id(self) -> Optional[int]: ...
+    @property
+    def slot_number(self) -> int: ...
+    @property
+    def tensors(self) -> list[OperatorTensorView]: ...
+
+    def scale_points(self, data) -> NDArray[float32]: ...
+    def scale_ltwh(self, data) -> NDArray[float32]: ...
+    def scale_ltrb(self, data) -> NDArray[float32]: ...
+    def scale_rbboxes(self, boxes: list[RBBox]) -> list[RBBox]: ...
+```
+
+Per-element output with coordinate scaling.  `scale_*` methods transform
+model-space predictions to absolute frame coordinates.
+
+---
+
+## OperatorTensorView
+
+Same interface as `TensorView` — `name`, `dims`, `data_type`, `byte_length`,
+`host_ptr`, `device_ptr`, `has_host_data`, `numpy_dtype`.
+
+---
+
+## SealedDeliveries
+
+```python
+class SealedDeliveries:
+    def __len__(self) -> int: ...
+    def is_empty(self) -> bool: ...
+    def is_released(self) -> bool: ...
+    def unseal(self) -> list[tuple[VideoFrame, SharedBuffer]]: ...
+    def try_unseal(self) -> Optional[list[tuple[VideoFrame, SharedBuffer]]]: ...
+```
+
+A batch of `(VideoFrame, SharedBuffer)` pairs sealed until the
+`OperatorInferenceOutput` is dropped.
+
+- `unseal()` — **blocking**, releases the GIL internally during the wait.
+- `try_unseal()` — non-blocking, returns `None` if still sealed.
+- Dropping without calling `unseal()` is safe.
+
+⚠ `unseal()` releases the GIL during the blocking wait.  This is critical
+because the callback thread (Rust) needs the GIL to drop
+`OperatorInferenceOutput`.  If the GIL were held during `unseal()`,
+deadlock would result.

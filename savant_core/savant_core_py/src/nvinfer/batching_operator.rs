@@ -9,11 +9,11 @@ use crate::deepstream::enums::{from_rust_id_kind, to_rust_id_kind, PySavantIdMet
 use crate::deepstream::PySharedBuffer;
 use crate::primitives::bbox::RBBox as PyRBBox;
 use crate::primitives::frame::VideoFrame;
-use deepstream_buffers::{SavantIdMetaKind, SharedBuffer};
+use deepstream_buffers::SavantIdMetaKind;
 use numpy::{PyArray2, PyReadonlyArray2};
 use nvinfer::{
     BatchFormationCallback, BatchFormationResult, NvInferBatchingOperator,
-    NvInferBatchingOperatorConfig, OperatorInferenceOutput, RoiKind,
+    NvInferBatchingOperatorConfig, OperatorInferenceOutput, RoiKind, SealedDeliveries,
 };
 use parking_lot::Mutex;
 use pyo3::prelude::*;
@@ -440,7 +440,11 @@ fn f32x4_to_array<'py>(py: Python<'py>, boxes: &[[f32; 4]]) -> Bound<'py, PyArra
 
 // ─── OperatorFrameOutput ────────────────────────────────────────────────
 
-/// Per-frame inference result paired with the original frame and buffer.
+/// Per-frame inference result (callback view — no buffer access).
+///
+/// The per-frame buffer is held internally and only accessible after
+/// calling ``OperatorInferenceOutput.take_deliveries()`` and then
+/// ``SealedDeliveries.unseal()``.
 ///
 /// Tensor pointers in ``elements`` are valid while the parent
 /// ``OperatorInferenceOutput`` (or any derived child object) is alive.
@@ -449,7 +453,6 @@ pub struct PyOperatorFrameOutput {
     shared: SharedOperatorOutput,
     slot_idx: usize,
     frame: savant_core::primitives::frame::VideoFrameProxy,
-    buffer: SharedBuffer,
     num_elements: usize,
 }
 
@@ -459,12 +462,6 @@ impl PyOperatorFrameOutput {
     #[getter]
     fn frame(&self) -> VideoFrame {
         VideoFrame(self.frame.clone())
-    }
-
-    /// The original individual frame buffer submitted for this frame.
-    #[getter]
-    fn buffer(&self) -> PySharedBuffer {
-        PySharedBuffer::from_rust(self.buffer.clone())
     }
 
     /// Inference results for this frame (one per ROI).
@@ -499,12 +496,128 @@ impl PyOperatorFrameOutput {
     }
 }
 
+// ─── SealedDeliveries ───────────────────────────────────────────────────
+
+/// A batch of ``(VideoFrame, SharedBuffer)`` pairs sealed until the
+/// associated ``OperatorInferenceOutput`` is dropped.
+///
+/// Individual buffers are inaccessible while sealed.  Call
+/// :meth:`unseal` (blocking) or :meth:`try_unseal` (non-blocking)
+/// to obtain the pairs.
+///
+/// **Drop safety**: dropping ``SealedDeliveries`` without calling
+/// ``unseal()`` is safe — contained buffers are freed and no deadlock
+/// can occur.
+#[pyclass(name = "SealedDeliveries", module = "savant_rs.nvinfer")]
+pub struct PySealedDeliveries {
+    inner: Option<SealedDeliveries>,
+}
+
+impl PySealedDeliveries {
+    pub(crate) fn from_rust(sealed: SealedDeliveries) -> Self {
+        Self {
+            inner: Some(sealed),
+        }
+    }
+
+    fn ensure_alive(&self) -> PyResult<&SealedDeliveries> {
+        self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
+        })
+    }
+}
+
+#[pymethods]
+impl PySealedDeliveries {
+    /// Number of frames in the sealed batch.
+    fn __len__(&self) -> PyResult<usize> {
+        Ok(self.ensure_alive()?.len())
+    }
+
+    /// Whether the batch is empty.
+    fn is_empty(&self) -> PyResult<bool> {
+        Ok(self.ensure_alive()?.is_empty())
+    }
+
+    /// Whether the seal has been released (non-blocking check).
+    ///
+    /// Returns ``True`` once the ``OperatorInferenceOutput`` has been
+    /// dropped.
+    fn is_released(&self) -> PyResult<bool> {
+        Ok(self.ensure_alive()?.is_released())
+    }
+
+    /// Block until the ``OperatorInferenceOutput`` is dropped, then
+    /// return all deliveries as ``list[tuple[VideoFrame, SharedBuffer]]``.
+    ///
+    /// The GIL is released during the blocking wait so the callback
+    /// thread (which needs the GIL to drop the output) can proceed.
+    ///
+    /// Raises:
+    ///     RuntimeError: If already consumed by a previous call.
+    fn unseal(&mut self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let sealed = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
+        })?;
+        let pairs = py.detach(move || sealed.unseal());
+        let list = PyList::empty(py);
+        for (frame, buffer) in pairs {
+            let py_frame = VideoFrame(frame);
+            let py_buf = PySharedBuffer::from_rust(buffer);
+            list.append((py_frame.into_pyobject(py)?, py_buf.into_pyobject(py)?))?;
+        }
+        Ok(list.unbind())
+    }
+
+    /// Non-blocking attempt to unseal.
+    ///
+    /// Returns ``list[tuple[VideoFrame, SharedBuffer]]`` if the seal
+    /// has been released, or ``None`` if still sealed.
+    ///
+    /// Raises:
+    ///     RuntimeError: If already consumed by a previous call.
+    fn try_unseal(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyList>>> {
+        let sealed = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
+        })?;
+        match sealed.try_unseal() {
+            Ok(pairs) => {
+                let list = PyList::empty(py);
+                for (frame, buffer) in pairs {
+                    let py_frame = VideoFrame(frame);
+                    let py_buf = PySharedBuffer::from_rust(buffer);
+                    list.append((py_frame.into_pyobject(py)?, py_buf.into_pyobject(py)?))?;
+                }
+                Ok(Some(list.unbind()))
+            }
+            Err(still_sealed) => {
+                self.inner = Some(still_sealed);
+                Ok(None)
+            }
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            Some(s) => format!(
+                "SealedDeliveries(len={}, released={})",
+                s.len(),
+                s.is_released()
+            ),
+            None => "SealedDeliveries(consumed)".to_string(),
+        }
+    }
+}
+
 // ─── OperatorInferenceOutput ────────────────────────────────────────────
 
 /// Full batch inference result from the batching operator.
 ///
 /// Owns the GStreamer buffer that backs all tensor pointers.  Data remains
 /// valid as long as this object (or any child ``OperatorTensorView``) is alive.
+///
+/// Call :meth:`take_deliveries` to extract a :class:`SealedDeliveries`
+/// containing the ``(VideoFrame, SharedBuffer)`` pairs for downstream.
 #[pyclass(name = "OperatorInferenceOutput", module = "savant_rs.nvinfer")]
 pub struct PyOperatorInferenceOutput {
     shared: SharedOperatorOutput,
@@ -526,7 +639,7 @@ impl PyOperatorInferenceOutput {
 
 #[pymethods]
 impl PyOperatorInferenceOutput {
-    /// Per-frame outputs with original frame and buffer.
+    /// Per-frame outputs (inference results only — no buffer access).
     #[getter]
     fn frames(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let guard = self.shared.lock();
@@ -539,7 +652,6 @@ impl PyOperatorInferenceOutput {
                 shared: self.shared.clone(),
                 slot_idx: idx,
                 frame: frame_output.frame.clone(),
-                buffer: frame_output.buffer.clone(),
                 num_elements: frame_output.elements.len(),
             };
             list.append(Py::new(py, py_frame)?)?;
@@ -557,6 +669,18 @@ impl PyOperatorInferenceOutput {
     #[getter]
     fn num_frames(&self) -> usize {
         self.num_frames
+    }
+
+    /// Extract sealed deliveries while keeping tensor data alive.
+    ///
+    /// Returns a :class:`SealedDeliveries` on the first call.
+    /// Subsequent calls return ``None``.
+    fn take_deliveries(&self) -> PyResult<Option<PySealedDeliveries>> {
+        let mut guard = self.shared.lock();
+        let output = guard.as_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("OperatorInferenceOutput has been released")
+        })?;
+        Ok(output.take_deliveries().map(PySealedDeliveries::from_rust))
     }
 
     fn __repr__(&self) -> String {

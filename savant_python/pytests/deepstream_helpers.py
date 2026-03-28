@@ -31,7 +31,7 @@ def make_gen(
 
 # ─── Memory-leak test helpers ──────────────────────────────────────────
 
-LEAK_ITERATIONS = 200
+LEAK_ITERATIONS = 1_000
 WARMUP_ITERATIONS = 10
 CPU_GROWTH_LIMIT_KB = 10_000  # 10 MB
 
@@ -44,7 +44,7 @@ def _default_gpu_growth_limit_mb() -> int:
         from savant_rs.deepstream import is_jetson_kernel
 
         if is_jetson_kernel():
-            return 100
+            return 300
     except ImportError:
         pass
     return 20

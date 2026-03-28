@@ -17,7 +17,12 @@ try:
     from savant_rs.nvinfer import (
         NvInfer,
         NvInferConfig,
+        NvInferBatchingOperator,
+        NvInferBatchingOperatorConfig,
+        BatchFormationResult,
         Roi,
+        RoiKind,
+        SealedDeliveries,
     )
     from savant_rs.deepstream import (
         BufferGenerator,
@@ -27,8 +32,14 @@ try:
         SurfaceView,
         TransformConfig,
         VideoFormat,
+        gpu_platform_tag,
         init_cuda,
         nvbuf_as_gpu_mat,
+    )
+    from savant_rs.primitives import (
+        VideoFrame,
+        VideoFrameContent,
+        VideoFrameTranscodingMethod,
     )
     from savant_rs.primitives.geometry import RBBox
 
@@ -442,3 +453,127 @@ def test_age_gender_e2e_nonuniform_callback():
         print(f"\n  All {pass_count}/{num_faces} faces passed age/gender validation.")
     finally:
         engine.shutdown()
+
+
+# ── SealedDeliveries guard behavior ──────────────────────────────────────
+
+
+def _has_identity_onnx() -> bool:
+    return os.path.isfile(os.path.join(ASSETS_DIR, "identity.onnx"))
+
+
+def identity_properties() -> Dict[str, str]:
+    d = ASSETS_DIR
+    tag = gpu_platform_tag(0)
+    engine_dir = os.path.join(d, "engines", tag)
+    os.makedirs(engine_dir, exist_ok=True)
+    props = {
+        "gpu-id": "0",
+        "net-scale-factor": "1.0",
+        "onnx-file": os.path.join(d, "identity.onnx"),
+        "model-engine-file": os.path.join(
+            engine_dir, "identity.onnx_b16_gpu0_fp16.engine"
+        ),
+        "batch-size": "16",
+        "network-mode": "2",
+    }
+    import platform
+
+    if platform.machine() == "aarch64":
+        props["scaling-compute-hw"] = "1"
+    return props
+
+
+@pytest.mark.skipif(not _has_identity_onnx(), reason="identity.onnx not found")
+def test_sealed_deliveries_guard_behavior():
+    """Verify SealedDeliveries blocks until OperatorInferenceOutput is dropped.
+
+    Uses identity.onnx (3x16x16, batch-size 16) via NvInferBatchingOperator.
+    The test implicitly verifies GIL release in unseal(): the callback runs on
+    a Rust thread that acquires the GIL via Python::attach.  If unseal() held
+    the GIL while blocking on the Condvar, the callback thread could not drop
+    the OperatorInferenceOutput (which needs GIL for Drop), causing deadlock.
+    A successful unseal() return proves GIL is properly released.
+    """
+    init_cuda(0)
+
+    W, H = 16, 16
+
+    sealed_holder: List = []
+    done = threading.Event()
+
+    def batch_formation_callback(frames):
+        ids = [(SavantIdMetaKind.FRAME, i) for i in range(len(frames))]
+        rois = [RoiKind.full_frame() for _ in frames]
+        return BatchFormationResult(ids=ids, rois=rois)
+
+    def result_callback(output):
+        sealed = output.take_deliveries()
+        assert sealed is not None, "first take_deliveries() must return SealedDeliveries"
+        assert len(sealed) == 1
+        assert not sealed.is_released(), "seal should not be released while output alive"
+
+        second = output.take_deliveries()
+        assert second is None, "second take_deliveries() must return None"
+
+        result = sealed.try_unseal()
+        assert result is None, "try_unseal should return None while still sealed"
+
+        sealed_holder.append(sealed)
+        done.set()
+
+    nvinfer_config = NvInferConfig(
+        nvinfer_properties=identity_properties(),
+        input_format=VideoFormat.RGBA,
+        model_width=W,
+        model_height=H,
+    )
+    op_config = NvInferBatchingOperatorConfig(
+        max_batch_size=1,
+        max_batch_wait_ms=5000,
+        nvinfer_config=nvinfer_config,
+    )
+
+    operator = NvInferBatchingOperator(
+        config=op_config,
+        batch_formation_callback=batch_formation_callback,
+        result_callback=result_callback,
+    )
+
+    try:
+        gen = BufferGenerator(
+            format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
+        )
+        buf = gen.acquire(id=0)
+        view = SurfaceView.from_buffer(buf, cuda_stream=0)
+        view.memset(0)
+        del view
+
+        frame = VideoFrame(
+            source_id="test",
+            framerate="30/1",
+            width=W,
+            height=H,
+            content=VideoFrameContent.none(),
+            transcoding_method=VideoFrameTranscodingMethod.Copy,
+        )
+        operator.add_frame(frame, buf)
+        del buf, gen
+
+        assert done.wait(timeout=30), "callback not invoked within 30 s"
+
+        sealed = sealed_holder[0]
+        assert sealed.is_released(), (
+            "seal should be released after output dropped (callback returned)"
+        )
+
+        pairs = sealed.unseal()
+        assert len(pairs) == 1
+        frame_out, buffer_out = pairs[0]
+        assert isinstance(frame_out, VideoFrame)
+        print(
+            f"  SealedDeliveries: frame source_id={frame_out.source_id}, "
+            f"buffer type={type(buffer_out).__name__}"
+        )
+    finally:
+        operator.shutdown()

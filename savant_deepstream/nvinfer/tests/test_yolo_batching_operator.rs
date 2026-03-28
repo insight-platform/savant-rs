@@ -98,6 +98,7 @@ struct FrameResult {
 struct BatchResult {
     num_frames: usize,
     frame_results: Vec<FrameResult>,
+    sole_owners: Vec<bool>,
 }
 
 #[test]
@@ -154,10 +155,11 @@ fn test_yolo_batching_operator_mixed_sizes() {
 
     let conv = converter.clone();
     let result_callback: OperatorResultCallback =
-        Box::new(move |output: OperatorInferenceOutput| {
+        Box::new(move |mut output: OperatorInferenceOutput| {
             let mut batch_result = BatchResult {
                 num_frames: output.frames().len(),
                 frame_results: Vec::new(),
+                sole_owners: Vec::new(),
             };
 
             for frame_out in output.frames() {
@@ -204,6 +206,24 @@ fn test_yolo_batching_operator_mixed_sizes() {
                     height,
                     detections: scaled,
                 });
+            }
+
+            let sealed = output
+                .take_deliveries()
+                .expect("take_deliveries must return Some on first call");
+            assert_eq!(sealed.len(), batch_result.num_frames);
+            assert!(!sealed.is_released(), "seal should not be released yet");
+            assert!(
+                output.take_deliveries().is_none(),
+                "second take_deliveries must return None"
+            );
+
+            drop(output);
+
+            let pairs = sealed.unseal();
+            assert_eq!(pairs.len(), batch_result.num_frames);
+            for (_frame, buf) in &pairs {
+                batch_result.sole_owners.push(buf.strong_count() == 1);
             }
 
             tx.send(batch_result).unwrap();
@@ -336,5 +356,17 @@ fn test_yolo_batching_operator_mixed_sizes() {
         }
     }
 
-    eprintln!("All 4 batches verified successfully.");
+    // ── Verify buffer sole ownership after unseal ─────────────────
+    for (batch_idx, batch) in results.iter().enumerate() {
+        for (frame_idx, &sole) in batch.sole_owners.iter().enumerate() {
+            assert!(
+                sole,
+                "B{} frame{}: SharedBuffer strong_count != 1 after unseal",
+                batch_idx + 1,
+                frame_idx,
+            );
+        }
+    }
+
+    eprintln!("All 4 batches verified successfully (with sealed deliveries).");
 }

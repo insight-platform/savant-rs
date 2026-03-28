@@ -50,6 +50,22 @@ fn make_nvinfer_config() -> crate::config::NvInferConfig {
     }
 }
 
+/// Helper to build a test `OperatorInferenceOutput` with N frames.
+fn make_test_output(n: usize) -> output::OperatorInferenceOutput {
+    let mut frames = Vec::with_capacity(n);
+    let mut deliveries = Vec::with_capacity(n);
+    for i in 0..n {
+        let src = format!("cam{i}");
+        let frame = make_frame(&src);
+        deliveries.push((frame.clone(), make_shared_buffer()));
+        frames.push(output::OperatorFrameOutput {
+            frame,
+            elements: vec![],
+        });
+    }
+    output::OperatorInferenceOutput::new(frames, deliveries, true, make_shared_buffer())
+}
+
 // ── BatchState ──────────────────────────────────────────────────────
 
 #[test]
@@ -229,7 +245,7 @@ fn error_pipeline_error_display() {
 
 #[test]
 fn operator_inference_output_debug_format() {
-    let output = OperatorInferenceOutput::new(vec![], true, make_shared_buffer());
+    let output = make_test_output(0);
     let dbg = format!("{output:?}");
     assert!(dbg.contains("OperatorInferenceOutput"));
     assert!(dbg.contains("num_frames"));
@@ -238,33 +254,18 @@ fn operator_inference_output_debug_format() {
 
 #[test]
 fn operator_inference_output_accessors() {
-    let output = OperatorInferenceOutput::new(vec![], false, make_shared_buffer());
+    let output = make_test_output(0);
     assert!(output.frames().is_empty());
-    assert!(!output.host_copy_enabled());
+    assert!(output.host_copy_enabled());
 }
 
 #[test]
 fn operator_inference_output_with_frames() {
-    let output = OperatorInferenceOutput::new(
-        vec![
-            OperatorFrameOutput {
-                frame: make_frame("cam1"),
-                buffer: make_shared_buffer(),
-                elements: vec![],
-            },
-            OperatorFrameOutput {
-                frame: make_frame("cam2"),
-                buffer: make_shared_buffer(),
-                elements: vec![],
-            },
-        ],
-        true,
-        make_shared_buffer(),
-    );
+    let output = make_test_output(2);
     assert_eq!(output.frames().len(), 2);
     assert!(output.host_copy_enabled());
-    assert_eq!(output.frames()[0].frame.get_source_id(), "cam1");
-    assert_eq!(output.frames()[1].frame.get_source_id(), "cam2");
+    assert_eq!(output.frames()[0].frame.get_source_id(), "cam0");
+    assert_eq!(output.frames()[1].frame.get_source_id(), "cam1");
 }
 
 // ── VideoFrameProxy helper ──────────────────────────────────────────
@@ -417,4 +418,134 @@ fn operator_element_debug_format() {
     assert!(dbg.contains("OperatorElement"));
     assert!(dbg.contains("roi_id"));
     assert!(dbg.contains("scaler_initialized"));
+}
+
+// ── SealedDeliveries ────────────────────────────────────────────────
+
+#[test]
+fn take_deliveries_returns_correct_count() {
+    let mut output = make_test_output(3);
+    let sealed = output.take_deliveries();
+    assert!(sealed.is_some());
+    let sealed = sealed.unwrap();
+    assert_eq!(sealed.len(), 3);
+    assert!(!sealed.is_empty());
+}
+
+#[test]
+fn take_deliveries_twice_returns_none() {
+    let mut output = make_test_output(2);
+    let first = output.take_deliveries();
+    assert!(first.is_some());
+    let second = output.take_deliveries();
+    assert!(second.is_none());
+}
+
+#[test]
+fn sealed_deliveries_is_empty_on_zero_frames() {
+    let mut output = make_test_output(0);
+    let sealed = output.take_deliveries().unwrap();
+    assert!(sealed.is_empty());
+    assert_eq!(sealed.len(), 0);
+}
+
+#[test]
+fn try_unseal_fails_while_sealed() {
+    let mut output = make_test_output(1);
+    let sealed = output.take_deliveries().unwrap();
+    assert!(!sealed.is_released());
+    let result = sealed.try_unseal();
+    assert!(result.is_err());
+    let _sealed_back = result.unwrap_err();
+    drop(output);
+}
+
+#[test]
+fn try_unseal_succeeds_after_drop() {
+    let mut output = make_test_output(2);
+    let sealed = output.take_deliveries().unwrap();
+    drop(output);
+    assert!(sealed.is_released());
+    let pairs = sealed.try_unseal().expect("should succeed after drop");
+    assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn unseal_blocks_then_returns() {
+    let mut output = make_test_output(2);
+    let sealed = output.take_deliveries().unwrap();
+
+    let handle = std::thread::spawn(move || {
+        let pairs = sealed.unseal();
+        assert_eq!(pairs.len(), 2);
+        pairs
+    });
+
+    std::thread::sleep(Duration::from_millis(50));
+    drop(output);
+
+    let pairs = handle.join().expect("thread panicked");
+    assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn is_released_reflects_state() {
+    let mut output = make_test_output(1);
+    let sealed = output.take_deliveries().unwrap();
+    assert!(!sealed.is_released());
+    drop(output);
+    assert!(sealed.is_released());
+}
+
+#[test]
+fn sealed_deliveries_debug_format() {
+    let mut output = make_test_output(2);
+    let sealed = output.take_deliveries().unwrap();
+    let dbg = format!("{sealed:?}");
+    assert!(dbg.contains("SealedDeliveries"));
+    assert!(dbg.contains("len"));
+    assert!(dbg.contains("released"));
+    drop(output);
+}
+
+// ── Early-drop safety tests ─────────────────────────────────────────
+
+#[test]
+fn drop_sealed_without_unseal() {
+    let mut output = make_test_output(2);
+    let sealed = output.take_deliveries().unwrap();
+    drop(sealed);
+    drop(output);
+}
+
+#[test]
+fn drop_sealed_before_output() {
+    let mut output = make_test_output(2);
+    let sealed = output.take_deliveries().unwrap();
+    drop(sealed);
+    drop(output);
+}
+
+#[test]
+fn drop_output_before_sealed() {
+    let mut output = make_test_output(2);
+    let sealed = output.take_deliveries().unwrap();
+    drop(output);
+    assert!(sealed.is_released());
+    drop(sealed);
+}
+
+#[test]
+fn never_call_take_deliveries() {
+    let output = make_test_output(3);
+    drop(output);
+}
+
+#[test]
+fn unseal_after_output_already_dropped_returns_immediately() {
+    let mut output = make_test_output(1);
+    let sealed = output.take_deliveries().unwrap();
+    drop(output);
+    let pairs = sealed.unseal();
+    assert_eq!(pairs.len(), 1);
 }

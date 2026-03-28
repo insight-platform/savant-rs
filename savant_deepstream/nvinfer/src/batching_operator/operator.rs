@@ -72,7 +72,10 @@ impl NvInferBatchingOperator {
                     grouped.entry(elem.slot_number).or_default().push(elem);
                 }
 
-                let mut frame_outputs = Vec::with_capacity(pending.frames.len());
+                let num_frames = pending.frames.len();
+                let mut frame_outputs = Vec::with_capacity(num_frames);
+                let mut deliveries = Vec::with_capacity(num_frames);
+
                 for (slot_idx, ((frame, buf), roi_kind)) in pending
                     .frames
                     .into_iter()
@@ -120,15 +123,20 @@ impl NvInferBatchingOperator {
                         })
                         .collect();
 
+                    let frame_clone = frame.clone();
+                    deliveries.push((frame, buf));
                     frame_outputs.push(OperatorFrameOutput {
-                        frame,
-                        buffer: buf,
+                        frame: frame_clone,
                         elements: op_elems,
                     });
                 }
 
-                let operator_output =
-                    OperatorInferenceOutput::new(frame_outputs, host_copy_enabled, buffer);
+                let operator_output = OperatorInferenceOutput::new(
+                    frame_outputs,
+                    deliveries,
+                    host_copy_enabled,
+                    buffer,
+                );
 
                 result_callback(operator_output);
             });
