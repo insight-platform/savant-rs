@@ -18,21 +18,22 @@ gstreamer-app = { workspace = true }
 glib = { workspace = true }
 deepstream = { path = "../deepstream" }
 deepstream-sys = { path = "../deepstream-sys" }
-deepstream_nvbufsurface = { path = "../nvbufsurface" }
+deepstream_buffers = { path = "../buffers" }
 savant_core = { path = "../../savant_core/savant_core" }
 thiserror = { workspace = true }
 log = { workspace = true }
-tempfile = "3"
+parking_lot = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
-candle-core = "0.9"
-cudarc = { version = "0.17", features = ["cuda-12020"] }
-half = "2.5"
+candle-core = { workspace = true }
+cudarc = { workspace = true }
+half = { workspace = true }
 criterion = { workspace = true }
-env_logger = "0.11"
-image = "0.25"
+env_logger = { workspace = true }
+image = { workspace = true }
 nvidia_gpu_utils = { path = "../nvidia_gpu_utils" }
-rand = "0.9"
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }

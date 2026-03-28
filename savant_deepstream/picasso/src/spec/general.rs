@@ -1,3 +1,17 @@
+/// Policy applied when a frame's PTS is not strictly greater than the
+/// previous frame's PTS (non-monotonic / backward jump).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PtsResetPolicy {
+    /// Emit a synthetic EOS (drain + flush encoder, fire EOS sentinel),
+    /// then recreate the encoder and process the offending frame normally.
+    /// Downstream sees a clean EOS boundary between the old and new streams.
+    #[default]
+    EosOnDecreasingPts,
+    /// Silently destroy and recreate the encoder without emitting EOS.
+    /// The frame that triggered the reset is processed on the new encoder.
+    RecreateOnDecreasingPts,
+}
+
 /// Global defaults for the Picasso engine.
 #[derive(Debug, Clone)]
 pub struct GeneralSpec {
@@ -14,6 +28,8 @@ pub struct GeneralSpec {
     /// `send_frame` call and the worker thread consuming them.  A larger
     /// value absorbs bursts but increases memory usage and latency.
     pub inflight_queue_size: usize,
+    /// Policy for handling non-monotonic (decreasing) PTS values.
+    pub pts_reset_policy: PtsResetPolicy,
 }
 
 /// Default inflight queue capacity for per-source worker channels.
@@ -25,6 +41,7 @@ impl Default for GeneralSpec {
             name: String::new(),
             idle_timeout_secs: 30,
             inflight_queue_size: DEFAULT_INFLIGHT_QUEUE_SIZE,
+            pts_reset_policy: PtsResetPolicy::default(),
         }
     }
 }
@@ -50,6 +67,19 @@ mod tests {
         assert!(s.name.is_empty());
         assert_eq!(s.idle_timeout_secs, 30);
         assert_eq!(s.inflight_queue_size, DEFAULT_INFLIGHT_QUEUE_SIZE);
+        assert_eq!(s.pts_reset_policy, PtsResetPolicy::EosOnDecreasingPts);
+    }
+
+    #[test]
+    fn pts_reset_policy_variants() {
+        assert_eq!(
+            PtsResetPolicy::default(),
+            PtsResetPolicy::EosOnDecreasingPts
+        );
+        assert_ne!(
+            PtsResetPolicy::EosOnDecreasingPts,
+            PtsResetPolicy::RecreateOnDecreasingPts
+        );
     }
 
     #[test]

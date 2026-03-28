@@ -17,14 +17,15 @@ pub use crate::{EncodedFrame, EncoderConfig};
 // Codec (re-exported from savant_gstreamer)
 pub use savant_gstreamer::Codec;
 
-// NvBufSurface utilities (re-exported from deepstream_nvbufsurface)
-pub use deepstream_nvbufsurface::{
-    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+// NvBufSurface utilities (re-exported from deepstream_buffers)
+pub use deepstream_buffers::{
+    cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
+    UniformBatchGenerator, VideoFormat,
 };
 
 // Encoder properties — aggregate enum and all per-codec/platform structs
 pub use crate::properties::{
-    Av1DgpuProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps, H264Profile,
-    HevcDgpuProps, HevcJetsonProps, HevcProfile, JetsonPresetLevel, JpegProps, Platform, PngProps,
-    RateControl, TuningPreset,
+    Av1DgpuProps, Av1JetsonProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps,
+    H264Profile, HevcDgpuProps, HevcJetsonProps, HevcProfile, JetsonPresetLevel, JpegProps,
+    Platform, PngProps, RateControl, RawProps, TuningPreset,
 };

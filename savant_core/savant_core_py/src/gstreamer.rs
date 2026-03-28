@@ -13,11 +13,13 @@ fn to_py_err(e: Mp4MuxerError) -> PyErr {
 
 /// Python enum for video codecs.
 ///
-/// - ``H264`` — H.264 / AVC.
-/// - ``HEVC`` — H.265 / HEVC.
-/// - ``JPEG`` — Motion JPEG.
-/// - ``AV1``  — AV1.
-/// - ``PNG``  — PNG (CPU-based, lossless).
+/// - ``H264``     — H.264 / AVC.
+/// - ``HEVC``     — H.265 / HEVC.
+/// - ``JPEG``     — Motion JPEG.
+/// - ``AV1``      — AV1.
+/// - ``PNG``      — PNG (CPU-based, lossless).
+/// - ``RAW_RGBA`` — Raw RGBA pixel data (no encoding).
+/// - ``RAW_RGB``  — Raw RGB pixel data (no encoding).
 #[pyclass(
     from_py_object,
     name = "Codec",
@@ -37,6 +39,10 @@ pub enum PyCodec {
     Av1 = 3,
     #[pyo3(name = "PNG")]
     Png = 4,
+    #[pyo3(name = "RAW_RGBA")]
+    RawRgba = 5,
+    #[pyo3(name = "RAW_RGB")]
+    RawRgb = 6,
 }
 
 #[pymethods]
@@ -44,7 +50,7 @@ impl PyCodec {
     /// Parse a codec from a string name.
     ///
     /// Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-    /// ``jpeg``, ``av1``, ``png``.
+    /// ``jpeg``, ``av1``, ``png``, ``raw_rgba``, ``raw_rgb``.
     ///
     /// Args:
     ///     name (str): Codec name.
@@ -59,7 +65,7 @@ impl PyCodec {
         match Codec::from_name(name) {
             Some(c) => Ok(c.into()),
             None => Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown codec: '{}'. Expected one of: h264, hevc, h265, jpeg, av1, png",
+                "Unknown codec: '{}'. Expected one of: h264, hevc, h265, jpeg, av1, png, raw_rgba, raw_rgb",
                 name
             ))),
         }
@@ -80,6 +86,8 @@ impl PyCodec {
                 PyCodec::Jpeg => "JPEG",
                 PyCodec::Av1 => "AV1",
                 PyCodec::Png => "PNG",
+                PyCodec::RawRgba => "RAW_RGBA",
+                PyCodec::RawRgb => "RAW_RGB",
             }
         )
     }
@@ -93,6 +101,8 @@ impl From<PyCodec> for Codec {
             PyCodec::Jpeg => Codec::Jpeg,
             PyCodec::Av1 => Codec::Av1,
             PyCodec::Png => Codec::Png,
+            PyCodec::RawRgba => Codec::RawRgba,
+            PyCodec::RawRgb => Codec::RawRgb,
         }
     }
 }
@@ -105,6 +115,8 @@ impl From<Codec> for PyCodec {
             Codec::Jpeg => PyCodec::Jpeg,
             Codec::Av1 => PyCodec::Av1,
             Codec::Png => PyCodec::Png,
+            Codec::RawRgba => PyCodec::RawRgba,
+            Codec::RawRgb => PyCodec::RawRgb,
         }
     }
 }

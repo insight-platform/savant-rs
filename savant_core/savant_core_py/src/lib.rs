@@ -45,6 +45,19 @@ pub fn version() -> String {
     savant_core::version()
 }
 
+/// Returns ``True`` when the library was compiled in release mode,
+/// ``False`` when compiled in debug mode.
+///
+/// Returns
+/// -------
+/// bool
+///   ``True`` for a release build, ``False`` for a debug build.
+///
+#[pyfunction]
+pub fn is_release_build() -> bool {
+    !cfg!(debug_assertions)
+}
+
 lazy_static! {
     pub static ref REGISTERED_HANDLERS: RwLock<HashMap<String, Py<PyAny>>> =
         RwLock::new(HashMap::new());

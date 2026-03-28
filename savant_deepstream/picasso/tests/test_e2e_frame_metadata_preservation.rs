@@ -6,8 +6,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::primitives::attribute_value::AttributeValue;
 use savant_core::primitives::frame::VideoFrameContent;
@@ -74,16 +74,14 @@ fn e2e_frame_metadata_preservation() {
     };
     engine.set_source_spec("meta", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let mut frame = make_frame_sized("meta", W as i64, H as i64);
     frame.set_pts(0).unwrap();
@@ -125,7 +123,7 @@ fn e2e_frame_metadata_preservation() {
         .add_object(obj_person, IdCollisionResolutionPolicy::GenerateNewId)
         .unwrap();
 
-    let buf = make_gpu_surface_view(&gen, 0, DUR);
+    let buf = make_gpu_surface_view_uniform(&gen, 0, DUR);
     let frame_uuid = frame.get_uuid();
     let frame_pts = frame.get_pts();
     engine.send_frame("meta", frame, buf, None).unwrap();

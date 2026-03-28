@@ -133,10 +133,14 @@ impl PyPicassoEngine {
                     .map_err(to_py_err)
             })
         } else {
-            let gst_buf = crate::deepstream::extract_gst_buffer(buf)?;
+            let shared = crate::deepstream::extract_shared_buffer(buf)?;
             py.detach(|| {
-                let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&gst_buf, 0)
-                    .unwrap_or_else(|_| deepstream_nvbufsurface::SurfaceView::wrap(gst_buf));
+                let view =
+                    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).map_err(|e| {
+                        pyo3::exceptions::PyValueError::new_err(format!(
+                            "buffer does not contain a valid NvBufSurface: {e}"
+                        ))
+                    })?;
                 engine
                     .send_frame(source_id, frame_proxy, view, src_rect_rust)
                     .map_err(to_py_err)

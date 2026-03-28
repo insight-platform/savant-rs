@@ -7,19 +7,44 @@
 //!    draining.
 //! 2. Draw-spec hot-swap (same codec) keeps the encoder and drain thread
 //!    alive — no spurious restart or frame loss.
-//! 3. Rapid sustained submission doesn't lose frames.
+//! 3. Rapid sustained submission doesn't lose frames (JPEG + NVENC codecs
+//!    concurrently when hardware supports them).
 //! 4. EOS flushes the exact number of in-flight frames.
 
 mod common;
 
 use common::*;
+use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::primitives::frame::VideoFrameProxy;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// Counts encoded frames and EOS per `source_id` for multi-source throughput tests.
+struct PerSourceEncodedCb {
+    enc_counts: Arc<Mutex<HashMap<String, usize>>>,
+    eos_counts: Arc<Mutex<HashMap<String, usize>>>,
+}
+
+impl OnEncodedFrame for PerSourceEncodedCb {
+    fn call(&self, output: OutputMessage) {
+        match output {
+            OutputMessage::VideoFrame(frame) => {
+                let sid = frame.get_source_id().to_string();
+                let mut m = self.enc_counts.lock().expect("enc_counts lock");
+                *m.entry(sid).or_insert(0) += 1;
+            }
+            OutputMessage::EndOfStream(eos) => {
+                let sid = eos.get_source_id().to_string();
+                let mut m = self.eos_counts.lock().expect("eos_counts lock");
+                *m.entry(sid).or_insert(0) += 1;
+            }
+        }
+    }
+}
 
 const W: u32 = 640;
 const H: u32 = 480;
@@ -59,8 +84,8 @@ fn jpeg_spec() -> SourceSpec {
     }
 }
 
-fn make_generator() -> DsNvSurfaceBufferGenerator {
-    DsNvSurfaceBufferGenerator::new(
+fn make_generator() -> BufferGenerator {
+    BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -200,8 +225,10 @@ fn e2e_draw_spec_hot_swap_preserves_drain() {
     engine.shutdown();
 }
 
-/// Submit many frames rapidly, then EOS. Every submitted frame must
-/// produce exactly one encoded output — no drops from the async drain.
+/// Submit many frames rapidly on every available encode path, then EOS each
+/// source.  One engine, concurrent sources: JPEG (if `nvjpegenc`) plus
+/// H.264 / HEVC / AV1 when `has_nvenc()`.  Every submitted frame must produce
+/// exactly one encoded output per source — no drops from the async drain.
 #[test]
 #[serial_test::serial]
 fn e2e_sustained_throughput_no_frame_loss() {
@@ -209,36 +236,99 @@ fn e2e_sustained_throughput_no_frame_loss() {
     let _ = gstreamer::init();
     cuda_init(0).unwrap();
 
-    let enc_count = Arc::new(AtomicUsize::new(0));
-    let eos_count = Arc::new(AtomicUsize::new(0));
-    let mut engine = setup_engine(&enc_count, &eos_count);
-
-    engine.set_source_spec("burst", jpeg_spec()).unwrap();
-    let gen = make_generator();
-
-    let n = 100u64;
-    for i in 0..n {
-        let frame = make_numbered_frame("burst", i);
-        let buf = make_gpu_surface_view(&gen, i, DUR);
-        engine.send_frame("burst", frame, buf, None).unwrap();
+    let mut streams: Vec<(String, EncoderConfig)> = Vec::new();
+    if has_nvjpegenc() {
+        streams.push(("burst-jpeg".to_string(), jpeg_encoder_config(W, H)));
     }
-    engine.send_eos("burst").unwrap();
+    if has_nvenc() {
+        streams.push(("burst-h264".to_string(), h264_encoder_config(W, H)));
+        streams.push(("burst-hevc".to_string(), hevc_encoder_config(W, H)));
+        streams.push(("burst-av1".to_string(), av1_encoder_config(W, H)));
+    }
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while eos_count.load(Ordering::SeqCst) < 1 {
+    if streams.is_empty() {
+        eprintln!("Skipping e2e_sustained_throughput_no_frame_loss: no nvjpegenc and no NVENC");
+        return;
+    }
+
+    let enc_counts: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+    let eos_counts: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    let callbacks = Callbacks {
+        on_encoded_frame: Some(Arc::new(PerSourceEncodedCb {
+            enc_counts: enc_counts.clone(),
+            eos_counts: eos_counts.clone(),
+        })),
+        ..Default::default()
+    };
+
+    let mut engine = PicassoEngine::new(
+        GeneralSpec {
+            idle_timeout_secs: 300,
+            ..Default::default()
+        },
+        callbacks,
+    );
+
+    for (sid, cfg) in &streams {
+        let spec = SourceSpec {
+            codec: CodecSpec::Encode {
+                transform: TransformConfig::default(),
+                encoder: Box::new(cfg.clone()),
+            },
+            ..Default::default()
+        };
+        engine.set_source_spec(sid, spec).unwrap();
+    }
+
+    let gen = make_generator();
+    let n = 100u64;
+
+    for (sid, _) in &streams {
+        for i in 0..n {
+            let frame = make_numbered_frame(sid, i);
+            let buf = make_gpu_surface_view(&gen, i, DUR);
+            engine.send_frame(sid, frame, buf, None).unwrap();
+        }
+        engine.send_eos(sid).unwrap();
+    }
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let eos = eos_counts.lock().expect("eos_counts lock");
+        let all_eos = streams
+            .iter()
+            .all(|(sid, _)| eos.get(sid).copied().unwrap_or(0) >= 1);
+        drop(eos);
+        if all_eos {
+            break;
+        }
         assert!(
             std::time::Instant::now() < deadline,
-            "timed out waiting for EOS"
+            "timed out waiting for EOS on all sources (expected {})",
+            streams.len()
         );
         std::thread::sleep(Duration::from_millis(100));
     }
 
-    assert_eq!(
-        enc_count.load(Ordering::SeqCst),
-        n as usize,
-        "every submitted frame must produce an encoded output"
-    );
-    assert_eq!(eos_count.load(Ordering::SeqCst), 1);
+    let enc = enc_counts.lock().expect("enc_counts lock");
+    for (sid, _) in &streams {
+        assert_eq!(
+            enc.get(sid).copied().unwrap_or(0),
+            n as usize,
+            "source {sid}: every submitted frame must produce one encoded output"
+        );
+    }
+
+    let eos = eos_counts.lock().expect("eos_counts lock");
+    for (sid, _) in &streams {
+        assert_eq!(
+            eos.get(sid).copied().unwrap_or(0),
+            1,
+            "source {sid}: exactly one EOS"
+        );
+    }
+
     engine.shutdown();
 }
 

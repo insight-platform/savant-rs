@@ -104,10 +104,9 @@ impl FrameMeta {
         unsafe { (*self.raw).pad_index }
     }
 
-    /// Get the number of objects in the frame
-    pub fn num_objects(&self) -> usize {
-        // Count objects by traversing the list
-        self.objects().len()
+    /// Number of object meta elements attached to this frame.
+    pub fn num_objects(&self) -> u32 {
+        unsafe { (*self.raw).num_obj_meta }
     }
 
     /// Get the frame width

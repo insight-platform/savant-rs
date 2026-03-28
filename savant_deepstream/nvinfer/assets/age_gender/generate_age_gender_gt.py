@@ -46,9 +46,7 @@ def main() -> None:
         print(f"ERROR: ONNX model not found at {MODEL_PATH}", file=sys.stderr)
         sys.exit(1)
 
-    sess = ort.InferenceSession(
-        str(MODEL_PATH), providers=["CPUExecutionProvider"]
-    )
+    sess = ort.InferenceSession(str(MODEL_PATH), providers=["CPUExecutionProvider"])
 
     results = {}
     for fname in sorted(os.listdir(ASSETS_DIR)):
@@ -57,7 +55,7 @@ def main() -> None:
 
         inp = preprocess(ASSETS_DIR / fname)
         age_probs, gender_probs = sess.run(None, {"input": inp})
-        age_probs = age_probs[0]      # (101,)
+        age_probs = age_probs[0]  # (101,)
         gender_probs = gender_probs[0]  # (2,)
 
         age = float(np.sum(age_probs * AGE_RANGE))

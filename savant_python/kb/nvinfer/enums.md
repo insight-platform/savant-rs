@@ -59,4 +59,5 @@ DTYPE_MAP = {
 }
 ```
 
-`TensorView.as_numpy()` performs this mapping automatically.
+`TensorView.numpy_dtype` returns the corresponding dtype string
+(`"float32"`, `"float16"`, `"int8"`, `"int32"`).

@@ -44,9 +44,11 @@ matches the target Python.
 **Cause**: Forgot to call `init_cuda(gpu_id)` before creating buffers.
 **Fix**: Call `init_cuda(0)` at the start of GPU test functions.
 
-### `ValueError: batch_id must not be u64::MAX`
-**Cause**: Using `2**64 - 1` as batch_id.
-**Fix**: Use any other `u64` value.
+### `RuntimeError: SharedBuffer has outstanding references`
+**Cause**: Calling `submit()` or `infer_sync()` while other Python objects
+(SurfaceView, batch, source buffer) still hold Arc references.
+**Fix**: `del` all intermediate objects before passing the SharedBuffer to
+the engine. E.g.: `del batch, view, src_buf` before `engine.infer_sync(buf)`.
 
 ## PYI Stubs Out of Sync
 

@@ -8,6 +8,7 @@ mod common;
 use common::*;
 use picasso::message::WorkerMessage;
 use picasso::prelude::*;
+use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,6 +33,7 @@ fn e2e_per_source_idle_timeout() {
         callbacks.clone(),
         Duration::from_secs(1),
         16,
+        PtsResetPolicy::default(),
     );
 
     let worker_slow = SourceWorker::spawn(
@@ -44,6 +46,7 @@ fn e2e_per_source_idle_timeout() {
         callbacks.clone(),
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     worker_fast

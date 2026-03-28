@@ -9,10 +9,13 @@
 //! cargo test -p picasso --test test_leak -- --ignored --nocapture
 //! ```
 
+mod common;
+
+use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::message::WorkerMessage;
 use picasso::prelude::*;
+use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -59,23 +62,15 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn make_nvmm_buffer(
-    gen: &DsNvSurfaceBufferGenerator,
-    frame_id: i64,
-) -> deepstream_nvbufsurface::SurfaceView {
-    let mut buf = gen.acquire_surface(Some(frame_id)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(
-            frame_id as u64 * 33_333_333,
-        ));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+fn make_nvmm_buffer(gen: &BufferGenerator, frame_id: i64) -> deepstream_buffers::SurfaceView {
+    let shared = gen.acquire(Some(frame_id)).unwrap();
+    shared.set_pts_ns(frame_id as u64 * 33_333_333);
+    shared.set_duration_ns(33_333_333);
+    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 
 fn encoder_config(w: u32, h: u32) -> EncoderConfig {
-    EncoderConfig::new(Codec::H264, w, h)
+    common::make_default_encoder_config(w, h)
 }
 
 fn bypass_spec() -> SourceSpec {
@@ -130,10 +125,11 @@ fn leak_worker_lifecycle_churn() {
             callbacks.clone(),
             Duration::from_secs(60),
             16,
+            PtsResetPolicy::default(),
         );
         w.send(WorkerMessage::Frame(
             make_frame(&format!("warmup-{i}"), 320, 240),
-            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
+            deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ))
         .unwrap();
@@ -154,11 +150,12 @@ fn leak_worker_lifecycle_churn() {
             callbacks.clone(),
             Duration::from_secs(60),
             16,
+            PtsResetPolicy::default(),
         );
         for j in 0..10 {
             let _ = w.send(WorkerMessage::Frame(
                 make_frame(&source, 320, 240),
-                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
+                deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             ));
             if j == 9 {
@@ -205,13 +202,14 @@ fn leak_sustained_bypass_frames() {
         callbacks,
         Duration::from_secs(120),
         16,
+        PtsResetPolicy::default(),
     );
 
     // Warm-up
     for _ in 0..100 {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
-            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
+            deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ));
     }
@@ -224,7 +222,7 @@ fn leak_sustained_bypass_frames() {
     for _ in 0..5_000 {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
-            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
+            deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ));
     }
@@ -275,7 +273,7 @@ fn leak_engine_multi_source_churn() {
             let _ = engine.send_frame(
                 &src,
                 make_frame(&src, 320, 240),
-                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
+                deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             );
         }
@@ -295,7 +293,7 @@ fn leak_engine_multi_source_churn() {
             let _ = engine.send_frame(
                 &src,
                 make_frame(&src, 320, 240),
-                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
+                deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             );
         }
@@ -335,7 +333,12 @@ fn leak_gpu_encoder_lifecycle_churn() {
     // Warm-up: create/destroy a few encoders
     for _ in 0..3 {
         let mut enc = deepstream_encoders::NvEncoder::new(&cfg).unwrap();
-        let buf = enc.generator().acquire_surface(Some(0)).unwrap();
+        let buf = enc
+            .generator()
+            .acquire(Some(0))
+            .unwrap()
+            .into_buffer()
+            .unwrap();
         enc.submit_frame(buf, 0, 0, Some(33_333_333)).unwrap();
         let _ = enc.finish(Some(3000));
     }
@@ -349,7 +352,12 @@ fn leak_gpu_encoder_lifecycle_churn() {
     for i in 0..50 {
         let mut enc = deepstream_encoders::NvEncoder::new(&cfg).unwrap();
         for j in 0..5u128 {
-            let buf = enc.generator().acquire_surface(Some(j as i64)).unwrap();
+            let buf = enc
+                .generator()
+                .acquire(Some(j as i64))
+                .unwrap()
+                .into_buffer()
+                .unwrap();
             let pts = (i as u64 * 5 + j as u64) * 33_333_333;
             enc.submit_frame(buf, j, pts, Some(33_333_333)).unwrap();
         }
@@ -392,7 +400,12 @@ fn leak_gpu_sustained_encode() {
 
     // Warm-up: 20 frames
     for i in 0..20u128 {
-        let buf = enc.generator().acquire_surface(Some(i as i64)).unwrap();
+        let buf = enc
+            .generator()
+            .acquire(Some(i as i64))
+            .unwrap()
+            .into_buffer()
+            .unwrap();
         enc.submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
             .unwrap();
         while let Ok(Some(_)) = enc.pull_encoded() {}
@@ -405,7 +418,12 @@ fn leak_gpu_sustained_encode() {
 
     // Main phase: 500 frames
     for i in 20..520u128 {
-        let buf = enc.generator().acquire_surface(Some(i as i64)).unwrap();
+        let buf = enc
+            .generator()
+            .acquire(Some(i as i64))
+            .unwrap()
+            .into_buffer()
+            .unwrap();
         enc.submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
             .unwrap();
         while let Ok(Some(_)) = enc.pull_encoded() {}
@@ -443,7 +461,7 @@ fn leak_gpu_surface_acquire_release() {
     gstreamer::init().unwrap();
     cuda_init(0).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::NV12,
         320,
         240,
@@ -456,7 +474,7 @@ fn leak_gpu_surface_acquire_release() {
 
     // Warm-up
     for i in 0..10 {
-        let _buf = gen.acquire_surface(Some(i)).unwrap();
+        let _buf = gen.acquire(Some(i)).unwrap();
     }
     std::thread::sleep(Duration::from_millis(300));
 
@@ -466,7 +484,7 @@ fn leak_gpu_surface_acquire_release() {
 
     // Acquire and immediately drop 2000 surfaces
     for i in 10..2_010i64 {
-        let _buf = gen.acquire_surface(Some(i)).unwrap();
+        let _buf = gen.acquire(Some(i)).unwrap();
     }
     std::thread::sleep(Duration::from_millis(500));
 
@@ -524,7 +542,7 @@ fn leak_engine_gpu_encode_sustained() {
 
     // We need real NVMM buffers for the encoder path.
     // Create a generator to produce them.
-    let src_gen = DsNvSurfaceBufferGenerator::new(
+    let src_gen = BufferGenerator::new(
         VideoFormat::NV12,
         640,
         480,

@@ -1,8 +1,10 @@
-//! GPU-accelerated video encoders using DeepStream NvBufSurface.
+//! GPU-accelerated video encoders and raw frame downloaders using DeepStream
+//! NvBufSurface.
 //!
 //! This crate provides a high-level API for hardware-accelerated video
-//! encoding (H.264, HEVC/H.265, JPEG, AV1) backed by NVIDIA DeepStream's
-//! NvBufSurface buffer pool and NVENC/NVJPEG encoders.
+//! encoding (H.264, HEVC/H.265, JPEG, AV1) and raw GPU-to-CPU frame
+//! download (RGBA, RGB) backed by NVIDIA DeepStream's NvBufSurface buffer
+//! pool.
 //!
 //! # Design
 //!
@@ -13,7 +15,7 @@
 //!   than the previous frame's PTS. The encoder raises an error on
 //!   reordering.
 //! - **Integrated buffer management**: The encoder owns an
-//!   [`DsNvSurfaceBufferGenerator`](deepstream_nvbufsurface::DsNvSurfaceBufferGenerator)
+//!   [`UniformBatchGenerator`](deepstream_buffers::UniformBatchGenerator)
 //!   that provides NVMM GPU buffers for zero-copy rendering.
 //! - **Typed encoder properties**: Codec and platform-specific property
 //!   structs replace untyped string key-value pairs.  See the
@@ -40,7 +42,8 @@
 //!
 //! // Acquire NVMM buffer, render into it, then submit
 //! for i in 0..10u128 {
-//!     let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+//!     let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+//!     let buffer = shared.into_buffer().expect("sole owner");
 //!     let pts_ns = i as u64 * 33_333_333;
 //!     encoder.submit_frame(buffer, i, pts_ns, Some(33_333_333)).unwrap();
 //! }
@@ -57,9 +60,10 @@ pub(crate) mod properties;
 pub use encoder::NvEncoder;
 pub use error::EncoderError;
 
-// Re-export commonly used items from deepstream_nvbufsurface.
-pub use deepstream_nvbufsurface::{
-    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+// Re-export commonly used items from deepstream_buffers.
+pub use deepstream_buffers::{
+    cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
+    UniformBatchGenerator, VideoFormat,
 };
 
 // Re-export Codec from savant_gstreamer so existing `use deepstream_encoders::Codec` keeps working.
@@ -74,13 +78,11 @@ pub use properties::EncoderProperties;
 /// codec selection, resolution, framerate, GPU configuration, and
 /// encoder-specific properties.
 ///
-/// **Note on buffer pool size**: The internal buffer pools are always
-/// configured with exactly 1 buffer. This is required because the NVENC
-/// hardware encoder may continue DMA-reading from a buffer's GPU memory
-/// after the GStreamer element has released its reference. A pool size of
-/// 1 forces full serialization: each frame must be completely consumed
-/// by the hardware encoder before the next frame can be submitted,
-/// preventing stale-data artifacts.
+/// **Note on buffer pool size**: On discrete GPU, pools use exactly 1
+/// buffer so NVENC cannot DMA-read from memory that was already recycled.
+/// On Jetson, H.264 / HEVC / AV1 V4L2 encoders use 4 buffers because the
+/// driver can hold several input surfaces in flight; a single-buffer pool
+/// would block [`BufferGenerator::acquire`](deepstream_buffers::BufferGenerator).
 #[derive(Debug, Clone)]
 pub struct EncoderConfig {
     /// Video codec to use.
@@ -137,6 +139,7 @@ impl EncoderConfig {
 
     /// Set the framerate.
     pub fn fps(mut self, num: i32, den: i32) -> Self {
+        assert!(den > 0, "fps denominator must be positive");
         self.fps_num = num;
         self.fps_den = den;
         self
@@ -168,7 +171,10 @@ impl EncoderConfig {
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
     /// User-defined frame identifier (passed via [`NvEncoder::submit_frame`]).
-    pub frame_id: u128,
+    ///
+    /// `None` when the encoded buffer could not be matched back to a
+    /// submitted frame (e.g. codec header packets emitted by some encoders).
+    pub frame_id: Option<u128>,
     /// Presentation timestamp in nanoseconds.
     pub pts_ns: u64,
     /// Decode timestamp in nanoseconds (if set by the encoder).
@@ -179,14 +185,16 @@ pub struct EncodedFrame {
     pub dts_ns: Option<u64>,
     /// Duration in nanoseconds (if known).
     pub duration_ns: Option<u64>,
-    /// Encoded bitstream data.
+    /// Encoded bitstream data, or tightly-packed raw pixel data for
+    /// [`Codec::RawRgba`] / [`Codec::RawRgb`].
     pub data: Vec<u8>,
     /// Codec used to encode this frame.
     pub codec: Codec,
     /// `true` when this is an intra-coded (key) frame.
     ///
-    /// For JPEG every frame is a keyframe.  For H.264/H.265/AV1 this is
-    /// derived from the GStreamer buffer flags (`DELTA_UNIT` absent ⇒ key).
+    /// For JPEG and raw pseudoencoders every frame is a keyframe.
+    /// For H.264/H.265/AV1 this is derived from the GStreamer buffer flags
+    /// (`DELTA_UNIT` absent ⇒ key).
     pub keyframe: bool,
     /// Time base (numerator, denominator) for interpreting timestamps.
     ///

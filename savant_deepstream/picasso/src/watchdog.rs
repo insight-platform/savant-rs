@@ -1,14 +1,14 @@
 use crate::worker::SourceWorker;
 use log::{debug, info};
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// Shared signal used to wake the watchdog thread immediately on shutdown.
 pub(crate) struct WatchdogSignal {
-    mu: std::sync::Mutex<bool>,
-    cv: std::sync::Condvar,
+    mu: Mutex<bool>,
+    cv: Condvar,
 }
 
 impl Default for WatchdogSignal {
@@ -20,25 +20,25 @@ impl Default for WatchdogSignal {
 impl WatchdogSignal {
     pub(crate) fn new() -> Self {
         Self {
-            mu: std::sync::Mutex::new(false),
-            cv: std::sync::Condvar::new(),
+            mu: Mutex::new(false),
+            cv: Condvar::new(),
         }
     }
 
     /// Signal the watchdog to wake up and exit.
     pub(crate) fn notify_shutdown(&self) {
-        let mut guard = self.mu.lock().unwrap();
+        let mut guard = self.mu.lock();
         *guard = true;
         self.cv.notify_one();
     }
 
     /// Sleep for at most `duration`, returning `true` if shutdown was signaled.
     fn wait_or_shutdown(&self, duration: Duration) -> bool {
-        let guard = self.mu.lock().unwrap();
+        let mut guard = self.mu.lock();
         if *guard {
             return true;
         }
-        let (guard, _) = self.cv.wait_timeout(guard, duration).unwrap();
+        self.cv.wait_for(&mut guard, duration);
         *guard
     }
 }

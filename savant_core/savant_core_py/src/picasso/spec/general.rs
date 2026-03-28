@@ -1,5 +1,65 @@
-use picasso::prelude::{EvictionDecision, GeneralSpec};
+use picasso::prelude::{EvictionDecision, GeneralSpec, PtsResetPolicy};
 use pyo3::prelude::*;
+
+/// Policy for handling non-monotonic (decreasing) PTS values.
+///
+/// Construct via the factory static methods
+/// [`eos_on_decreasing_pts`] or [`recreate_on_decreasing_pts`].
+#[pyclass(from_py_object, name = "PtsResetPolicy", module = "savant_rs.picasso")]
+#[derive(Debug, Clone)]
+pub struct PyPtsResetPolicy {
+    inner: PtsResetPolicy,
+}
+
+#[pymethods]
+impl PyPtsResetPolicy {
+    /// Emit a synthetic EOS before recreating the encoder (default).
+    ///
+    /// Downstream sees a clean EOS boundary between old and new streams.
+    #[staticmethod]
+    fn eos_on_decreasing_pts() -> Self {
+        Self {
+            inner: PtsResetPolicy::EosOnDecreasingPts,
+        }
+    }
+
+    /// Silently recreate the encoder without emitting EOS.
+    #[staticmethod]
+    fn recreate_on_decreasing_pts() -> Self {
+        Self {
+            inner: PtsResetPolicy::RecreateOnDecreasingPts,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match self.inner {
+            PtsResetPolicy::EosOnDecreasingPts => {
+                "PtsResetPolicy.eos_on_decreasing_pts()".to_string()
+            }
+            PtsResetPolicy::RecreateOnDecreasingPts => {
+                "PtsResetPolicy.recreate_on_decreasing_pts()".to_string()
+            }
+        }
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+
+    fn __ne__(&self, other: &Self) -> bool {
+        self.inner != other.inner
+    }
+
+    fn __hash__(&self) -> u64 {
+        self.inner as u64
+    }
+}
+
+impl PyPtsResetPolicy {
+    pub(crate) fn to_rust(&self) -> PtsResetPolicy {
+        self.inner
+    }
+}
 
 /// Global defaults for the Picasso engine.
 #[pyclass(from_py_object, name = "GeneralSpec", module = "savant_rs.picasso")]
@@ -16,24 +76,34 @@ pub struct PyGeneralSpec {
     /// Capacity of the per-worker inflight message queue.
     #[pyo3(get, set)]
     pub inflight_queue_size: usize,
+    /// Policy for handling non-monotonic (decreasing) PTS values.
+    #[pyo3(get, set)]
+    pub pts_reset_policy: PyPtsResetPolicy,
 }
 
 #[pymethods]
 impl PyGeneralSpec {
     #[new]
-    #[pyo3(signature = (name = "picasso", idle_timeout_secs = 30, inflight_queue_size = 8))]
-    fn new(name: &str, idle_timeout_secs: u64, inflight_queue_size: usize) -> Self {
+    #[pyo3(signature = (name = "picasso", idle_timeout_secs = 30, inflight_queue_size = 8, pts_reset_policy = None))]
+    fn new(
+        name: &str,
+        idle_timeout_secs: u64,
+        inflight_queue_size: usize,
+        pts_reset_policy: Option<PyPtsResetPolicy>,
+    ) -> Self {
         Self {
             name: name.to_string(),
             idle_timeout_secs,
             inflight_queue_size,
+            pts_reset_policy: pts_reset_policy
+                .unwrap_or_else(PyPtsResetPolicy::eos_on_decreasing_pts),
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "GeneralSpec(name={:?}, idle_timeout_secs={}, inflight_queue_size={})",
-            self.name, self.idle_timeout_secs, self.inflight_queue_size
+            "GeneralSpec(name={:?}, idle_timeout_secs={}, inflight_queue_size={}, pts_reset_policy={})",
+            self.name, self.idle_timeout_secs, self.inflight_queue_size, self.pts_reset_policy.__repr__()
         )
     }
 }
@@ -44,6 +114,7 @@ impl PyGeneralSpec {
             name: self.name.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
             inflight_queue_size: self.inflight_queue_size,
+            pts_reset_policy: self.pts_reset_policy.to_rust(),
         }
     }
 }

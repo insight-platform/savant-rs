@@ -1,5 +1,20 @@
 # savant_python — Patterns & Development Workflow
 
+## Virtual Environment
+
+The Makefile uses `VENV_DIR` to locate the Python virtualenv:
+
+```
+VENV_DIR ?= /opt/venv          # default (Docker containers)
+VENV_BIN := $(VENV_DIR)/bin
+```
+
+Override for local development:
+
+```bash
+VENV_DIR=./venv make build_savant install
+```
+
 ## Build Commands
 
 All commands run from the **project root** (`/workspaces/savant-rs`).
@@ -66,12 +81,33 @@ def test_something():
 import pytest
 
 try:
-    from savant_rs.deepstream import init_cuda, DsNvSurfaceBufferGenerator
+    from savant_rs.deepstream import init_cuda, BufferGenerator
     HAS_DS = True
 except ImportError:
     HAS_DS = False
 
 pytestmark = pytest.mark.skipif(not HAS_DS, reason="DeepStream not available")
+```
+
+### Jetson model detection (container-friendly)
+```python
+from savant_rs.deepstream import jetson_model, is_jetson_kernel
+
+if is_jetson_kernel():
+    model = jetson_model()  # e.g. "Orin Nano 8GB" or None
+    if model and "Orin Nano" in model:
+        # Adjust batch size, resolution, etc. for Orin Nano
+        pass
+```
+
+### NVENC capability detection
+```python
+from savant_rs.deepstream import has_nvenc
+
+if not has_nvenc():
+    # No hardware encoder — fall back to software or skip encoding.
+    # Returns False on: Orin Nano, H100, A100, A30, B200, B300, GB200, etc.
+    pass
 ```
 
 ### Using gen_frame / gen_empty_frame

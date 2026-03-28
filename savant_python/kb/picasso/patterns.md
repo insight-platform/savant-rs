@@ -3,7 +3,7 @@
 ## Two Test Categories
 
 ### NOGPU Tests (test_picasso_init.py style)
-- No CUDA, no DsNvSurfaceBufferGenerator, no send_frame
+- No CUDA, no BufferGenerator, no send_frame
 - Test: GeneralSpec, Callbacks, SourceSpec, CodecSpec (drop/bypass), ConditionalSpec, ObjectDrawSpec, EvictionDecision, engine init/shutdown
 - Only need picasso import guard (no deepstream runtime check)
 
@@ -26,7 +26,7 @@ if not hasattr(_mod, "PicassoEngine"):
     pytest.skip("deepstream feature disabled", allow_module_level=True)
 
 _ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "DsNvSurfaceBufferGenerator"):
+if not hasattr(_ds, "BufferGenerator"):
     pytest.skip("deepstream feature disabled", allow_module_level=True)
 
 def _ds_runtime_available() -> bool:
@@ -66,10 +66,10 @@ from savant_rs.picasso import (
 engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
 # 2. Set source spec(s)
 engine.set_source_spec("src-0", spec)
-# 3. Send frames (GPU only) — buf is SurfaceView, DsNvBufSurfaceGstBuffer, int, or __cuda_array_interface__ object
+# 3. Send frames (GPU only) — buf is SurfaceView, SharedBuffer, int, or __cuda_array_interface__ object
 engine.send_frame("src-0", frame, surface_view)   # preferred: SurfaceView
 engine.send_frame("src-0", frame, cupy_array)      # __cuda_array_interface__ object
-engine.send_frame("src-0", frame, buf)             # legacy: DsNvBufSurfaceGstBuffer or int
+engine.send_frame("src-0", frame, buf)             # legacy: SharedBuffer or int
 # 4. Send EOS when done
 engine.send_eos("src-0")
 # 5. Wait for async processing
@@ -118,14 +118,14 @@ def make_frame(source_id: str, width=1280, height=720) -> VideoFrame:
 FPS = 30
 FRAME_DURATION_NS = 1_000_000_000 // FPS
 
-gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
-buf = gen.acquire_surface(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard, auto-unrefs)
+gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+buf = gen.acquire(id=frame_idx)  # returns SharedBuffer
 # pts/duration are taken from the VideoFrame; set them before send_frame:
 frame.pts = frame_idx * FRAME_DURATION_NS
 frame.duration = FRAME_DURATION_NS
 
 # Preferred: wrap as SurfaceView before sending
-surface_view = SurfaceView.from_buffer(buf, 0)  # slot 0 in the NvBufSurface batch
+surface_view = SurfaceView.from_buffer(buf, slot_index=0)  # slot 0 in the NvBufSurface batch
 engine.send_frame("src-0", frame, surface_view)
 
 # From CuPy array (contiguous RGBA uint8 on GPU):
@@ -134,9 +134,9 @@ cuda_frame = cp.zeros((HEIGHT, WIDTH, 4), dtype=cp.uint8)
 surface_view = SurfaceView.from_cuda_array(cuda_frame)
 engine.send_frame("src-0", frame, surface_view)
 
-# Legacy: pass DsNvBufSurfaceGstBuffer or int pointer directly (still works)
+# Legacy: pass SharedBuffer or int pointer directly (still works)
 engine.send_frame("src-0", frame, buf)
-# buf.ptr gives raw int pointer; buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
+# For raw buffer info use get_nvbufsurface_info(buf); buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
 ```
 
 ### Build H.264 Encoder Config
@@ -226,17 +226,17 @@ class TestEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_encode_spec())
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
 
         for i in range(10):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
             add_objects(frame)
-            buf = gen.acquire_surface_with_params(
+            buf = gen.acquire_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            sv = SurfaceView.from_buffer(buf, 0)  # preferred
+            sv = SurfaceView.from_buffer(buf, slot_index=0)
             engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
@@ -266,16 +266,16 @@ class TestBypass:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.bypass()))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
-            buf = gen.acquire_surface_with_params(
+            buf = gen.acquire_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            sv = SurfaceView.from_buffer(buf, 0)
+            sv = SurfaceView.from_buffer(buf, slot_index=0)
             engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
@@ -283,8 +283,10 @@ class TestBypass:
         engine.shutdown()
 
         assert len(bypass_results) > 0
-        assert bypass_results[0].source_id == "src-0"
-        assert bypass_results[0].frame is not None
+        r = bypass_results[0]
+        assert r.is_video_frame
+        frame = r.as_video_frame()
+        assert frame.source_id == "src-0"
 ```
 
 ## Drop Pipeline Test Template
@@ -296,16 +298,16 @@ class TestDrop:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.drop_frames()))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
-            buf = gen.acquire_surface_with_params(
+            buf = gen.acquire_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            sv = SurfaceView.from_buffer(buf, 0)
+            sv = SurfaceView.from_buffer(buf, slot_index=0)
             engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
@@ -333,7 +335,7 @@ class GpuMatRenderer:
     def __init__(self, width: int, height: int):
         self._frame_idx = 0
 
-    def __call__(self, source_id, frame, data_ptr, pitch, width, height):
+    def __call__(self, source_id, frame, data_ptr, pitch, width, height, cuda_stream):
         gpumat = cv2.cuda.createGpuMatFromCudaMemory(
             int(height), int(width), _RGBA_CV_TYPE, int(data_ptr), int(pitch),
         )
@@ -353,10 +355,10 @@ spec = SourceSpec(
 ⚠ A single source is processed sequentially on one worker thread; no
 locking is needed for the animation state within a single source.
 
-⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height)`.
+⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height, cuda_stream)`.
 Use `nvbuf_as_gpu_mat(data_ptr, pitch, width, height)` inside the callback.
 Use `nvgstbuf_as_gpu_mat(buf)` outside callbacks (e.g. pre-filling
-backgrounds before `send_frame`) where you have a `DsNvBufSurfaceGstBuffer` guard (or raw `int` pointer).
+backgrounds before `send_frame`) where you have a `SharedBuffer` (or raw `int` pointer).
 
 ---
 
@@ -495,7 +497,7 @@ a layered scene.  The composition order is:
 
 ```python
 import cv2
-from savant_rs.deepstream import DsNvBufSurfaceGstBuffer, nvgstbuf_as_gpu_mat
+from savant_rs.deepstream import SharedBuffer, nvgstbuf_as_gpu_mat
 from savant_rs.draw_spec import (
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw,
     LabelPosition, ObjectDraw, PaddingDraw,
@@ -524,7 +526,7 @@ def build_draw_spec() -> ObjectDrawSpec:
     return spec
 
 # 2. Per-frame: pre-fill bg + add objects + send
-buf = gen.acquire_surface(id=i)  # DsNvBufSurfaceGstBuffer RAII guard
+buf = gen.acquire(id=i)  # SharedBuffer
 with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((18, 20, 28, 255), stream=stream)       # dark background
 
@@ -539,7 +541,7 @@ obj = VideoObject(id=0, namespace="detector", label="person",
                   attributes=[], confidence=0.95,
                   track_id=None, track_box=None)
 frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
-sv = SurfaceView.from_buffer(buf, 0)
+sv = SurfaceView.from_buffer(buf, slot_index=0)
 engine.send_frame("src-0", frame, sv)
 
 # 3. SourceSpec wiring
@@ -594,8 +596,9 @@ objects = vf.get_all_objects()
 
 ### Bypass output
 ```python
-assert output.source_id == "src-0"
-assert output.frame is not None
+assert output.is_video_frame
+frame = output.as_video_frame()
+assert frame.source_id == "src-0"
 ```
 
 ### Engine state

@@ -1,0 +1,106 @@
+use std::{env, path::PathBuf};
+
+fn cuda_lib_dir() -> &'static str {
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    match arch.as_str() {
+        "aarch64" => "/usr/local/cuda/targets/aarch64-linux/lib",
+        _ => "/usr/local/cuda/lib64",
+    }
+}
+
+fn main() {
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let ds_dir = env::var("DEEPSTREAM_DIR")
+        .unwrap_or_else(|_| "/opt/nvidia/deepstream/deepstream".to_string());
+
+    // Link against DeepStream libraries
+    println!("cargo:rustc-link-search=native={}/lib/", ds_dir);
+    println!("cargo:rustc-link-lib=nvdsbufferpool");
+    println!("cargo:rustc-link-lib=nvbufsurftransform");
+    println!("cargo:rustc-link-lib=nvbufsurface");
+
+    // Link against CUDA runtime (needed for cuda_init and transitively by nvdsbufferpool).
+    // On aarch64 (Jetson), CUDA libs live under targets/aarch64-linux/lib;
+    // on x86_64 the conventional path is lib64.
+    let cuda_lib = cuda_lib_dir();
+    println!("cargo:rustc-link-search=native={}", cuda_lib);
+    // Also add the generic lib64 fallback (symlink on many images)
+    println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
+    // CUDA stubs for CI builds where the host GPU driver is absent
+    // (libcuda.so is normally injected from the host at runtime).
+    // Searched last so real libraries take precedence.
+    println!("cargo:rustc-link-search=native={}/stubs", cuda_lib);
+    println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64/stubs");
+    println!("cargo:rustc-link-lib=cudart");
+    println!("cargo:rustc-link-lib=cuda");
+
+    // On Jetson, link EGL for NvBufSurfaceMapEglImage / cuGraphicsEGLRegisterImage.
+    // On all platforms with skia, also link GL for CUDA-GL interop.
+    let is_aarch64 = env::var("CARGO_CFG_TARGET_ARCH")
+        .unwrap_or_default()
+        .contains("aarch64");
+    if is_aarch64 || env::var("CARGO_FEATURE_SKIA").is_ok() {
+        println!("cargo:rustc-link-lib=EGL");
+    }
+    if env::var("CARGO_FEATURE_SKIA").is_ok() {
+        println!("cargo:rustc-link-lib=GL");
+    }
+
+    // Rebuild if headers change
+    println!("cargo:rerun-if-changed=nvbufsurface_rs.h");
+    println!("cargo:rerun-if-changed=nvbufsurftransform_rs.h");
+
+    let clang_ds_include = format!("-I{}/sources/includes", ds_dir);
+
+    // Generate bindings for NvBufSurface types only.
+    // We do NOT include gstnvdsbufferpool.h here to avoid pulling in GStreamer
+    // types that would conflict with gstreamer-rs. The gst_nvds_buffer_pool_new()
+    // function is manually declared in src/ffi.rs using gstreamer-rs types.
+    let bindings = bindgen::Builder::default()
+        .header("nvbufsurface_rs.h")
+        .clang_arg(&clang_ds_include)
+        .allowlist_type("NvBufSurface")
+        .allowlist_type("NvBufSurfaceMemType")
+        .allowlist_function("NvBufSurfaceMap")
+        .allowlist_function("NvBufSurfaceUnMap")
+        .allowlist_function("NvBufSurfaceSyncForDevice")
+        .allowlist_function("NvBufSurfaceSyncForCpu")
+        .allowlist_function("NvBufSurfaceCreate")
+        .allowlist_function("NvBufSurfaceDestroy")
+        .allowlist_function("NvBufSurfaceMapEglImage")
+        .allowlist_function("NvBufSurfaceUnMapEglImage")
+        .allowlist_type("NvBufSurfaceCreateParams")
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .generate()
+        .expect("Unable to generate NvBufSurface bindings");
+
+    bindings
+        .write_to_file(out_dir.join("nvbufsurface_bindings.rs"))
+        .expect("Couldn't write NvBufSurface bindings!");
+
+    // Generate bindings for NvBufSurfTransform types and functions.
+    let transform_bindings = bindgen::Builder::default()
+        .header("nvbufsurftransform_rs.h")
+        .clang_arg(&clang_ds_include)
+        // Types
+        .allowlist_type("NvBufSurfTransformRect")
+        .allowlist_type("NvBufSurfTransformParams")
+        .allowlist_type("NvBufSurfTransformConfigParams")
+        .allowlist_type("NvBufSurfTransform_Compute")
+        .allowlist_type("NvBufSurfTransform_Inter")
+        .allowlist_type("NvBufSurfTransform_Error")
+        .allowlist_type("NvBufSurfTransform_Transform_Flag")
+        .allowlist_type("NvBufSurfTransform_Flip")
+        // Functions
+        .allowlist_function("NvBufSurfTransform")
+        .allowlist_function("NvBufSurfTransformSetSessionParams")
+        // Pull in dependent NvBufSurface types
+        .allowlist_type("NvBufSurface")
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .generate()
+        .expect("Unable to generate NvBufSurfTransform bindings");
+
+    transform_bindings
+        .write_to_file(out_dir.join("nvbufsurftransform_bindings.rs"))
+        .expect("Couldn't write NvBufSurfTransform bindings!");
+}

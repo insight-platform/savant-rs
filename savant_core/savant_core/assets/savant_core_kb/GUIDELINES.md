@@ -42,6 +42,13 @@ foundational library powering Savant's video-analytics pipeline.
 ## Conventions
 - `pub mod rust { ... }` blocks re-export types for direct Rust consumers
   (as opposed to the Python binding layer in `savant_core_py`).
+  Current re-exports include:
+  - `otlp::PropagatedContext`
+  - `pipeline::stats::{FrameProcessingStatRecord, FrameProcessingStatRecordType,
+     StageLatencyMeasurements, StageLatencyStat, StageProcessingStat}`
+  - `pipeline::{Pipeline, PipelineConfiguration, PipelineConfigurationBuilder,
+     PipelineStagePayloadType}`
+  - `symbol_mapper::{RegistrationPolicy, SymbolMapper}`
 - `EPS = 0.00001` is the crate-wide epsilon for floating-point comparisons.
 - `round_2_digits(v)` rounds to two decimal places (used in bbox serialization).
 - Unit tests live alongside their module (`#[cfg(test)] mod tests { ... }`).

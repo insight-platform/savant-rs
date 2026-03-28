@@ -6,8 +6,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::primitives::attribute_value::AttributeValue;
 use savant_core::primitives::object::{IdCollisionResolutionPolicy, VideoObjectBuilder};
@@ -26,7 +26,7 @@ impl OnRender for RenderCounter {
     fn call(
         &self,
         _: &str,
-        _: &mut deepstream_nvbufsurface::SkiaRenderer,
+        _: &mut deepstream_buffers::SkiaRenderer,
         _: &savant_core::primitives::frame::VideoFrameProxy,
     ) {
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -74,16 +74,14 @@ fn e2e_conditional_selective_recording() {
     };
     engine.set_source_spec("cond", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let make_frame_with_attrs =
         |encode_attr: bool, render_attr: bool, has_objects: bool, idx: u64| {
@@ -123,7 +121,7 @@ fn e2e_conditional_selective_recording() {
             frame
         };
 
-    let buf_a = make_gpu_surface_view(&gen, 0, DUR);
+    let buf_a = make_gpu_surface_view_uniform(&gen, 0, DUR);
     engine
         .send_frame(
             "cond",
@@ -133,7 +131,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_b = make_gpu_surface_view(&gen, 1, DUR);
+    let buf_b = make_gpu_surface_view_uniform(&gen, 1, DUR);
     engine
         .send_frame(
             "cond",
@@ -143,7 +141,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_c = make_gpu_surface_view(&gen, 2, DUR);
+    let buf_c = make_gpu_surface_view_uniform(&gen, 2, DUR);
     engine
         .send_frame(
             "cond",
@@ -153,7 +151,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_d = make_gpu_surface_view(&gen, 3, DUR);
+    let buf_d = make_gpu_surface_view_uniform(&gen, 3, DUR);
     engine
         .send_frame(
             "cond",

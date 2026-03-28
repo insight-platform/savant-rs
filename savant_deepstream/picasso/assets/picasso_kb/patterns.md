@@ -4,13 +4,13 @@
 
 ### NOGPU Tests (bypass, drop, worker, engine, geometry)
 - Require `gstreamer::init().unwrap()` at start
-- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (no GPU surface data)
+- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (test-only, gated by `testing` feature)
 - Helper: `make_surface_view()` in `tests/common/mod.rs`
 - Cover: Drop, Bypass codec specs, EOS, shutdown, spec hot-swap, idle eviction, geometry transforms
 
 ### GPU Tests (encode, conditional, render, full pipeline)
 - Require `gstreamer::init()` + `cuda_init(0)`
-- Use `DsNvSurfaceBufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(&buf, 0).unwrap()`
+- Use `BufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(&shared, 0).unwrap()` (takes `&SharedBuffer`)
 - Helper: `make_gpu_surface_view(&gen, idx, dur_ns)` in `tests/common/mod.rs`
 - Cover: full encode pipeline, Skia rendering, conditional gates, on_render/on_gpumat callbacks
 
@@ -19,9 +19,14 @@
 ## Cargo.toml Test Dependencies
 ```toml
 [dev-dependencies]
+deepstream_buffers = { path = "../buffers", features = ["testing"] }
 env_logger = "0.11"
+nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
+imagehash = "0.3"
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+criterion = { workspace = true }
 ```
 
 ## Test File Location
@@ -56,8 +61,8 @@ fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
 
 ### Make SurfaceView (NOGPU)
 ```rust
-fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 ```
 Wraps a plain `gst::Buffer::new()` — surface params are zeroed, suitable for Drop/Bypass paths.
@@ -73,21 +78,21 @@ fn make_gst_buffer() -> gstreamer::Buffer {
 ### Make GPU SurfaceView
 ```rust
 fn make_gpu_surface_view(
-    gen: &DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     dur_ns: u64,
-) -> deepstream_nvbufsurface::SurfaceView {
-    let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+) -> deepstream_buffers::SurfaceView {
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 ```
-Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests.
+Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests. On Jetson, `from_buffer` triggers EGL-CUDA registration for the surface. For batched buffers accessed multiple times, use `SurfaceView::from_buffer(&shared, i)`.
 
 ### Make GPU Buffer (internal helper)
 ```rust
-fn make_gpu_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64, dur_ns: u64) -> gstreamer::Buffer {
-    let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    buf
+fn make_gpu_buffer(gen: &BufferGenerator, idx: u64, dur_ns: u64) -> gstreamer::Buffer {
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    shared.into_buffer().expect("sole owner")
 }
 ```
 
@@ -182,8 +187,23 @@ impl OnEviction for TerminateEviction {
 ```rust
 struct RenderCounter(Arc<AtomicUsize>);
 impl OnRender for RenderCounter {
-    fn call(&self, _: &str, _: &mut deepstream_nvbufsurface::SkiaRenderer, _: &VideoFrameProxy) {
+    fn call(&self, _: &str, _: &mut deepstream_buffers::SkiaRenderer, _: &VideoFrameProxy) {
         self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+```
+
+### GpuMatRecorder pattern (on_gpumat tests)
+`OnGpuMat::call` receives `(&self, source_id, frame, view)` — the `cuda_stream` is obtained from `view.cuda_stream().as_raw() as usize`. The `data_ptr: usize` stored in `GpuMatCall` is for equality checks only — must NOT be dereferenced after the callback scope. The actual CUDA read (`cudaMemcpy2D`) happens inside the callback while the pointer is still valid. Storing the pointer for later use is undefined behaviour because the buffer may be recycled after the encode pipeline returns.
+
+### StreamResetRecorder pattern (on_stream_reset tests)
+```rust
+struct StreamResetRecorder {
+    resets: Arc<Mutex<Vec<(String, StreamResetReason)>>>,
+}
+impl OnStreamReset for StreamResetRecorder {
+    fn call(&self, source_id: &str, reason: StreamResetReason) {
+        self.resets.lock().unwrap().push((source_id.to_string(), reason));
     }
 }
 ```
@@ -323,7 +343,7 @@ fn worker_bypass_fires_callback() {
         ..Default::default()
     });
     let spec = SourceSpec { codec: CodecSpec::Bypass, ..Default::default() };
-    let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60), 8);
+    let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60), 8, PtsResetPolicy::EosOnDecreasingPts);
 
     for _ in 0..5 {
         worker.send(WorkerMessage::Frame(make_frame("test"), make_surface_view(), None)).unwrap();
@@ -333,6 +353,62 @@ fn worker_bypass_fires_callback() {
     drop(worker);
 }
 ```
+
+---
+
+## NVENC / Hardware Detection Helpers
+
+```rust
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+fn has_nvjpegenc() -> bool {
+    let _ = gstreamer::init();
+    gstreamer::ElementFactory::find("nvjpegenc").is_some()
+}
+
+fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+```
+
+### Platform-Aware Encoder Config Builders
+
+```rust
+fn h264_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+fn make_default_encoder_config(w: u32, h: u32) -> Option<EncoderConfig> {
+    if has_nvenc() {
+        Some(h264_encoder_config(w, h))
+    } else if has_nvjpegenc() {
+        Some(EncoderConfig::new(Codec::Jpeg, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) })))
+    } else {
+        Some(EncoderConfig::new(Codec::Png, w, h).format(VideoFormat::RGBA))
+    }
+}
+```
+
+⚠ Always use platform-aware builders in tests/benches. Hardcoding `H264DgpuProps` fails on Jetson even when NVENC is available.
 
 ---
 
@@ -346,6 +422,9 @@ fn encode_pipeline_basic() {
     const W: u32 = 640;
     const H: u32 = 480;
     const DUR: u64 = 33_333_333;
+
+    let enc_config = make_default_encoder_config(W, H)
+        .expect("No encoder available — skipping");
 
     let enc_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
@@ -363,29 +442,18 @@ fn encode_pipeline_basic() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: Box::new(
-                EncoderConfig::new(Codec::H264, W, H)
-                    .format(VideoFormat::RGBA)
-                    .fps(30, 1)
-                    .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-                        bitrate: Some(2_000_000),
-                        preset: Some(DgpuPreset::P1),
-                        tuning_info: Some(TuningPreset::LowLatency),
-                        iframeinterval: Some(30),
-                        ..Default::default()
-                    })),
-            ),
+            encoder: Box::new(enc_config),
         },
         ..Default::default()
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
     ).unwrap();
 
     for i in 0..10u64 {
-        let frame = make_frame_sized("src", W, H);
+        let frame = make_frame_sized("src", W as i64, H as i64);
         let mut fm = frame.clone();
         fm.set_pts((i * DUR) as i64).unwrap();
         fm.set_duration(Some(DUR as i64)).unwrap();
@@ -413,6 +481,7 @@ fn symmetric_letterbox_center() {
     rewrite_frame_transformations(
         &frame, 800, 800,
         &TransformConfig { padding: Padding::Symmetric, ..Default::default() },
+        None,
     ).unwrap();
     // Object should shift down by 100px (pad_top = (800-600)/2 = 100)
     let obj = frame.get_all_objects().into_iter().find(|o| o.get_id() == obj_id).unwrap();
@@ -476,7 +545,12 @@ fn e2e_async_drain_delivers_independently() {
 
 ---
 
-## Benchmark Callback Pattern
+## Benchmark Patterns
+
+### SurfaceView in Benchmarks
+Picasso benchmarks use `SurfaceView::from_buffer(&shared, 0).unwrap()` (takes `&SharedBuffer`) instead of `SurfaceView::wrap(buf)`. With POOLED meta, EGL-CUDA registration survives pool recycles, so this is now efficient for repeated encode cycles.
+
+### Benchmark Callback Pattern
 
 ⚠ With the async drain thread, the `OnEncodedFrame` callback fires from the
 drain thread. Using `mpsc::sync_channel(0)` (rendezvous) will block the drain

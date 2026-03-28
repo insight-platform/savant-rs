@@ -8,17 +8,20 @@ use crate::nvinfer_types::DataType;
 use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
 use crate::roi::Roi;
 use deepstream::{BatchMeta, InferDims, InferTensorMeta};
-use deepstream_nvbufsurface::{bridge_savant_id_meta, SavantIdMeta, SavantIdMetaKind};
+use deepstream_buffers::{bridge_savant_id_meta, SharedBuffer};
+use glib::translate::from_glib_none;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
 use log::info;
+use parking_lot::Mutex;
 use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 /// Callback type invoked when inference completes (async mode).
@@ -48,10 +51,8 @@ pub struct NvInfer {
     #[allow(dead_code)] // Kept alive so temp config file persists
     _config_file: NamedTempFile,
     delivery: Arc<SampleDelivery>,
-    /// Model input width (used for full-frame ROI fallback).
-    input_width: u32,
-    /// Model input height (used for full-frame ROI fallback).
-    input_height: u32,
+    /// Monotonic counter used as PTS for internal pipeline correlation.
+    next_pts: AtomicU64,
     /// When and whether to clear object metas.
     policy: MetaClearPolicy,
 }
@@ -82,14 +83,13 @@ impl NvInfer {
         };
         info!("NvInfer initializing (name={})", name_display);
 
-        let _ = gst::init();
+        gst::init().map_err(|e| NvInferError::GstInit(e.to_string()))?;
 
         let config_file = config.validate_and_materialize()?;
         let config_path = config_file.path().to_string_lossy().to_string();
 
-        let input_width = config.input_width.unwrap_or(0);
-        let input_height = config.input_height.unwrap_or(0);
         let policy = config.meta_clear_policy;
+        let host_copy_enabled = !config.disable_output_host_copy;
 
         let pipeline = gst::Pipeline::new();
 
@@ -103,16 +103,10 @@ impl NvInfer {
             .build()
             .map_err(|_| NvInferError::ElementCreationFailed("appsink".into()))?;
 
-        let mut caps_builder = gst::Caps::builder("video/x-raw")
+        let appsrc_caps = gst::Caps::builder("video/x-raw")
             .features(["memory:NVMM"])
-            .field("format", config.input_format.as_str());
-        if let Some(w) = config.input_width {
-            caps_builder = caps_builder.field("width", w as i32);
-        }
-        if let Some(h) = config.input_height {
-            caps_builder = caps_builder.field("height", h as i32);
-        }
-        let appsrc_caps = caps_builder.build();
+            .field("format", config.input_format.gst_name())
+            .build();
         let appsrc_elem: &gst::Element = appsrc.upcast_ref();
         appsrc_elem.set_property("caps", &appsrc_caps);
         appsrc_elem.set_property_from_str("format", "time");
@@ -189,31 +183,24 @@ impl NvInfer {
                     log::error!("appsink pull_sample error: {:?}", e);
                     gst::FlowError::Error
                 })?;
-                let batch_id_opt = sample.buffer().and_then(|b| b.pts()).map(|t| t.nseconds());
-                let batch_id = batch_id_opt.unwrap_or(0);
+                let pts_key = sample.buffer().and_then(|b| b.pts()).map(|t| t.nseconds());
 
-                let output = extract_batch_output(sample, batch_id, policy).map_err(|e| {
-                    log::error!("extract_batch_output error: {:?}", e);
-                    gst::FlowError::Error
-                })?;
+                let output =
+                    extract_batch_output(sample, policy, host_copy_enabled).map_err(|e| {
+                        log::error!("extract_batch_output error: {:?}", e);
+                        gst::FlowError::Error
+                    })?;
 
-                // If infer_sync is waiting for this batch_id, deliver there;
-                // otherwise invoke the user callback.  Only attempt sync delivery
-                // when PTS survived the round-trip (batch_id_opt.is_some()), so we
-                // have a reliable batch_id.  When PTS is None we cannot know which
-                // sync waiter (if any) owns this result, so we fall back to the
-                // user callback to avoid misdelivery.
-                let sync_sender =
-                    batch_id_opt.and_then(|id| delivery_clone.sync_tx.lock().unwrap().remove(&id));
+                // Route to infer_sync waiter if PTS matches, otherwise to the
+                // user callback.
+                let sync_sender = pts_key.and_then(|id| delivery_clone.sync_tx.lock().remove(&id));
                 if let Some(tx) = sync_sender {
                     let _ = tx.send(output);
                 } else {
-                    if batch_id_opt.is_none() {
-                        log::warn!(
-                            "Buffer PTS is None; cannot determine batch_id, routing to callback"
-                        );
+                    if pts_key.is_none() {
+                        log::warn!("Buffer PTS is None; routing to callback");
                     }
-                    if let Some(ref mut cb) = *delivery_clone.callback.lock().unwrap() {
+                    if let Some(ref mut cb) = *delivery_clone.callback.lock() {
                         cb(output);
                     }
                 }
@@ -238,16 +225,15 @@ impl NvInfer {
             _config: config,
             _config_file: config_file,
             delivery,
-            input_width,
-            input_height,
+            next_pts: AtomicU64::new(0),
             policy,
         })
     }
 
-    /// Submit a batched buffer for inference.
+    /// Submit a batched buffer for asynchronous inference.
     ///
-    /// `batch_id` is user-chosen and must not be `u64::MAX` (that value maps to
-    /// `GST_CLOCK_TIME_NONE` and cannot survive a PTS round-trip).
+    /// The buffer is **consumed**: if the [`SharedBuffer`] has outstanding
+    /// references, an error is returned.
     ///
     /// `rois` is an optional per-slot map of ROI lists.  Key = slot index
     /// `0..(num_filled-1)`.  If `None` or a slot has no entry, a full-frame
@@ -256,45 +242,106 @@ impl NvInfer {
     ///
     /// Any existing object metas on the buffer's batch meta are cleared before
     /// the new ROI objects are written (see [`attach_batch_meta_with_rois`]).
-    pub fn submit(
+    pub fn submit(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) -> Result<()> {
+        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
+        let batch = batch.into_buffer().map_err(|_| {
+            NvInferError::PipelineError(
+                "SharedBuffer has outstanding references; cannot take exclusive ownership".into(),
+            )
+        })?;
+        self.push_buffer(batch, rois, pts)
+    }
+
+    /// Synchronous inference – blocks until results arrive (up to 30 s).
+    ///
+    /// The buffer is **consumed**: if the [`SharedBuffer`] has outstanding
+    /// references, an error is returned.
+    ///
+    /// Parameters are the same as [`submit`](NvInfer::submit).
+    pub fn infer_sync(
+        &self,
+        batch: SharedBuffer,
+        rois: Option<&HashMap<u32, Vec<Roi>>>,
+    ) -> Result<BatchInferenceOutput> {
+        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = mpsc::channel();
+        {
+            let mut sync_map = self.delivery.sync_tx.lock();
+            sync_map.insert(pts, tx);
+        }
+        let batch = match batch.into_buffer() {
+            Ok(buf) => buf,
+            Err(_) => {
+                self.delivery.sync_tx.lock().remove(&pts);
+                return Err(NvInferError::PipelineError(
+                    "SharedBuffer has outstanding references; cannot take exclusive ownership"
+                        .into(),
+                ));
+            }
+        };
+        if let Err(e) = self.push_buffer(batch, rois, pts) {
+            self.delivery.sync_tx.lock().remove(&pts);
+            return Err(e);
+        }
+        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+            Ok(output) => Ok(output),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.delivery.sync_tx.lock().remove(&pts);
+                Err(NvInferError::PipelineError(
+                    "infer_sync timed out after 30s".into(),
+                ))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.delivery.sync_tx.lock().remove(&pts);
+                Err(NvInferError::PipelineError(
+                    "infer_sync channel disconnected".into(),
+                ))
+            }
+        }
+    }
+
+    /// Internal: attach ROI metadata, set PTS, push to appsrc.
+    fn push_buffer(
         &self,
         mut batch: gst::Buffer,
-        batch_id: u64,
         rois: Option<&HashMap<u32, Vec<Roi>>>,
+        pts: u64,
     ) -> Result<()> {
-        if batch_id == u64::MAX {
-            return Err(NvInferError::PipelineError(
-                "batch_id must not be u64::MAX (reserved as GST_CLOCK_TIME_NONE)".into(),
-            ));
-        }
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
 
-        // When using flexible config (input_width/height = 0) with no
-        // explicit ROIs, read per-slot dimensions from the NvBufSurface
-        // and synthesize full-frame ROIs. Without this, the sentinel ROI
-        // would be 0x0 and nvinfer would silently skip inference.
-        let synthetic_rois;
-        let effective_rois = if rois.is_none()
-            && self.input_width == 0
-            && self.input_height == 0
-            && num_filled > 0
-        {
-            let dims = read_slot_dimensions(&batch, num_filled)?;
-            let mut map = HashMap::with_capacity(dims.len());
-            for (slot, &(w, h)) in dims.iter().enumerate() {
-                map.insert(
-                    slot as u32,
-                    vec![Roi {
-                        id: 0,
-                        bbox: RBBox::ltwh(0.0, 0.0, w as f32, h as f32)
-                            .expect("non-zero surface dimensions"),
-                    }],
-                );
-            }
-            synthetic_rois = map;
-            Some(&synthetic_rois)
+        let slot_dims = if num_filled > 0 {
+            read_slot_dimensions(&batch, num_filled)?
         } else {
-            rois
+            Vec::new()
+        };
+
+        // Build effective ROIs: for any slot without explicit user ROIs,
+        // synthesise a full-frame ROI from the actual surface slot dimensions.
+        let merged_rois;
+        let effective_rois = {
+            let mut map = HashMap::with_capacity(slot_dims.len());
+            for (slot, &(w, h)) in slot_dims.iter().enumerate() {
+                let s = slot as u32;
+                let has_user_rois = rois.and_then(|r| r.get(&s)).is_some_and(|v| !v.is_empty());
+                if has_user_rois {
+                    map.insert(s, rois.unwrap()[&s].clone());
+                } else {
+                    map.insert(
+                        s,
+                        vec![Roi {
+                            id: 0,
+                            bbox: RBBox::ltwh(0.0, 0.0, w as f32, h as f32)
+                                .expect("non-zero surface dimensions"),
+                        }],
+                    );
+                }
+            }
+            merged_rois = map;
+            if merged_rois.is_empty() {
+                None
+            } else {
+                Some(&merged_rois)
+            }
         };
 
         {
@@ -307,16 +354,42 @@ impl NvInfer {
                 max_batch_size,
                 self.policy,
                 effective_rois,
-                self.input_width,
-                self.input_height,
             )?;
+        }
+
+        // Patch each frame meta's source_frame_width/height to match the
+        // actual surface slot dimensions.  DeepStream nvinfer uses these
+        // fields for its internal NvBufSurfTransform scaling; leaving them
+        // at 0 produces undefined crop/resize behaviour.
+        if !slot_dims.is_empty() {
+            let buf_ref = batch
+                .get_mut()
+                .ok_or_else(|| NvInferError::PipelineError("Buffer not writable".into()))?;
+            let buf_ptr = buf_ref.as_mut_ptr() as *mut deepstream_sys::GstBuffer;
+            let batch_meta = unsafe { deepstream_sys::gst_buffer_get_nvds_batch_meta(buf_ptr) };
+            if !batch_meta.is_null() {
+                let mut frame_list = unsafe { (*batch_meta).frame_meta_list };
+                let mut slot: usize = 0;
+                while !frame_list.is_null() && slot < slot_dims.len() {
+                    let frame_ptr =
+                        unsafe { (*frame_list).data as *mut deepstream_sys::NvDsFrameMeta };
+                    if !frame_ptr.is_null() {
+                        unsafe {
+                            (*frame_ptr).source_frame_width = slot_dims[slot].0;
+                            (*frame_ptr).source_frame_height = slot_dims[slot].1;
+                        }
+                        slot += 1;
+                    }
+                    frame_list = unsafe { (*frame_list).next };
+                }
+            }
         }
 
         {
             let buf_ref = batch
                 .get_mut()
                 .ok_or_else(|| NvInferError::PipelineError("Buffer not writable".into()))?;
-            buf_ref.set_pts(gst::ClockTime::from_nseconds(batch_id));
+            buf_ref.set_pts(gst::ClockTime::from_nseconds(pts));
         }
 
         self.appsrc
@@ -324,46 +397,6 @@ impl NvInfer {
             .map_err(|e| NvInferError::PipelineError(format!("appsrc push failed: {:?}", e)))?;
 
         Ok(())
-    }
-
-    /// Synchronous inference – blocks until results arrive (up to 30 s).
-    ///
-    /// Parameters are the same as [`submit`](NvInfer::submit).
-    pub fn infer_sync(
-        &self,
-        batch: gst::Buffer,
-        batch_id: u64,
-        rois: Option<&HashMap<u32, Vec<Roi>>>,
-    ) -> Result<BatchInferenceOutput> {
-        let (tx, rx) = mpsc::channel();
-        {
-            let mut sync_map = self.delivery.sync_tx.lock().unwrap();
-            if sync_map.contains_key(&batch_id) {
-                return Err(NvInferError::PipelineError(format!(
-                    "batch_id {batch_id} is already in use by another infer_sync caller"
-                )));
-            }
-            sync_map.insert(batch_id, tx);
-        }
-        if let Err(e) = self.submit(batch, batch_id, rois) {
-            self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
-            return Err(e);
-        }
-        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-            Ok(output) => Ok(output),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
-                Err(NvInferError::PipelineError(format!(
-                    "infer_sync timed out after 30s for batch_id {batch_id}"
-                )))
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
-                Err(NvInferError::PipelineError(format!(
-                    "infer_sync channel disconnected for batch_id {batch_id}"
-                )))
-            }
-        }
     }
 
     /// Graceful shutdown: send EOS, drain, stop pipeline.
@@ -381,16 +414,6 @@ impl NvInfer {
             .set_state(gst::State::Null)
             .map_err(|e| NvInferError::PipelineError(format!("set_state Null failed: {:?}", e)))?;
         Ok(())
-    }
-
-    /// Model input width (0 for flexible config).
-    pub fn input_width(&self) -> u32 {
-        self.input_width
-    }
-
-    /// Model input height (0 for flexible config).
-    pub fn input_height(&self) -> u32 {
-        self.input_height
     }
 
     fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {
@@ -444,7 +467,7 @@ fn read_surface_header(buffer: &gst::Buffer) -> Result<(u32, u32)> {
 /// each filled slot's dimensions without going through the full
 /// `SurfaceView` machinery.
 fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u32, u32)>> {
-    use deepstream_nvbufsurface::ffi;
+    use deepstream_buffers::ffi;
 
     let map = buffer
         .map_readable()
@@ -459,18 +482,17 @@ fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u3
     }
 
     let surf = unsafe { &*(data.as_ptr() as *const ffi::NvBufSurface) };
+    if surf.surfaceList.is_null() {
+        return Err(NvInferError::NullPointer(
+            "NvBufSurface.surfaceList is null".into(),
+        ));
+    }
     let mut dims = Vec::with_capacity(num_filled as usize);
     for i in 0..num_filled {
         let params = unsafe { &*surf.surfaceList.add(i as usize) };
         dims.push((params.width, params.height));
     }
     Ok(dims)
-}
-
-fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
-    match k {
-        SavantIdMetaKind::Frame(id) | SavantIdMetaKind::Batch(id) => *id,
-    }
 }
 
 /// Extract inference outputs from a completed sample.
@@ -482,13 +504,17 @@ fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
 /// batch_meta → frames → frame.objects() → object.user_meta() → tensor
 /// ```
 ///
-/// `frame_id` is taken from [`SavantIdMeta`] (indexed by frame position).
+/// User frame ids are not duplicated here: read them from the output buffer
+/// ([`BatchInferenceOutput::buffer`](crate::output::BatchInferenceOutput::buffer))
+/// via [`SharedBuffer::savant_ids`](deepstream_buffers::SharedBuffer::savant_ids).
+/// [`ElementOutput::slot_number`] is
+/// [`FrameMeta::batch_id`](deepstream::FrameMeta::batch_id) (surface slot).
 /// `roi_id` is the `object_id` cast to `i64`; `None` when the object carries
 /// the full-frame sentinel (`unique_component_id == FULL_FRAME_SENTINEL`).
 fn extract_batch_output(
     sample: gst::Sample,
-    batch_id: u64,
     policy: MetaClearPolicy,
+    host_copy_enabled: bool,
 ) -> Result<BatchInferenceOutput> {
     let buffer = sample
         .buffer()
@@ -500,16 +526,11 @@ fn extract_batch_output(
         })?
     };
 
-    let ids: Vec<i64> = buffer
-        .meta::<SavantIdMeta>()
-        .map(|m| m.ids().iter().map(savant_id_to_i64).collect())
-        .unwrap_or_default();
-
     let frames = batch_meta.frames();
     let mut elements: Vec<ElementOutput> = Vec::new();
 
-    for (frame_idx, frame) in frames.into_iter().enumerate() {
-        let frame_id = ids.get(frame_idx).copied();
+    for frame in frames.into_iter() {
+        let slot_number = frame.batch_id();
 
         for obj in frame.objects() {
             let roi_id = if obj.unique_component_id() == FULL_FRAME_SENTINEL {
@@ -555,23 +576,29 @@ fn extract_batch_output(
                             host_ptr: host_ptr as *const _,
                             device_ptr: device_ptr as *const _,
                             byte_length,
+                            host_copy_enabled,
                         });
                     }
                 }
             }
 
             elements.push(ElementOutput {
-                frame_id,
                 roi_id,
+                slot_number,
                 tensors,
             });
         }
     }
 
+    // Use from_glib_none (gst_mini_object_ref) to get a ref-counted handle
+    // WITHOUT deep-copying.  BufferRef::to_owned() calls gst_mini_object_copy()
+    // which deep-copies NvDsBatchMeta and crashes in nvds_acquire_meta_from_pool.
+    let owned: gst::Buffer = unsafe { from_glib_none(buffer.as_ptr()) };
+    let shared = SharedBuffer::from(owned);
     Ok(BatchInferenceOutput::new(
-        batch_id,
-        sample,
+        shared,
         elements,
         policy.clear_after(),
+        host_copy_enabled,
     ))
 }

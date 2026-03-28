@@ -1,13 +1,16 @@
 //! E2E test: CUDA pointer access via OnGpuMat callback.
 //!
 //! Simulates a post-transform GPU processing step that accesses the raw
-//! CUDA buffer after GPU transform.
+//! CUDA buffer after GPU transform.  The callback performs a real
+//! `cudaMemcpy2D` read from the pointer to verify it is CUDA-addressable
+//! (not a VIC-managed handle on Jetson).
 
 mod common;
 
 use common::*;
+use deepstream_buffers::ffi;
+use deepstream_buffers::{SurfaceView, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
@@ -16,39 +19,70 @@ use std::time::Duration;
 const W: u32 = 640;
 const H: u32 = 480;
 const DUR: u64 = 33_333_333;
+const BPP: u32 = 4; // RGBA
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct GpuMatCall {
     source_id: String,
+    /// Recorded for equality checks only — must NOT be dereferenced after the
+    /// callback scope because the buffer may be recycled / the EGL-CUDA
+    /// registration may be freed.
     data_ptr: usize,
     pitch: u32,
     width: u32,
     height: u32,
     cuda_stream: usize,
+    /// CUDA return code from a `cudaMemcpy2D` read of the first row.
+    /// 0 = success; anything else means the pointer was not CUDA-accessible.
+    cuda_read_rc: i32,
+    /// True when at least one byte in the copied row is non-zero.
+    has_nonzero_pixel: bool,
 }
 
-struct GpuMatRecorder {
-    calls: Arc<Mutex<Vec<GpuMatCall>>>,
-}
+/// Callback that records metadata **and** performs a real CUDA memory read
+/// to prove the pointer is CUDA-addressable.
+struct GpuMatRecorder(Arc<Mutex<Vec<GpuMatCall>>>);
 
 impl OnGpuMat for GpuMatRecorder {
     fn call(
         &self,
         source_id: &str,
         _frame: &savant_core::primitives::frame::VideoFrameProxy,
-        data_ptr: usize,
-        pitch: u32,
-        width: u32,
-        height: u32,
-        cuda_stream: usize,
+        view: &SurfaceView,
     ) {
-        self.calls.lock().unwrap().push(GpuMatCall {
+        let data_ptr = view.data_ptr() as usize;
+        let pitch = view.pitch();
+        let width = view.width();
+        let height = view.height();
+        let cuda_stream = view.cuda_stream().as_raw() as usize;
+        let width_bytes = (width * BPP) as usize;
+        let mut host_row = vec![0u8; width_bytes];
+
+        let cuda_read_rc = unsafe {
+            ffi::cudaStreamSynchronize(cuda_stream as *mut std::ffi::c_void);
+            ffi::cudaMemcpy2D(
+                host_row.as_mut_ptr() as *mut std::ffi::c_void,
+                width_bytes,
+                data_ptr as *const std::ffi::c_void,
+                pitch as usize,
+                width_bytes,
+                1, // single row
+                ffi::CUDA_MEMCPY_DEVICE_TO_HOST,
+            )
+        };
+
+        let has_nonzero_pixel = host_row.iter().any(|&b| b != 0);
+
+        self.0.lock().unwrap().push(GpuMatCall {
             source_id: source_id.to_string(),
             data_ptr,
             pitch,
             width,
             height,
             cuda_stream,
+            cuda_read_rc,
+            has_nonzero_pixel,
         });
     }
 }
@@ -64,9 +98,7 @@ fn e2e_on_gpumat_fires_when_enabled() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -92,22 +124,20 @@ fn e2e_on_gpumat_fires_when_enabled() {
     };
     engine.set_source_spec("gpumat", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     for i in 0..5u64 {
         let mut frame = make_frame_sized("gpumat", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("gpumat", frame, buf, None).unwrap();
     }
     engine.send_eos("gpumat").unwrap();
@@ -121,13 +151,19 @@ fn e2e_on_gpumat_fires_when_enabled() {
         "expected >= 3 OnGpuMat calls, got {}",
         recorded.len()
     );
-    for call in recorded.iter() {
+    for (i, call) in recorded.iter().enumerate() {
         assert_eq!(call.source_id, "gpumat");
         assert!(call.data_ptr != 0, "data_ptr should be non-null");
         assert!(call.pitch > 0, "pitch should be positive");
         assert_eq!(call.width, W);
         assert_eq!(call.height, H);
         assert!(call.cuda_stream != 0, "cuda_stream should be non-null");
+        assert_eq!(
+            call.cuda_read_rc, 0,
+            "frame {i}: cudaMemcpy2D from data_ptr failed (rc={}); \
+             pointer is not CUDA-accessible",
+            call.cuda_read_rc
+        );
     }
 }
 
@@ -142,9 +178,7 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -170,22 +204,20 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     };
     engine.set_source_spec("gpumat-off", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     for i in 0..5u64 {
         let mut frame = make_frame_sized("gpumat-off", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("gpumat-off", frame, buf, None).unwrap();
     }
     engine.send_eos("gpumat-off").unwrap();
@@ -217,9 +249,11 @@ fn e2e_external_cuda_stream_rejected() {
         callbacks,
     );
 
-    // Create a TransformConfig with a non-null cuda_stream.
+    // Create a TransformConfig with a non-default cuda_stream.
     let transform = TransformConfig {
-        cuda_stream: 0xDEAD_BEEF as *mut std::ffi::c_void,
+        cuda_stream: unsafe {
+            deepstream_buffers::CudaStream::from_raw(0xDEAD_BEEF as *mut std::ffi::c_void)
+        },
         ..Default::default()
     };
 
@@ -253,9 +287,7 @@ fn e2e_callback_order_gpumat_skia() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -282,22 +314,20 @@ fn e2e_callback_order_gpumat_skia() {
     };
     engine.set_source_spec("order-test", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     for i in 0..3u64 {
         let mut frame = make_frame_sized("order-test", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("order-test", frame, buf, None).unwrap();
     }
     engine.send_eos("order-test").unwrap();
@@ -310,9 +340,14 @@ fn e2e_callback_order_gpumat_skia() {
         !recorded.is_empty(),
         "OnGpuMat should fire with GpuMatSkia order"
     );
-    for call in recorded.iter() {
+    for (i, call) in recorded.iter().enumerate() {
         assert_eq!(call.source_id, "order-test");
         assert!(call.cuda_stream != 0, "cuda_stream should be non-null");
+        assert_eq!(
+            call.cuda_read_rc, 0,
+            "frame {i}: cudaMemcpy2D from data_ptr failed (rc={})",
+            call.cuda_read_rc
+        );
     }
 }
 
@@ -327,9 +362,7 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -356,23 +389,21 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
     };
     engine.set_source_spec("double-test", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let num_frames = 3u64;
     for i in 0..num_frames {
         let mut frame = make_frame_sized("double-test", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("double-test", frame, buf, None).unwrap();
     }
     engine.send_eos("double-test").unwrap();
@@ -390,4 +421,11 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
         num_frames * 2,
         recorded.len()
     );
+    for (i, call) in recorded.iter().enumerate() {
+        assert_eq!(
+            call.cuda_read_rc, 0,
+            "call {i}: cudaMemcpy2D from data_ptr failed (rc={})",
+            call.cuda_read_rc
+        );
+    }
 }

@@ -34,7 +34,7 @@ savant_python/
 │       ├── test/                # .pyi stubs
 │       ├── atomic_counter/      # .pyi stubs
 │       └── py/                  # pure-Python packages (api, client, log, utils)
-├── pytests/                     # Python tests (33 test files)
+├── pytests/                     # Python tests (35 test files)
 ├── Cargo.toml                   # maturin metadata, features, deps
 └── pyproject.toml               # Python build config
 ```
@@ -49,9 +49,9 @@ savant_python (savant_rs wheel)
       └── [feature=deepstream]
            ├── nvinfer (DeepStream nvinfer plugin)
            ├── picasso (frame processing engine)
-           ├── deepstream_nvbufsurface (NvBufSurface wrappers)
+           ├── deepstream_buffers (NvBufSurface wrappers)
            ├── deepstream_encoders (H264/H265/JPEG/PNG encoders)
-           ├── nvidia_gpu_utils (GPU memory queries)
+           ├── nvidia_gpu_utils (GPU memory queries, Jetson model detection, NVENC capability)
            └── skia-safe (Skia rendering)
 ```
 
@@ -71,12 +71,13 @@ savant_python (savant_rs wheel)
 ```
 savant_rs (root module)
  ├── primitives        → savant_core_py::primitives (Attribute, VideoFrame, etc.)
- │   └── geometry      → savant_core_py::primitives (RBBox, Point, Segment, etc.)
+ │   └── geometry      → savant_core_py::primitives::bbox + point/segment/area (RBBox, BBox, Point, Segment, etc.)
  ├── draw_spec         → savant_core_py::draw_spec
  ├── utils             → savant_core_py::utils
  │   ├── symbol_mapper → savant_core_py::utils::symbol_mapper
  │   └── serialization → savant_core_py::primitives::message
- ├── pipeline          → savant_core_py::pipeline
+ ├── pipeline          → savant_core_py::pipeline (Python names: VideoPipeline, VideoPipelineConfiguration)
+ ├── pipeline2         → alias for pipeline (sys.modules["savant_rs.pipeline2"] = pipeline)
  ├── match_query       → savant_core_py::match_query
  ├── logging           → savant_core_py::logging
  ├── zmq               → savant_core_py::zmq

@@ -160,6 +160,7 @@ if command -v auditwheel >/dev/null 2>&1; then
             --exclude 'libgobject*.so*' \
             --exclude 'libglib*.so*' \
             --exclude 'libgio*.so*' \
+            --exclude 'libcuda.so*' \
             --exclude 'libcudart*.so*' \
             --exclude 'libnvdsbufferpool*.so*' \
             --exclude 'libnvbufsurftransform*.so*' \

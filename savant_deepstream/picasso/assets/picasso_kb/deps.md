@@ -5,10 +5,12 @@
 ### picasso (the crate itself)
 ```rust
 use picasso::prelude::*;
-// gives: Callbacks, On*Frame/Render/Eviction/GpuMat/ObjectDrawSpec traits,
+// gives: Callbacks, On*Frame/Render/Eviction/GpuMat/ObjectDrawSpec/StreamReset traits,
+//        StreamResetReason,
 //        PicassoEngine, PicassoError,
 //        OutputMessage,
-//        CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec
+//        CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision,
+//        GeneralSpec, ObjectDrawSpec, PtsResetPolicy, SourceSpec
 
 // For low-level worker tests:
 use picasso::worker::SourceWorker;
@@ -22,26 +24,34 @@ use picasso::rewrite_frame_transformations;
 ```rust
 use deepstream_encoders::prelude::*;
 // gives: NvEncoder, EncoderError, EncodedFrame, EncoderConfig,
-//        Codec (H264, HEVC, JPEG, AV1, PNG),
-//        cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+//        Codec (H264, Hevc, Jpeg, Av1, Png, RawRgba, RawRgb),
+//        cuda_init, BufferGenerator, NvBufSurfaceMemType, VideoFormat,
 //        EncoderProperties, H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
-//        JpegProps, PngProps, Av1DgpuProps, DgpuPreset, TuningPreset, H264Profile, HevcProfile,
+//        JpegProps, PngProps, Av1DgpuProps, RawProps,
+//        DgpuPreset, TuningPreset, H264Profile, HevcProfile,
 //        JetsonPresetLevel, Platform, RateControl
 ```
 
-### deepstream_nvbufsurface (transform config, GPU utilities)
+### deepstream_buffers (transform config, GPU utilities)
 ```rust
-use deepstream_nvbufsurface::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu_id};
+use deepstream_buffers::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu_id};
 // Padding: None, Symmetric, RightBottom
 // Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
-// TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
+// TransformConfig fields: padding, dst_padding, interpolation, compute_mode, cuda_stream (no src_rect)
 // TransformConfig implements Default (Symmetric, Bilinear, Default compute)
-// DsNvSurfaceBufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
+// CudaStream: safe RAII wrapper for CUDA stream handles
+// CudaStream::default() — legacy null stream; CudaStream::new_non_blocking() — owned non-blocking
+// SurfaceView.cuda_stream() — read CUDA stream; SurfaceView.with_cuda_stream(stream) — set stream
+// SurfaceView::transform_into(&self, dest: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) — GPU transform per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
-// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed
-// SurfaceView::from_buffer(&buf, slot_index) — extract from NvBufSurface-backed buffer
+// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (test-only: requires `testing` feature)
+// SurfaceView::from_gst_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
+// SurfaceView::from_buffer(&shared, slot_index) — create view from SharedBuffer (primary for batched/single)
+// view.into_gst_buffer() — recover gst::Buffer from view (consumes view); or shared.into_buffer() after dropping view
 // SurfaceView::from_cuda_ptr(...) — wrap arbitrary CUDA device memory
-// SurfaceView accessors: buffer(), buffer_mut(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
+// SurfaceView accessors: gst_buffer(), shared_buffer(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
+// SurfaceView CUDA stream: cuda_stream() → &CudaStream, with_cuda_stream(stream) → Self
+// surface_ops: memset_surface(&SurfaceView, value), upload_to_surface(&SurfaceView, data, w, h, channels) — take &SurfaceView, not &gst::Buffer
 ```
 
 ### savant_core (frames, objects, geometry)
@@ -94,14 +104,14 @@ let buf = gstreamer::Buffer::new();
 let view = SurfaceView::wrap(buf);
 ```
 
-### DsNvSurfaceBufferGenerator (GPU)
+### BufferGenerator (GPU)
 ```rust
-let gen = DsNvSurfaceBufferGenerator::new(
+let gen = BufferGenerator::new(
     VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
 ).unwrap();
 assert_eq!(gen.gpu_id(), 0);  // stored GPU ID accessible via getter
-let buf = gen.acquire_surface(Some(frame_idx as i64)).unwrap();
-let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+let buf = gen.acquire(Some(frame_idx as i64)).unwrap();
+let view = SurfaceView::from_buffer(buf, 0).unwrap();
 // ⚠ pts/dts/duration are taken from the VideoFrame; do not assume they are in the buffer.
 // Set them on the frame before send_frame:
 frame.set_pts((idx * dur_ns) as i64).unwrap();
@@ -111,6 +121,7 @@ frame.set_duration(Some(dur_ns as i64)).unwrap();
 
 ### EncoderConfig
 ```rust
+// dGPU:
 EncoderConfig::new(Codec::H264, W, H)
     .format(VideoFormat::RGBA)
     .fps(30, 1)
@@ -122,9 +133,24 @@ EncoderConfig::new(Codec::H264, W, H)
         iframeinterval: Some(30),
         ..Default::default()
     }))
+
+// Jetson (aarch64):
+EncoderConfig::new(Codec::H264, W, H)
+    .format(VideoFormat::RGBA)
+    .fps(30, 1)
+    .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+        preset_level: Some(JetsonPresetLevel::UltraFast),
+        maxperf_enable: Some(true),
+        ..Default::default()
+    }))
+
+// Raw pseudoencoder (GPU→CPU, both platforms):
+EncoderConfig::new(Codec::RawRgba, W, H)
+    .format(VideoFormat::RGBA)
 ```
 ⚠ Builder returns `Self` by value (move semantics). Chain in one expression.
 ⚠ `gpu_id` must match the GPU where incoming NvBufSurface buffers are allocated; `process_encode` validates this at entry.
+⚠ **Platform-specific properties:** Use `H264DgpuProps`/`HevcDgpuProps` on dGPU, `H264JetsonProps`/`HevcJetsonProps` on Jetson. Using the wrong variant causes GStreamer property errors. Detect with `cfg!(target_arch = "aarch64")`.
 
 ### PNG encoder (CPU-based, GStreamer pngenc)
 ```rust

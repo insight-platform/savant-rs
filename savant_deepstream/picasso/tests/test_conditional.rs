@@ -11,8 +11,10 @@
 //!    attribute go through the full render-and-encode path.  The `on_render`
 //!    callback fires only for those frames.
 
+mod common;
+
+use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -32,16 +34,7 @@ fn init() {
 }
 
 fn make_encoder_config() -> EncoderConfig {
-    EncoderConfig::new(Codec::H264, W, H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-            bitrate: Some(2_000_000),
-            preset: Some(DgpuPreset::P1),
-            tuning_info: Some(TuningPreset::LowLatency),
-            iframeinterval: Some(30),
-            ..Default::default()
-        }))
+    common::make_default_encoder_config(W, H)
 }
 
 fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
@@ -72,14 +65,11 @@ fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> Vide
     frame
 }
 
-fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
-    let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DUR_NS));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DUR_NS));
-    }
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+fn make_buffer(gen: &BufferGenerator, idx: u64) -> deepstream_buffers::SurfaceView {
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    shared.set_pts_ns(idx * FRAME_DUR_NS);
+    shared.set_duration_ns(FRAME_DUR_NS);
+    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 
 struct EncodedCounter(Arc<AtomicUsize>);
@@ -96,7 +86,7 @@ impl OnRender for RenderCounter {
     fn call(
         &self,
         _source_id: &str,
-        _renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        _renderer: &mut deepstream_buffers::SkiaRenderer,
         _frame: &VideoFrameProxy,
     ) {
         self.0.fetch_add(1, Ordering::Relaxed);
@@ -137,7 +127,7 @@ fn encode_attribute_gate_drops_frames_without_attr() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -212,7 +202,7 @@ fn render_attribute_gate_skips_rendering_without_attr() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -293,7 +283,7 @@ fn both_gates_active() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -400,7 +390,7 @@ fn no_gates_all_frames_pass() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

@@ -5,7 +5,7 @@ Injected into ``savant_rs.deepstream`` at import time so that
 
 Two context managers for different call sites:
 
-- :func:`nvgstbuf_as_gpu_mat` — takes a ``DsNvBufSurfaceGstBuffer`` guard (or raw ``int``
+- :func:`nvgstbuf_as_gpu_mat` — takes a ``SharedBuffer`` guard (or raw ``int``
   pointer), extracts NvBufSurface metadata internally.  Use outside callbacks
   (e.g. pre-filling a background before ``send_frame``).
 
@@ -27,8 +27,8 @@ from typing import Generator, Union
 import cv2
 
 from savant_rs.deepstream import (
-    DsNvBufSurfaceGstBuffer,
-    DsNvSurfaceBufferGenerator,
+    BufferGenerator,
+    SharedBuffer,
     get_nvbufsurface_info,
 )
 
@@ -102,10 +102,10 @@ _RGBA_CV_TYPE = cv2.CV_8UC4
 
 @contextmanager
 def nvgstbuf_as_gpu_mat(
-    buf: Union[DsNvBufSurfaceGstBuffer, int],
+    buf: Union[SharedBuffer, int],
     stream: cv2.cuda.Stream | None = None,
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
-    """Expose an NvBufSurface ``DsNvBufSurfaceGstBuffer`` as an OpenCV CUDA ``GpuMat``.
+    """Expose an NvBufSurface ``SharedBuffer`` as an OpenCV CUDA ``GpuMat``.
 
     Extracts the CUDA device pointer, pitch, width and height from the
     buffer's NvBufSurface metadata, then creates a zero-copy ``GpuMat``
@@ -113,7 +113,7 @@ def nvgstbuf_as_gpu_mat(
     stream is synchronised (``waitForCompletion``).
 
     Args:
-        buf: ``DsNvBufSurfaceGstBuffer`` RAII guard or raw ``GstBuffer*`` pointer as ``int``.
+        buf: ``SharedBuffer`` RAII guard or raw ``GstBuffer*`` pointer as ``int``.
 
     Yields:
         ``(gpumat, stream)`` -- the ``GpuMat`` is ``CV_8UC4`` with the
@@ -173,12 +173,12 @@ def nvbuf_as_gpu_mat(
 
 
 def from_gpumat(
-    gen: DsNvSurfaceBufferGenerator,
+    gen: BufferGenerator,
     gpumat: cv2.cuda.GpuMat,
     *,
     interpolation: int = cv2.INTER_LINEAR,
     id: int | None = None,
-) -> DsNvBufSurfaceGstBuffer:
+) -> SharedBuffer:
     """Acquire a buffer from the pool and fill it from a ``GpuMat``.
 
     If the source ``GpuMat`` dimensions differ from the generator's
@@ -197,15 +197,16 @@ def from_gpumat(
         id: Optional frame identifier for ``SavantIdMeta``.
 
     Returns:
-        ``DsNvBufSurfaceGstBuffer`` RAII guard owning the newly acquired buffer.
+        ``SharedBuffer`` RAII guard owning the newly acquired buffer.
     """
-    buf, data_ptr, pitch = gen.acquire_surface_with_ptr(id=id)
+    buf = gen.acquire(id=id)
+    data_ptr, pitch, width, height = get_nvbufsurface_info(buf)
     dst = cv2.cuda.createGpuMatFromCudaMemory(
-        gen.height,
-        gen.width,
+        int(height),
+        int(width),
         _RGBA_CV_TYPE,
-        data_ptr,
-        pitch,
+        int(data_ptr),
+        int(pitch),
     )
 
     src_w, src_h = gpumat.size()

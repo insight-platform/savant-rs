@@ -1,11 +1,9 @@
 //! Integration test: verify that `gpu_mem_used_mib` reflects GPU memory changes
-//! when allocating and releasing NvBufSurface buffers via `deepstream_nvbufsurface`.
+//! when allocating and releasing NvBufSurface buffers via `deepstream_buffers`.
 //!
 //! Run with: `cargo test -p nvidia_gpu_utils --test test_nvbufsurface_mem -- --nocapture`
 
-use deepstream_nvbufsurface::{
-    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
-};
+use deepstream_buffers::{cuda_init, BufferGenerator, NvBufSurfaceMemType, VideoFormat};
 use nvidia_gpu_utils::gpu_mem_used_mib;
 use serial_test::serial;
 
@@ -18,7 +16,7 @@ fn gpu_mem_reflects_surface_allocation() {
     let before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib should succeed");
 
     // Allocate several large surfaces (10x 1920x1080 RGBA ≈ 80 MiB)
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         1920,
         1080,
@@ -27,13 +25,10 @@ fn gpu_mem_reflects_surface_allocation() {
         0,
         NvBufSurfaceMemType::Default,
     )
-    .expect("Failed to create DsNvSurfaceBufferGenerator");
+    .expect("Failed to create BufferGenerator");
 
     let buffers: Vec<_> = (0..10)
-        .map(|i| {
-            gen.acquire_surface(Some(i))
-                .expect("acquire_surface should succeed")
-        })
+        .map(|i| gen.acquire(Some(i)).expect("acquire should succeed"))
         .collect();
 
     let during = gpu_mem_used_mib(0).expect("gpu_mem_used_mib should succeed");

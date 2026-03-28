@@ -1,5 +1,7 @@
 """E2E tests for savant_rs.nvinfer — uniform and nonuniform batching."""
 
+from __future__ import annotations
+
 import ctypes
 import json
 import os
@@ -15,15 +17,29 @@ try:
     from savant_rs.nvinfer import (
         NvInfer,
         NvInferConfig,
+        NvInferBatchingOperator,
+        NvInferBatchingOperatorConfig,
+        BatchFormationResult,
         Roi,
+        RoiKind,
+        SealedDeliveries,
     )
     from savant_rs.deepstream import (
-        DsNvNonUniformSurfaceBuffer,
-        DsNvSurfaceBufferGenerator,
-        DsNvUniformSurfaceBufferGenerator,
+        BufferGenerator,
+        NonUniformBatch,
+        SavantIdMetaKind,
+        UniformBatchGenerator,
+        SurfaceView,
         TransformConfig,
+        VideoFormat,
+        gpu_platform_tag,
         init_cuda,
         nvbuf_as_gpu_mat,
+    )
+    from savant_rs.primitives import (
+        VideoFrame,
+        VideoFrameContent,
+        VideoFrameTranscodingMethod,
     )
     from savant_rs.primitives.geometry import RBBox
 
@@ -62,7 +78,6 @@ def age_gender_properties() -> Dict[str, str]:
     d = ASSETS_DIR
     return {
         "gpu-id": "0",
-        "gie-unique-id": "2",
         "net-scale-factor": "0.007843137254902",
         "offsets": "127.5;127.5;127.5",
         "onnx-file": os.path.join(d, "age_gender_mobilenet_v2_dynBatch.onnx"),
@@ -72,9 +87,6 @@ def age_gender_properties() -> Dict[str, str]:
         ),
         "batch-size": "32",
         "network-mode": "2",
-        "network-type": "100",
-        "infer-dims": "3;112;112",
-        "model-color-format": "0",
     }
 
 
@@ -196,19 +208,23 @@ def test_age_gender_e2e_real_images():
         canvas[y : y + fh, x : x + fw] = rgba
 
     # Upload canvas to GPU surface
-    src_gen = DsNvSurfaceBufferGenerator(
+    src_gen = BufferGenerator(
         format="RGBA",
         width=FRAME_W,
         height=FRAME_H,
         gpu_id=0,
         pool_size=1,
     )
-    src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
-    with nvbuf_as_gpu_mat(data_ptr, pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+    src_buf = src_gen.acquire(id=0)
+    view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (
+        gpu_mat,
+        stream,
+    ):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
     # Create batched surface with one 1920x1080 slot
-    batched_gen = DsNvUniformSurfaceBufferGenerator(
+    batched_gen = UniformBatchGenerator(
         format="RGBA",
         width=FRAME_W,
         height=FRAME_H,
@@ -217,10 +233,11 @@ def test_age_gender_e2e_real_images():
         gpu_id=0,
     )
     config = TransformConfig()
-    batch = batched_gen.acquire_batched_surface(config)
-    batch.fill_slot(src_buf, id=0)
+    batch = batched_gen.acquire_batch(config, ids=[(SavantIdMetaKind.FRAME, 0)])
+    batch.transform_slot(0, src_buf)
     batch.finalize()
-    gst_buffer = batch.as_gst_buffer()
+    gst_buffer = batch.shared_buffer()
+    del batch, view, src_buf, src_gen
 
     # Build ROIs
     rois: Dict[int, list] = {
@@ -234,16 +251,15 @@ def test_age_gender_e2e_real_images():
     props = age_gender_properties()
     nvinfer_config = NvInferConfig(
         nvinfer_properties=props,
-        input_format="RGBA",
-        input_width=FRAME_W,
-        input_height=FRAME_H,
+        input_format=VideoFormat.RGBA,
+        model_width=FACE_SZ,
+        model_height=FACE_SZ,
     )
     engine = NvInfer(nvinfer_config, callback=lambda _output: None)
 
     try:
-        output = engine.infer_sync(batch=gst_buffer, batch_id=1, rois=rois)
+        output = engine.infer_sync(batch=gst_buffer, rois=rois)
 
-        assert output.batch_id == 1
         assert output.num_elements == num_faces, (
             f"expected {num_faces} elements, got {output.num_elements}"
         )
@@ -268,7 +284,9 @@ def test_age_gender_e2e_real_images():
 
             age_cp = tensor_to_cupy(age_tensor).get()
             gender_cp = tensor_to_cupy(gender_tensor).get()
-            np.testing.assert_array_equal(age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch")
+            np.testing.assert_array_equal(
+                age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch"
+            )
             np.testing.assert_array_equal(
                 gender_np, gender_cp, err_msg=f"{fname}: gender CPU/GPU mismatch"
             )
@@ -328,23 +346,27 @@ def test_age_gender_e2e_nonuniform_callback():
         canvas[y : y + fh, x : x + fw] = rgba
 
     # Upload canvas to GPU surface
-    src_gen = DsNvSurfaceBufferGenerator(
+    src_gen = BufferGenerator(
         format="RGBA",
         width=FRAME_W,
         height=FRAME_H,
         gpu_id=0,
         pool_size=1,
     )
-    src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
-    with nvbuf_as_gpu_mat(data_ptr, pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+    src_buf = src_gen.acquire(id=0)
+    view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (
+        gpu_mat,
+        stream,
+    ):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
-    # Assemble batch via DsNvNonUniformSurfaceBuffer (zero-copy add)
-    batch = DsNvNonUniformSurfaceBuffer(max_batch_size=32, gpu_id=0)
-    batch.add(src_buf, id=0)
-    batch.finalize()
-    gst_buffer = batch.as_gst_buffer()
-    del batch, src_buf, src_gen
+    # Assemble batch via NonUniformBatch (zero-copy add)
+    batch = NonUniformBatch(gpu_id=0)
+    src_view = SurfaceView.from_buffer(src_buf)
+    batch.add(src_view)
+    gst_buffer = batch.finalize(ids=[(SavantIdMetaKind.FRAME, 0)])
+    del batch, src_view, src_buf, src_gen
 
     # Build ROIs
     rois: Dict[int, list] = {
@@ -365,20 +387,19 @@ def test_age_gender_e2e_nonuniform_callback():
     props = age_gender_properties()
     nvinfer_config = NvInferConfig(
         nvinfer_properties=props,
-        input_format="RGBA",
-        input_width=FRAME_W,
-        input_height=FRAME_H,
+        input_format=VideoFormat.RGBA,
+        model_width=FACE_SZ,
+        model_height=FACE_SZ,
     )
     engine = NvInfer(nvinfer_config, callback=on_output)
 
     try:
-        engine.submit(batch=gst_buffer, batch_id=3, rois=rois)
+        engine.submit(batch=gst_buffer, rois=rois)
 
         assert done.wait(timeout=30), "callback not invoked within 30 s"
         assert len(result_holder) == 1, f"expected 1 callback, got {len(result_holder)}"
         output = result_holder[0]
 
-        assert output.batch_id == 3
         assert output.num_elements == num_faces, (
             f"expected {num_faces} elements, got {output.num_elements}"
         )
@@ -403,7 +424,9 @@ def test_age_gender_e2e_nonuniform_callback():
 
             age_cp = tensor_to_cupy(age_tensor).get()
             gender_cp = tensor_to_cupy(gender_tensor).get()
-            np.testing.assert_array_equal(age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch")
+            np.testing.assert_array_equal(
+                age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch"
+            )
             np.testing.assert_array_equal(
                 gender_np, gender_cp, err_msg=f"{fname}: gender CPU/GPU mismatch"
             )
@@ -430,3 +453,127 @@ def test_age_gender_e2e_nonuniform_callback():
         print(f"\n  All {pass_count}/{num_faces} faces passed age/gender validation.")
     finally:
         engine.shutdown()
+
+
+# ── SealedDeliveries guard behavior ──────────────────────────────────────
+
+
+def _has_identity_onnx() -> bool:
+    return os.path.isfile(os.path.join(ASSETS_DIR, "identity.onnx"))
+
+
+def identity_properties() -> Dict[str, str]:
+    d = ASSETS_DIR
+    tag = gpu_platform_tag(0)
+    engine_dir = os.path.join(d, "engines", tag)
+    os.makedirs(engine_dir, exist_ok=True)
+    props = {
+        "gpu-id": "0",
+        "net-scale-factor": "1.0",
+        "onnx-file": os.path.join(d, "identity.onnx"),
+        "model-engine-file": os.path.join(
+            engine_dir, "identity.onnx_b16_gpu0_fp16.engine"
+        ),
+        "batch-size": "16",
+        "network-mode": "2",
+    }
+    import platform
+
+    if platform.machine() == "aarch64":
+        props["scaling-compute-hw"] = "1"
+    return props
+
+
+@pytest.mark.skipif(not _has_identity_onnx(), reason="identity.onnx not found")
+def test_sealed_deliveries_guard_behavior():
+    """Verify SealedDeliveries blocks until OperatorInferenceOutput is dropped.
+
+    Uses identity.onnx (3x16x16, batch-size 16) via NvInferBatchingOperator.
+    The test implicitly verifies GIL release in unseal(): the callback runs on
+    a Rust thread that acquires the GIL via Python::attach.  If unseal() held
+    the GIL while blocking on the Condvar, the callback thread could not drop
+    the OperatorInferenceOutput (which needs GIL for Drop), causing deadlock.
+    A successful unseal() return proves GIL is properly released.
+    """
+    init_cuda(0)
+
+    W, H = 16, 16
+
+    sealed_holder: List = []
+    done = threading.Event()
+
+    def batch_formation_callback(frames):
+        ids = [(SavantIdMetaKind.FRAME, i) for i in range(len(frames))]
+        rois = [RoiKind.full_frame() for _ in frames]
+        return BatchFormationResult(ids=ids, rois=rois)
+
+    def result_callback(output):
+        sealed = output.take_deliveries()
+        assert sealed is not None, "first take_deliveries() must return SealedDeliveries"
+        assert len(sealed) == 1
+        assert not sealed.is_released(), "seal should not be released while output alive"
+
+        second = output.take_deliveries()
+        assert second is None, "second take_deliveries() must return None"
+
+        result = sealed.try_unseal()
+        assert result is None, "try_unseal should return None while still sealed"
+
+        sealed_holder.append(sealed)
+        done.set()
+
+    nvinfer_config = NvInferConfig(
+        nvinfer_properties=identity_properties(),
+        input_format=VideoFormat.RGBA,
+        model_width=W,
+        model_height=H,
+    )
+    op_config = NvInferBatchingOperatorConfig(
+        max_batch_size=1,
+        max_batch_wait_ms=5000,
+        nvinfer_config=nvinfer_config,
+    )
+
+    operator = NvInferBatchingOperator(
+        config=op_config,
+        batch_formation_callback=batch_formation_callback,
+        result_callback=result_callback,
+    )
+
+    try:
+        gen = BufferGenerator(
+            format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
+        )
+        buf = gen.acquire(id=0)
+        view = SurfaceView.from_buffer(buf, cuda_stream=0)
+        view.memset(0)
+        del view
+
+        frame = VideoFrame(
+            source_id="test",
+            framerate="30/1",
+            width=W,
+            height=H,
+            content=VideoFrameContent.none(),
+            transcoding_method=VideoFrameTranscodingMethod.Copy,
+        )
+        operator.add_frame(frame, buf)
+        del buf, gen
+
+        assert done.wait(timeout=30), "callback not invoked within 30 s"
+
+        sealed = sealed_holder[0]
+        assert sealed.is_released(), (
+            "seal should be released after output dropped (callback returned)"
+        )
+
+        pairs = sealed.unseal()
+        assert len(pairs) == 1
+        frame_out, buffer_out = pairs[0]
+        assert isinstance(frame_out, VideoFrame)
+        print(
+            f"  SealedDeliveries: frame source_id={frame_out.source_id}, "
+            f"buffer type={type(buffer_out).__name__}"
+        )
+    finally:
+        operator.shutdown()

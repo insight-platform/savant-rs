@@ -3,7 +3,7 @@ name = "nvidia_gpu_utils"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Platform-aware GPU memory monitoring (NVML on dGPU, /proc/meminfo on Jetson)"
+description = "Platform-aware GPU memory monitoring, Jetson model detection, and NVENC capability queries (NVML on dGPU, /proc/meminfo on Jetson)"
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
@@ -15,13 +15,18 @@ rust-version.workspace = true
 [lib]
 crate-type = ["rlib"]
 
+[[bin]]
+name = "nvidia_gpu_info"
+path = "src/main.rs"
+
 [dependencies]
+clap = { workspace = true }
 thiserror = { workspace = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-nvml-wrapper = "0.12"
+nvml-wrapper = { workspace = true }
 
 [dev-dependencies]
-deepstream_nvbufsurface = { path = "../nvbufsurface" }
+deepstream_buffers = { path = "../buffers" }
 gstreamer = { workspace = true }
 serial_test = { workspace = true }

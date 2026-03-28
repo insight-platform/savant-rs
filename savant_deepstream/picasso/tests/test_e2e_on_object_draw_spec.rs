@@ -6,8 +6,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::draw::{BoundingBoxDraw, ColorDraw, ObjectDraw, PaddingDraw};
 use savant_core::primitives::object::{
@@ -23,9 +23,7 @@ const H: u32 = 480;
 const DUR: u64 = 33_333_333;
 
 /// OnObjectDrawSpec callback that overrides "alert" with red bbox, uses static for "car", None for "ignored".
-struct ObjectDrawSpecOverride {
-    call_count: Arc<AtomicUsize>,
-}
+struct ObjectDrawSpecOverride(Arc<AtomicUsize>);
 
 impl OnObjectDrawSpec for ObjectDrawSpecOverride {
     fn call(
@@ -34,7 +32,7 @@ impl OnObjectDrawSpec for ObjectDrawSpecOverride {
         object: &savant_core::primitives::object::BorrowedVideoObject,
         _current_spec: Option<&ObjectDraw>,
     ) -> Option<ObjectDraw> {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.0.fetch_add(1, Ordering::SeqCst);
         let label = object.get_label();
         match label.as_str() {
             "alert" => {
@@ -71,9 +69,7 @@ fn e2e_on_object_draw_spec() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_object_draw_spec: Some(Arc::new(ObjectDrawSpecOverride {
-            call_count: callback_count.clone(),
-        })),
+        on_object_draw_spec: Some(Arc::new(ObjectDrawSpecOverride(callback_count.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -99,16 +95,14 @@ fn e2e_on_object_draw_spec() {
     };
     engine.set_source_spec("obj-draw", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let mut frame = make_frame_sized("obj-draw", W as i64, H as i64);
     frame.set_pts(0).unwrap();
@@ -148,7 +142,7 @@ fn e2e_on_object_draw_spec() {
         .add_object(obj_ignored, IdCollisionResolutionPolicy::GenerateNewId)
         .unwrap();
 
-    let buf = make_gpu_surface_view(&gen, 0, DUR);
+    let buf = make_gpu_surface_view_uniform(&gen, 0, DUR);
     engine.send_frame("obj-draw", frame, buf, None).unwrap();
     engine.send_eos("obj-draw").unwrap();
 

@@ -5,6 +5,8 @@
 
 #![allow(dead_code)] // Helpers used by various test files
 
+use deepstream_buffers::BufferGenerator;
+use deepstream_encoders::prelude::*;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -69,8 +71,8 @@ pub fn make_gst_buffer() -> gstreamer::Buffer {
 }
 
 /// Creates a SurfaceView wrapping a plain GStreamer buffer (stub for NOGPU tests).
-pub fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+pub fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 
 /// Creates a frame with PTS, duration, and a persistent attribute.
@@ -165,22 +167,35 @@ impl OnEviction for TerminateEviction {
 
 #[cfg(test)]
 pub fn make_gpu_buffer(
-    gen: &deepstream_encoders::DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     _dur_ns: u64,
-) -> gstreamer::Buffer {
-    gen.acquire_surface(Some(idx as i64)).unwrap()
+) -> deepstream_buffers::SharedBuffer {
+    gen.acquire(Some(idx as i64)).unwrap()
 }
 
-/// Creates a SurfaceView from a GPU buffer (requires CUDA + NvBufSurface).
+/// Creates a SurfaceView from a single-frame GPU buffer (BufferGenerator).
 #[cfg(test)]
 pub fn make_gpu_surface_view(
-    gen: &deepstream_encoders::DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     dur_ns: u64,
-) -> deepstream_nvbufsurface::SurfaceView {
+) -> deepstream_buffers::SurfaceView {
     let buf = make_gpu_buffer(gen, idx, dur_ns);
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+    deepstream_buffers::SurfaceView::from_buffer(&buf, 0).unwrap()
+}
+
+/// Creates a SurfaceView from a single-frame GPU buffer (BufferGenerator).
+#[cfg(test)]
+pub fn make_gpu_surface_view_uniform(
+    gen: &BufferGenerator,
+    idx: u64,
+    dur_ns: u64,
+) -> deepstream_buffers::SurfaceView {
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    shared.set_pts_ns(idx * dur_ns);
+    shared.set_duration_ns(dur_ns);
+    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 
 #[cfg(test)]
@@ -190,4 +205,112 @@ pub fn jpeg_encoder_config(w: u32, h: u32) -> deepstream_encoders::EncoderConfig
         .format(VideoFormat::RGBA)
         .fps(30, 1)
         .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(80) }))
+}
+
+// ---------------------------------------------------------------------------
+// Platform-aware encoder helpers
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+pub fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+#[allow(dead_code)]
+pub fn has_nvjpegenc() -> bool {
+    gstreamer::ElementFactory::find("nvjpegenc").is_some()
+}
+
+#[allow(dead_code)]
+pub fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+
+/// H264 encoder config with correct platform-specific properties.
+#[allow(dead_code)]
+pub fn h264_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+/// HEVC encoder config with correct platform-specific properties.
+#[allow(dead_code)]
+pub fn hevc_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::Hevc, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Hevc, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+/// AV1 encoder config with correct platform-specific properties.
+#[allow(dead_code)]
+pub fn av1_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::Av1, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Av1Jetson(Av1JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Av1, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Av1Dgpu(Av1DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+/// Returns best available encoder config: NVENC H264 > JPEG > PNG.
+#[allow(dead_code)]
+pub fn make_default_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if has_nvenc() {
+        h264_encoder_config(w, h)
+    } else if has_nvjpegenc() {
+        EncoderConfig::new(Codec::Jpeg, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) }))
+    } else {
+        EncoderConfig::new(Codec::Png, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Png(PngProps {
+                compression_level: Some(1),
+            }))
+    }
 }

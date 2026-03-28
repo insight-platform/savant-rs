@@ -47,11 +47,13 @@ class InvocationReason:
 class Codec:
     """Video codec identifier (requires ``gst`` feature).
 
-    - ``H264`` — H.264 / AVC.
-    - ``HEVC`` — H.265 / HEVC.
-    - ``JPEG`` — Motion JPEG.
-    - ``AV1``  — AV1.
-    - ``PNG``  — PNG (CPU-based, lossless).
+    - ``H264``     — H.264 / AVC.
+    - ``HEVC``     — H.265 / HEVC.
+    - ``JPEG``     — Motion JPEG.
+    - ``AV1``      — AV1.
+    - ``PNG``      — PNG (CPU-based, lossless).
+    - ``RAW_RGBA`` — Raw RGBA pixel data (no encoding).
+    - ``RAW_RGB``  — Raw RGB pixel data (no encoding).
     """
 
     H264: Codec
@@ -59,13 +61,15 @@ class Codec:
     JPEG: Codec
     AV1: Codec
     PNG: Codec
+    RAW_RGBA: Codec
+    RAW_RGB: Codec
 
     @staticmethod
     def from_name(name: str) -> Codec:
         """Parse a codec from a string name.
 
         Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-        ``jpeg``, ``av1``, ``png``.
+        ``jpeg``, ``av1``, ``png``, ``raw_rgba``, ``raw_rgb``.
 
         Args:
             name: Codec name.

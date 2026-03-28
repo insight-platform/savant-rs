@@ -7,5 +7,5 @@ pub mod source;
 pub use codec::CodecSpec;
 pub use conditional::ConditionalSpec;
 pub use draw::ObjectDrawSpec;
-pub use general::{EvictionDecision, GeneralSpec};
+pub use general::{EvictionDecision, GeneralSpec, PtsResetPolicy};
 pub use source::{CallbackInvocationOrder, SourceSpec};

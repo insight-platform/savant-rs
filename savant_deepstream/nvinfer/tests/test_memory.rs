@@ -8,41 +8,38 @@
 
 mod common;
 
-use deepstream_nvbufsurface::{
-    DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
-    NvBufSurfaceMemType, TransformConfig, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer,
+    SurfaceView, UniformBatchGenerator, VideoFormat,
 };
 use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
-use nvinfer::{NvInfer, NvInferConfig, Roi};
+use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
-
-#[link(name = "cuda")]
-extern "C" {
-    fn cuMemsetD8_v2(dst: u64, value: u8, count: usize) -> u32;
-}
 
 const STRESS_ITERATIONS: u64 = 200;
 const FRAMES_PER_BATCH: u32 = 4;
 
 /// Maximum allowed GPU memory growth in MiB over the test run.
-const GPU_GROWTH_LIMIT_MIB: u64 = 32;
+/// Jetson GPU compute mode uses slightly more memory than VIC.
+const GPU_GROWTH_LIMIT_MIB: u64 = 48;
 /// Maximum allowed CPU RSS growth in MiB over the test run.
 const RSS_GROWTH_LIMIT_MIB: u64 = 64;
 
-fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
+fn make_identity_batch(num_frames: u32) -> SharedBuffer {
     common::init();
 
-    let src_gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, 12, 12)
+    let min_bufs = num_frames.max(4);
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 12, 12)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .min_buffers(num_frames.max(4))
-        .max_buffers(num_frames.max(4))
+        .min_buffers(min_bufs)
+        .max_buffers(min_bufs)
         .build()
         .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -53,16 +50,20 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
     )
     .expect("batched generator");
 
-    let config = TransformConfig::default();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let config = common::platform_transform_config();
+    let ids: Vec<SavantIdMetaKind> = (0..num_frames)
+        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
     for i in 0..num_frames {
-        let src = src_gen.acquire_surface(Some(i as i64)).unwrap();
-        batch.fill_slot(&src, None, Some(i as i64)).unwrap();
+        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(i, &src_view, None).unwrap();
     }
 
     batch.finalize().unwrap();
-    batch.as_gst_buffer().unwrap()
+    batch.into_shared_buffer()
 }
 
 fn identity_engine() -> Option<NvInfer> {
@@ -72,8 +73,10 @@ fn identity_engine() -> Option<NvInfer> {
         return None;
     }
     let props = common::identity_properties();
-    let config = NvInferConfig::new(props, "RGBA", 12, 12);
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer"))
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer");
+    common::promote_built_engine("identity.onnx", 16);
+    Some(engine)
 }
 
 /// Run `STRESS_ITERATIONS` synchronous inferences and assert that neither GPU
@@ -88,9 +91,9 @@ fn stress_no_gpu_leak() {
     };
 
     // Warm up: a few iterations to let TensorRT/CUDA settle allocations.
-    for i in 0..5 {
-        let batch = make_identity_batch(FRAMES_PER_BATCH);
-        let _ = engine.infer_sync(batch, i, None);
+    for _ in 0..5 {
+        let shared = make_identity_batch(FRAMES_PER_BATCH);
+        let _ = engine.infer_sync(shared, None);
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -100,9 +103,9 @@ fn stress_no_gpu_leak() {
         gpu_before, rss_before, STRESS_ITERATIONS, FRAMES_PER_BATCH
     );
 
-    for i in 0..STRESS_ITERATIONS {
-        let batch = make_identity_batch(FRAMES_PER_BATCH);
-        let output = engine.infer_sync(batch, 100 + i, None).expect("infer_sync");
+    for _ in 0..STRESS_ITERATIONS {
+        let shared = make_identity_batch(FRAMES_PER_BATCH);
+        let output = engine.infer_sync(shared, None).expect("infer_sync");
         // Consume output to prove tensors are readable, then drop.
         assert!(!output.elements().is_empty());
         drop(output);
@@ -187,9 +190,9 @@ fn stress_no_leak_with_rois() {
         .collect();
 
     // Warm up.
-    for i in 0..5 {
-        let batch = make_identity_batch(FRAMES_PER_BATCH);
-        let _ = engine.infer_sync(batch, i, Some(&rois));
+    for _ in 0..5 {
+        let shared = make_identity_batch(FRAMES_PER_BATCH);
+        let _ = engine.infer_sync(shared, Some(&rois));
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -199,10 +202,10 @@ fn stress_no_leak_with_rois() {
         gpu_before, rss_before
     );
 
-    for i in 0..STRESS_ITERATIONS {
-        let batch = make_identity_batch(FRAMES_PER_BATCH);
+    for _ in 0..STRESS_ITERATIONS {
+        let shared = make_identity_batch(FRAMES_PER_BATCH);
         let output = engine
-            .infer_sync(batch, 1000 + i, Some(&rois))
+            .infer_sync(shared, Some(&rois))
             .expect("infer_sync with ROIs");
         assert!(!output.elements().is_empty());
         drop(output);
@@ -245,17 +248,17 @@ fn stress_no_leak_with_rois() {
 
 // ─── Non-uniform batch helpers ───────────────────────────────────────────────
 
-fn make_nonuniform_batch_with_rois() -> (gstreamer::Buffer, HashMap<u32, Vec<Roi>>) {
+fn make_nonuniform_batch_with_rois() -> (SharedBuffer, HashMap<u32, Vec<Roi>>) {
     common::init();
 
     let specs: &[(u32, u32, u8, i64)] = &[(24, 24, 100, 1), (36, 36, 180, 2)];
 
-    let buffer = {
-        let mut batch =
-            DsNvNonUniformSurfaceBuffer::new(specs.len() as u32, 0).expect("non-uniform batch");
+    let shared = {
+        let mut batch = NonUniformBatch::new(0);
 
+        let mut ids = Vec::new();
         for &(w, h, fill, id) in specs {
-            let gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, w, h)
+            let gen = BufferGenerator::builder(VideoFormat::RGBA, w, h)
                 .gpu_id(0)
                 .mem_type(NvBufSurfaceMemType::Default)
                 .min_buffers(1)
@@ -263,16 +266,17 @@ fn make_nonuniform_batch_with_rois() -> (gstreamer::Buffer, HashMap<u32, Vec<Roi
                 .build()
                 .expect("src generator");
 
-            let (src, data_ptr, pitch) = gen.acquire_surface_with_ptr(Some(id)).unwrap();
-            let fill_size = (pitch * h) as usize;
-            let ret = unsafe { cuMemsetD8_v2(data_ptr as u64, fill, fill_size) };
-            assert_eq!(ret, 0, "cuMemsetD8_v2 failed");
-
-            batch.add(&src, Some(id)).unwrap();
+            let src_shared = gen.acquire(Some(id)).unwrap();
+            src_shared
+                .with_view(0, |view| {
+                    view.memset(fill)?;
+                    batch.add(view)
+                })
+                .unwrap();
+            ids.push(SavantIdMetaKind::Frame(id));
         }
 
-        batch.finalize().unwrap();
-        batch.as_gst_buffer().unwrap()
+        batch.finalize(ids).unwrap()
     };
 
     let rois: HashMap<u32, Vec<Roi>> = specs
@@ -296,7 +300,7 @@ fn make_nonuniform_batch_with_rois() -> (gstreamer::Buffer, HashMap<u32, Vec<Roi
         })
         .collect();
 
-    (buffer, rois)
+    (shared, rois)
 }
 
 fn identity_engine_flexible() -> Option<NvInfer> {
@@ -306,8 +310,48 @@ fn identity_engine_flexible() -> Option<NvInfer> {
         return None;
     }
     let props = common::identity_properties();
-    let config = NvInferConfig::new_flexible(props, "RGBA");
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)"))
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)");
+    common::promote_built_engine("identity.onnx", 16);
+    Some(engine)
+}
+
+/// Two-slot non-uniform batch: `slot_number` matches `NvBufSurface` slots;
+/// user ids stay on the output buffer (`savant_ids()`), not on `ElementOutput`.
+///
+/// Also checks `SavantIdMeta` propagation through nvinfer (`bridge_savant_id_meta`):
+/// ids on the batch passed to `infer_sync` match `output.buffer().savant_ids()`.
+#[test]
+#[serial]
+fn test_nonuniform_slot_numbers() {
+    common::init();
+    let engine = match identity_engine_flexible() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let (shared, rois) = make_nonuniform_batch_with_rois();
+    let savant_in = shared.savant_ids();
+    let output = engine
+        .infer_sync(shared, Some(&rois))
+        .expect("infer_sync nonuniform");
+    assert_eq!(
+        output.buffer().savant_ids(),
+        savant_in,
+        "SavantIdMeta on input batch must match output buffer after nvinfer"
+    );
+    assert_eq!(output.num_elements(), 4, "two ROIs per slot × two slots");
+    let slots: Vec<u32> = output.elements().iter().map(|e| e.slot_number).collect();
+    assert_eq!(slots, vec![0, 0, 1, 1]);
+
+    assert_eq!(savant_in.len(), 2, "one Savant id per surface slot");
+    for elem in output.elements() {
+        let id = match &savant_in[elem.slot_number as usize] {
+            SavantIdMetaKind::Frame(id) | SavantIdMetaKind::Batch(id) => *id,
+        };
+        let expected = if elem.slot_number == 0 { 1i64 } else { 2 };
+        assert_eq!(id, expected, "slot {} user id", elem.slot_number);
+    }
 }
 
 /// Stress test for non-uniform batches with ROIs.
@@ -326,9 +370,9 @@ fn stress_no_leak_nonuniform() {
     };
 
     // Warm up.
-    for i in 0..5 {
-        let (batch, rois) = make_nonuniform_batch_with_rois();
-        let _ = engine.infer_sync(batch, i, Some(&rois));
+    for _ in 0..5 {
+        let (shared, rois) = make_nonuniform_batch_with_rois();
+        let _ = engine.infer_sync(shared, Some(&rois));
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -338,10 +382,10 @@ fn stress_no_leak_nonuniform() {
         gpu_before, rss_before
     );
 
-    for i in 0..STRESS_ITERATIONS {
-        let (batch, rois) = make_nonuniform_batch_with_rois();
+    for _ in 0..STRESS_ITERATIONS {
+        let (shared, rois) = make_nonuniform_batch_with_rois();
         let output = engine
-            .infer_sync(batch, 2000 + i, Some(&rois))
+            .infer_sync(shared, Some(&rois))
             .expect("infer_sync nonuniform");
         assert!(!output.elements().is_empty());
         drop(output);

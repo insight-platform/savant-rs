@@ -18,8 +18,8 @@
 //! All JPEGs are saved to `CARGO_TARGET_TMPDIR/letterbox/` for manual
 //! inspection.  Dimensions are verified programmatically.
 
+use deepstream_buffers::{Padding, Rect, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{Padding, Rect, TransformConfig};
 use picasso::prelude::*;
 use picasso::rewrite_frame_transformations;
 use picasso::skia::context::DrawContext;
@@ -234,26 +234,21 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
     };
     engine.set_source_spec(source_id, spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        SRC_W,
-        SRC_H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let frame = create_frame(source_id);
-    let mut buf = gen.acquire_surface(Some(0)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
+    let shared = gen.acquire(Some(0)).unwrap();
+    shared.set_pts_ns(0);
+    shared.set_duration_ns(33_333_333);
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
     engine
         .send_frame(source_id, frame, view, Some(crop_rect()))
         .unwrap();
@@ -444,26 +439,21 @@ fn letterbox_crop_two_sources_one_engine() {
         .set_source_spec("dual-str", make_spec(Padding::None))
         .unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        SRC_W,
-        SRC_H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     for src in ["dual-pad", "dual-str"] {
         let frame = create_frame(src);
-        let mut buf = gen.acquire_surface(Some(0)).unwrap();
-        {
-            let buf_ref = buf.make_mut();
-            buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-            buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-        }
-        let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+        let shared = gen.acquire(Some(0)).unwrap();
+        shared.set_pts_ns(0);
+        shared.set_duration_ns(33_333_333);
+        let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
         engine
             .send_frame(src, frame, view, Some(crop_rect()))
             .unwrap();

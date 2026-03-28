@@ -10,8 +10,10 @@
 //! Success criterion: all frames produce encoded output and no panic or
 //! crash occurs.
 
+mod common;
+
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
@@ -35,16 +37,7 @@ fn init() {
 }
 
 fn make_encoder_config() -> EncoderConfig {
-    EncoderConfig::new(Codec::H264, W, H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-            bitrate: Some(2_000_000),
-            preset: Some(DgpuPreset::P1),
-            tuning_info: Some(TuningPreset::LowLatency),
-            iframeinterval: Some(30),
-            ..Default::default()
-        }))
+    common::make_default_encoder_config(W, H)
 }
 
 /// Full draw spec with bbox + dot + label + blur for maximum coverage.
@@ -104,16 +97,6 @@ fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     frame
 }
 
-fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
-    let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DUR_NS));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DUR_NS));
-    }
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
-}
-
 struct EncodedCounter(Arc<AtomicUsize>);
 impl OnEncodedFrame for EncodedCounter {
     fn call(&self, output: OutputMessage) {
@@ -128,7 +111,7 @@ impl OnRender for RenderCounter {
     fn call(
         &self,
         _source_id: &str,
-        _renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        _renderer: &mut deepstream_buffers::SkiaRenderer,
         _frame: &VideoFrameProxy,
     ) {
         self.0.fetch_add(1, Ordering::Relaxed);
@@ -206,16 +189,14 @@ fn out_of_viewport_objects_do_not_crash() {
     };
     engine.set_source_spec("oob", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let num_frames = OOB_BOXES.len();
 
@@ -230,7 +211,7 @@ fn out_of_viewport_objects_do_not_crash() {
             .build()
             .unwrap();
         let _ = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId);
-        let buf = make_buffer(&gen, i as u64);
+        let buf = common::make_gpu_surface_view_uniform(&gen, i as u64, FRAME_DUR_NS);
         engine.send_frame("oob", frame, buf, None).unwrap();
     }
 
@@ -286,16 +267,14 @@ fn all_oob_objects_on_single_frame() {
     };
     engine.set_source_spec("oob-all", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let frame = make_frame("oob-all", 0);
     for &(cx, cy, w, h, angle) in OOB_BOXES {
@@ -309,7 +288,7 @@ fn all_oob_objects_on_single_frame() {
             .unwrap();
         let _ = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId);
     }
-    let buf = make_buffer(&gen, 0);
+    let buf = common::make_gpu_surface_view_uniform(&gen, 0, FRAME_DUR_NS);
     engine
         .send_frame("oob-all", frame.clone(), buf, None)
         .unwrap();

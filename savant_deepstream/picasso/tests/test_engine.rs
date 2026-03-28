@@ -28,19 +28,17 @@ fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
-fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 
-struct CountingBypassCb {
-    count: Arc<AtomicUsize>,
-}
+struct CountingBypassCb(Arc<AtomicUsize>);
 
 impl OnBypassFrame for CountingBypassCb {
     fn call(&self, output: OutputMessage) {
         match output {
             OutputMessage::VideoFrame(_) => {
-                self.count.fetch_add(1, Ordering::SeqCst);
+                self.0.fetch_add(1, Ordering::SeqCst);
             }
             OutputMessage::EndOfStream(_) => {}
         }
@@ -72,9 +70,7 @@ fn engine_bypass_multi_source() {
 
     let bypass_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(CountingBypassCb {
-            count: bypass_count.clone(),
-        })),
+        on_bypass_frame: Some(Arc::new(CountingBypassCb(bypass_count.clone()))),
         ..Default::default()
     };
     let general = GeneralSpec {
@@ -113,21 +109,17 @@ fn engine_eos_sends_sentinel() {
     let eos_count = Arc::new(AtomicUsize::new(0));
     let eos_clone = eos_count.clone();
 
-    struct BypassEosCb {
-        eos_count: Arc<AtomicUsize>,
-    }
+    struct BypassEosCb(Arc<AtomicUsize>);
     impl OnBypassFrame for BypassEosCb {
         fn call(&self, output: OutputMessage) {
             if matches!(output, OutputMessage::EndOfStream(_)) {
-                self.eos_count.fetch_add(1, Ordering::SeqCst);
+                self.0.fetch_add(1, Ordering::SeqCst);
             }
         }
     }
 
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(BypassEosCb {
-            eos_count: eos_clone,
-        })),
+        on_bypass_frame: Some(Arc::new(BypassEosCb(eos_clone))),
         ..Default::default()
     };
     let general = GeneralSpec {
@@ -198,9 +190,7 @@ fn engine_spec_hot_swap() {
 
     let bypass_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(CountingBypassCb {
-            count: bypass_count.clone(),
-        })),
+        on_bypass_frame: Some(Arc::new(CountingBypassCb(bypass_count.clone()))),
         ..Default::default()
     };
     let general = GeneralSpec {

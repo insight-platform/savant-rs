@@ -1,4 +1,4 @@
-use deepstream_nvbufsurface::{Padding, Rect, TransformConfig};
+use deepstream_buffers::{Padding, Rect, TransformConfig};
 use picasso::rewrite_frame_transformations;
 use savant_core::primitives::bbox::RBBox;
 use savant_core::primitives::frame::{

@@ -1,4 +1,4 @@
-//! Region-of-interest type for NvInfer.
+//! Region-of-interest types for NvInfer.
 
 use savant_core::primitives::RBBox;
 
@@ -17,4 +17,16 @@ pub struct Roi {
     pub id: i64,
     /// Bounding box (center-based, optionally rotated).
     pub bbox: RBBox,
+}
+
+/// Per-slot ROI specification for the [`crate::batching_operator`] layer.
+///
+/// Each batch slot is either inferred as a full frame (no explicit ROIs)
+/// or with a caller-supplied list of regions.
+#[derive(Debug, Clone)]
+pub enum RoiKind {
+    /// Infer on the entire frame (no per-object ROIs for this slot).
+    FullFrame,
+    /// Infer on specific regions within the frame.
+    Rois(Vec<Roi>),
 }

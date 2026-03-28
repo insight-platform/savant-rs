@@ -17,8 +17,10 @@
 //! inspection.  Perceptual hashes are compared; a small Hamming distance
 //! means the images are structurally equivalent.
 
+mod common;
+
+use deepstream_buffers::{Padding, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{Padding, TransformConfig};
 use picasso::prelude::*;
 use picasso::skia::context::DrawContext;
 use picasso::skia::object::draw_object;
@@ -253,7 +255,7 @@ impl OnRender for PixelCapture {
     fn call(
         &self,
         _source_id: &str,
-        renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        renderer: &mut deepstream_buffers::SkiaRenderer,
         _frame: &VideoFrameProxy,
     ) {
         let canvas = renderer.canvas();
@@ -305,16 +307,7 @@ fn render_gpu() -> Vec<u8> {
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
-    let enc_config = EncoderConfig::new(Codec::H264, DST_W, DST_H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-            bitrate: Some(4_000_000),
-            preset: Some(DgpuPreset::P1),
-            tuning_info: Some(TuningPreset::LowLatency),
-            iframeinterval: Some(30),
-            ..Default::default()
-        }));
+    let enc_config = common::h264_encoder_config(DST_W, DST_H);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -332,26 +325,21 @@ fn render_gpu() -> Vec<u8> {
     };
     engine.set_source_spec("gpu", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        SRC_W,
-        SRC_H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let frame = create_frame("gpu");
-    let mut buf = gen.acquire_surface(Some(0)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
+    let shared = gen.acquire(Some(0)).unwrap();
+    shared.set_pts_ns(0);
+    shared.set_duration_ns(33_333_333);
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
     engine.send_frame("gpu", frame, view, None).unwrap();
 
     // Wait for the OnRender capture (timeout 10 s)
@@ -453,26 +441,21 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
     };
     engine.set_source_spec("gpu-jpeg", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        SRC_W,
-        SRC_H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     let frame = create_frame("gpu-jpeg");
-    let mut buf = gen.acquire_surface(Some(0)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
+    let shared = gen.acquire(Some(0)).unwrap();
+    shared.set_pts_ns(0);
+    shared.set_duration_ns(33_333_333);
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
     engine.send_frame("gpu-jpeg", frame, view, None).unwrap();
 
     // EOS triggers encoder flush which produces the pending JPEG frame.
@@ -515,6 +498,12 @@ fn hamming_distance(a: &imagehash::Hash, b: &imagehash::Hash) -> usize {
 
 #[test]
 fn cpu_gpu_render_similarity() {
+    let _ = gstreamer::init();
+    let _ = cuda_init(0);
+    if !common::has_nvenc() {
+        eprintln!("NVENC not available — skipping H264 test");
+        return;
+    }
     let cpu_jpeg = render_cpu();
     let gpu_canvas_jpeg = render_gpu();
     let gpu_encoded_jpeg = render_gpu_jpeg_encoded();

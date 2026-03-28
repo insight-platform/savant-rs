@@ -8,9 +8,9 @@ from __future__ import annotations
 from typing import Any, Callable, ClassVar, Optional, Union, final
 
 from savant_rs.deepstream import (
-    DsNvBufSurfaceGstBuffer,
     MemType,
     Rect,
+    SharedBuffer,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -447,18 +447,62 @@ class EncoderConfig:
 # Spec types
 # ═══════════════════════════════════════════════════════════════════════════
 
+class PtsResetPolicy:
+    """Policy for handling non-monotonic (decreasing) PTS values.
+
+    Construct via the factory static methods.
+    """
+
+    @staticmethod
+    def eos_on_decreasing_pts() -> PtsResetPolicy:
+        """Emit a synthetic EOS before recreating the encoder (default).
+
+        Downstream sees a clean EOS boundary between old and new streams.
+        """
+        ...
+
+    @staticmethod
+    def recreate_on_decreasing_pts() -> PtsResetPolicy:
+        """Silently recreate the encoder without emitting EOS."""
+        ...
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+class StreamResetReason:
+    """Reason the worker's encoder was reset.
+
+    Passed to the ``on_stream_reset`` callback.
+    """
+
+    @property
+    def last_pts_ns(self) -> int:
+        """PTS of the last successfully accepted frame (nanoseconds)."""
+        ...
+
+    @property
+    def new_pts_ns(self) -> int:
+        """PTS of the incoming frame that triggered the reset (nanoseconds)."""
+        ...
+
+    def __repr__(self) -> str: ...
+
 class GeneralSpec:
     """Global defaults for the Picasso engine."""
 
     name: str
     idle_timeout_secs: int
     inflight_queue_size: int
+    pts_reset_policy: PtsResetPolicy
 
     def __init__(
         self,
         name: str = "picasso",
         idle_timeout_secs: int = 30,
         inflight_queue_size: int = 8,
+        pts_reset_policy: Optional[PtsResetPolicy] = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
 
@@ -639,6 +683,7 @@ class Callbacks:
     on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]]
     on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int, int], Any]]
     on_eviction: Optional[Callable[[str], EvictionDecision]]
+    on_stream_reset: Optional[Callable[[str, StreamResetReason], Any]]
 
     def __init__(
         self,
@@ -650,6 +695,7 @@ class Callbacks:
             Callable[[str, VideoFrame, int, int, int, int, int], Any]
         ] = None,
         on_eviction: Optional[Callable[[str], EvictionDecision]] = None,
+        on_stream_reset: Optional[Callable[[str, StreamResetReason], Any]] = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
 
@@ -673,7 +719,7 @@ class PicassoEngine:
         self,
         source_id: str,
         frame: VideoFrame,
-        buf: Union[SurfaceView, DsNvBufSurfaceGstBuffer, int, Any],
+        buf: Union[SurfaceView, SharedBuffer, int, Any],
         src_rect: Optional[Rect] = None,
     ) -> None:
         """Submit a video frame for processing.
@@ -683,13 +729,13 @@ class PicassoEngine:
         - ``SurfaceView`` — the preferred input type.
         - Any object with ``__cuda_array_interface__`` (CuPy array,
           PyTorch CUDA tensor) — automatically wrapped in a ``SurfaceView``.
-        - ``DsNvBufSurfaceGstBuffer`` or raw ``int`` pointer (legacy API).
+        - ``SharedBuffer`` or raw ``int`` pointer (legacy API).
 
         Args:
             source_id: Source identifier.
             frame: The ``VideoFrame`` proxy.
             buf: Surface data — ``SurfaceView``, ``__cuda_array_interface__``
-                object, ``DsNvBufSurfaceGstBuffer``, or raw ``int`` pointer.
+                object, ``SharedBuffer``, or raw ``int`` pointer.
             src_rect: Optional source crop rectangle (top, left, width, height).
         """
         ...

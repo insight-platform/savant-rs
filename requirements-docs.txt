@@ -1,1 +1,1 @@
-skia-python==144.0
+skia-python==144.0.post2

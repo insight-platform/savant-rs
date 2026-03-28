@@ -12,13 +12,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Eviction callback: first call KeepFor(1), second call Terminate.
-struct KeepForThenTerminate {
-    call_count: Arc<AtomicUsize>,
-}
+struct KeepForThenTerminate(Arc<AtomicUsize>);
 
 impl OnEviction for KeepForThenTerminate {
     fn call(&self, _source_id: &str) -> EvictionDecision {
-        let n = self.call_count.fetch_add(1, Ordering::SeqCst);
+        let n = self.0.fetch_add(1, Ordering::SeqCst);
         if n == 0 {
             EvictionDecision::KeepFor(1)
         } else {
@@ -35,24 +33,18 @@ fn e2e_eviction_keep_for_then_terminate() {
     let eos_count = Arc::new(AtomicUsize::new(0));
     let eos_clone = eos_count.clone();
 
-    struct BypassEosCb {
-        eos_count: Arc<AtomicUsize>,
-    }
+    struct BypassEosCb(Arc<AtomicUsize>);
     impl OnBypassFrame for BypassEosCb {
         fn call(&self, output: OutputMessage) {
             if matches!(output, OutputMessage::EndOfStream(_)) {
-                self.eos_count.fetch_add(1, Ordering::SeqCst);
+                self.0.fetch_add(1, Ordering::SeqCst);
             }
         }
     }
 
     let callbacks = Callbacks {
-        on_eviction: Some(Arc::new(KeepForThenTerminate {
-            call_count: eviction_count.clone(),
-        })),
-        on_bypass_frame: Some(Arc::new(BypassEosCb {
-            eos_count: eos_clone,
-        })),
+        on_eviction: Some(Arc::new(KeepForThenTerminate(eviction_count.clone()))),
+        on_bypass_frame: Some(Arc::new(BypassEosCb(eos_clone))),
         ..Default::default()
     };
 

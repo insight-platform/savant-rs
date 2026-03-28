@@ -1,6 +1,6 @@
 use crate::callbacks::Callbacks;
 use crate::message::OutputMessage;
-use deepstream_nvbufsurface::SurfaceView;
+use deepstream_buffers::SurfaceView;
 use log::{debug, error};
 use savant_core::primitives::frame::{VideoFrameProxy, VideoFrameTranscodingMethod};
 use std::sync::Arc;

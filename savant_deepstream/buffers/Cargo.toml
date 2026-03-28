@@ -1,0 +1,58 @@
+[package]
+name = "deepstream_buffers"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Safe Rust API for NVIDIA DeepStream NvBufSurface buffer generation"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+glib = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+savant_gstreamer = { workspace = true }
+
+# Skia rendering (optional)
+skia-safe = { workspace = true, optional = true }
+gl = { workspace = true, optional = true }
+
+[build-dependencies]
+bindgen = { workspace = true }
+
+[features]
+default = []
+skia = ["dep:skia-safe", "dep:gl"]
+testing = []
+
+[dev-dependencies]
+env_logger = { workspace = true }
+clap = { workspace = true }
+ctrlc = { workspace = true }
+nvidia_gpu_utils = { workspace = true }
+criterion = { workspace = true }
+serial_test = { workspace = true }
+
+[[test]]
+name = "surface_view_gpu"
+path = "tests/surface_view_gpu.rs"
+required-features = ["testing"]
+
+[[bench]]
+name = "non_uniform_batch"
+harness = false
+
+[[bench]]
+name = "surface_view_mapping"
+harness = false

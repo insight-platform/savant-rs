@@ -10,7 +10,7 @@ savant_core/src/
 ├── eval_cache.rs       # evalexpr LRU cache
 ├── eval_context.rs     # evaluation context for MatchQuery EvalExpr
 ├── eval_resolvers.rs   # pluggable resolvers (etcd, env, config, utility)
-├── geometry.rs         # Affine2D, ScaleSpec, CropRect, DstInset, LetterBoxKind
+├── geometry.rs         # Affine2D, TransformationChainResult, ScaleSpec, CropRect, DstInset, LetterBoxKind, MIN_EFFECTIVE_DIM
 ├── json_api.rs         # ToSerdeJsonValue trait
 ├── label_template.rs   # label format string parser (e.g. "{namespace}/{label}")
 ├── macros.rs           # utility macros
@@ -20,6 +20,7 @@ savant_core/src/
 │   └── label_filter_parser.rs
 ├── otlp.rs             # PropagatedContext, push/pop/current_context
 ├── pipeline.rs         # Pipeline, PipelineStageFunction, PipelinePayload
+│   ├── implementation   # pub(super) mod — inner Pipeline, PipelineConfiguration
 │   ├── stage.rs
 │   ├── stage_function_loader.rs
 │   ├── stage_plugin_sample.rs
@@ -44,6 +45,20 @@ savant_core/src/
 │   └── userdata.rs      # UserData (opaque bytes)
 ├── protobuf.rs         # serialization to/from protobuf (Message ↔ bytes)
 │   └── serialize/       # per-type ToProtobuf/TryFrom impls
+│        ├── attribute.rs
+│        ├── attribute_set.rs
+│        ├── bounding_box.rs
+│        ├── intersection_kind.rs
+│        ├── message_envelope.rs
+│        ├── polygonal_area.rs
+│        ├── user_data.rs
+│        ├── video_frame.rs
+│        ├── video_frame_batch.rs
+│        ├── video_frame_content.rs
+│        ├── video_frame_transcoding_method.rs
+│        ├── video_frame_transformation.rs
+│        ├── video_frame_update.rs
+│        └── video_object.rs
 ├── rwlock.rs           # SavantRwLock (parking_lot wrapper)
 ├── symbol_mapper.rs    # SymbolMapper: model/object ID ↔ name registry
 ├── telemetry.rs        # OpenTelemetry init, TracerConfiguration, Configurator
@@ -86,7 +101,7 @@ framework. It provides:
 
 ```
 Message
- ├── MessageMeta (routing labels, seq_id, system_id, span context)
+ ├── MessageMeta (routing labels, seq_id, system_id, span_context: PropagatedContext)
  └── MessageEnvelope
       ├── VideoFrame → VideoFrameProxy (Arc<RwLock<Box<VideoFrame>>>)
       │    ├── source_id, uuid, pts, dts, duration, codec, ...
@@ -96,6 +111,7 @@ Message
       │    └── objects: VideoObjectTree
       │         └── VideoObject
       │              ├── id, namespace, label, confidence
+      │              ├── namespace_id: Option<i64>, label_id: Option<i64>
       │              ├── detection_box: RBBox
       │              ├── track_box: Option<RBBox>
       │              ├── attributes: AttributeSet

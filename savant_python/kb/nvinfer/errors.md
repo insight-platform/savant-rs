@@ -9,16 +9,17 @@
 | `infer_sync()` after `shutdown()` | Engine already stopped |
 | `shutdown()` twice | Second call raises |
 | `infer_sync()` timeout | 30 s deadline expires without result |
-| `submit()` with `batch_id = 2**64 - 1` | Maps to `GST_CLOCK_TIME_NONE` |
+| `submit()` with consumed SharedBuffer | SharedBuffer already consumed |
 
 ## RuntimeError from output access
 
 | Trigger | When |
 |---|---|
-| `TensorView.as_bytes()` after output dropped | Arc guard is `None` |
-| `TensorView.as_numpy()` after output dropped | Arc guard is `None` |
 | `ElementOutput.tensors` after output dropped | Arc guard is `None` |
 | `BatchInferenceOutput.elements` after output dropped | Arc guard is `None` |
+| `BatchInferenceOutput.buffer()` after output dropped | Arc guard is `None` |
+
+Message: `"BatchInferenceOutput has been released"`
 
 These arise when a user stores a child reference (`ElementOutput`,
 `TensorView`) beyond the lifetime of the parent `BatchInferenceOutput`.
@@ -38,13 +39,13 @@ def test_submit_after_shutdown():
     engine = make_engine()
     engine.shutdown()
     with pytest.raises(RuntimeError, match="shut down"):
-        engine.submit(buf, batch_id=1)
+        engine.submit(buf)
 
 def test_infer_after_shutdown():
     engine = make_engine()
     engine.shutdown()
     with pytest.raises(RuntimeError, match="shut down"):
-        engine.infer_sync(buf, batch_id=1)
+        engine.infer_sync(buf)
 ```
 
 ⚠ These tests still require GPU + DeepStream runtime because the engine

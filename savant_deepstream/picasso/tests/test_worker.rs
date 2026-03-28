@@ -1,5 +1,6 @@
 use picasso::message::WorkerMessage;
 use picasso::prelude::*;
+use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -31,19 +32,17 @@ fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
-fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 
-struct CountingBypassCb {
-    count: Arc<AtomicUsize>,
-}
+struct CountingBypassCb(Arc<AtomicUsize>);
 
 impl OnBypassFrame for CountingBypassCb {
     fn call(&self, output: OutputMessage) {
         match output {
             OutputMessage::VideoFrame(_) => {
-                self.count.fetch_add(1, Ordering::SeqCst);
+                self.0.fetch_add(1, Ordering::SeqCst);
             }
             OutputMessage::EndOfStream(_) => {}
         }
@@ -73,6 +72,7 @@ fn worker_drop_spec_discards_frames() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     let frame = make_frame("test-drop");
@@ -93,9 +93,7 @@ fn worker_bypass_fires_callback() {
 
     let bypass_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(CountingBypassCb {
-            count: bypass_count.clone(),
-        })),
+        on_bypass_frame: Some(Arc::new(CountingBypassCb(bypass_count.clone()))),
         ..Default::default()
     };
     let callbacks = Arc::new(callbacks);
@@ -110,6 +108,7 @@ fn worker_bypass_fires_callback() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     for _ in 0..5 {
@@ -133,21 +132,17 @@ fn worker_eos_fires_sentinel_for_bypass() {
     let eos_count = Arc::new(AtomicUsize::new(0));
     let eos_clone = eos_count.clone();
 
-    struct BypassEosCb {
-        eos_count: Arc<AtomicUsize>,
-    }
+    struct BypassEosCb(Arc<AtomicUsize>);
     impl OnBypassFrame for BypassEosCb {
         fn call(&self, output: OutputMessage) {
             if matches!(output, OutputMessage::EndOfStream(_)) {
-                self.eos_count.fetch_add(1, Ordering::SeqCst);
+                self.0.fetch_add(1, Ordering::SeqCst);
             }
         }
     }
 
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(BypassEosCb {
-            eos_count: eos_clone,
-        })),
+        on_bypass_frame: Some(Arc::new(BypassEosCb(eos_clone))),
         ..Default::default()
     };
     let callbacks = Arc::new(callbacks);
@@ -162,6 +157,7 @@ fn worker_eos_fires_sentinel_for_bypass() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     worker.send(WorkerMessage::Eos).unwrap();
@@ -189,6 +185,7 @@ fn worker_idle_timeout_terminates() {
         callbacks,
         Duration::from_millis(200),
         16,
+        PtsResetPolicy::default(),
     );
 
     std::thread::sleep(Duration::from_millis(500));
@@ -203,9 +200,7 @@ fn worker_spec_update() {
 
     let bypass_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(CountingBypassCb {
-            count: bypass_count.clone(),
-        })),
+        on_bypass_frame: Some(Arc::new(CountingBypassCb(bypass_count.clone()))),
         ..Default::default()
     };
     let callbacks = Arc::new(callbacks);
@@ -220,6 +215,7 @@ fn worker_spec_update() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     // Send a frame with Drop spec — shouldn't fire bypass

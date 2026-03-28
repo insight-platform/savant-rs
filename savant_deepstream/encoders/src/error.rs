@@ -7,6 +7,11 @@ pub enum EncoderError {
     #[error("Unsupported codec: {0}")]
     UnsupportedCodec(String),
 
+    /// The requested codec requires NVENC hardware that is not available
+    /// on this GPU (e.g. Orin Nano, or datacenter GPUs without NVENC).
+    #[error("NVENC hardware not available on GPU {gpu_id} (required for {codec})")]
+    NvencNotAvailable { codec: String, gpu_id: u32 },
+
     /// An encoder property is invalid or rejected.
     #[error("Invalid encoder property '{name}': {reason}")]
     InvalidProperty { name: String, reason: String },
@@ -22,22 +27,22 @@ pub enum EncoderError {
     /// Output PTS reordering was detected — indicates B-frames were
     /// emitted despite being disabled.
     #[error(
-        "Output PTS reordering detected (B-frames?): frame {frame_id} has \
+        "Output PTS reordering detected (B-frames?): frame {frame_id:?} has \
          PTS {pts_ns} < previous output PTS {prev_pts_ns}"
     )]
     OutputPtsReordered {
-        frame_id: u128,
+        frame_id: Option<u128>,
         pts_ns: u64,
         prev_pts_ns: u64,
     },
 
     /// Output DTS exceeds PTS — indicates B-frame reordering.
     #[error(
-        "Output DTS > PTS detected (B-frames?): frame {frame_id} has \
+        "Output DTS > PTS detected (B-frames?): frame {frame_id:?} has \
          DTS {dts_ns} > PTS {pts_ns}"
     )]
     OutputDtsExceedsPts {
-        frame_id: u128,
+        frame_id: Option<u128>,
         dts_ns: u64,
         pts_ns: u64,
     },
@@ -51,8 +56,8 @@ pub enum EncoderError {
     ElementCreationFailed(String),
 
     /// GStreamer element linking failure.
-    #[error("Failed to link GStreamer elements: {from} -> {to}")]
-    LinkFailed { from: String, to: String },
+    #[error("Failed to link GStreamer elements: {0}")]
+    LinkFailed(String),
 
     /// Buffer acquisition failure.
     #[error("Failed to acquire buffer: {0}")]
@@ -64,5 +69,5 @@ pub enum EncoderError {
 
     /// Upstream NvBufSurface error.
     #[error("NvBufSurface error: {0}")]
-    NvBufSurfaceError(#[from] deepstream_nvbufsurface::NvBufSurfaceError),
+    NvBufSurfaceError(#[from] deepstream_buffers::NvBufSurfaceError),
 }

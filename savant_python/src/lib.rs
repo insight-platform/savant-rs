@@ -378,6 +378,7 @@ pub fn init_logs(log_level: LogLevel) -> PyResult<()> {
 
 pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(is_release_build, m)?)?;
     m.add_function(wrap_pyfunction!(register_handler, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_handler, m)?)?;
 

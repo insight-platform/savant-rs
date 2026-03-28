@@ -39,10 +39,15 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import threading
 
 import cv2
 
-from savant_rs.deepstream import SurfaceView, VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
+from savant_rs.deepstream import (
+    SurfaceView,
+    VideoFormat,
+    nvbuf_as_gpu_mat,
+)  # noqa: E402
 
 from common import PicassoSession, add_common_args
 
@@ -136,14 +141,21 @@ class GpuMatRenderer:
     :class:`cv2.cuda.GpuMat` (zero-copy) and renders a bouncing
     rectangle each frame.
 
-    Picasso calls this on its worker thread for each frame; a single
-    source is processed sequentially, so no locking is needed for
-    the animation state.
+    Picasso spawns one worker thread per source and calls this callback
+    sequentially within each source.  Per-source animation state is
+    keyed by ``source_id`` so that multiple sources get independent
+    state.
+
+    A lock guards the dict because Picasso workers are Rust OS threads
+    that call into Python via PyO3 — ``threading.local()`` does not
+    persist across ``PyGILState_Ensure``/``Release`` cycles.
     """
 
     def __init__(self, width: int, height: int):
-        self._rect = RectState(width, height)
-        self._frame_idx = 0
+        self._width = width
+        self._height = height
+        self._sources: dict[str, tuple[RectState, int]] = {}
+        self._lock = threading.Lock()
 
     def __call__(
         self,
@@ -155,12 +167,19 @@ class GpuMatRenderer:
         height: int,
         cuda_stream: int,
     ) -> None:
-        # cuda_stream is the worker's CUDA stream; nvbuf_as_gpu_mat creates its
-        # own cv2.cuda.Stream for OpenCV ops — use cuda_stream if integrating
-        # with raw CUDA APIs.
+        with self._lock:
+            entry = self._sources.get(source_id)
+        if entry is None:
+            rect = RectState(self._width, self._height)
+            frame_idx = 0
+        else:
+            rect, frame_idx = entry
+
         with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (gpumat, stream):
-            draw_frame(gpumat, stream, self._rect, self._frame_idx)
-        self._frame_idx += 1
+            draw_frame(gpumat, stream, rect, frame_idx)
+
+        with self._lock:
+            self._sources[source_id] = (rect, frame_idx + 1)
 
 
 # ===========================================================================
@@ -182,24 +201,29 @@ def main() -> None:
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
-        try:
-            buf = session.acquire_surface(frame_id=i)
-        except Exception as e:
-            print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
-            break
-
-        view = SurfaceView.from_buffer(buf, 0)
         pts_ns = i * session.frame_duration_ns
-        try:
-            session.submit(
-                view,
-                pts_ns=pts_ns,
-                duration_ns=session.frame_duration_ns,
-            )
+        for s in range(session.jobs):
+            try:
+                buf = session.acquire_surface(source_idx=s, frame_id=i)
+            except Exception as e:
+                print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
+                break
+
+            view = SurfaceView.from_buffer(buf, 0)
+            try:
+                session.submit(
+                    view,
+                    source_idx=s,
+                    pts_ns=pts_ns,
+                    duration_ns=session.frame_duration_ns,
+                )
+            except Exception as e:
+                print(f"Submit failed at frame {i} src {s}: {e}", file=sys.stderr)
+                break
+        else:
             i += 1
-        except Exception as e:
-            print(f"Submit failed at frame {i}: {e}", file=sys.stderr)
-            break
+            continue
+        break
 
     session.shutdown()
 

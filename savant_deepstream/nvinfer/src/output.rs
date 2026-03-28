@@ -31,16 +31,22 @@ pub struct TensorView {
     pub device_ptr: *const c_void,
     /// Byte length of the tensor.
     pub byte_length: usize,
+    /// `true` when the host buffer contains valid data (D2H copy was performed).
+    /// When `false`, only [`device_ptr`] is usable.
+    pub host_copy_enabled: bool,
 }
 
 impl TensorView {
     /// Interpret host data as a typed slice (zero-copy).
     ///
+    /// Returns an empty slice when host copy is disabled, the pointer is null,
+    /// or the byte length is zero.
+    ///
     /// # Safety
     /// The caller must ensure the pointer is valid and properly aligned for `T`.
     /// The slice length is derived from `byte_length / size_of::<T>()`.
     pub unsafe fn as_slice<T>(&self) -> &[T] {
-        if self.host_ptr.is_null() || self.byte_length == 0 {
+        if !self.host_copy_enabled || self.host_ptr.is_null() || self.byte_length == 0 {
             return &[];
         }
         let len = self.byte_length / std::mem::size_of::<T>();
@@ -51,12 +57,17 @@ impl TensorView {
 /// Per-element inference output for one ROI in one frame.
 #[derive(Debug)]
 pub struct ElementOutput {
-    /// User-provided frame ID from [`SavantIdMeta`] (if present).
-    pub frame_id: Option<i64>,
     /// ROI identifier from [`crate::roi::Roi::id`].
     ///
     /// `None` when no explicit ROIs were supplied and the full frame was used.
     pub roi_id: Option<i64>,
+    /// DeepStream surface slot index (`NvDsFrameMeta.batch_id`): index into
+    /// `NvBufSurface.surfaceList` for this frame.
+    ///
+    /// User frame ids live on the output [`BatchInferenceOutput::buffer`] via
+    /// [`SharedBuffer::savant_ids`](deepstream_buffers::SharedBuffer::savant_ids)
+    /// (same order as surface slots).
+    pub slot_number: u32,
     /// Output tensors by layer name.
     pub tensors: Vec<TensorView>,
 }
@@ -70,14 +81,18 @@ pub struct ElementOutput {
 /// raw pointers inside any [`TensorView`]s still alive, so all `TensorView`s
 /// should be consumed before dropping `BatchInferenceOutput`.
 pub struct BatchInferenceOutput {
-    batch_id: u64,
     elements: Vec<ElementOutput>,
     /// When `true`, clear all frame object metas when this value is dropped.
     clear_on_drop: bool,
-    /// Holds the GStreamer sample (and thus the buffer) alive.
-    /// **Must be declared last** so that it is still valid when `Drop::drop`
-    /// runs and clears the object metas.
-    _sample: gstreamer::Sample,
+    /// `true` when host (CPU) tensor buffers contain valid data.
+    host_copy_enabled: bool,
+    /// Ref-counted handle to the output GstBuffer (obtained via
+    /// `gst_mini_object_ref`, NOT `_copy`).
+    ///
+    /// **Must be declared last** so that during field destruction (after
+    /// `Drop::drop` returns), `elements` (which contain `TensorView`s with
+    /// raw pointers into this buffer's metadata) are dropped first.
+    buffer: deepstream_buffers::SharedBuffer,
 }
 
 // Safe to send: ownership transfer; pointers valid until BatchInferenceOutput is dropped.
@@ -86,24 +101,18 @@ unsafe impl Send for ElementOutput {}
 unsafe impl Send for BatchInferenceOutput {}
 
 impl BatchInferenceOutput {
-    /// Create from sample and extracted elements.
     pub(crate) fn new(
-        batch_id: u64,
-        sample: gstreamer::Sample,
+        buffer: deepstream_buffers::SharedBuffer,
         elements: Vec<ElementOutput>,
         clear_on_drop: bool,
+        host_copy_enabled: bool,
     ) -> Self {
         Self {
-            batch_id,
             elements,
             clear_on_drop,
-            _sample: sample,
+            host_copy_enabled,
+            buffer,
         }
-    }
-
-    /// Get the user-provided batch ID.
-    pub fn batch_id(&self) -> u64 {
-        self.batch_id
     }
 
     /// Get per-element outputs.
@@ -115,17 +124,53 @@ impl BatchInferenceOutput {
     pub fn num_elements(&self) -> usize {
         self.elements.len()
     }
+
+    /// Whether host (CPU) tensor buffers contain valid data.
+    ///
+    /// Returns `false` when `disable_output_host_copy` was set in the config,
+    /// meaning only device (GPU) pointers in [`TensorView`] are usable.
+    pub fn host_copy_enabled(&self) -> bool {
+        self.host_copy_enabled
+    }
+
+    /// Get the output buffer as a [`SharedBuffer`](deepstream_buffers::SharedBuffer).
+    ///
+    /// The returned handle is a ref-counted clone pointing to the same
+    /// underlying `GstBuffer`.  `SavantIdMeta` attached to the input buffer
+    /// is preserved and can be read via
+    /// [`SharedBuffer::savant_ids()`](deepstream_buffers::SharedBuffer::savant_ids).
+    pub fn buffer(&self) -> deepstream_buffers::SharedBuffer {
+        self.buffer.clone()
+    }
+
+    /// Consume this output, returning its constituent parts.
+    ///
+    /// Disables `clear_on_drop` so the caller takes ownership of cleanup
+    /// responsibility.  Returns `(buffer, elements, clear_on_drop_was,
+    /// host_copy_enabled)`.
+    pub(crate) fn into_parts(
+        mut self,
+    ) -> (
+        deepstream_buffers::SharedBuffer,
+        Vec<ElementOutput>,
+        bool,
+        bool,
+    ) {
+        let clear = self.clear_on_drop;
+        let host = self.host_copy_enabled;
+        self.clear_on_drop = false;
+        let elements = std::mem::take(&mut self.elements);
+        let buffer = self.buffer.clone();
+        (buffer, elements, clear, host)
+    }
 }
 
 impl Drop for BatchInferenceOutput {
     fn drop(&mut self) {
         if self.clear_on_drop {
-            if let Some(buffer) = self._sample.buffer() {
-                // _sample is still alive here (fields drop after this fn returns,
-                // in declaration order; _sample is last).
-                unsafe {
-                    clear_all_frame_objects(buffer.as_ptr() as *mut GstBuffer);
-                }
+            let guard = self.buffer.lock();
+            unsafe {
+                clear_all_frame_objects(guard.as_ref().as_ptr() as *mut GstBuffer);
             }
         }
     }
@@ -134,9 +179,9 @@ impl Drop for BatchInferenceOutput {
 impl std::fmt::Debug for BatchInferenceOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BatchInferenceOutput")
-            .field("batch_id", &self.batch_id)
             .field("num_elements", &self.elements.len())
             .field("clear_on_drop", &self.clear_on_drop)
+            .field("host_copy_enabled", &self.host_copy_enabled)
             .finish()
     }
 }

@@ -4,7 +4,7 @@
 //! operation into [`VideoFrameTransformation::LetterBox`] parameters.
 
 use anyhow::{bail, Result};
-use deepstream_nvbufsurface::{DstPadding, Padding, MIN_EFFECTIVE_DIM};
+use deepstream_buffers::{DstPadding, Padding, MIN_EFFECTIVE_DIM};
 
 /// Compute [`VideoFrameTransformation::LetterBox`] parameters that describe
 /// the GPU letterbox/resize from `(src_w, src_h)` to `(dst_w, dst_h)` with the

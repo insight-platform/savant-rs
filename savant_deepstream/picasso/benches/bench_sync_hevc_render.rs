@@ -17,8 +17,8 @@
 //! ```
 
 use criterion::{criterion_group, criterion_main, Criterion};
+use deepstream_buffers::{BufferGenerator, SurfaceView, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
 use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
@@ -32,6 +32,16 @@ use std::cell::Cell;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Once;
+
+#[allow(dead_code)]
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+#[allow(dead_code)]
+fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
@@ -64,15 +74,24 @@ impl OnEncodedFrame for EncodedSignal {
 
 /// Builds HEVC encoder config for FullHD with low-latency tuning.
 fn hevc_low_latency_encoder_config() -> EncoderConfig {
-    let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
-        preset: Some(DgpuPreset::P1),
-        tuning_info: Some(TuningPreset::LowLatency),
-        ..Default::default()
-    });
-    EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
-        .format(VideoFormat::RGBA)
-        .fps(FPS, 1)
-        .properties(props)
+    if is_jetson() {
+        EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
+            .format(VideoFormat::RGBA)
+            .fps(FPS, 1)
+            .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
+            .format(VideoFormat::RGBA)
+            .fps(FPS, 1)
+            .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
 }
 
 /// Builds ObjectDrawSpec with bbox, dot, and label for the "det"/"obj" class.
@@ -143,12 +162,16 @@ fn make_frame_with_objects(source_id: &str, frame_idx: i64, num_objects: usize) 
 }
 
 /// Acquires an RGBA GPU surface from the generator for the given frame index.
-fn make_gpu_buffer(gen: &DsNvSurfaceBufferGenerator, frame_idx: i64) -> gstreamer::Buffer {
-    gen.acquire_surface(Some(frame_idx)).unwrap()
+fn make_gpu_buffer(gen: &BufferGenerator, frame_idx: i64) -> deepstream_buffers::SharedBuffer {
+    gen.acquire(Some(frame_idx)).unwrap()
 }
 
 fn bench_sync_hevc_render(c: &mut Criterion) {
     ensure_init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping HEVC benchmark");
+        return;
+    }
 
     let mut group = c.benchmark_group("hevc_fullhd_low_latency");
     group.sample_size(50);
@@ -190,7 +213,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         .set_source_spec("bench", spec.clone())
         .expect("set_source_spec failed");
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         WIDTH,
         HEIGHT,
@@ -199,11 +222,13 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         0,
         NvBufSurfaceMemType::Default,
     )
-    .expect("DsNvSurfaceBufferGenerator::new failed");
+    .expect("BufferGenerator::new failed");
 
     let frame_counter = Cell::new(WARMUP_FRAMES as i64);
 
-    // Warm-up: send a few frames and wait for them
+    // Warm-up: send a few frames and wait for them.
+    // Input views use wrap() — EGL-CUDA registration is only needed for
+    // the output buffer inside the encode worker, not the input.
     for i in 0..WARMUP_FRAMES {
         let frame = make_frame_with_objects("bench", i as i64, 0);
         let buf = make_gpu_buffer(&gen, i as i64);

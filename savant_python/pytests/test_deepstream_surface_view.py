@@ -4,50 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-_ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "SurfaceView"):
+from conftest import HAS_DS_FEATURE, skip_no_cv2_cuda, skip_no_cupy, skip_no_ds_runtime
+
+if not HAS_DS_FEATURE:
     pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
+
+import savant_rs.deepstream as _ds
+
 ds = _ds
-
-
-def _ds_runtime_available() -> bool:
-    try:
-        ds.init_cuda(0)
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
-        _ = gen.acquire_surface()
-        return True
-    except Exception:
-        return False
-
-
-_has_runtime = _ds_runtime_available()
-skip_no_runtime = pytest.mark.skipif(
-    not _has_runtime, reason="CUDA/DeepStream not available"
-)
-
-
-def _has_cv2_cuda() -> bool:
-    try:
-        import cv2
-
-        return cv2.cuda.getCudaEnabledDeviceCount() > 0
-    except Exception:
-        return False
-
-
-def _has_cupy() -> bool:
-    try:
-        import cupy  # noqa: F401
-
-        return True
-    except Exception:
-        return False
-
-
-skip_no_cv2_cuda = pytest.mark.skipif(
-    not _has_cv2_cuda(), reason="OpenCV CUDA not available"
-)
-skip_no_cupy = pytest.mark.skipif(not _has_cupy(), reason="CuPy not available")
 
 
 # GpuMatCudaArray is injected from savant_rs._ds_gpumat into savant_rs.deepstream
@@ -59,11 +23,11 @@ skip_no_cupy = pytest.mark.skipif(not _has_cupy(), reason="CuPy not available")
 # ===========================================================================
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestSurfaceViewFromBuffer:
     def test_basic_properties(self):
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 320, 240, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 320, 240, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         assert view.width == 320
         assert view.height == 240
@@ -74,8 +38,8 @@ class TestSurfaceViewFromBuffer:
 
     def test_cuda_array_interface_roundtrip(self):
         """from_buffer → __cuda_array_interface__ → from_cuda_array round-trip."""
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 640, 480, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 640, 480, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
 
         iface = view.__cuda_array_interface__
@@ -93,14 +57,14 @@ class TestSurfaceViewFromBuffer:
 
     def test_cuda_array_interface_hasattr(self):
         """SurfaceView must expose __cuda_array_interface__ for external consumers."""
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 64, 64, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         assert hasattr(view, "__cuda_array_interface__")
 
     def test_gray8_shape(self):
-        gen = ds.DsNvSurfaceBufferGenerator("GRAY8", 256, 128, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("GRAY8", 256, 128, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         assert view.channels == 1
         iface = view.__cuda_array_interface__
@@ -112,7 +76,7 @@ class TestSurfaceViewFromBuffer:
 # ===========================================================================
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 @skip_no_cv2_cuda
 class TestSurfaceViewFromGpuMat:
     def test_rgba_gpumat(self):
@@ -166,7 +130,7 @@ class TestSurfaceViewFromGpuMat:
 # ===========================================================================
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 @skip_no_cupy
 class TestSurfaceViewFromCuPy:
     def test_rgba_cupy(self):
@@ -225,8 +189,8 @@ class TestSurfaceViewFromCuPy:
         """SurfaceView (from buffer) must be consumable by CuPy as external consumer."""
         import cupy as cp
 
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 48, 32, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 48, 32, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         arr = cp.asarray(view)
         assert arr.shape == (32, 48, 4)

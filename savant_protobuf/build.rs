@@ -10,6 +10,8 @@ fn main() {
     let out_path = out_dir.join("protocol.rs");
     let module_path = src_dir.join("generated.rs");
 
+    println!("cargo:rerun-if-changed=src/savant_rs.proto");
+
     let mut config = prost_build::Config::new();
     config.protoc_arg("--experimental_allow_proto3_optional");
     config.enum_attribute(".", "#[allow(clippy::large_enum_variant)]");

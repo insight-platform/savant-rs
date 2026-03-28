@@ -7,5 +7,5 @@ pub mod source;
 pub use codec::PyCodecSpec;
 pub use conditional::PyConditionalSpec;
 pub use draw::PyObjectDrawSpec;
-pub use general::{PyEvictionDecision, PyGeneralSpec};
+pub use general::{PyEvictionDecision, PyGeneralSpec, PyPtsResetPolicy};
 pub use source::{PyCallbackInvocationOrder, PySourceSpec};

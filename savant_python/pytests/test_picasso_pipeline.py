@@ -9,46 +9,26 @@ Requires the ``deepstream`` feature and a working DeepStream/CUDA runtime.
 
 from __future__ import annotations
 
-import math
 import threading
 import time
 
 import pytest
 
-_mod = pytest.importorskip("savant_rs.picasso")
-if not hasattr(_mod, "PicassoEngine"):
-    pytest.skip(
-        "savant_rs.picasso not compiled (deepstream feature disabled)",
-        allow_module_level=True,
-    )
+from conftest import HAS_DS_FEATURE, HAS_DS_RUNTIME
 
-_ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "DsNvSurfaceBufferGenerator"):
-    pytest.skip(
-        "savant_rs.deepstream not compiled (deepstream feature disabled)",
-        allow_module_level=True,
-    )
-
-
-def _ds_runtime_available() -> bool:
-    try:
-        from savant_rs.deepstream import init_cuda
-
-        init_cuda(0)
-        return True
-    except Exception:
-        return False
-
-
-if not _ds_runtime_available():
+if not HAS_DS_FEATURE:
+    pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
+if not HAS_DS_RUNTIME:
     pytest.skip("DeepStream/CUDA runtime not available", allow_module_level=True)
 
 
 from savant_rs.deepstream import (
     MemType,
-    DsNvSurfaceBufferGenerator,
+    BufferGenerator,
+    SurfaceView,
     TransformConfig,
     VideoFormat,
+    has_nvenc,
     init_cuda,
 )
 from savant_rs.draw_spec import (
@@ -91,146 +71,23 @@ from savant_rs.primitives import (
 from savant_rs.match_query import MatchQuery
 from savant_rs.primitives.geometry import RBBox
 
-# ─── Constants matching the Rust benchmark ──────────────────────────────
+from picasso_helpers import (
+    WIDTH,
+    HEIGHT,
+    FPS,
+    FRAME_DURATION_NS,
+    CLASSES,
+    pseudo_rand,
+    make_frame,
+    make_nvmm_buffer,
+    add_objects_to_frame,
+    build_draw_spec,
+    build_default_encoder_config as build_encoder_config,
+    build_source_spec,
+)
 
-WIDTH = 1280
-HEIGHT = 720
 NUM_FRAMES = 20
 NUM_BOXES = 20
-FPS = 30
-FRAME_DURATION_NS = 1_000_000_000 // FPS
-
-CLASSES = [
-    ("person", (255, 80, 80)),
-    ("car", (80, 200, 255)),
-    ("truck", (255, 180, 40)),
-    ("bicycle", (80, 255, 120)),
-    ("dog", (220, 100, 255)),
-    ("bus", (255, 255, 80)),
-    ("bike", (80, 255, 255)),
-    ("sign", (255, 140, 140)),
-]
-
-
-# ─── Deterministic pseudo-random (matches Rust version) ────────────────
-
-
-def pseudo_rand(seed1: int, seed2: int) -> float:
-    mask64 = 0xFFFF_FFFF_FFFF_FFFF
-    h = ((seed1 * 6_364_136_223_846_793_005) & mask64 + seed2) & mask64
-    h ^= h >> 33
-    h = (h * 0xFF51_AFD7_ED55_8CCD) & mask64
-    h ^= h >> 33
-    return (h & 0x00FF_FFFF) / 0x0100_0000
-
-
-# ─── Helpers ───────────────────────────────────────────────────────────
-
-
-def make_frame(source_id: str) -> VideoFrame:
-    return VideoFrame(
-        source_id=source_id,
-        framerate="30/1",
-        width=WIDTH,
-        height=HEIGHT,
-        content=VideoFrameContent.none(),
-        time_base=(1, 1_000_000_000),
-        pts=0,
-    )
-
-
-def make_nvmm_buffer(gen: DsNvSurfaceBufferGenerator, frame_id: int) -> int:
-    """Acquire a GPU buffer with PTS + duration stamped (mirrors Rust benchmark)."""
-    return gen.acquire_surface(
-        id=frame_id,
-    )
-
-
-def add_objects_to_frame(frame: VideoFrame, frame_idx: int) -> None:
-    """Add NUM_BOXES detection objects with deterministic positions."""
-    scene_w = WIDTH - min(WIDTH * 0.22, 340.0)
-    t = frame_idx / 60.0
-
-    for i in range(NUM_BOXES):
-        seed = i
-        cx_base = pseudo_rand(seed, 100) * scene_w * 0.7 + scene_w * 0.15
-        cy_base = pseudo_rand(seed, 200) * HEIGHT * 0.7 + HEIGHT * 0.15
-        orbit_rx = pseudo_rand(seed, 300) * scene_w * 0.12 + 20.0
-        orbit_ry = pseudo_rand(seed, 400) * HEIGHT * 0.10 + 15.0
-        speed = 0.3 + pseudo_rand(seed, 500) * 0.7
-        phase = pseudo_rand(seed, 600) * math.tau
-
-        cx = cx_base + math.cos(t * speed + phase) * orbit_rx
-        cy = cy_base + math.sin(t * speed * 0.8 + phase) * orbit_ry
-        bw = 50.0 + pseudo_rand(seed, 700) * 140.0
-        bh = 40.0 + pseudo_rand(seed, 800) * 160.0
-        class_idx = int(pseudo_rand(seed, 900) * len(CLASSES)) % len(CLASSES)
-        cls_name = CLASSES[class_idx][0]
-
-        obj = VideoObject(
-            id=0,
-            namespace="detector",
-            label=cls_name,
-            detection_box=RBBox(cx, cy, bw, bh),
-            attributes=[],
-            confidence=None,
-            track_id=None,
-            track_box=None,
-        )
-        frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
-
-
-def build_draw_spec() -> ObjectDrawSpec:
-    """Build an ObjectDrawSpec with bbox + label + dot per detection class."""
-    spec = ObjectDrawSpec()
-    for cls_name, (r, g, b) in CLASSES:
-        border = ColorDraw(r, g, b, 255)
-        bg = ColorDraw(r, g, b, 50)
-        bb = BoundingBoxDraw(border, bg, 2, PaddingDraw.default_padding())
-
-        dot = DotDraw(ColorDraw(r, g, b, 255), 4)
-
-        label = LabelDraw(
-            font_color=ColorDraw(0, 0, 0, 255),
-            background_color=ColorDraw(r, g, b, 200),
-            border_color=ColorDraw(0, 0, 0, 0),
-            font_scale=1.4,
-            thickness=1,
-            position=LabelPosition.default_position(),
-            padding=PaddingDraw(4, 2, 4, 2),
-            format=["{label} #{id}", "{confidence}"],
-        )
-
-        od = ObjectDraw(bounding_box=bb, central_dot=dot, label=label)
-        spec.insert("detector", cls_name, od)
-    return spec
-
-
-def build_encoder_config() -> EncoderConfig:
-    """Build H.264 dGPU encoder configuration."""
-    props = EncoderProperties.h264_dgpu(
-        H264DgpuProps(
-            bitrate=4_000_000,
-            preset=DgpuPreset.P1,
-            tuning_info=TuningPreset.LOW_LATENCY,
-            iframeinterval=30,
-        )
-    )
-    cfg = EncoderConfig(Codec.H264, WIDTH, HEIGHT)
-    cfg.format(VideoFormat.RGBA)
-    cfg.fps(FPS, 1)
-    cfg.properties(props)
-    return cfg
-
-
-def build_source_spec(*, use_render: bool = True) -> SourceSpec:
-    """Build a full source spec with encode path, draw specs, and optional render."""
-    return SourceSpec(
-        codec=CodecSpec.encode(TransformConfig(), build_encoder_config()),
-        draw=build_draw_spec(),
-        font_family="monospace",
-        use_on_render=use_render,
-    )
 
 
 # ─── Encode pipeline tests ─────────────────────────────────────────────
@@ -254,7 +111,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=False))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(NUM_FRAMES):
             frame = make_frame("src-0")
@@ -293,7 +150,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=False))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -336,7 +193,7 @@ class TestPicassoPipelineEncode:
             engine.set_source_spec(sid, build_source_spec(use_render=False))
 
         gens = {
-            sid: DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+            sid: BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
             for sid in source_results
         }
 
@@ -377,7 +234,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=False))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(3):
             frame = make_frame("src-0")
@@ -411,7 +268,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=True))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(10):
             frame = make_frame("src-0")
@@ -456,7 +313,7 @@ class TestPicassoPipelineBypass:
         spec = SourceSpec(codec=CodecSpec.bypass())
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -493,7 +350,7 @@ class TestPicassoPipelineDrop:
         spec = SourceSpec(codec=CodecSpec.drop_frames())
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -710,7 +567,7 @@ class TestFrameObjectGeneration:
 
 class TestSourceSpecVariants:
     def test_encode_spec(self) -> None:
-        spec = build_source_spec()
+        spec = build_source_spec(use_render=True)
         assert spec.codec.is_encode
         assert not spec.codec.is_drop
         assert not spec.codec.is_bypass

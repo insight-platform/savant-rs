@@ -25,6 +25,15 @@ pub enum NvInferError {
 
     #[error("Null pointer: {0}")]
     NullPointer(String),
+
+    #[error("GStreamer initialization failed: {0}")]
+    GstInit(String),
+
+    #[error("Batch formation failed: {0}")]
+    BatchFormationFailed(String),
+
+    #[error("Operator is shut down")]
+    OperatorShutdown,
 }
 
 /// Result type for NvInfer operations.

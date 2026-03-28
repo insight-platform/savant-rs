@@ -18,5 +18,5 @@ pub use pipeline::encode::rewrite_frame_transformations;
 pub use savant_core::primitives::eos::EndOfStream;
 pub use spec::{
     CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec,
-    ObjectDrawSpec, SourceSpec,
+    ObjectDrawSpec, PtsResetPolicy, SourceSpec,
 };

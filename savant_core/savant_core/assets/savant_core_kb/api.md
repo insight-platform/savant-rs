@@ -10,6 +10,19 @@
 | `version()` | fn → `String` | `CARGO_PKG_VERSION` |
 | `fast_hash(bytes: &[u8])` | fn → `u32` | CRC32 hash |
 | `get_tracer()` | fn → `BoxedTracer` | OpenTelemetry tracer (`"video_pipeline"`) |
+| `trace!` | macro | Wraps an expression with `log::trace!` before/after for lock-acquisition tracing |
+| `function!` | macro | Resolves the enclosing function name at compile time |
+
+### `pub mod rust` re-exports
+
+```rust
+pub use otlp::PropagatedContext;
+pub use pipeline::stats::{FrameProcessingStatRecord, FrameProcessingStatRecordType,
+    StageLatencyMeasurements, StageLatencyStat, StageProcessingStat};
+pub use pipeline::{Pipeline, PipelineConfiguration, PipelineConfigurationBuilder,
+    PipelineStagePayloadType};
+pub use symbol_mapper::{RegistrationPolicy, SymbolMapper};
+```
 
 ---
 
@@ -59,12 +72,12 @@ Identity:
 ### `VideoFrameProxy` (Arc<RwLock<Box<VideoFrame>>>)
 
 Construction:
-- `new(source_id, framerate, width, height, content, transcoding_method, codec, keyframe, time_base, pts, dts, duration) -> Result<Self>`
+- `new(source_id, framerate, width, height, content, transcoding_method, codec, keyframe, time_base: (i64, i64), pts, dts, duration) -> Result<Self>`
 - `smart_copy() -> Self` — deep independent copy
 
 Properties (get/set):
 - `source_id`, `uuid`, `pts`, `dts`, `duration`, `width`, `height`
-- `framerate`, `codec`, `keyframe`, `time_base`
+- `framerate`, `codec`, `keyframe`, `time_base: (i32, i32)`
 - `transcoding_method`, `content`, `creation_timestamp_ns`
 
 Transformations:
@@ -87,6 +100,9 @@ Serialization:
 - `to_message() -> Message`
 - `get_json() / get_json_pretty() -> String`
 
+### `BelongingVideoFrame`
+Weak reference back to a `VideoFrameProxy`. Used internally by `VideoObject` to reference its owning frame. Public struct (fields are `pub(crate)`).
+
 ### `VideoFrameContent`
 `External(ExternalFrame) | Internal(Vec<u8>) | None`
 
@@ -100,16 +116,32 @@ Serialization:
 
 ## `primitives::object` — Video Object
 
-### `VideoObject` (builder-derived)
+### `VideoObject` (builder-derived via `VideoObjectBuilder`)
 Fields: `id`, `namespace`, `label`, `draw_label`, `detection_box: RBBox`,
-`confidence`, `parent_id`, `track_box: Option<RBBox>`, `track_id`, `attributes`
+`confidence`, `parent_id`, `track_box: Option<RBBox>`, `track_id`,
+`namespace_id: Option<i64>`, `label_id: Option<i64>`, `attributes`,
+`frame: Option<BelongingVideoFrame>`
 
 ### `BorrowedVideoObject`
 Handle to an object living inside a `VideoFrameProxy`. Access via `ObjectOperations` trait.
 
+### `ObjectAccess` trait
+Low-level access: `with_object_ref(f)`, `with_object_mut(f)`.
+Requires `Sized + Debug + Clone`.
+
+### `WithId` trait
+`get_id() -> i64`, `set_id(&mut self, i64)`. Implemented for `VideoObject`.
+
+### `VideoObjectBBoxType`
+`Detection | TrackingInfo`
+
+### `VideoObjectBBoxTransformation`
+`Scale(f32, f32) | Shift(f32, f32)`
+
 ### `ObjectOperations` trait
 Getters: `get_id`, `get_namespace`, `get_label`, `get_confidence`,
-`get_detection_box`, `get_track_box`, `get_track_id`, `get_draw_label`
+`get_detection_box`, `get_track_box`, `get_track_id`, `get_draw_label`,
+`get_parent_id`, `get_namespace_id`, `get_label_id`
 
 Setters: `set_detection_box`, `set_track_info`, `set_track_box`,
 `set_namespace`, `set_label`, `set_confidence`
@@ -124,11 +156,14 @@ Operations: `transform_geometry(ops)`, `detached_copy() -> VideoObject`
 ## `primitives::attribute` — Attributes
 
 ### `Attribute`
-`namespace`, `name`, `values: Vec<AttributeValue>`, `hint`, `is_persistent`, `is_hidden`
+`namespace`, `name`, `values: Arc<Vec<AttributeValue>>`, `hint`, `is_persistent`, `is_hidden`
 
-### `AttributeValue`
-Typed value (`None | Bytes | Float | Integer | String | Boolean | BBox(RBBox) |
-BBoxList | Point | PointList | Polygon | PolygonList | Intersection | TemporaryValue`)
+### `AttributeValueVariant`
+`None | Bytes(Vec<i64>, Vec<u8>) | String | StringVector | Integer | IntegerVector |
+Float | FloatVector | Boolean | BooleanVector | BBox(RBBoxData) |
+BBoxVector(Vec<RBBoxData>) | Point | PointVector(Vec<Point>) |
+Polygon(PolygonalArea) | PolygonVector(Vec<PolygonalArea>) |
+Intersection | TemporaryValue(AnyObject)`
 
 ### `AttributeSet`
 Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
@@ -143,6 +178,9 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
   `unknown(s)`
 - Accessors: `payload()`, `meta()`, type checks (`is_video_frame()`, etc.),
   extractors (`as_video_frame()`, etc.)
+
+### `MessageMeta`
+`protocol_version`, `routing_labels`, `span_context: PropagatedContext`, `seq_id`, `system_id`
 
 ### `MessageEnvelope`
 `VideoFrame | VideoFrameBatch | VideoFrameUpdate | EndOfStream | Shutdown | UserData | Unknown(String)`
@@ -172,11 +210,30 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
 ## `geometry` — Affine Transforms
 
 ### `Affine2D` — axis-aligned 2D affine `{ sx, sy, tx, ty }`
+- `Affine2D::IDENTITY` — const identity transform
+- `Affine2D::new(sx, sy, tx, ty) -> Self`
 - `from_transformations(chain) -> TransformationChainResult`
 - `inverse()`, `then(other)`, `then_scale_to(...)`, `to_bbox_ops()`
 
+### `TransformationChainResult`
+`{ affine: Affine2D, initial_size: Option<(u64,u64)>, current_size: Option<(u64,u64)> }`
+
 ### `ScaleSpec` — source/dest dimensions + letterbox + crop + inset
+Fields: `source_width`, `source_height`, `dest_width`, `dest_height`,
+`letterbox: LetterBoxKind`, `crop: Option<CropRect>`, `dst_inset: Option<DstInset>`
 - `to_transformations() -> Result<Vec<VideoFrameTransformation>>`
+
+### `LetterBoxKind`
+`Stretch | Symmetric | RightBottom`
+
+### `CropRect`
+`{ left: u64, top: u64, width: u64, height: u64 }`
+
+### `DstInset`
+`{ left: u64, top: u64, right: u64, bottom: u64 }`
+
+### `MIN_EFFECTIVE_DIM: u64 = 16`
+Minimum effective dimension after applying `DstInset`.
 
 ---
 
@@ -188,10 +245,22 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
 | `ColorDraw` | `red, green, blue, alpha: i64` (0-255) |
 | `BoundingBoxDraw` | `border_color, background_color, thickness, padding` |
 | `DotDraw` | `color, radius` |
+| `LabelPosition` | `position: LabelPositionKind, margin_x: i64, margin_y: i64` |
 | `LabelDraw` | `font_color, background_color, border_color, font_scale, thickness, position, padding, format` |
 | `ObjectDraw` | `bounding_box, central_dot, label, blur, bbox_source` |
 | `LabelPositionKind` | `TopLeftInside, TopLeftOutside, Center` |
 | `BBoxSource` | `DetectionBox, TrackingBox` |
+| `DrawLabelKind` | `OwnLabel(String), ParentLabel(String)` |
+
+Constructors returning `Result`:
+- `PaddingDraw::new(left, top, right, bottom) -> Result<Self>`
+- `ColorDraw::new(red, green, blue, alpha) -> Result<Self>`
+- `BoundingBoxDraw::new(border_color, background_color, thickness, padding) -> Result<Self>`
+- `DotDraw::new(color, radius) -> Result<Self>`
+
+Additional constructors:
+- `ObjectDraw::new(bounding_box, central_dot, label, blur) -> Self`
+- `ObjectDraw::with_bbox_source(bounding_box, central_dot, label, blur, bbox_source) -> Self`
 
 ---
 
@@ -199,17 +268,32 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
 
 ### `Pipeline`
 - `new(name, stages, config)` — stages: `Vec<(name, payload_type, ingress_fn, egress_fn)>`
-- Frame ops: `add_frame`, `get_independent_frame`, `delete`
-- Batch ops: `move_and_pack_frames`, `move_and_unpack_batch`, `get_batch`
+- Frame ops: `add_frame`, `add_frame_with_telemetry`, `get_independent_frame`, `delete`
+- Batch ops: `move_and_pack_frames(dest, frame_ids: Vec<i64>)`, `move_and_unpack_batch`, `get_batch`, `get_batched_frame`
 - Stage moves: `move_as_is`
 - Query: `access_objects(frame_id, query)`
-- Stats: `get_stat_records`, `log_final_fps`
+- Stats: `get_stat_records`, `get_stat_records_newer_than(id)`, `log_final_fps`
+- Updates: `add_frame_update`, `add_batched_frame_update`, `apply_updates`, `clear_updates`
+- Config: `set_root_span_name`, `get_root_span_name`, `set_sampling_period`, `get_sampling_period`
+- Misc: `memory_handle()`, `clear_source_ordering(source_id)`, `get_stage_type(name)`, `get_stage_queue_len(stage)`, `get_id_locations_len()`, `get_keyframe_history(frame)`
 
 ### `PipelineStagePayloadType`
 `Frame | Batch`
 
+### `PipelineStageFunctionOrder`
+`Ingress | Egress`
+
+### `PipelinePayload`
+`Frame(VideoFrameProxy, Vec<VideoFrameUpdate>, Context, Option<String>, SystemTime)` |
+`Batch(VideoFrameBatch, Vec<(i64, VideoFrameUpdate)>, HashMap<i64, Context>, Option<String>, Vec<SystemTime>)`
+
+### `PluginParams`
+`{ params: HashMap<String, AttributeValue> }`
+
 ### `PipelineStageFunction` trait
-`set_pipeline`, `get_pipeline`, `call(id, stage, order, payload)`
+`set_pipeline`, `get_pipeline`, `call(id, stage, order: PipelineStageFunctionOrder, payload: &mut PipelinePayload)`
+
+Note: the `Pipeline` struct wraps `Arc<implementation::Pipeline>`. The `implementation` module is `pub(super)` and not part of the public API.
 
 ---
 
@@ -227,7 +311,16 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
 - `ReaderSocketType`: `Sub | Router | Rep`
 - `WriterSocketType`: `Pub | Dealer | Req`
 
-### `parse_zmq_socket_uri(uri) -> Result<ZmqSocketUri>`
+### `SocketType`
+`Reader(ReaderSocketType) | Writer(WriterSocketType)`
+
+### `TopicPrefixSpec`
+`SourceId(String) | Prefix(String) | None`
+
+### `WriteOperationResult`
+Re-exported from `nonblocking_writer`.
+
+### `parse_zmq_socket_uri(uri: String) -> Result<ZmqSocketUri>`
 
 ---
 
@@ -238,6 +331,9 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
 - `get_model_id(model)`, `get_object_id(model, object)`, etc.
 - `RegistrationPolicy`: `ErrorIfNonUnique | Override`
 
+### `symbol_mapper::Errors` (thiserror)
+`DuplicateName | UnexpectedModelIdObjectId | FullyQualifiedObjectNameParseError | BaseNameParseError | DuplicateId`
+
 ---
 
 ## `telemetry` — OpenTelemetry
@@ -245,28 +341,52 @@ Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
 - `init(TelemetryConfiguration)`, `init_from_file(path)`, `shutdown()`
 - `TracerConfiguration { service_name, protocol, endpoint, tls, timeout }`
 - `ContextPropagationFormat`: `Jaeger | W3C`
+- `Protocol`: `Grpc | HttpBinary | HttpJson`
+- `ClientTlsConfig { ca: Option<String>, identity: Option<Identity> }`
+- `Identity { key: String, certificate: String }`
+- `Configurator::new(service_namespace, config) -> Self`, `Configurator::shutdown()`
+- `TelemetryConfiguration::no_op() -> Self`, `TelemetryConfiguration::from_file(path) -> Result<Self>`
 
 ---
 
 ## `protobuf` — Serialization
 
-- `serialize(m: &Message) -> Result<Vec<u8>>`
-- `deserialize(bytes: &[u8]) -> Result<Message>`
-- `ToProtobuf` trait: `to_pb() -> Result<Vec<u8>>`
+- `serialize(m: &Message) -> Result<Vec<u8>, Error>`
+- `deserialize(bytes: &[u8]) -> Result<Message, Error>`
+- `ToProtobuf<'a, T>` trait (generic over target protobuf type): `to_pb() -> Result<Vec<u8>, Error>`
+- `from_pb<T, U>(bytes: &[u8]) -> Result<U, Error>` — generic deserialization
+
+### `protobuf::Error` (thiserror)
+`ProstDecode | ProstEncode | UuidParse | InvalidVideoFrameParentObject | EnumConversionError | SerializationError`
 
 ---
 
 ## `webserver` — Embedded HTTP Server
 
 - `init_webserver(port)`, `stop_webserver()`
-- `set_status(PipelineStatus)`, `get_status()`
+- `set_status(PipelineStatus)`, `async get_status() -> PipelineStatus`
 - `set_shutdown_token(token)`, `is_shutdown_set()`
+- `set_shutdown_signal(signal: i32) -> Result<()>`
+- `subscribe(subscriber: &str, max_ops: usize) -> Result<KvsSubscription>`
+- `get_pipeline(name: &str) -> Option<Arc<implementation::Pipeline>>`
 - KVS: `set_attributes`, `get_attribute`, `search_attributes`, `del_attributes`
-- `subscribe(name, max_ops) -> KvsSubscription`
+  - Synchronous handlers: `kvs::synchronous::*` (module path `webserver::kvs`)
+  - Asynchronous handlers: `kvs::asynchronous::*` (module path `webserver::kvs`)
 
 ---
 
 ## `metrics` — Prometheus
 
-- `new_counter(name, help, labels)`, `new_gauge(name, help, labels)`
+- `set_extra_labels(HashMap<String, String>)`
+- `new_counter(name, description: Option<&str>, label_names: &[&str], unit: Option<Unit>) -> SharedCounterFamily`
+- `new_gauge(name, description: Option<&str>, label_names: &[&str], unit: Option<Unit>) -> SharedGaugeFamily`
+- `get_or_create_counter_family(name, description, label_names, unit) -> SharedCounterFamily`
+- `get_or_create_gauge_family(name, description, label_names, unit) -> SharedGaugeFamily`
+- `get_counter_family(name) -> Option<SharedCounterFamily>`
+- `get_gauge_family(name) -> Option<SharedGaugeFamily>`
+- `delete_metric_family(name)`
 - `export_metrics() -> Vec<MetricExport>`
+
+### Type aliases
+- `SharedCounterFamily = Arc<Mutex<Counter>>`
+- `SharedGaugeFamily = Arc<Mutex<Gauge>>`

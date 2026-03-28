@@ -16,10 +16,10 @@ jobs:
   protobuf:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Upload protobuf
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: savant_rs.proto
           path: savant_protobuf/src/savant_rs.proto
@@ -41,10 +41,10 @@ jobs:
     runs-on:
       group: ${{ matrix.group }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           file: docker/Dockerfile.manylinux
           platforms: ${{ matrix.arch }}
@@ -59,7 +59,7 @@ jobs:
         run: docker run --rm -v $(pwd)/distfiles:/tmp savant-rs cp -R /opt/dist /tmp
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.label }}
           path: distfiles/dist
@@ -75,15 +75,15 @@ jobs:
         run: rm -rf artifacts/*.whl
       - name: Clean up old protobuf files
         run: rm -rf artifacts/*.proto
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: savant_rs.proto
           path: artifacts
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: wheels-x86
           path: artifacts
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: wheels-arm64
           path: artifacts

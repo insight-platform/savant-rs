@@ -2,6 +2,8 @@
 
 use nvinfer::DataType;
 use nvinfer::MetaClearPolicy;
+use nvinfer::ModelColorFormat;
+use nvinfer::ModelInputScaling;
 use pyo3::prelude::*;
 
 /// Controls when object metadata is erased from the batch buffer.
@@ -47,6 +49,130 @@ impl From<MetaClearPolicy> for PyMetaClearPolicy {
             MetaClearPolicy::Before => PyMetaClearPolicy::Before,
             MetaClearPolicy::After => PyMetaClearPolicy::After,
             MetaClearPolicy::Both => PyMetaClearPolicy::Both,
+        }
+    }
+}
+
+/// How input frames are scaled to the model's fixed input dimensions.
+///
+/// - ``FILL`` -- stretch to model input (default).
+/// - ``KEEP_ASPECT_RATIO`` -- preserve aspect ratio, padding on the right/bottom.
+/// - ``KEEP_ASPECT_RATIO_SYMMETRIC`` -- preserve aspect ratio, symmetric padding.
+#[pyclass(
+    from_py_object,
+    name = "ModelInputScaling",
+    module = "savant_rs.nvinfer",
+    eq,
+    eq_int
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyModelInputScaling {
+    #[pyo3(name = "FILL")]
+    Fill = 0,
+    #[pyo3(name = "KEEP_ASPECT_RATIO")]
+    KeepAspectRatio = 1,
+    #[pyo3(name = "KEEP_ASPECT_RATIO_SYMMETRIC")]
+    KeepAspectRatioSymmetric = 2,
+}
+
+impl PyModelInputScaling {
+    pub(crate) fn repr_str(&self) -> &'static str {
+        match self {
+            PyModelInputScaling::Fill => "ModelInputScaling.FILL",
+            PyModelInputScaling::KeepAspectRatio => "ModelInputScaling.KEEP_ASPECT_RATIO",
+            PyModelInputScaling::KeepAspectRatioSymmetric => {
+                "ModelInputScaling.KEEP_ASPECT_RATIO_SYMMETRIC"
+            }
+        }
+    }
+}
+
+#[pymethods]
+impl PyModelInputScaling {
+    fn __repr__(&self) -> &'static str {
+        self.repr_str()
+    }
+}
+
+impl From<PyModelInputScaling> for ModelInputScaling {
+    fn from(p: PyModelInputScaling) -> Self {
+        match p {
+            PyModelInputScaling::Fill => ModelInputScaling::Fill,
+            PyModelInputScaling::KeepAspectRatio => ModelInputScaling::KeepAspectRatio,
+            PyModelInputScaling::KeepAspectRatioSymmetric => {
+                ModelInputScaling::KeepAspectRatioSymmetric
+            }
+        }
+    }
+}
+
+impl From<ModelInputScaling> for PyModelInputScaling {
+    fn from(p: ModelInputScaling) -> Self {
+        match p {
+            ModelInputScaling::Fill => PyModelInputScaling::Fill,
+            ModelInputScaling::KeepAspectRatio => PyModelInputScaling::KeepAspectRatio,
+            ModelInputScaling::KeepAspectRatioSymmetric => {
+                PyModelInputScaling::KeepAspectRatioSymmetric
+            }
+        }
+    }
+}
+
+/// Color space the model expects for its input tensor.
+///
+/// - ``RGB``  -- 3-channel RGB input (default).
+/// - ``BGR``  -- 3-channel BGR input.
+/// - ``GRAY`` -- single-channel grayscale input.
+#[pyclass(
+    from_py_object,
+    name = "ModelColorFormat",
+    module = "savant_rs.nvinfer",
+    eq,
+    eq_int
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyModelColorFormat {
+    #[pyo3(name = "RGB")]
+    Rgb = 0,
+    #[pyo3(name = "BGR")]
+    Bgr = 1,
+    #[pyo3(name = "GRAY")]
+    Gray = 2,
+}
+
+impl PyModelColorFormat {
+    pub(crate) fn repr_str(&self) -> &'static str {
+        match self {
+            PyModelColorFormat::Rgb => "ModelColorFormat.RGB",
+            PyModelColorFormat::Bgr => "ModelColorFormat.BGR",
+            PyModelColorFormat::Gray => "ModelColorFormat.GRAY",
+        }
+    }
+}
+
+#[pymethods]
+impl PyModelColorFormat {
+    fn __repr__(&self) -> &'static str {
+        self.repr_str()
+    }
+}
+
+impl From<PyModelColorFormat> for ModelColorFormat {
+    fn from(p: PyModelColorFormat) -> Self {
+        match p {
+            PyModelColorFormat::Rgb => ModelColorFormat::RGB,
+            PyModelColorFormat::Bgr => ModelColorFormat::BGR,
+            PyModelColorFormat::Gray => ModelColorFormat::GRAY,
+        }
+    }
+}
+
+impl From<ModelColorFormat> for PyModelColorFormat {
+    fn from(p: ModelColorFormat) -> Self {
+        match p {
+            ModelColorFormat::RGB => PyModelColorFormat::Rgb,
+            ModelColorFormat::BGR => PyModelColorFormat::Bgr,
+            ModelColorFormat::GRAY => PyModelColorFormat::Gray,
         }
     }
 }

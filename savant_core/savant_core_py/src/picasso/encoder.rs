@@ -1159,6 +1159,129 @@ impl PyAv1DgpuProps {
     }
 }
 
+// ─── PyAv1JetsonProps ──────────────────────────────────────────────────
+
+#[pyclass(from_py_object, name = "Av1JetsonProps", module = "savant_rs.picasso")]
+#[derive(Debug, Clone)]
+pub struct PyAv1JetsonProps {
+    #[pyo3(get, set)]
+    pub bitrate: Option<u32>,
+    #[pyo3(get, set)]
+    pub control_rate: Option<PyRateControl>,
+    #[pyo3(get, set)]
+    pub iframeinterval: Option<u32>,
+    #[pyo3(get, set)]
+    pub idrinterval: Option<u32>,
+    #[pyo3(get, set)]
+    pub preset_level: Option<PyJetsonPresetLevel>,
+    #[pyo3(get, set)]
+    pub peak_bitrate: Option<u32>,
+    #[pyo3(get, set)]
+    pub vbv_size: Option<u32>,
+    #[pyo3(get, set)]
+    pub qp_range: Option<String>,
+    #[pyo3(get, set)]
+    pub quant_i_frames: Option<u32>,
+    #[pyo3(get, set)]
+    pub quant_p_frames: Option<u32>,
+    #[pyo3(get, set)]
+    pub quant_b_frames: Option<u32>,
+    #[pyo3(get, set)]
+    pub ratecontrol_enable: Option<bool>,
+    #[pyo3(get, set)]
+    pub maxperf_enable: Option<bool>,
+    #[pyo3(get, set)]
+    pub two_pass_cbr: Option<bool>,
+    #[pyo3(get, set)]
+    pub num_ref_frames: Option<u32>,
+    #[pyo3(get, set)]
+    pub insert_seq_hdr: Option<bool>,
+    #[pyo3(get, set)]
+    pub tiles: Option<String>,
+}
+
+#[pymethods]
+impl PyAv1JetsonProps {
+    #[new]
+    #[pyo3(signature = (
+        bitrate = None, control_rate = None, iframeinterval = None,
+        idrinterval = None, preset_level = None, peak_bitrate = None,
+        vbv_size = None, qp_range = None, quant_i_frames = None,
+        quant_p_frames = None, quant_b_frames = None,
+        ratecontrol_enable = None, maxperf_enable = None,
+        two_pass_cbr = None, num_ref_frames = None,
+        insert_seq_hdr = None, tiles = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bitrate: Option<u32>,
+        control_rate: Option<PyRateControl>,
+        iframeinterval: Option<u32>,
+        idrinterval: Option<u32>,
+        preset_level: Option<PyJetsonPresetLevel>,
+        peak_bitrate: Option<u32>,
+        vbv_size: Option<u32>,
+        qp_range: Option<String>,
+        quant_i_frames: Option<u32>,
+        quant_p_frames: Option<u32>,
+        quant_b_frames: Option<u32>,
+        ratecontrol_enable: Option<bool>,
+        maxperf_enable: Option<bool>,
+        two_pass_cbr: Option<bool>,
+        num_ref_frames: Option<u32>,
+        insert_seq_hdr: Option<bool>,
+        tiles: Option<String>,
+    ) -> Self {
+        Self {
+            bitrate,
+            control_rate,
+            iframeinterval,
+            idrinterval,
+            preset_level,
+            peak_bitrate,
+            vbv_size,
+            qp_range,
+            quant_i_frames,
+            quant_p_frames,
+            quant_b_frames,
+            ratecontrol_enable,
+            maxperf_enable,
+            two_pass_cbr,
+            num_ref_frames,
+            insert_seq_hdr,
+            tiles,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl PyAv1JetsonProps {
+    pub(crate) fn to_rust(&self) -> Av1JetsonProps {
+        Av1JetsonProps {
+            bitrate: self.bitrate,
+            control_rate: self.control_rate.map(Into::into),
+            iframeinterval: self.iframeinterval,
+            idrinterval: self.idrinterval,
+            preset_level: self.preset_level.map(Into::into),
+            peak_bitrate: self.peak_bitrate,
+            vbv_size: self.vbv_size,
+            qp_range: self.qp_range.clone(),
+            quant_i_frames: self.quant_i_frames,
+            quant_p_frames: self.quant_p_frames,
+            quant_b_frames: self.quant_b_frames,
+            ratecontrol_enable: self.ratecontrol_enable,
+            maxperf_enable: self.maxperf_enable,
+            two_pass_cbr: self.two_pass_cbr,
+            num_ref_frames: self.num_ref_frames,
+            insert_seq_hdr: self.insert_seq_hdr,
+            tiles: self.tiles.clone(),
+        }
+    }
+}
+
 // ─── PyEncoderProperties ───────────────────────────────────────────────
 
 #[pyclass(
@@ -1212,6 +1335,13 @@ impl PyEncoderProperties {
     fn av1_dgpu(props: PyAv1DgpuProps) -> Self {
         Self {
             inner: EncoderProperties::Av1Dgpu(props.to_rust()),
+        }
+    }
+
+    #[staticmethod]
+    fn av1_jetson(props: PyAv1JetsonProps) -> Self {
+        Self {
+            inner: EncoderProperties::Av1Jetson(props.to_rust()),
         }
     }
 
@@ -1396,6 +1526,7 @@ pub fn register_encoder_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyJpegProps>()?;
     m.add_class::<PyPngProps>()?;
     m.add_class::<PyAv1DgpuProps>()?;
+    m.add_class::<PyAv1JetsonProps>()?;
     m.add_class::<PyEncoderProperties>()?;
     m.add_class::<PyEncoderConfig>()?;
     Ok(())

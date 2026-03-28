@@ -17,8 +17,8 @@ type SharedOutput = Arc<Mutex<Option<BatchInferenceOutput>>>;
 #[pyclass(name = "InferDims", module = "savant_rs.nvinfer", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyInferDims {
-    dims: Vec<u32>,
-    num_elements: u32,
+    pub(super) dims: Vec<u32>,
+    pub(super) num_elements: u32,
 }
 
 #[pymethods]
@@ -60,6 +60,7 @@ pub struct PyTensorView {
     byte_length: usize,
     host_ptr: usize,
     device_ptr: usize,
+    has_host_data: bool,
 }
 
 #[pymethods]
@@ -100,6 +101,15 @@ impl PyTensorView {
         self.device_ptr
     }
 
+    /// Whether host (CPU) tensor data is valid.
+    ///
+    /// Returns ``False`` when ``disable_output_host_copy`` was set on the
+    /// config, meaning only ``device_ptr`` is usable.
+    #[getter]
+    fn has_host_data(&self) -> bool {
+        self.has_host_data
+    }
+
     /// NumPy-compatible dtype string (``"float32"``, ``"float16"``,
     /// ``"int8"``, ``"int32"``).
     #[getter]
@@ -115,40 +125,44 @@ impl PyTensorView {
     fn __repr__(&self) -> String {
         format!(
             "TensorView(name={:?}, dims={:?}, data_type={}, byte_length={}, \
-             host_ptr=0x{:x}, device_ptr=0x{:x})",
+             host_ptr=0x{:x}, device_ptr=0x{:x}, has_host_data={})",
             self.name,
             self.dims.dims,
             self.data_type.repr_str(),
             self.byte_length,
             self.host_ptr,
             self.device_ptr,
+            self.has_host_data,
         )
     }
 }
 
 /// Per-element inference output for one ROI in one frame.
+///
+/// User frame ids are on ``BatchInferenceOutput.buffer()`` (``savant_ids()``), not here.
 #[pyclass(name = "ElementOutput", module = "savant_rs.nvinfer")]
 pub struct PyElementOutput {
     shared: SharedOutput,
     element_idx: usize,
-    frame_id: Option<i64>,
     roi_id: Option<i64>,
+    slot_number: u32,
     num_tensors: usize,
 }
 
 #[pymethods]
 impl PyElementOutput {
-    /// User-provided frame ID (if present).
-    #[getter]
-    fn frame_id(&self) -> Option<i64> {
-        self.frame_id
-    }
-
     /// ROI identifier from ``Roi.id``.  ``None`` when no explicit ROIs were
     /// supplied and the full frame was used.
     #[getter]
     fn roi_id(&self) -> Option<i64> {
         self.roi_id
+    }
+
+    /// DeepStream surface slot index (`NvDsFrameMeta.batch_id`).  User frame
+    /// ids are on ``BatchInferenceOutput.buffer()`` (``SharedBuffer.savant_ids()``).
+    #[getter]
+    fn slot_number(&self) -> u32 {
+        self.slot_number
     }
 
     /// Output tensors for this element.
@@ -172,6 +186,7 @@ impl PyElementOutput {
                 byte_length: tv.byte_length,
                 host_ptr: tv.host_ptr as usize,
                 device_ptr: tv.device_ptr as usize,
+                has_host_data: tv.host_copy_enabled,
             };
             let obj = Py::new(py, py_tv)?;
             list.append(obj)?;
@@ -181,8 +196,8 @@ impl PyElementOutput {
 
     fn __repr__(&self) -> String {
         format!(
-            "ElementOutput(frame_id={:?}, roi_id={:?}, num_tensors={})",
-            self.frame_id, self.roi_id, self.num_tensors,
+            "ElementOutput(roi_id={:?}, slot_number={}, num_tensors={})",
+            self.roi_id, self.slot_number, self.num_tensors,
         )
     }
 }
@@ -194,31 +209,25 @@ impl PyElementOutput {
 #[pyclass(name = "BatchInferenceOutput", module = "savant_rs.nvinfer")]
 pub struct PyBatchInferenceOutput {
     shared: SharedOutput,
-    batch_id: u64,
     num_elements: usize,
+    has_host_data: bool,
 }
 
 impl PyBatchInferenceOutput {
     /// Wrap a Rust `BatchInferenceOutput` for Python.
     pub(crate) fn from_rust(output: BatchInferenceOutput) -> Self {
-        let batch_id = output.batch_id();
         let num_elements = output.num_elements();
+        let has_host_data = output.host_copy_enabled();
         Self {
             shared: Arc::new(Mutex::new(Some(output))),
-            batch_id,
             num_elements,
+            has_host_data,
         }
     }
 }
 
 #[pymethods]
 impl PyBatchInferenceOutput {
-    /// User-provided batch ID.
-    #[getter]
-    fn batch_id(&self) -> u64 {
-        self.batch_id
-    }
-
     /// Number of elements in the batch.
     #[getter]
     fn num_elements(&self) -> usize {
@@ -237,8 +246,8 @@ impl PyBatchInferenceOutput {
             let py_elem = PyElementOutput {
                 shared: self.shared.clone(),
                 element_idx: eidx,
-                frame_id: elem.frame_id,
                 roi_id: elem.roi_id,
+                slot_number: elem.slot_number,
                 num_tensors: elem.tensors.len(),
             };
             let obj = Py::new(py, py_elem)?;
@@ -247,10 +256,29 @@ impl PyBatchInferenceOutput {
         Ok(list.unbind())
     }
 
+    /// Whether host (CPU) tensor data is valid for all tensors in this batch.
+    ///
+    /// Returns ``False`` when ``disable_output_host_copy`` was set on the
+    /// config, meaning only device (GPU) pointers in ``TensorView`` are usable.
+    #[getter]
+    fn has_host_data(&self) -> bool {
+        self.has_host_data
+    }
+
+    /// Get the output GStreamer buffer.
+    fn buffer(&self) -> PyResult<crate::deepstream::PySharedBuffer> {
+        let guard = self.shared.lock();
+        let output = guard.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("BatchInferenceOutput has been released")
+        })?;
+        let shared = output.buffer();
+        Ok(crate::deepstream::PySharedBuffer::from_rust(shared))
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "BatchInferenceOutput(batch_id={}, num_elements={})",
-            self.batch_id, self.num_elements,
+            "BatchInferenceOutput(num_elements={}, has_host_data={})",
+            self.num_elements, self.has_host_data,
         )
     }
 }

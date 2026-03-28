@@ -7,8 +7,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -53,23 +53,21 @@ fn e2e_encode_eos_reencode() {
     };
     engine.set_source_spec("reconnect", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(32)
+        .max_buffers(32)
+        .build()
+        .unwrap();
 
     // Session 1: 10 frames, EOS
     for i in 0..10u64 {
         let mut frame = make_frame_sized("reconnect", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("reconnect", frame, buf, None).unwrap();
     }
     engine.send_eos("reconnect").unwrap();
@@ -85,7 +83,7 @@ fn e2e_encode_eos_reencode() {
         let mut frame = make_frame_sized("reconnect", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("reconnect", frame, buf, None).unwrap();
     }
     engine.send_eos("reconnect").unwrap();

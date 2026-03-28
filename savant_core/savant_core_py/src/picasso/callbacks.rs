@@ -1,6 +1,6 @@
 use super::message::PyOutputMessage;
 use super::spec::general::PyEvictionDecision;
-use deepstream_nvbufsurface::SkiaRenderer;
+use deepstream_buffers::{SkiaRenderer, SurfaceView};
 use picasso::prelude::*;
 use pyo3::prelude::*;
 use savant_core::draw::ObjectDraw;
@@ -100,16 +100,12 @@ unsafe impl Send for PyOnGpuMat {}
 unsafe impl Sync for PyOnGpuMat {}
 
 impl OnGpuMat for PyOnGpuMat {
-    fn call(
-        &self,
-        source_id: &str,
-        frame: &VideoFrameProxy,
-        data_ptr: usize,
-        pitch: u32,
-        width: u32,
-        height: u32,
-        cuda_stream: usize,
-    ) {
+    fn call(&self, source_id: &str, frame: &VideoFrameProxy, view: &SurfaceView) {
+        let data_ptr = view.data_ptr() as usize;
+        let pitch = view.pitch();
+        let width = view.width();
+        let height = view.height();
+        let cuda_stream = view.cuda_stream().as_raw() as usize;
         Python::attach(|py| {
             let py_frame = crate::primitives::frame::VideoFrame(frame.clone());
             if let Err(e) = self.0.call1(
@@ -152,6 +148,72 @@ impl OnEviction for PyOnEviction {
     }
 }
 
+/// Reason the worker's encoder was reset.
+///
+/// Construct via the factory static method [`pts_decreased`].
+#[pyclass(
+    from_py_object,
+    name = "StreamResetReason",
+    module = "savant_rs.picasso"
+)]
+#[derive(Debug, Clone)]
+pub struct PyStreamResetReason {
+    inner: StreamResetReason,
+}
+
+#[pymethods]
+impl PyStreamResetReason {
+    /// The PTS of the last successfully accepted frame (nanoseconds).
+    #[getter]
+    fn last_pts_ns(&self) -> u64 {
+        match &self.inner {
+            StreamResetReason::PtsDecreased { last_pts_ns, .. } => *last_pts_ns,
+        }
+    }
+
+    /// The PTS of the incoming frame that triggered the reset (nanoseconds).
+    #[getter]
+    fn new_pts_ns(&self) -> u64 {
+        match &self.inner {
+            StreamResetReason::PtsDecreased { new_pts_ns, .. } => *new_pts_ns,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            StreamResetReason::PtsDecreased {
+                last_pts_ns,
+                new_pts_ns,
+            } => {
+                format!(
+                    "StreamResetReason.pts_decreased(last_pts_ns={last_pts_ns}, new_pts_ns={new_pts_ns})"
+                )
+            }
+        }
+    }
+}
+
+impl PyStreamResetReason {
+    pub(crate) fn from_rust(reason: StreamResetReason) -> Self {
+        Self { inner: reason }
+    }
+}
+
+struct PyOnStreamReset(Py<PyAny>);
+unsafe impl Send for PyOnStreamReset {}
+unsafe impl Sync for PyOnStreamReset {}
+
+impl OnStreamReset for PyOnStreamReset {
+    fn call(&self, source_id: &str, reason: StreamResetReason) {
+        Python::attach(|py| {
+            let py_reason = PyStreamResetReason::from_rust(reason);
+            if let Err(e) = self.0.call1(py, (source_id, py_reason)) {
+                log::error!("on_stream_reset callback error: {e}");
+            }
+        });
+    }
+}
+
 /// Aggregate holder for all optional Python callbacks.
 #[pyclass(name = "Callbacks", module = "savant_rs.picasso")]
 pub struct PyCallbacks {
@@ -161,6 +223,7 @@ pub struct PyCallbacks {
     pub(crate) on_object_draw_spec: Option<Py<PyAny>>,
     pub(crate) on_gpumat: Option<Py<PyAny>>,
     pub(crate) on_eviction: Option<Py<PyAny>>,
+    pub(crate) on_stream_reset: Option<Py<PyAny>>,
 }
 
 #[pymethods]
@@ -173,6 +236,7 @@ impl PyCallbacks {
         on_object_draw_spec = None,
         on_gpumat = None,
         on_eviction = None,
+        on_stream_reset = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -182,6 +246,7 @@ impl PyCallbacks {
         on_object_draw_spec: Option<Py<PyAny>>,
         on_gpumat: Option<Py<PyAny>>,
         on_eviction: Option<Py<PyAny>>,
+        on_stream_reset: Option<Py<PyAny>>,
     ) -> Self {
         Self {
             on_encoded_frame,
@@ -190,6 +255,7 @@ impl PyCallbacks {
             on_object_draw_spec,
             on_gpumat,
             on_eviction,
+            on_stream_reset,
         }
     }
 
@@ -253,6 +319,16 @@ impl PyCallbacks {
         self.on_eviction = cb;
     }
 
+    #[getter]
+    fn get_on_stream_reset(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.on_stream_reset.as_ref().map(|cb| cb.clone_ref(py))
+    }
+
+    #[setter]
+    fn set_on_stream_reset(&mut self, cb: Option<Py<PyAny>>) {
+        self.on_stream_reset = cb;
+    }
+
     fn __repr__(&self) -> String {
         let slots: Vec<&str> = [
             self.on_encoded_frame.as_ref().map(|_| "on_encoded_frame"),
@@ -263,6 +339,7 @@ impl PyCallbacks {
                 .map(|_| "on_object_draw_spec"),
             self.on_gpumat.as_ref().map(|_| "on_gpumat"),
             self.on_eviction.as_ref().map(|_| "on_eviction"),
+            self.on_stream_reset.as_ref().map(|_| "on_stream_reset"),
         ]
         .iter()
         .filter_map(|x| *x)
@@ -298,6 +375,10 @@ impl PyCallbacks {
                 .on_eviction
                 .as_ref()
                 .map(|cb| Arc::new(PyOnEviction(cb.clone_ref(py))) as Arc<dyn OnEviction>),
+            on_stream_reset: self
+                .on_stream_reset
+                .as_ref()
+                .map(|cb| Arc::new(PyOnStreamReset(cb.clone_ref(py))) as Arc<dyn OnStreamReset>),
         }
     }
 }

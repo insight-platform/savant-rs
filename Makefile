@@ -2,7 +2,7 @@ export PROJECT_DIR=$(CURDIR)
 
 # Project-local virtualenv.  All pip / python3 / pytest invocations go
 # through VENV_BIN so we never accidentally touch the system site-packages.
-VENV_DIR  ?= $(PROJECT_DIR)/venv
+VENV_DIR  ?= /opt/venv
 VENV_BIN  := $(VENV_DIR)/bin
 PYTHON    := $(VENV_BIN)/python3
 PIP       := $(VENV_BIN)/pip

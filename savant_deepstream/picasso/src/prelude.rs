@@ -8,6 +8,7 @@
 // Callback traits and aggregate holder
 pub use crate::callbacks::{
     Callbacks, OnBypassFrame, OnEncodedFrame, OnEviction, OnGpuMat, OnObjectDrawSpec, OnRender,
+    OnStreamReset, StreamResetReason,
 };
 
 // Engine
@@ -22,5 +23,5 @@ pub use crate::message::OutputMessage;
 // Specifications
 pub use crate::spec::{
     CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec,
-    ObjectDrawSpec, SourceSpec,
+    ObjectDrawSpec, PtsResetPolicy, SourceSpec,
 };

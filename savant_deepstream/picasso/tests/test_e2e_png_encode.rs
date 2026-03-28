@@ -4,8 +4,8 @@
 //! GStreamer's pngenc (gst-plugins-good) via the nvvideoconvert -> pngenc
 //! chain. The encoded PNG is captured from OnEncodedFrame and validated.
 
+use deepstream_buffers::{BufferGenerator, Padding, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{Padding, TransformConfig};
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -124,7 +124,7 @@ fn render_png_encoded() -> Vec<u8> {
     };
     engine.set_source_spec("png", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -136,14 +136,11 @@ fn render_png_encoded() -> Vec<u8> {
     .unwrap();
 
     let frame = create_frame("png");
-    let mut buf = gen.acquire_surface(Some(0)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
+    let shared = gen.acquire(Some(0)).unwrap();
+    shared.set_pts_ns(0);
+    shared.set_duration_ns(33_333_333);
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
     engine.send_frame("png", frame, view, None).unwrap();
     engine.send_eos("png").unwrap();
 

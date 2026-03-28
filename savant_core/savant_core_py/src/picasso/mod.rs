@@ -18,6 +18,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<spec::PyGeneralSpec>()?;
     m.add_class::<spec::PyEvictionDecision>()?;
+    m.add_class::<spec::PyPtsResetPolicy>()?;
     m.add_class::<spec::PyConditionalSpec>()?;
     m.add_class::<spec::PyObjectDrawSpec>()?;
     m.add_class::<spec::PyCodecSpec>()?;
@@ -27,6 +28,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<message::PyOutputMessage>()?;
 
     m.add_class::<callbacks::PyCallbacks>()?;
+    m.add_class::<callbacks::PyStreamResetReason>()?;
 
     m.add_class::<engine::PyPicassoEngine>()?;
 
