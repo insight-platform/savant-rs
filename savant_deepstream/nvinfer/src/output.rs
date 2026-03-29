@@ -261,7 +261,7 @@ mod tests {
                 std::ptr::null()
             },
             device_ptr: std::ptr::null(),
-            byte_length: data.len() * std::mem::size_of::<T>(),
+            byte_length: std::mem::size_of_val(data),
             host_copy_enabled,
         }
     }

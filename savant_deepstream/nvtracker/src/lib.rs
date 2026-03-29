@@ -5,6 +5,7 @@
 //! and returns [`TrackerOutput`] with current tracks and optional shadow / terminated /
 //! past-frame misc metadata.
 
+pub mod batching_operator;
 pub mod config;
 pub mod detection_meta;
 pub mod error;
@@ -12,6 +13,12 @@ pub mod output;
 pub mod pipeline;
 pub mod roi;
 
+pub use batching_operator::{
+    NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig,
+    NvTrackerBatchingOperatorConfigBuilder, SealedDeliveries, TrackerBatchFormationCallback,
+    TrackerBatchFormationResult, TrackerOperatorFrameOutput, TrackerOperatorOutput,
+    TrackerOperatorResultCallback,
+};
 pub use config::{NvTrackerConfig, TrackingIdResetMode};
 pub use deepstream_buffers::SavantIdMetaKind;
 pub use detection_meta::attach_detection_meta;

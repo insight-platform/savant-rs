@@ -14,6 +14,11 @@ pub use output::{
 };
 pub use pipeline::{default_ll_lib_path, NvTracker, TrackedFrame, TrackerCallback};
 pub use roi::Roi;
+pub use batching_operator::{
+    NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig, NvTrackerBatchingOperatorConfigBuilder,
+    SealedDeliveries, TrackerBatchFormationCallback, TrackerBatchFormationResult,
+    TrackerOperatorFrameOutput, TrackerOperatorOutput, TrackerOperatorResultCallback,
+};
 ```
 
 `TrackState` is re-exported from the `deepstream` crate (maps DeepStream `TRACKER_STATE`).
@@ -145,3 +150,79 @@ Walks batch meta for current objects and batch user meta for shadow / terminated
 ### `TrackerOutput`
 
 `buffer: SharedBuffer`, `current_tracks`, `shadow_tracks`, `terminated_tracks`, `past_frame_data`.
+
+---
+
+## Batching Operator API
+
+`NvTrackerBatchingOperator` mirrors the high-level input/delivery model of `nvinfer::NvInferBatchingOperator`:
+
+- Input: `add_frame(frame: VideoFrameProxy, buffer: SharedBuffer)`
+- Batch formation callback: `Fn(&[VideoFrameProxy]) -> TrackerBatchFormationResult`
+- Result callback: `FnMut(TrackerOperatorOutput)`
+- Downstream propagation: `take_deliveries() -> SealedDeliveries` then `unseal()`
+
+### `NvTrackerBatchingOperatorConfig`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `max_batch_size` | `usize` | Submit immediately when reached |
+| `max_batch_wait` | `Duration` | Timer-based flush threshold |
+| `nvtracker` | `NvTrackerConfig` | Forwarded to inner tracker pipeline |
+
+`SIG: fn builder(nvtracker_config: NvTrackerConfig) -> NvTrackerBatchingOperatorConfigBuilder`
+
+Builder methods:
+
+- `max_batch_size(usize) -> Self` (default `1`)
+- `max_batch_wait(Duration) -> Self` (default `50ms`)
+- `build() -> NvTrackerBatchingOperatorConfig`
+
+### `TrackerBatchFormationResult`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `ids` | `Vec<SavantIdMetaKind>` | Optional caller IDs; can be empty |
+| `rois` | `Vec<HashMap<i32, Vec<Roi>>>` | Per-frame ROIs keyed by class id; length must equal frame count |
+
+`Batch(batch_id)` is always inserted internally at index `0` before submission.
+
+### `NvTrackerBatchingOperator`
+
+| Method | Signature | Notes |
+|--------|-----------|-------|
+| `new` | `(config, batch_formation, result_callback) -> Result<Self>` | Spawns timer thread, owns inner `NvTracker` |
+| `add_frame` | `(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()>` | Same input shape as nvinfer batching operator |
+| `flush` | `(&self) -> Result<()>` | Submits current partial batch |
+| `reset_stream` | `(&self, source_id: &str) -> Result<()>` | Forwards to inner tracker |
+| `shutdown` | `(&mut self) -> Result<()>` | Flushes, stops timer thread, shuts down inner tracker |
+
+### `TrackerOperatorFrameOutput`
+
+Per-frame callback view:
+
+- `frame: VideoFrameProxy`
+- `tracked_objects: Vec<TrackedObject>`
+- `shadow_tracks: Vec<MiscTrackData>`
+- `terminated_tracks: Vec<MiscTrackData>`
+- `past_frame_data: Vec<MiscTrackData>`
+
+The `shadow/terminated/past` lists are grouped by `source_id == frame.get_source_id()`.
+
+### `TrackerOperatorOutput`
+
+Methods:
+
+- `frames(&self) -> &[TrackerOperatorFrameOutput]`
+- `take_deliveries(&mut self) -> Option<SealedDeliveries>`
+
+### `SealedDeliveries`
+
+`SealedDeliveries` contains the original `(VideoFrameProxy, SharedBuffer)` pairs and is released when `TrackerOperatorOutput` is dropped.
+
+Methods:
+
+- `len()`, `is_empty()`, `is_released()`
+- `unseal(self) -> Vec<(VideoFrameProxy, SharedBuffer)>`
+- `unseal_timeout(self, Duration) -> Result<Vec<...>, Self>`
+- `try_unseal(self) -> Result<Vec<...>, Self>`

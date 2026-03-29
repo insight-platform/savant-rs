@@ -28,6 +28,7 @@ savant_deepstream/buffers/
 │   ├── buffers/
 │   │   ├── single.rs           # BufferGenerator + Builder (batchSize=1)
 │   │   ├── batched.rs          # re-exports uniform, non_uniform
+│   │   ├── batch_state.rs      # generic BatchState<T> used by higher-level operators
 │   │   └── batched/
 │   │       ├── uniform.rs      # UniformBatchGenerator + Builder,
 │   │       │                   #   SurfaceBatch
@@ -56,6 +57,13 @@ savant_deepstream/buffers/
 ```
 
 ## Memory Model
+
+## Shared batching state
+
+`deepstream_buffers::BatchState<T>` is the single shared implementation for
+size/time batching queues. `nvinfer::NvInferBatchingOperator` and
+`nvtracker::NvTrackerBatchingOperator` both use this type instead of local
+duplicate `state.rs` structs.
 
 ### NvBufSurface C Struct Layout
 ```

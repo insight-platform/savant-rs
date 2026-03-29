@@ -26,6 +26,12 @@ pub enum NvTrackerError {
     #[error("configuration error: {0}")]
     ConfigError(String),
 
+    #[error("batch formation failed: {0}")]
+    BatchFormationFailed(String),
+
+    #[error("batching operator is shut down")]
+    OperatorShutdown,
+
     #[error("batch metadata error in {operation}: {detail}")]
     BatchMetaFailed { operation: String, detail: String },
 

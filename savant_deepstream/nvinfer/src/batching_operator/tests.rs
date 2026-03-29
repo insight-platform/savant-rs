@@ -2,13 +2,15 @@ use super::*;
 use crate::meta_clear_policy::MetaClearPolicy;
 use crate::model_input_scaling::ModelInputScaling;
 use crate::roi::{Roi, RoiKind};
-use deepstream_buffers::SavantIdMetaKind;
+use deepstream_buffers::{BatchState, SavantIdMetaKind};
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::RBBox;
 use std::collections::HashMap as StdHashMap;
 use std::time::Duration;
+
+type FramePair = (VideoFrameProxy, deepstream_buffers::SharedBuffer);
 
 fn make_frame(source_id: &str) -> VideoFrameProxy {
     VideoFrameProxy::new(
@@ -70,7 +72,7 @@ fn make_test_output(n: usize) -> output::OperatorInferenceOutput {
 
 #[test]
 fn batch_state_new_is_empty() {
-    let state = state::BatchState::new();
+    let state: BatchState<FramePair> = BatchState::new();
     assert!(state.is_empty());
     assert!(state.deadline.is_none());
     assert!(state.frames.is_empty());
@@ -78,7 +80,7 @@ fn batch_state_new_is_empty() {
 
 #[test]
 fn batch_state_deadline_roundtrip() {
-    let mut state = state::BatchState::new();
+    let mut state: BatchState<FramePair> = BatchState::new();
     assert!(state.deadline.is_none());
 
     let dl = std::time::Instant::now() + Duration::from_millis(500);
@@ -88,7 +90,7 @@ fn batch_state_deadline_roundtrip() {
 
 #[test]
 fn batch_state_take_on_empty_returns_empty() {
-    let mut state = state::BatchState::new();
+    let mut state: BatchState<FramePair> = BatchState::new();
     state.deadline = Some(std::time::Instant::now() + Duration::from_secs(10));
 
     let taken = state.take();
@@ -99,7 +101,7 @@ fn batch_state_take_on_empty_returns_empty() {
 
 #[test]
 fn batch_state_is_empty_reflects_frames() {
-    let mut state = state::BatchState::new();
+    let mut state = BatchState::new();
     assert!(state.is_empty());
 
     state.frames.push((make_frame("src"), make_shared_buffer()));
@@ -108,7 +110,7 @@ fn batch_state_is_empty_reflects_frames() {
 
 #[test]
 fn batch_state_take_returns_frames_and_resets() {
-    let mut state = state::BatchState::new();
+    let mut state = BatchState::new();
     state.frames.push((make_frame("s1"), make_shared_buffer()));
     state.frames.push((make_frame("s2"), make_shared_buffer()));
     state.deadline = Some(std::time::Instant::now());
@@ -123,7 +125,7 @@ fn batch_state_take_returns_frames_and_resets() {
 
 #[test]
 fn batch_state_take_is_idempotent() {
-    let mut state = state::BatchState::new();
+    let mut state = BatchState::new();
     state.frames.push((make_frame("x"), make_shared_buffer()));
     state.deadline = Some(std::time::Instant::now());
 

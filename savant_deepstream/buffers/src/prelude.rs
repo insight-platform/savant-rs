@@ -12,7 +12,7 @@ pub use crate::transform::{
     TransformError,
 };
 pub use crate::{
-    BufferGenerator, BufferGeneratorBuilder, NonUniformBatch, NvBufSurfaceError,
+    BatchState, BufferGenerator, BufferGeneratorBuilder, NonUniformBatch, NvBufSurfaceError,
     NvBufSurfaceMemType, SavantIdMetaKind, SurfaceBatch, UniformBatchGenerator,
     UniformBatchGeneratorBuilder,
 };

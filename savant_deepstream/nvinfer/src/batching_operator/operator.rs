@@ -3,7 +3,7 @@ use crate::error::{NvInferError, Result};
 use crate::output::BatchInferenceOutput;
 use crate::pipeline::NvInfer;
 use crate::roi::RoiKind;
-use deepstream_buffers::{SavantIdMetaKind, SharedBuffer};
+use deepstream_buffers::{BatchState, SavantIdMetaKind, SharedBuffer};
 use log::{error, warn};
 use parking_lot::{Condvar, Mutex};
 use savant_core::primitives::frame::VideoFrameProxy;
@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::output::{OperatorElement, OperatorFrameOutput, OperatorInferenceOutput};
-use super::state::BatchState;
 use super::submit::SubmitContext;
 use super::types::{BatchFormationCallback, OperatorResultCallback, PendingMap};
 

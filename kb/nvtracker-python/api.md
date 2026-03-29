@@ -72,3 +72,72 @@ Pipeline: `appsrc → nvtracker → appsink` (Playing on `new`). No queue or met
 | `shutdown()` | Idempotent; further calls raise `RuntimeError` |
 
 `__repr__`: `NvTracker(running)` / `NvTracker(shut_down)`.
+
+## `NvTrackerBatchingOperatorConfig`
+
+`SIG: __init__(max_batch_size: int, max_batch_wait_ms: int, nvtracker_config: NvTrackerConfig)`
+
+Read-only properties:
+
+- `max_batch_size`
+- `max_batch_wait_ms`
+- `nvtracker_config`
+
+## `TrackerBatchFormationResult`
+
+`SIG: __init__(ids: List[Tuple[SavantIdMetaKind, int]], rois: List[Dict[int, List[Roi]]])`
+
+- `ids` can be empty (operator always injects internal `Batch(batch_id)`).
+- `rois` length must match the number of input `VideoFrame` values.
+
+Read-only property:
+
+- `ids`
+
+## `TrackerOperatorFrameOutput`
+
+Per-frame callback view:
+
+- `frame: VideoFrame`
+- `tracked_objects: List[TrackedObject]`
+- `shadow_tracks: List[MiscTrackData]`
+- `terminated_tracks: List[MiscTrackData]`
+- `past_frame_data: List[MiscTrackData]`
+
+`shadow/terminated/past` lists are pre-grouped by `frame.source_id`.
+
+## `SealedDeliveries`
+
+Represents sealed `List[Tuple[VideoFrame, SharedBuffer]]` released when parent output is dropped.
+
+Methods:
+
+- `__len__()`
+- `is_empty()`
+- `is_released()`
+- `unseal(timeout_ms: Optional[int] = None) -> List[Tuple[VideoFrame, SharedBuffer]]`
+- `try_unseal() -> Optional[List[Tuple[VideoFrame, SharedBuffer]]]`
+
+## `TrackerOperatorOutput`
+
+Read-only properties:
+
+- `frames: List[TrackerOperatorFrameOutput]`
+- `num_frames: int`
+
+Methods:
+
+- `take_deliveries() -> Optional[SealedDeliveries]` (first call returns object, next calls return `None`)
+
+## `NvTrackerBatchingOperator`
+
+High-level frame+buffer batching layer over `NvTracker`.
+
+`SIG: __init__(config: NvTrackerBatchingOperatorConfig, batch_formation_callback: Callable[[List[VideoFrame]], TrackerBatchFormationResult], result_callback: Callable[[TrackerOperatorOutput], None])`
+
+Methods:
+
+- `add_frame(frame: VideoFrame, buffer: SharedBuffer | int)`
+- `flush()`
+- `reset_stream(source_id: str)`
+- `shutdown()`
