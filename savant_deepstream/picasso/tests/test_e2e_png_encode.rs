@@ -99,7 +99,7 @@ fn render_png_encoded() -> Vec<u8> {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let enc_config = EncoderConfig::new(Codec::Png, DST_W, DST_H)
         .format(VideoFormat::RGBA)

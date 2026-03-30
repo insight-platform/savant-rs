@@ -4,7 +4,7 @@ use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
 
 /// Messages sent from the engine to per-source worker threads.
-pub enum WorkerMessage {
+pub(crate) enum WorkerMessage {
     /// A new video frame to process.
     Frame(VideoFrameProxy, SurfaceView, Option<Rect>),
     /// End-of-stream signal.

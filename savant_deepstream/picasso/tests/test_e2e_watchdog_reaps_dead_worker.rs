@@ -25,7 +25,7 @@ fn e2e_watchdog_reaps_dead_worker() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 1,
             ..Default::default()

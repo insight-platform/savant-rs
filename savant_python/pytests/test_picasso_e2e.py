@@ -3,7 +3,7 @@
 Ports missing e2e scenarios from savant_deepstream/picasso/tests/ to Python.
 Requires the deepstream feature and a working DeepStream/CUDA runtime.
 
-Reference: savant_python/aux/picasso/kb/ (api.md, deps.md, patterns.md).
+Reference: kb/picasso-python/ (api.md, deps.md, patterns.md).
 """
 
 from __future__ import annotations

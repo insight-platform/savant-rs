@@ -44,7 +44,7 @@ fn e2e_font_family_hot_swap() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()

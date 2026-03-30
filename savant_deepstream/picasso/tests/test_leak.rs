@@ -13,7 +13,6 @@ mod common;
 
 use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use picasso::message::WorkerMessage;
 use picasso::prelude::*;
 use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
@@ -127,11 +126,11 @@ fn leak_worker_lifecycle_churn() {
             16,
             PtsResetPolicy::default(),
         );
-        w.send(WorkerMessage::Frame(
+        w.send_frame(
             make_frame(&format!("warmup-{i}"), 320, 240),
             deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
-        ))
+        )
         .unwrap();
         std::thread::sleep(Duration::from_millis(20));
         drop(w);
@@ -153,13 +152,13 @@ fn leak_worker_lifecycle_churn() {
             PtsResetPolicy::default(),
         );
         for j in 0..10 {
-            let _ = w.send(WorkerMessage::Frame(
+            let _ = w.send_frame(
                 make_frame(&source, 320, 240),
                 deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
-            ));
+            );
             if j == 9 {
-                let _ = w.send(WorkerMessage::Eos);
+                let _ = w.send_eos();
             }
         }
         std::thread::sleep(Duration::from_millis(10));
@@ -207,11 +206,11 @@ fn leak_sustained_bypass_frames() {
 
     // Warm-up
     for _ in 0..100 {
-        let _ = worker.send(WorkerMessage::Frame(
+        let _ = worker.send_frame(
             make_frame("sustained-bypass", 640, 480),
             deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
-        ));
+        );
     }
     std::thread::sleep(Duration::from_millis(500));
 
@@ -220,11 +219,11 @@ fn leak_sustained_bypass_frames() {
 
     // Main phase: 5000 frames
     for _ in 0..5_000 {
-        let _ = worker.send(WorkerMessage::Frame(
+        let _ = worker.send_frame(
             make_frame("sustained-bypass", 640, 480),
             deepstream_buffers::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
-        ));
+        );
     }
     // Drain the channel
     std::thread::sleep(Duration::from_secs(2));
@@ -263,7 +262,7 @@ fn leak_engine_multi_source_churn() {
         idle_timeout_secs: 120,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     // Warm-up
     for i in 0..5 {
@@ -527,7 +526,7 @@ fn leak_engine_gpu_encode_sustained() {
         idle_timeout_secs: 120,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let enc_cfg = encoder_config(320, 240);
 

@@ -19,6 +19,19 @@ pub struct Roi {
     pub bbox: RBBox,
 }
 
+impl Roi {
+    /// Create a new region of interest.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` — Caller-defined identifier, returned in
+    ///   [`ElementOutput::roi_id`](crate::output::ElementOutput::roi_id).
+    /// * `bbox` — Bounding box (center-based, optionally rotated).
+    pub fn new(id: i64, bbox: RBBox) -> Self {
+        Self { id, bbox }
+    }
+}
+
 /// Per-slot ROI specification for the [`crate::batching_operator`] layer.
 ///
 /// Each batch slot is either inferred as a full frame (no explicit ROIs)
@@ -29,4 +42,20 @@ pub enum RoiKind {
     FullFrame,
     /// Infer on specific regions within the frame.
     Rois(Vec<Roi>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roi_new() {
+        let bbox = RBBox::new(100.0, 200.0, 50.0, 60.0, None);
+        let roi = Roi::new(42, bbox.clone());
+        assert_eq!(roi.id, 42);
+        assert_eq!(roi.bbox.get_xc(), bbox.get_xc());
+        assert_eq!(roi.bbox.get_yc(), bbox.get_yc());
+        assert_eq!(roi.bbox.get_width(), bbox.get_width());
+        assert_eq!(roi.bbox.get_height(), bbox.get_height());
+    }
 }

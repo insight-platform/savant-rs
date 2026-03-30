@@ -683,7 +683,7 @@ impl SurfaceView {
         if self.data_ptr.is_null() {
             return;
         }
-        self.cuda_stream.synchronize();
+        self.cuda_stream.synchronize_or_log();
     }
 }
 

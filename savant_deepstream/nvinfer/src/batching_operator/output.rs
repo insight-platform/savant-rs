@@ -3,9 +3,9 @@ use crate::model_input_scaling::ModelInputScaling;
 use crate::output::ElementOutput;
 use deepstream_buffers::SharedBuffer;
 use deepstream_sys::GstBuffer;
-use parking_lot::{Condvar, Mutex};
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::RBBox;
+use savant_core::utils::release_seal::ReleaseSeal;
 use std::cell::OnceCell;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -145,45 +145,6 @@ pub struct OperatorFrameOutput {
 unsafe impl Send for OperatorFrameOutput {}
 
 // ---------------------------------------------------------------------------
-// Seal — Condvar-gated flag shared between OperatorInferenceOutput and
-//        SealedDeliveries.
-// ---------------------------------------------------------------------------
-
-/// Condvar-gated flag set when [`OperatorInferenceOutput`] is dropped.
-///
-/// One seal per batch — shared via `Arc` between `OperatorInferenceOutput`
-/// and its [`SealedDeliveries`].
-struct Seal {
-    released: Mutex<bool>,
-    condvar: Condvar,
-}
-
-impl Seal {
-    fn new() -> Self {
-        Self {
-            released: Mutex::new(false),
-            condvar: Condvar::new(),
-        }
-    }
-
-    fn release(&self) {
-        *self.released.lock() = true;
-        self.condvar.notify_all();
-    }
-
-    fn wait(&self) {
-        let mut released = self.released.lock();
-        while !*released {
-            self.condvar.wait(&mut released);
-        }
-    }
-
-    fn is_released(&self) -> bool {
-        *self.released.lock()
-    }
-}
-
-// ---------------------------------------------------------------------------
 // SealedDeliveries
 // ---------------------------------------------------------------------------
 
@@ -201,11 +162,12 @@ impl Seal {
 /// [`OperatorInferenceOutput::drop`] runs against zero waiters (a no-op).
 pub struct SealedDeliveries {
     deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
-    seal: Arc<Seal>,
+    seal: Arc<ReleaseSeal>,
 }
 
-// SAFETY: All fields are `Send`.  `Seal` uses `parking_lot::Mutex` + `Condvar`
-// which are `Send + Sync`.  `VideoFrameProxy` and `SharedBuffer` are `Send`.
+// SAFETY: All fields are `Send`.  `ReleaseSeal` uses `parking_lot::Mutex` +
+// `Condvar` which are `Send + Sync`.  `VideoFrameProxy` and `SharedBuffer`
+// are `Send`.
 unsafe impl Send for SealedDeliveries {}
 
 impl SealedDeliveries {
@@ -232,6 +194,22 @@ impl SealedDeliveries {
     pub fn unseal(self) -> Vec<(VideoFrameProxy, SharedBuffer)> {
         self.seal.wait();
         self.deliveries
+    }
+
+    /// Block until the seal is released, with a timeout.
+    ///
+    /// Returns the deliveries if the seal is released within `timeout`,
+    /// or returns `Err(self)` if the timeout expires (so the caller
+    /// can retry or drop).
+    pub fn unseal_timeout(
+        self,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {
+        if self.seal.wait_timeout(timeout) {
+            Ok(self.deliveries)
+        } else {
+            Err(self)
+        }
     }
 
     /// Non-blocking attempt to unseal.  Returns `Err(self)` if the seal
@@ -279,7 +257,7 @@ pub struct OperatorInferenceOutput {
     frames: Vec<OperatorFrameOutput>,
     deliveries: Option<Vec<(VideoFrameProxy, SharedBuffer)>>,
     host_copy_enabled: bool,
-    seal: Arc<Seal>,
+    seal: Arc<ReleaseSeal>,
     /// Wrapped in `Option` so `Drop` can manually release it **before**
     /// `seal.release()`.  This buffer is a parent to the per-frame buffers
     /// in `deliveries` — it must be fully gone before downstream is unblocked.
@@ -302,7 +280,7 @@ impl OperatorInferenceOutput {
             frames,
             deliveries: Some(deliveries),
             host_copy_enabled,
-            seal: Arc::new(Seal::new()),
+            seal: Arc::new(ReleaseSeal::new()),
             output_buffer: Some(output_buffer),
         }
     }

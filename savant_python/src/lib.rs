@@ -97,6 +97,13 @@ pub fn nvinfer(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pymodule(gil_used = false)]
+pub fn nvtracker(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "deepstream")]
+    savant_core_py::nvtracker::register_classes(_m)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
 pub fn picasso(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "deepstream")]
     savant_core_py::picasso::register_classes(_m)?;
@@ -399,6 +406,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
     m.add_wrapped(wrap_pymodule!(self::deepstream))?;
     m.add_wrapped(wrap_pymodule!(self::nvinfer))?;
+    m.add_wrapped(wrap_pymodule!(self::nvtracker))?;
     m.add_wrapped(wrap_pymodule!(self::picasso))?;
 
     let sys = PyModule::import(py, "sys")?;
@@ -408,6 +416,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
     sys_modules.set_item("savant_rs.deepstream", m.getattr("deepstream")?)?;
     sys_modules.set_item("savant_rs.nvinfer", m.getattr("nvinfer")?)?;
+    sys_modules.set_item("savant_rs.nvtracker", m.getattr("nvtracker")?)?;
     sys_modules.set_item("savant_rs.picasso", m.getattr("picasso")?)?;
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;

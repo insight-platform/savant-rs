@@ -163,7 +163,7 @@ impl PyPicassoEngine {
     /// Python callbacks (on_encoded_frame, on_render, etc.) can acquire
     /// the GIL and complete without deadlocking.
     fn shutdown(&mut self, py: Python<'_>) {
-        if let Some(mut engine) = self.inner.take() {
+        if let Some(engine) = self.inner.take() {
             py.detach(|| engine.shutdown());
         }
     }

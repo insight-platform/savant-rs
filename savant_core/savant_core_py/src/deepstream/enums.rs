@@ -30,12 +30,44 @@ pub enum PyPadding {
     Symmetric = 2,
 }
 
+#[pymethods]
+impl PyPadding {
+    /// Parse a padding mode from a string name.
+    ///
+    /// Accepts ``"none"``, ``"right_bottom"`` / ``"rightbottom"``,
+    /// ``"symmetric"``. Case-insensitive.
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        name.parse::<Padding>()
+            .map(|p| p.into())
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PyPadding::None => "Padding.NONE",
+            PyPadding::RightBottom => "Padding.RIGHT_BOTTOM",
+            PyPadding::Symmetric => "Padding.SYMMETRIC",
+        }
+    }
+}
+
 impl From<PyPadding> for Padding {
     fn from(p: PyPadding) -> Self {
         match p {
             PyPadding::None => Padding::None,
             PyPadding::RightBottom => Padding::RightBottom,
             PyPadding::Symmetric => Padding::Symmetric,
+        }
+    }
+}
+
+impl From<Padding> for PyPadding {
+    fn from(p: Padding) -> Self {
+        match p {
+            Padding::None => PyPadding::None,
+            Padding::RightBottom => PyPadding::RightBottom,
+            Padding::Symmetric => PyPadding::Symmetric,
         }
     }
 }
@@ -96,13 +128,16 @@ pub(crate) fn from_rust_id_kind(kind: &SavantIdMetaKind) -> (PySavantIdMetaKind,
 
 /// Interpolation method for scaling.
 ///
-/// - ``NEAREST``  -- nearest-neighbor.
-/// - ``BILINEAR`` -- bilinear (default).
-/// - ``ALGO1``    -- GPU: cubic, VIC: 5-tap.
-/// - ``ALGO2``    -- GPU: super, VIC: 10-tap.
-/// - ``ALGO3``    -- GPU: Lanczos, VIC: smart.
-/// - ``ALGO4``    -- GPU: (ignored), VIC: nicest.
-/// - ``DEFAULT``  -- GPU: nearest, VIC: nearest.
+/// Variants whose behaviour differs between GPU (dGPU / x86_64) and VIC
+/// (Video Image Compositor / Jetson) carry compound names.
+///
+/// - ``NEAREST``                -- nearest-neighbor (same on both).
+/// - ``BILINEAR``               -- bilinear (default, same on both).
+/// - ``GPU_CUBIC_VIC_5TAP``     -- GPU: cubic, VIC: 5-tap.
+/// - ``GPU_SUPER_VIC_10TAP``    -- GPU: super-sampling, VIC: 10-tap.
+/// - ``GPU_LANCZOS_VIC_SMART``  -- GPU: Lanczos, VIC: smart.
+/// - ``GPU_IGNORED_VIC_NICEST`` -- GPU: ignored (no-op), VIC: nicest.
+/// - ``DEFAULT``                -- platform default (nearest on both).
 #[pyclass(
     from_py_object,
     name = "Interpolation",
@@ -116,16 +151,42 @@ pub enum PyInterpolation {
     Nearest = 0,
     #[pyo3(name = "BILINEAR")]
     Bilinear = 1,
-    #[pyo3(name = "ALGO1")]
-    Algo1 = 2,
-    #[pyo3(name = "ALGO2")]
-    Algo2 = 3,
-    #[pyo3(name = "ALGO3")]
-    Algo3 = 4,
-    #[pyo3(name = "ALGO4")]
-    Algo4 = 5,
+    #[pyo3(name = "GPU_CUBIC_VIC_5TAP")]
+    GpuCubicVic5Tap = 2,
+    #[pyo3(name = "GPU_SUPER_VIC_10TAP")]
+    GpuSuperVic10Tap = 3,
+    #[pyo3(name = "GPU_LANCZOS_VIC_SMART")]
+    GpuLanczosVicSmart = 4,
+    #[pyo3(name = "GPU_IGNORED_VIC_NICEST")]
+    GpuIgnoredVicNicest = 5,
     #[pyo3(name = "DEFAULT")]
     Default = 6,
+}
+
+#[pymethods]
+impl PyInterpolation {
+    /// Parse an interpolation method from a string name.
+    ///
+    /// Accepts canonical names (``"cubic"``, ``"lanczos"``, etc.) and
+    /// legacy names (``"algo1"``–``"algo4"``). Case-insensitive.
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        name.parse::<Interpolation>()
+            .map(|i| i.into())
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PyInterpolation::Nearest => "Interpolation.NEAREST",
+            PyInterpolation::Bilinear => "Interpolation.BILINEAR",
+            PyInterpolation::GpuCubicVic5Tap => "Interpolation.GPU_CUBIC_VIC_5TAP",
+            PyInterpolation::GpuSuperVic10Tap => "Interpolation.GPU_SUPER_VIC_10TAP",
+            PyInterpolation::GpuLanczosVicSmart => "Interpolation.GPU_LANCZOS_VIC_SMART",
+            PyInterpolation::GpuIgnoredVicNicest => "Interpolation.GPU_IGNORED_VIC_NICEST",
+            PyInterpolation::Default => "Interpolation.DEFAULT",
+        }
+    }
 }
 
 impl From<PyInterpolation> for Interpolation {
@@ -133,11 +194,25 @@ impl From<PyInterpolation> for Interpolation {
         match i {
             PyInterpolation::Nearest => Interpolation::Nearest,
             PyInterpolation::Bilinear => Interpolation::Bilinear,
-            PyInterpolation::Algo1 => Interpolation::Algo1,
-            PyInterpolation::Algo2 => Interpolation::Algo2,
-            PyInterpolation::Algo3 => Interpolation::Algo3,
-            PyInterpolation::Algo4 => Interpolation::Algo4,
+            PyInterpolation::GpuCubicVic5Tap => Interpolation::GpuCubicVic5Tap,
+            PyInterpolation::GpuSuperVic10Tap => Interpolation::GpuSuperVic10Tap,
+            PyInterpolation::GpuLanczosVicSmart => Interpolation::GpuLanczosVicSmart,
+            PyInterpolation::GpuIgnoredVicNicest => Interpolation::GpuIgnoredVicNicest,
             PyInterpolation::Default => Interpolation::Default,
+        }
+    }
+}
+
+impl From<Interpolation> for PyInterpolation {
+    fn from(i: Interpolation) -> Self {
+        match i {
+            Interpolation::Nearest => PyInterpolation::Nearest,
+            Interpolation::Bilinear => PyInterpolation::Bilinear,
+            Interpolation::GpuCubicVic5Tap => PyInterpolation::GpuCubicVic5Tap,
+            Interpolation::GpuSuperVic10Tap => PyInterpolation::GpuSuperVic10Tap,
+            Interpolation::GpuLanczosVicSmart => PyInterpolation::GpuLanczosVicSmart,
+            Interpolation::GpuIgnoredVicNicest => PyInterpolation::GpuIgnoredVicNicest,
+            Interpolation::Default => PyInterpolation::Default,
         }
     }
 }

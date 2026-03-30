@@ -6,7 +6,6 @@
 mod common;
 
 use common::*;
-use picasso::message::WorkerMessage;
 use picasso::prelude::*;
 use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
@@ -50,18 +49,10 @@ fn e2e_per_source_idle_timeout() {
     );
 
     worker_fast
-        .send(WorkerMessage::Frame(
-            make_frame("fast"),
-            make_surface_view(),
-            None,
-        ))
+        .send_frame(make_frame("fast"), make_surface_view(), None)
         .unwrap();
     worker_slow
-        .send(WorkerMessage::Frame(
-            make_frame("slow"),
-            make_surface_view(),
-            None,
-        ))
+        .send_frame(make_frame("slow"), make_surface_view(), None)
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(3));

@@ -99,3 +99,99 @@ pub struct Callbacks {
     pub on_eviction: Option<Arc<dyn OnEviction>>,
     pub on_stream_reset: Option<Arc<dyn OnStreamReset>>,
 }
+
+impl Callbacks {
+    /// Create a new builder with all callbacks set to `None`.
+    pub fn builder() -> CallbacksBuilder {
+        CallbacksBuilder {
+            inner: Callbacks::default(),
+        }
+    }
+}
+
+/// Builder for [`Callbacks`] — avoids writing `None` for every unused slot.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let cbs = Callbacks::builder()
+///     .on_encoded_frame(my_cb)
+///     .on_render(my_render_cb)
+///     .build();
+/// ```
+pub struct CallbacksBuilder {
+    inner: Callbacks,
+}
+
+impl CallbacksBuilder {
+    pub fn on_encoded_frame(mut self, cb: impl OnEncodedFrame) -> Self {
+        self.inner.on_encoded_frame = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn on_bypass_frame(mut self, cb: impl OnBypassFrame) -> Self {
+        self.inner.on_bypass_frame = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn on_render(mut self, cb: impl OnRender) -> Self {
+        self.inner.on_render = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn on_object_draw_spec(mut self, cb: impl OnObjectDrawSpec) -> Self {
+        self.inner.on_object_draw_spec = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn on_gpumat(mut self, cb: impl OnGpuMat) -> Self {
+        self.inner.on_gpumat = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn on_eviction(mut self, cb: impl OnEviction) -> Self {
+        self.inner.on_eviction = Some(Arc::new(cb));
+        self
+    }
+
+    pub fn on_stream_reset(mut self, cb: impl OnStreamReset) -> Self {
+        self.inner.on_stream_reset = Some(Arc::new(cb));
+        self
+    }
+
+    /// Finish building and return the [`Callbacks`].
+    pub fn build(self) -> Callbacks {
+        self.inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DummyOnEncodedFrame;
+    impl OnEncodedFrame for DummyOnEncodedFrame {
+        fn call(&self, _: OutputMessage) {}
+    }
+
+    #[test]
+    fn builder_default_is_all_none() {
+        let cbs = Callbacks::builder().build();
+        assert!(cbs.on_encoded_frame.is_none());
+        assert!(cbs.on_bypass_frame.is_none());
+        assert!(cbs.on_render.is_none());
+        assert!(cbs.on_object_draw_spec.is_none());
+        assert!(cbs.on_gpumat.is_none());
+        assert!(cbs.on_eviction.is_none());
+        assert!(cbs.on_stream_reset.is_none());
+    }
+
+    #[test]
+    fn builder_sets_one_callback() {
+        let cbs = Callbacks::builder()
+            .on_encoded_frame(DummyOnEncodedFrame)
+            .build();
+        assert!(cbs.on_encoded_frame.is_some());
+        assert!(cbs.on_render.is_none());
+    }
+}

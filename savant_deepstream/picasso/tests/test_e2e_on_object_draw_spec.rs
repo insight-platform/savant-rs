@@ -77,7 +77,7 @@ fn e2e_on_object_draw_spec() {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()

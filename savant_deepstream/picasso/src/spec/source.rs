@@ -60,6 +60,76 @@ impl Default for SourceSpec {
     }
 }
 
+impl SourceSpec {
+    /// Create a new builder starting from default values.
+    pub fn builder() -> SourceSpecBuilder {
+        SourceSpecBuilder {
+            inner: SourceSpec::default(),
+        }
+    }
+}
+
+/// Builder for [`SourceSpec`] — uses `Default` values for unset fields.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let spec = SourceSpec::builder()
+///     .font_family("monospace")
+///     .use_on_render(true)
+///     .build();
+/// ```
+pub struct SourceSpecBuilder {
+    inner: SourceSpec,
+}
+
+impl SourceSpecBuilder {
+    pub fn codec(mut self, codec: CodecSpec) -> Self {
+        self.inner.codec = codec;
+        self
+    }
+
+    pub fn conditional(mut self, conditional: ConditionalSpec) -> Self {
+        self.inner.conditional = conditional;
+        self
+    }
+
+    pub fn draw(mut self, draw: ObjectDrawSpec) -> Self {
+        self.inner.draw = draw;
+        self
+    }
+
+    pub fn font_family(mut self, font_family: impl Into<String>) -> Self {
+        self.inner.font_family = font_family.into();
+        self
+    }
+
+    pub fn idle_timeout_secs(mut self, secs: u64) -> Self {
+        self.inner.idle_timeout_secs = Some(secs);
+        self
+    }
+
+    pub fn use_on_render(mut self, enable: bool) -> Self {
+        self.inner.use_on_render = enable;
+        self
+    }
+
+    pub fn use_on_gpumat(mut self, enable: bool) -> Self {
+        self.inner.use_on_gpumat = enable;
+        self
+    }
+
+    pub fn callback_order(mut self, order: CallbackInvocationOrder) -> Self {
+        self.inner.callback_order = order;
+        self
+    }
+
+    /// Finish building and return the [`SourceSpec`].
+    pub fn build(self) -> SourceSpec {
+        self.inner
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,5 +155,26 @@ mod tests {
     fn source_spec_default_has_skia_gpumat() {
         let s = SourceSpec::default();
         assert_eq!(s.callback_order, CallbackInvocationOrder::SkiaGpuMat);
+    }
+
+    #[test]
+    fn builder_default_matches_struct_default() {
+        let built = SourceSpec::builder().build();
+        let direct = SourceSpec::default();
+        assert!(matches!(built.codec, CodecSpec::Drop));
+        assert_eq!(built.font_family, direct.font_family);
+        assert_eq!(built.use_on_render, direct.use_on_render);
+    }
+
+    #[test]
+    fn builder_overrides_fields() {
+        let spec = SourceSpec::builder()
+            .font_family("monospace")
+            .use_on_render(true)
+            .idle_timeout_secs(60)
+            .build();
+        assert_eq!(spec.font_family, "monospace");
+        assert!(spec.use_on_render);
+        assert_eq!(spec.idle_timeout_secs, Some(60));
     }
 }

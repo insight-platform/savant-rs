@@ -34,7 +34,41 @@ pub enum NvInferError {
 
     #[error("Operator is shut down")]
     OperatorShutdown,
+
+    #[error("Tensor type mismatch: expected {expected}, got {actual}")]
+    TensorTypeMismatch {
+        expected: &'static str,
+        actual: &'static str,
+    },
+
+    #[error("Host tensor data unavailable (host copy disabled or null pointer)")]
+    HostDataUnavailable,
+
+    #[error("Buffer error: {0}")]
+    Buffer(#[from] deepstream_buffers::NvBufSurfaceError),
 }
 
 /// Result type for NvInfer operations.
 pub type Result<T> = std::result::Result<T, NvInferError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use deepstream_buffers::NvBufSurfaceError;
+
+    #[test]
+    fn buffer_error_into_nvinfer_error() {
+        let be = NvBufSurfaceError::NullPointer("test".to_string());
+        let ne: NvInferError = be.into();
+        assert!(matches!(ne, NvInferError::Buffer(_)));
+    }
+
+    #[test]
+    fn buffer_error_via_question_mark() {
+        fn inner() -> Result<()> {
+            Err(NvBufSurfaceError::PoolCreationFailed)?
+        }
+        let err = inner().unwrap_err();
+        assert!(matches!(err, NvInferError::Buffer(_)));
+    }
+}

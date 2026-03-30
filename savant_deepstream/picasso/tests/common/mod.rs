@@ -1,6 +1,6 @@
 //! Shared test helpers for picasso integration tests.
 //!
-//! Based on patterns from `kb/patterns.md`. Use `mod common;` in each test file
+//! Based on patterns from `kb/picasso-rust/patterns.md`. Use `mod common;` in each test file
 //! and then `use common::*` or `use common::{make_frame, make_gst_buffer, ...}`.
 
 #![allow(dead_code)] // Helpers used by various test files

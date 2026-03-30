@@ -1,4 +1,4 @@
-use crate::{DeepStreamError, FrameMeta, Result};
+use crate::{DeepStreamError, FrameMeta, Result, UserMeta};
 use deepstream_sys::{GstBuffer, NvDsBatchMeta};
 use std::sync::{Arc, Once};
 
@@ -119,6 +119,24 @@ impl BatchMeta {
     /// Whether the batch contains zero frames.
     pub fn is_empty(&self) -> bool {
         self.num_frames() == 0
+    }
+
+    /// Batch-level user metadata (e.g. tracker shadow / terminated lists).
+    pub fn batch_user_meta(&self) -> Vec<UserMeta> {
+        let mut list = Vec::new();
+        let mut current = unsafe { (*self.raw).batch_user_meta_list };
+        while !current.is_null() {
+            let data = unsafe { (*current).data };
+            if !data.is_null() {
+                if let Ok(um) =
+                    unsafe { UserMeta::from_raw(data as *mut deepstream_sys::NvDsUserMeta, self) }
+                {
+                    list.push(um);
+                }
+            }
+            current = unsafe { (*current).next };
+        }
+        list
     }
 }
 

@@ -23,7 +23,7 @@ pub struct PicassoEngine {
     pts_reset_policy: PtsResetPolicy,
     shutdown_flag: Arc<AtomicBool>,
     watchdog_signal: Arc<WatchdogSignal>,
-    watchdog: Option<std::thread::JoinHandle<()>>,
+    watchdog: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 const DEFAULT_PICASSO_NAME: &str = "picasso";
@@ -65,7 +65,7 @@ impl PicassoEngine {
             pts_reset_policy,
             shutdown_flag,
             watchdog_signal,
-            watchdog: Some(watchdog),
+            watchdog: Mutex::new(Some(watchdog)),
         }
     }
 
@@ -170,7 +170,7 @@ impl PicassoEngine {
     }
 
     /// Gracefully shut down all workers and the watchdog.
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&self) {
         info!("PicassoEngine shutting down");
         self.shutdown_flag.store(true, Ordering::Release);
         self.watchdog_signal.notify_shutdown();
@@ -183,7 +183,7 @@ impl PicassoEngine {
         }
         drop(workers);
 
-        if let Some(handle) = self.watchdog.take() {
+        if let Some(handle) = self.watchdog.lock().take() {
             let _ = handle.join();
         }
         info!("PicassoEngine shut down complete");

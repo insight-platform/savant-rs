@@ -103,6 +103,60 @@ impl ObjectMeta {
         unsafe { (*self.raw).tracker_confidence = confidence }
     }
 
+    // ── Bounding boxes (rect_params, detector, tracker) ───────────────
+
+    /// Left coordinate of [`NvDsObjectMeta::rect_params`].
+    pub fn rect_left(&self) -> f32 {
+        unsafe { (*self.raw).rect_params.left }
+    }
+
+    /// Top coordinate of [`NvDsObjectMeta::rect_params`].
+    pub fn rect_top(&self) -> f32 {
+        unsafe { (*self.raw).rect_params.top }
+    }
+
+    /// Width of [`NvDsObjectMeta::rect_params`].
+    pub fn rect_width(&self) -> f32 {
+        unsafe { (*self.raw).rect_params.width }
+    }
+
+    /// Height of [`NvDsObjectMeta::rect_params`].
+    pub fn rect_height(&self) -> f32 {
+        unsafe { (*self.raw).rect_params.height }
+    }
+
+    /// Set axis-aligned rectangle in [`NvDsObjectMeta::rect_params`].
+    pub fn set_rect_params(&mut self, left: f32, top: f32, width: f32, height: f32) {
+        unsafe {
+            (*self.raw).rect_params.left = left;
+            (*self.raw).rect_params.top = top;
+            (*self.raw).rect_params.width = width;
+            (*self.raw).rect_params.height = height;
+        }
+    }
+
+    /// Copy [`Self::rect_params`] dimensions into `detector_bbox_info.org_bbox_coords`.
+    pub fn sync_detector_bbox_from_rect(&mut self) {
+        unsafe {
+            let r = &(*self.raw).rect_params;
+            (*self.raw).detector_bbox_info.org_bbox_coords.left = r.left;
+            (*self.raw).detector_bbox_info.org_bbox_coords.top = r.top;
+            (*self.raw).detector_bbox_info.org_bbox_coords.width = r.width;
+            (*self.raw).detector_bbox_info.org_bbox_coords.height = r.height;
+        }
+    }
+
+    /// Copy [`Self::rect_params`] dimensions into `tracker_bbox_info.org_bbox_coords`.
+    pub fn sync_tracker_bbox_from_rect(&mut self) {
+        unsafe {
+            let r = &(*self.raw).rect_params;
+            (*self.raw).tracker_bbox_info.org_bbox_coords.left = r.left;
+            (*self.raw).tracker_bbox_info.org_bbox_coords.top = r.top;
+            (*self.raw).tracker_bbox_info.org_bbox_coords.width = r.width;
+            (*self.raw).tracker_bbox_info.org_bbox_coords.height = r.height;
+        }
+    }
+
     // ── Label ─────────────────────────────────────────────────────────
 
     /// Read the object label from the fixed-size `obj_label` buffer.

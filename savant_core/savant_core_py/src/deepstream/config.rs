@@ -105,6 +105,23 @@ impl PyDstPadding {
         h = h.wrapping_mul(31).wrapping_add(self.bottom as u64);
         h
     }
+
+    /// Create destination padding with equal values on all sides.
+    ///
+    /// Args:
+    ///     value: Padding value applied to left, top, right, and bottom.
+    ///
+    /// Returns:
+    ///     A new ``DstPadding`` with all sides set to *value*.
+    #[staticmethod]
+    fn uniform(value: u32) -> Self {
+        Self {
+            left: value,
+            top: value,
+            right: value,
+            bottom: value,
+        }
+    }
 }
 
 impl From<PyDstPadding> for DstPadding {

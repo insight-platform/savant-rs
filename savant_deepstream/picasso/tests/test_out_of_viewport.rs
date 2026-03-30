@@ -174,7 +174,7 @@ fn out_of_viewport_objects_do_not_crash() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -252,7 +252,7 @@ fn all_oob_objects_on_single_frame() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {

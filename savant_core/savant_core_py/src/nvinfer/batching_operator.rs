@@ -218,6 +218,25 @@ impl PyOperatorTensorView {
         }
     }
 
+    /// Return tensor data as a NumPy array (zero-copy view).
+    ///
+    /// The returned array shares memory with the inference output buffer;
+    /// it is valid as long as the parent ``OperatorInferenceOutput`` is alive.
+    ///
+    /// Raises:
+    ///     RuntimeError: If host data is unavailable (``has_host_data`` is
+    ///         ``False``) or the host pointer is null.
+    fn as_numpy<'py>(&self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        super::output::tensor_as_numpy(
+            py,
+            self.has_host_data,
+            self.host_ptr,
+            self.byte_length,
+            self.data_type,
+            &self.dims.dims,
+        )
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "OperatorTensorView(name={:?}, dims={:?}, data_type={}, byte_length={}, \
@@ -553,13 +572,34 @@ impl PySealedDeliveries {
     /// The GIL is released during the blocking wait so the callback
     /// thread (which needs the GIL to drop the output) can proceed.
     ///
+    /// Args:
+    ///     timeout_ms: Optional timeout in milliseconds.  When ``None``
+    ///         (default), blocks indefinitely.  When the timeout expires,
+    ///         raises ``TimeoutError``.
+    ///
     /// Raises:
     ///     RuntimeError: If already consumed by a previous call.
-    fn unseal(&mut self, py: Python<'_>) -> PyResult<Py<PyList>> {
+    ///     TimeoutError: If the timeout expires before the seal is released.
+    #[pyo3(signature = (timeout_ms=None))]
+    fn unseal(&mut self, py: Python<'_>, timeout_ms: Option<u64>) -> PyResult<Py<PyList>> {
         let sealed = self.inner.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
         })?;
-        let pairs = py.detach(move || sealed.unseal());
+        let pairs = match timeout_ms {
+            Some(ms) => {
+                let timeout = Duration::from_millis(ms);
+                match py.detach(move || sealed.unseal_timeout(timeout)) {
+                    Ok(pairs) => pairs,
+                    Err(still_sealed) => {
+                        self.inner = Some(still_sealed);
+                        return Err(pyo3::exceptions::PyTimeoutError::new_err(
+                            "unseal timed out",
+                        ));
+                    }
+                }
+            }
+            None => py.detach(move || sealed.unseal()),
+        };
         let list = PyList::empty(py);
         for (frame, buffer) in pairs {
             let py_frame = VideoFrame(frame);

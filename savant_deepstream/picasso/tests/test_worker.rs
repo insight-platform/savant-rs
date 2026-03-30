@@ -1,4 +1,3 @@
-use picasso::message::WorkerMessage;
 use picasso::prelude::*;
 use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
@@ -77,9 +76,7 @@ fn worker_drop_spec_discards_frames() {
 
     let frame = make_frame("test-drop");
     let view = make_surface_view();
-    worker
-        .send(WorkerMessage::Frame(frame, view, None))
-        .unwrap();
+    worker.send_frame(frame, view, None).unwrap();
 
     std::thread::sleep(Duration::from_millis(100));
     assert!(worker.is_alive());
@@ -114,9 +111,7 @@ fn worker_bypass_fires_callback() {
     for _ in 0..5 {
         let frame = make_frame("test-bypass");
         let view = make_surface_view();
-        worker
-            .send(WorkerMessage::Frame(frame, view, None))
-            .unwrap();
+        worker.send_frame(frame, view, None).unwrap();
     }
 
     std::thread::sleep(Duration::from_millis(200));
@@ -160,7 +155,7 @@ fn worker_eos_fires_sentinel_for_bypass() {
         PtsResetPolicy::default(),
     );
 
-    worker.send(WorkerMessage::Eos).unwrap();
+    worker.send_eos().unwrap();
 
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(eos_count.load(Ordering::SeqCst), 1);
@@ -221,9 +216,7 @@ fn worker_spec_update() {
     // Send a frame with Drop spec — shouldn't fire bypass
     let frame = make_frame("test-update");
     let view = make_surface_view();
-    worker
-        .send(WorkerMessage::Frame(frame, view, None))
-        .unwrap();
+    worker.send_frame(frame, view, None).unwrap();
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 0);
 
@@ -232,18 +225,14 @@ fn worker_spec_update() {
         codec: CodecSpec::Bypass,
         ..Default::default()
     };
-    worker
-        .send(WorkerMessage::UpdateSpec(Box::new(new_spec)))
-        .unwrap();
+    worker.send_update_spec(new_spec).unwrap();
     std::thread::sleep(Duration::from_millis(50));
 
     // Now send frames — should fire bypass
     for _ in 0..3 {
         let frame = make_frame("test-update");
         let view = make_surface_view();
-        worker
-            .send(WorkerMessage::Frame(frame, view, None))
-            .unwrap();
+        worker.send_frame(frame, view, None).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 3);

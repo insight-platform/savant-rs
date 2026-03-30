@@ -15,7 +15,7 @@ mod state;
 mod submit;
 mod types;
 
-pub use config::NvInferBatchingOperatorConfig;
+pub use config::{NvInferBatchingOperatorConfig, NvInferBatchingOperatorConfigBuilder};
 pub use operator::NvInferBatchingOperator;
 pub use output::{OperatorElement, OperatorFrameOutput, OperatorInferenceOutput, SealedDeliveries};
 pub use scaler::CoordinateScaler;

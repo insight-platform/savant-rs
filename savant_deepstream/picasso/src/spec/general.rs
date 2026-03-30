@@ -46,6 +46,56 @@ impl Default for GeneralSpec {
     }
 }
 
+impl GeneralSpec {
+    /// Create a new builder starting from default values.
+    pub fn builder() -> GeneralSpecBuilder {
+        GeneralSpecBuilder {
+            inner: GeneralSpec::default(),
+        }
+    }
+}
+
+/// Builder for [`GeneralSpec`] — uses `Default` values for unset fields.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let spec = GeneralSpec::builder()
+///     .name("my-engine")
+///     .idle_timeout_secs(60)
+///     .build();
+/// ```
+pub struct GeneralSpecBuilder {
+    inner: GeneralSpec,
+}
+
+impl GeneralSpecBuilder {
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.inner.name = name.into();
+        self
+    }
+
+    pub fn idle_timeout_secs(mut self, secs: u64) -> Self {
+        self.inner.idle_timeout_secs = secs;
+        self
+    }
+
+    pub fn inflight_queue_size(mut self, size: usize) -> Self {
+        self.inner.inflight_queue_size = size;
+        self
+    }
+
+    pub fn pts_reset_policy(mut self, policy: PtsResetPolicy) -> Self {
+        self.inner.pts_reset_policy = policy;
+        self
+    }
+
+    /// Finish building and return the [`GeneralSpec`].
+    pub fn build(self) -> GeneralSpec {
+        self.inner
+    }
+}
+
 /// Decision returned by the `OnEviction` callback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvictionDecision {
@@ -87,5 +137,25 @@ mod tests {
         assert_eq!(EvictionDecision::Terminate, EvictionDecision::Terminate);
         assert_eq!(EvictionDecision::KeepFor(10), EvictionDecision::KeepFor(10));
         assert_ne!(EvictionDecision::KeepFor(10), EvictionDecision::KeepFor(20));
+    }
+
+    #[test]
+    fn builder_default_matches_struct_default() {
+        let built = GeneralSpec::builder().build();
+        let direct = GeneralSpec::default();
+        assert_eq!(built.idle_timeout_secs, direct.idle_timeout_secs);
+        assert_eq!(built.inflight_queue_size, direct.inflight_queue_size);
+    }
+
+    #[test]
+    fn builder_overrides_fields() {
+        let spec = GeneralSpec::builder()
+            .name("test-engine")
+            .idle_timeout_secs(60)
+            .inflight_queue_size(16)
+            .build();
+        assert_eq!(spec.name, "test-engine");
+        assert_eq!(spec.idle_timeout_secs, 60);
+        assert_eq!(spec.inflight_queue_size, 16);
     }
 }

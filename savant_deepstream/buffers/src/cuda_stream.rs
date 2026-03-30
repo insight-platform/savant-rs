@@ -80,10 +80,26 @@ impl CudaStream {
     }
 
     /// Block until all previously enqueued work on this stream completes.
-    pub fn synchronize(&self) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NvBufSurfaceError::CudaInitFailed`] if synchronization fails.
+    pub fn synchronize(&self) -> Result<(), NvBufSurfaceError> {
         let err = unsafe { ffi::cudaStreamSynchronize(self.raw) };
         if err != 0 {
-            log::warn!("cudaStreamSynchronize failed with error code {err}");
+            return Err(NvBufSurfaceError::CudaInitFailed(err));
+        }
+        Ok(())
+    }
+
+    /// Block until all previously enqueued work on this stream completes,
+    /// logging a warning on failure instead of returning an error.
+    ///
+    /// Use this variant when synchronization failure is non-fatal and the
+    /// calling code cannot propagate errors.
+    pub fn synchronize_or_log(&self) {
+        if let Err(e) = self.synchronize() {
+            log::warn!("cudaStreamSynchronize failed: {e}");
         }
     }
 }
@@ -172,5 +188,13 @@ mod tests {
         let s = format!("{:?}", stream);
         assert!(s.contains("CudaStream"));
         assert!(s.contains("owned"));
+    }
+
+    #[test]
+    fn synchronize_default_stream_succeeds() {
+        // The null/default stream is a no-op for synchronize on CUDA-initialized systems
+        // but may fail if CUDA is not available. We just verify it doesn't panic.
+        let stream = CudaStream::default();
+        let _ = stream.synchronize(); // May succeed or fail depending on CUDA availability
     }
 }

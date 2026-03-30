@@ -88,12 +88,12 @@ class TestTransformConfigCustom:
         cfg = ds.TransformConfig(
             padding=ds.Padding.NONE,
             dst_padding=p,
-            interpolation=ds.Interpolation.ALGO3,
+            interpolation=ds.Interpolation.GPU_LANCZOS_VIC_SMART,
             compute_mode=ds.ComputeMode.GPU,
         )
         assert cfg.padding == ds.Padding.NONE
         assert cfg.dst_padding == p
-        assert cfg.interpolation == ds.Interpolation.ALGO3
+        assert cfg.interpolation == ds.Interpolation.GPU_LANCZOS_VIC_SMART
         assert cfg.compute_mode == ds.ComputeMode.GPU
 
 

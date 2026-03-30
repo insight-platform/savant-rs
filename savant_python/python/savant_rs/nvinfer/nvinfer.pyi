@@ -323,6 +323,18 @@ class TensorView:
         ``"int8"``, ``"int32"``)."""
         ...
 
+    def as_numpy(self) -> np.ndarray:
+        """Return tensor data as a NumPy array (zero-copy view).
+
+        The returned array shares memory with the inference output buffer;
+        it is valid as long as the parent ``BatchInferenceOutput`` is alive.
+
+        Raises:
+            RuntimeError: If host data is unavailable (``has_host_data`` is
+                ``False``) or the host pointer is null.
+        """
+        ...
+
     def __repr__(self) -> str: ...
 
 @final
@@ -424,18 +436,22 @@ class NvInfer:
     def infer_sync(
         self,
         batch: Union[SharedBuffer, int],
-        batch_id: int,
         rois: Optional[Dict[int, List[Roi]]] = None,
+        timeout_ms: int = 30000,
     ) -> BatchInferenceOutput:
-        """Synchronous inference -- blocks until results arrive (up to 30 s).
+        """Synchronous inference -- blocks until results arrive.
 
         Args:
             batch: Batched NvBufSurface buffer.
-            batch_id: User-chosen identifier (must not be ``2**64 - 1``).
-            rois: Per-slot ROI lists.
+            rois: Optional per-slot ROI lists.
+            timeout_ms: Maximum wait time in milliseconds (default: 30000).
 
         Returns:
             Inference results.
+
+        Raises:
+            RuntimeError: If the engine is shut down, submission fails, or
+                inference times out.
         """
         ...
 
@@ -549,6 +565,18 @@ class OperatorTensorView:
     def numpy_dtype(self) -> str:
         """NumPy-compatible dtype string (``"float32"``, ``"float16"``,
         ``"int8"``, ``"int32"``)."""
+        ...
+
+    def as_numpy(self) -> np.ndarray:
+        """Return tensor data as a NumPy array (zero-copy view).
+
+        The returned array shares memory with the inference output buffer;
+        it is valid as long as the parent ``OperatorInferenceOutput`` is alive.
+
+        Raises:
+            RuntimeError: If host data is unavailable (``has_host_data`` is
+                ``False``) or the host pointer is null.
+        """
         ...
 
     def __repr__(self) -> str: ...
@@ -694,15 +722,23 @@ class SealedDeliveries:
         """
         ...
 
-    def unseal(self) -> List[Tuple[VideoFrame, SharedBuffer]]:
+    def unseal(
+        self, timeout_ms: Optional[int] = None
+    ) -> List[Tuple[VideoFrame, SharedBuffer]]:
         """Block until the ``OperatorInferenceOutput`` is dropped, then
         return all deliveries as ``list[tuple[VideoFrame, SharedBuffer]]``.
 
         The GIL is released during the blocking wait so the callback
         thread (which needs the GIL to drop the output) can proceed.
 
+        Args:
+            timeout_ms: Optional timeout in milliseconds.  When ``None``
+                (default), blocks indefinitely.  When the timeout expires,
+                raises ``TimeoutError``.
+
         Raises:
             RuntimeError: If already consumed by a previous call.
+            TimeoutError: If the timeout expires before the seal is released.
         """
         ...
 
