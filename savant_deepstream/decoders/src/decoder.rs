@@ -19,7 +19,8 @@ type EventCallback = Arc<Mutex<Box<dyn FnMut(DecoderEvent) + Send>>>;
 
 struct FrameIdState {
     pts_map: PtsMap,
-    intra_submit_fifo: VecDeque<u128>,
+    /// (frame_id, pts_ns key used in pts_map) for intra-only codecs.
+    intra_submit_fifo: VecDeque<(u128, u64)>,
     codec: Codec,
 }
 
@@ -166,13 +167,6 @@ impl NvDecoder {
 
         match &mut self.backend {
             DecoderBackend::Pipeline(state) => {
-                {
-                    let mut st = self.shared.lock();
-                    st.pts_map.insert(pts_ns, (frame_id, dts_ns, duration_ns));
-                    if is_intra_only(self.codec) {
-                        st.intra_submit_fifo.push_back(frame_id);
-                    }
-                }
                 let mut buffer = gst::Buffer::from_mut_slice(data.to_vec());
                 {
                     let buf = buffer.get_mut().ok_or_else(|| {
@@ -191,6 +185,13 @@ impl NvDecoder {
                 push_res.map_err(|e| {
                     DecoderError::PipelineError(format!("appsrc push failed: {:?}", e))
                 })?;
+                {
+                    let mut st = self.shared.lock();
+                    st.pts_map.insert(pts_ns, (frame_id, dts_ns, duration_ns));
+                    if is_intra_only(self.codec) {
+                        st.intra_submit_fifo.push_back((frame_id, pts_ns));
+                    }
+                }
                 Self::ensure_drain_thread(
                     state,
                     &self.shared,
@@ -394,6 +395,8 @@ impl NvDecoder {
 
         if let DecoderBackend::Pipeline(state) = &mut self.backend {
             let _ = state.pipeline.set_state(gst::State::Null);
+            // Signal EOS so the drain loop exits instead of polling forever.
+            state.eos_at_pad.store(true, Ordering::Release);
             if let Some(handle) = state.drain_thread.take() {
                 let _ = handle.join();
             }
@@ -418,7 +421,7 @@ impl NvDecoder {
     fn build_raw_upload(config: &DecoderConfig) -> Result<RawUploadState, DecoderError> {
         let (format, width, height) = match config {
             DecoderConfig::RawRgba(c) => (VideoFormat::RGBA, c.width, c.height),
-            DecoderConfig::RawRgb(c) => (VideoFormat::RGBA, c.width, c.height),
+            DecoderConfig::RawRgb(c) => (VideoFormat::RGB, c.width, c.height),
             _ => unreachable!("build_raw_upload called for non-raw config"),
         };
         Ok(RawUploadState {
@@ -599,20 +602,39 @@ fn raw_upload_frame(
         .acquire(None)
         .map_err(|e| DecoderError::BufferError(format!("pool acquire failed: {e}")))?;
 
-    let expected = (raw.width * raw.height * 4) as usize;
-    let upload_data = if data.len() == expected {
-        std::borrow::Cow::Borrowed(data)
-    } else if data.len() == (raw.width * raw.height * 3) as usize {
-        std::borrow::Cow::Owned(rgb_to_rgba(data))
-    } else {
-        return Err(DecoderError::BufferError(format!(
-            "unexpected data size {} for {}x{} RGBA (expected {} or {} for RGB)",
-            data.len(),
-            raw.width,
-            raw.height,
-            expected,
-            raw.width as usize * raw.height as usize * 3,
-        )));
+    let upload_data = match raw.format {
+        VideoFormat::RGBA => {
+            let expected = (raw.width * raw.height * 4) as usize;
+            if data.len() != expected {
+                return Err(DecoderError::BufferError(format!(
+                    "unexpected data size {} for {}x{} RGBA (expected {})",
+                    data.len(),
+                    raw.width,
+                    raw.height,
+                    expected,
+                )));
+            }
+            std::borrow::Cow::Borrowed(data)
+        }
+        VideoFormat::RGB => {
+            let expected = (raw.width * raw.height * 3) as usize;
+            if data.len() != expected {
+                return Err(DecoderError::BufferError(format!(
+                    "unexpected data size {} for {}x{} RGB (expected {})",
+                    data.len(),
+                    raw.width,
+                    raw.height,
+                    expected,
+                )));
+            }
+            std::borrow::Cow::Owned(rgb_to_rgba(data))
+        }
+        _ => {
+            return Err(DecoderError::BufferError(format!(
+                "unsupported raw format: {:?}",
+                raw.format
+            )));
+        }
     };
     let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
         .map_err(|e| DecoderError::BufferError(format!("SurfaceView::from_buffer failed: {e}")))?;
@@ -626,7 +648,7 @@ fn raw_upload_frame(
         duration_ns,
         buffer: shared,
         codec,
-        format: raw.format,
+        format: VideoFormat::RGBA,
     })
 }
 
@@ -806,7 +828,12 @@ fn sample_to_frame(
             }
             Some(id)
         }
-        None if is_intra_only(st.codec) && buf_size > 0 => st.intra_submit_fifo.pop_front(),
+        None if is_intra_only(st.codec) && buf_size > 0 => {
+            st.intra_submit_fifo.pop_front().map(|(id, pts_key)| {
+                st.pts_map.remove(&pts_key);
+                id
+            })
+        }
         None => None,
     };
 
@@ -928,7 +955,7 @@ fn cpu_to_rgba(
         .map_err(|e| DecoderError::BufferError(format!("RGBA pool acquire failed: {e}")))?;
     drop(pool_guard);
 
-    if width == pool_w && height == pool_h {
+    if width == pool_w && height == pool_h && src_format == VideoFormat::RGBA {
         let view = deepstream_buffers::SurfaceView::from_buffer(&dst, 0).map_err(|e| {
             DecoderError::BufferError(format!("SurfaceView::from_buffer failed: {e}"))
         })?;

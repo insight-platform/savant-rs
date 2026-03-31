@@ -164,8 +164,19 @@ impl SharedBuffer {
             ));
         }
 
-        let src_guard = self.lock();
-        let dst_guard = dst.lock();
+        // Lock in a consistent global order (by Arc pointer address) to
+        // prevent deadlocks when two threads transform in opposite directions.
+        let self_addr = Arc::as_ptr(&self.0) as usize;
+        let dst_addr = Arc::as_ptr(&dst.0) as usize;
+        let (src_guard, dst_guard) = if self_addr < dst_addr {
+            let a = self.lock();
+            let b = dst.lock();
+            (a, b)
+        } else {
+            let b = dst.lock();
+            let a = self.lock();
+            (a, b)
+        };
 
         let src_surf_ptr = unsafe {
             crate::transform::extract_nvbufsurface(src_guard.as_ref())

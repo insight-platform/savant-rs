@@ -22,6 +22,8 @@ pub enum VideoFormat {
     UYVY,
     /// 8-bit GRAY8 (single-channel grayscale).
     GRAY8,
+    /// 8-bit RGB (3 bytes/pixel, no alpha).
+    RGB,
 }
 
 impl VideoFormat {
@@ -38,6 +40,7 @@ impl VideoFormat {
             VideoFormat::I420 => "I420",
             VideoFormat::UYVY => "UYVY",
             VideoFormat::GRAY8 => "GRAY8",
+            VideoFormat::RGB => "RGB",
         }
     }
 
@@ -54,6 +57,7 @@ impl VideoFormat {
             "I420" => Some(VideoFormat::I420),
             "UYVY" => Some(VideoFormat::UYVY),
             "GRAY8" => Some(VideoFormat::GRAY8),
+            "RGB" => Some(VideoFormat::RGB),
             _ => None,
         }
     }
@@ -83,6 +87,7 @@ mod tests {
         assert_eq!(VideoFormat::from_name("I420"), Some(VideoFormat::I420));
         assert_eq!(VideoFormat::from_name("UYVY"), Some(VideoFormat::UYVY));
         assert_eq!(VideoFormat::from_name("GRAY8"), Some(VideoFormat::GRAY8));
+        assert_eq!(VideoFormat::from_name("RGB"), Some(VideoFormat::RGB));
         assert_eq!(VideoFormat::from_name("nv12"), None); // case-sensitive
         assert_eq!(VideoFormat::from_name(""), None);
     }
@@ -111,6 +116,7 @@ mod tests {
             VideoFormat::I420,
             VideoFormat::UYVY,
             VideoFormat::GRAY8,
+            VideoFormat::RGB,
         ] {
             assert_eq!(VideoFormat::from_name(fmt.gst_name()), Some(*fmt));
         }
