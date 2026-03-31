@@ -11,7 +11,6 @@ mod config;
 mod operator;
 mod output;
 pub mod scaler;
-mod state;
 mod submit;
 mod types;
 

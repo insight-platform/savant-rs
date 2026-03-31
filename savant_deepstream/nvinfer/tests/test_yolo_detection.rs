@@ -68,8 +68,6 @@ fn infer_one_image(
         .get(&gt_key)
         .unwrap_or_else(|| panic!("missing GT key: {gt_key}"));
 
-    common::warmup_engine(engine, frame_w, frame_h);
-
     let img_path = assets_dir().join(format!("yolo/{image_name}.jpg"));
     let img = image::open(&img_path)
         .unwrap_or_else(|e| panic!("failed to open {}: {e}", img_path.display()))
@@ -193,6 +191,7 @@ fn run_yolo_test(scaling: ModelInputScaling) {
         Some(e) => e,
         None => return,
     };
+    common::warmup_engine(&engine, TEST_IMAGES[0].1, TEST_IMAGES[0].2);
 
     let gt = load_ground_truth();
 

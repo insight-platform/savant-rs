@@ -136,7 +136,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         let pts_ns = i as u64 * frame_duration_ns;
 
         let shared = generator
-            .acquire(Some(i as i64))
+            .acquire(Some(i as u128))
             .unwrap_or_else(|e| panic!("acquire failed at frame {}: {:?}", i, e));
 
         let mut buf = shared.into_buffer().unwrap_or_else(|_| {

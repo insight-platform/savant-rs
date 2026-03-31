@@ -1,0 +1,40 @@
+[package]
+name = "deepstream_decoders"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "GPU-accelerated video decoders and raw GPU uploaders using DeepStream NvBufSurface"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+deepstream_buffers = { path = "../buffers" }
+savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-features = false }
+nvidia_gpu_utils = { workspace = true }
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+gstreamer-video = { workspace = true }
+glib = { workspace = true }
+image = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+deepstream_encoders = { path = "../encoders" }
+env_logger = { workspace = true }
+serial_test = { workspace = true }
+criterion = { workspace = true }
+nvidia_gpu_utils = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer" }
+
+[[bench]]
+name = "decoder_bench"
+harness = false

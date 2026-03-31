@@ -13,6 +13,7 @@ The `NvTracker` pipeline operates **without `nvstreammux`**. All stream multiple
 | `roi.rs` | `Roi` (id + `RBBox`) |
 | `detection_meta.rs` | `attach_detection_meta` — build/update `NvDsBatchMeta` |
 | `output.rs` | `TrackerOutput` + `extract_tracker_output` |
+| `batching_operator.rs` + `batching_operator/*` | High-level `(VideoFrameProxy, SharedBuffer)` batching operator with timer + sealed downstream deliveries |
 | `pipeline.rs` | `NvTracker` GStreamer wiring |
 | `build.rs` | Links **`nvdsgst_helper`** so `gst_nvevent_new_stream_reset` and custom query FFI resolve |
 
@@ -111,3 +112,35 @@ The table below documents behavioral differences between the standard `nvstreamm
 ## Element properties
 
 Extra `nvtracker` GObject properties go through `NvTrackerConfig::element_properties` (`set_property_from_str`). Invalid keys or parse failures → `InvalidProperty`.
+
+## Batching operator data flow
+
+`NvTrackerBatchingOperator` wraps `NvTracker` using the same high-level pattern as `nvinfer::NvInferBatchingOperator`:
+
+1. `add_frame(VideoFrameProxy, SharedBuffer)` appends to shared
+   `deepstream_buffers::BatchState`.
+2. Submit happens when:
+   - batch reaches `max_batch_size`, or
+   - timer reaches `max_batch_wait`.
+3. Batch-formation callback receives `&[VideoFrameProxy]` and returns:
+   - `ids` (optional),
+   - `rois` per frame (class-keyed).
+4. Source IDs are read from `VideoFrameProxy::get_source_id()`, then `TrackedFrame`s are built and submitted to inner `NvTracker`.
+5. Pending map stores the original `(VideoFrameProxy, SharedBuffer)` pairs under internal `batch_id`.
+6. On tracker callback:
+   - `Batch(batch_id)` is read from output Savant IDs,
+   - pending entry is matched and removed,
+   - current tracks are grouped by `slot_number`,
+   - shadow / terminated / past lists are grouped by `source_id` and attached to each frame output.
+
+## Sealed downstream propagation
+
+`TrackerOperatorOutput` mirrors nvinfer operator lifecycle:
+
+- `frames()` exposes per-frame tracking data and `VideoFrameProxy` for callback-side metadata updates.
+- `take_deliveries()` returns `SealedDeliveries` with original `(VideoFrameProxy, SharedBuffer)` pairs.
+- `SealedDeliveries::unseal()` blocks until `TrackerOperatorOutput` is dropped.
+
+This allows stage chaining without losing ownership discipline:
+
+`NvInferBatchingOperator -> SealedDeliveries::unseal -> NvTrackerBatchingOperator -> SealedDeliveries::unseal -> next stage`.

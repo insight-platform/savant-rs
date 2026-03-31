@@ -19,7 +19,6 @@ nvinfer/src/
     ├── operator.rs       # NvInferBatchingOperator: frame accumulation, timer, callback
     ├── output.rs         # OperatorElement, OperatorFrameOutput, OperatorInferenceOutput
     ├── scaler.rs         # CoordinateScaler: model→frame coordinate transform
-    ├── state.rs          # BatchState: pending frames, sources, deadline
     ├── submit.rs         # SubmitContext: batch formation + NvInfer submission
     ├── types.rs          # PendingBatch, PendingMap, callback type aliases
     └── tests.rs          # Unit + integration tests
@@ -113,7 +112,7 @@ mapped back to original frames via `OperatorInferenceOutput`.
 
 ```
 User calls add_frame(frame, buffer)
-  → BatchState accumulates (frame, buffer) pairs
+  → deepstream_buffers::BatchState accumulates (frame, buffer) pairs
   → When batch is full OR timer expires:
       → BatchFormationCallback(frames) → BatchFormationResult { ids, rois }
       → NonUniformBatch formed + finalized

@@ -1,5 +1,6 @@
 //! PyO3 bindings for the `nvtracker` crate.
 
+pub(crate) mod batching_operator;
 pub(crate) mod config;
 pub(crate) mod enums;
 pub(crate) mod output;
@@ -16,6 +17,12 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<output::PyMiscTrackFrame>()?;
     m.add_class::<output::PyMiscTrackData>()?;
     m.add_class::<output::PyTrackerOutput>()?;
+    m.add_class::<batching_operator::PyNvTrackerBatchingOperatorConfig>()?;
+    m.add_class::<batching_operator::PyTrackerBatchFormationResult>()?;
+    m.add_class::<batching_operator::PyTrackerOperatorFrameOutput>()?;
+    m.add_class::<batching_operator::PySealedDeliveries>()?;
+    m.add_class::<batching_operator::PyTrackerOperatorOutput>()?;
+    m.add_class::<batching_operator::PyNvTrackerBatchingOperator>()?;
     m.add_class::<pipeline::PyTrackedFrame>()?;
     m.add_class::<pipeline::PyNvTracker>()?;
     Ok(())

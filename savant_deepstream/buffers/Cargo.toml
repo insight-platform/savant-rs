@@ -43,6 +43,7 @@ ctrlc = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 criterion = { workspace = true }
 serial_test = { workspace = true }
+rand = { workspace = true }
 
 [[test]]
 name = "surface_view_gpu"

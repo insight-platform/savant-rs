@@ -90,7 +90,7 @@ impl PyBufferGenerator {
     /// Returns:
     ///     SharedBuffer: Guard owning the acquired buffer.
     #[pyo3(signature = (id=None))]
-    fn acquire(&self, py: Python<'_>, id: Option<i64>) -> PyResult<PySharedBuffer> {
+    fn acquire(&self, py: Python<'_>, id: Option<u128>) -> PyResult<PySharedBuffer> {
         let shared = py.detach(|| {
             self.inner
                 .acquire(id)
@@ -117,7 +117,7 @@ impl PyBufferGenerator {
         py: Python<'_>,
         pts_ns: u64,
         duration_ns: u64,
-        id: Option<i64>,
+        id: Option<u128>,
     ) -> PyResult<PySharedBuffer> {
         let shared = py.detach(|| -> PyResult<SharedBuffer> {
             let sb = self
@@ -138,7 +138,7 @@ impl PyBufferGenerator {
         py: Python<'_>,
         src_buf: &Bound<'_, PyAny>,
         config: &PyTransformConfig,
-        id: Option<i64>,
+        id: Option<u128>,
         src_rect: Option<&PyRect>,
     ) -> PyResult<PySharedBuffer> {
         let src_buf_ptr = extract_buf_ptr(src_buf)?;
@@ -271,7 +271,7 @@ impl PyUniformBatchGenerator {
         &self,
         py: Python<'_>,
         config: &PyTransformConfig,
-        ids: Option<Vec<(PySavantIdMetaKind, i64)>>,
+        ids: Option<Vec<(PySavantIdMetaKind, u128)>>,
     ) -> PyResult<PySurfaceBatch> {
         let id_kinds = ids
             .unwrap_or_default()
@@ -464,7 +464,7 @@ impl PyNonUniformBatch {
     #[pyo3(signature = (ids=None))]
     fn finalize(
         &mut self,
-        ids: Option<Vec<(PySavantIdMetaKind, i64)>>,
+        ids: Option<Vec<(PySavantIdMetaKind, u128)>>,
     ) -> PyResult<PySharedBuffer> {
         let batch = self.inner.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("batch has already been finalized")

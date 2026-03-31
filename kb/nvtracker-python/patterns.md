@@ -56,3 +56,48 @@ The `SharedBuffer` is consumed when `TrackedFrame` is constructed. Do not reuse 
 ## Wheel build
 
 Always use **`SAVANT_FEATURES=deepstream make dev install`** from project root so `nvtracker` is linked into `savant_rs`.
+
+## Batching operator pattern
+
+`NvTrackerBatchingOperator` accepts `(VideoFrame, SharedBuffer)` pairs directly (same shape as nvinfer batching operator) and handles frame accumulation internally.
+
+```python
+def batch_formation(frames: list[VideoFrame]) -> TrackerBatchFormationResult:
+    rois = []
+    for frame in frames:
+        # Build class-keyed detections for this frame.
+        rois.append({0: [Roi(1, RBBox.ltwh(40.0, 40.0, 80.0, 60.0))]})
+    return TrackerBatchFormationResult(ids=[], rois=rois)
+
+def on_tracking(output: TrackerOperatorOutput) -> None:
+    for frame_out in output.frames:
+        frame = frame_out.frame
+        tracks = frame_out.tracked_objects
+        # shadow/terminated/past are already grouped for this frame source.
+        _ = frame_out.shadow_tracks
+        _ = frame_out.terminated_tracks
+        _ = frame_out.past_frame_data
+
+    sealed = output.take_deliveries()
+    if sealed is None:
+        return
+    pairs = sealed.unseal()  # wait until output is dropped
+    for frame, buffer in pairs:
+        # feed downstream stage
+        pass
+```
+
+### Important constraints
+
+- `TrackerBatchFormationResult.rois` length must exactly match incoming `frames` length.
+- `ids` is optional (`[]` is valid); operator injects internal `Batch(batch_id)`.
+- `SealedDeliveries.unseal()` releases with GIL detached in Rust, so callback thread can progress safely.
+
+## Stage chaining pattern
+
+The delivery API is intentionally compatible with the nvinfer batching operator:
+
+1. Inference callback: `take_deliveries()` -> `unseal()` -> pass pairs downstream.
+2. Tracking callback: `take_deliveries()` -> `unseal()` -> pass pairs to next stage.
+
+This keeps `(VideoFrame, SharedBuffer)` ownership explicit across pipeline stages.

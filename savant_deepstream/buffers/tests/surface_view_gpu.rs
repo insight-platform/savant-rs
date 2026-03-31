@@ -8,9 +8,10 @@
 mod common;
 
 use deepstream_buffers::{
-    ffi, BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SurfaceView, TransformConfig,
-    UniformBatchGenerator, VideoFormat,
+    ffi, BufferGenerator, ComputeMode, Interpolation, NvBufSurfaceMemType, Padding, Rect,
+    SavantIdMetaKind, SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
 };
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use serial_test::serial;
 
 fn make_gen(pool_size: u32) -> BufferGenerator {
@@ -191,7 +192,7 @@ fn test_uniform_batch_slot_views_distinct() {
     common::init();
     let src_gen = make_src_gen();
     let batched_gen = make_batched_gen(4);
-    let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
+    let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as u128)).collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
@@ -232,7 +233,7 @@ fn test_uniform_batch_slot_cuda_readback() {
     common::init();
     let src_gen = make_src_gen();
     let batched_gen = make_batched_gen(2);
-    let ids: Vec<_> = (0..2).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
+    let ids: Vec<_> = (0..2).map(|i| SavantIdMetaKind::Frame(i as u128)).collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
@@ -299,6 +300,101 @@ fn test_shared_buffer_strong_count_with_siblings() {
     assert_eq!(shared.strong_count(), 2);
     drop(view);
     assert_eq!(shared.strong_count(), 1);
+}
+
+#[test]
+#[serial]
+fn test_upload_crop_transform_readback_consistency() {
+    common::init();
+
+    const SRC_W: u32 = 1920;
+    const SRC_H: u32 = 1080;
+    const DST_W: u32 = 600;
+    const DST_H: u32 = 600;
+    const CHANNELS: u32 = 4;
+    const CROP_LEFT: u32 = 100;
+    const CROP_TOP: u32 = 200;
+    const ITERATIONS: u64 = 10;
+
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("failed to build source generator");
+
+    let dst_gen = BufferGenerator::builder(VideoFormat::RGBA, DST_W, DST_H)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("failed to build destination generator");
+
+    let compute_mode = if cfg!(target_arch = "aarch64") {
+        ComputeMode::Gpu
+    } else {
+        ComputeMode::Default
+    };
+    let config = TransformConfig {
+        padding: Padding::None,
+        interpolation: Interpolation::Nearest,
+        compute_mode,
+        ..Default::default()
+    };
+    let crop = Rect::new(CROP_LEFT, CROP_TOP, DST_W, DST_H);
+
+    let src_row_bytes = (SRC_W * CHANNELS) as usize;
+    let dst_row_bytes = (DST_W * CHANNELS) as usize;
+
+    for iter in 0..ITERATIONS {
+        let mut src_host = vec![0u8; src_row_bytes * SRC_H as usize];
+        let mut rng = StdRng::seed_from_u64(0xD15EA5E_u64 ^ iter);
+        rng.fill(src_host.as_mut_slice());
+
+        let src_shared = src_gen.acquire(Some(iter as u128)).unwrap();
+        src_shared
+            .with_view(0, |view| view.upload(&src_host, SRC_W, SRC_H, CHANNELS))
+            .expect("upload failed");
+
+        let dst_shared = dst_gen.acquire(Some((1000 + iter) as u128)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        let dst_view = SurfaceView::from_buffer(&dst_shared, 0).unwrap();
+        src_view
+            .transform_into(&dst_view, &config, Some(&crop))
+            .expect("transform_into failed");
+
+        let mut dst_host = vec![0u8; dst_row_bytes * DST_H as usize];
+        let rc = unsafe {
+            ffi::cudaMemcpy2D(
+                dst_host.as_mut_ptr() as *mut std::ffi::c_void,
+                dst_row_bytes,
+                dst_view.data_ptr() as *const std::ffi::c_void,
+                dst_view.pitch() as usize,
+                dst_row_bytes,
+                DST_H as usize,
+                ffi::CUDA_MEMCPY_DEVICE_TO_HOST,
+            )
+        };
+        assert_eq!(
+            rc, 0,
+            "iteration {iter}: cudaMemcpy2D(D2H) failed with rc={rc}"
+        );
+
+        for y in 0..DST_H as usize {
+            let src_start = (((CROP_TOP as usize + y) * SRC_W as usize) + CROP_LEFT as usize)
+                * CHANNELS as usize;
+            let src_end = src_start + dst_row_bytes;
+            let dst_start = y * dst_row_bytes;
+            let dst_end = dst_start + dst_row_bytes;
+            assert_eq!(
+                &dst_host[dst_start..dst_end],
+                &src_host[src_start..src_end],
+                "iteration {iter}: row {y} mismatch",
+            );
+        }
+    }
 }
 
 // ─── EGL-CUDA map/unmap cycle verification (Jetson only) ─────────────────────
@@ -415,7 +511,7 @@ mod tracking {
         let n_cycles = 5;
 
         for i in 0..n_cycles {
-            let shared = gen.acquire(Some(i)).unwrap();
+            let shared = gen.acquire(Some(i as u128)).unwrap();
             let view = SurfaceView::from_buffer(&shared, 0).unwrap();
             assert!(!view.data_ptr().is_null(), "cycle {i}: null data_ptr");
         }
@@ -485,7 +581,7 @@ mod tracking {
         {
             let src_gen = make_src_gen();
             let batched_gen = make_batched_gen(4);
-            let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
+            let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as u128)).collect();
             let config = TransformConfig::default();
             let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 

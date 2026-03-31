@@ -171,7 +171,7 @@ pub fn make_gpu_buffer(
     idx: u64,
     _dur_ns: u64,
 ) -> deepstream_buffers::SharedBuffer {
-    gen.acquire(Some(idx as i64)).unwrap()
+    gen.acquire(Some(idx as u128)).unwrap()
 }
 
 /// Creates a SurfaceView from a single-frame GPU buffer (BufferGenerator).
@@ -192,7 +192,7 @@ pub fn make_gpu_surface_view_uniform(
     idx: u64,
     dur_ns: u64,
 ) -> deepstream_buffers::SurfaceView {
-    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    let shared = gen.acquire(Some(idx as u128)).unwrap();
     shared.set_pts_ns(idx * dur_ns);
     shared.set_duration_ns(dur_ns);
     deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()

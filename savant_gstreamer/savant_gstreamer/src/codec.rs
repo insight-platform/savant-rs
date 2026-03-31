@@ -13,10 +13,16 @@ pub enum Codec {
     Av1,
     /// PNG (CPU-based, lossless).
     Png,
+    /// VP8.
+    Vp8,
+    /// VP9.
+    Vp9,
     /// Raw RGBA pixel data (GPU-to-CPU download, no encoding).
     RawRgba,
     /// Raw RGB pixel data (GPU-to-CPU download, no encoding).
     RawRgb,
+    /// Raw NV12 pixel data.
+    RawNv12,
 }
 
 impl Codec {
@@ -31,7 +37,17 @@ impl Codec {
             Codec::Jpeg => "nvjpegenc",
             Codec::Av1 => "nvv4l2av1enc",
             Codec::Png => "pngenc",
-            Codec::RawRgba | Codec::RawRgb => "identity",
+            Codec::Vp8 | Codec::Vp9 | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12 => "identity",
+        }
+    }
+
+    /// Return the GStreamer decoder element name for this codec.
+    pub fn decoder_element(&self) -> &'static str {
+        match self {
+            Codec::H264 | Codec::Hevc | Codec::Vp8 | Codec::Vp9 | Codec::Av1 => "nvv4l2decoder",
+            Codec::Jpeg => "nvjpegdec",
+            Codec::Png => "pngdec",
+            Codec::RawRgba | Codec::RawRgb | Codec::RawNv12 => "identity",
         }
     }
 
@@ -44,7 +60,12 @@ impl Codec {
             Codec::Hevc => "h265parse",
             Codec::Jpeg => "jpegparse",
             Codec::Av1 => "av1parse",
-            Codec::Png | Codec::RawRgba | Codec::RawRgb => "identity",
+            Codec::Png
+            | Codec::Vp8
+            | Codec::Vp9
+            | Codec::RawRgba
+            | Codec::RawRgb
+            | Codec::RawNv12 => "identity",
         }
     }
 
@@ -56,8 +77,11 @@ impl Codec {
             Codec::Jpeg => "image/jpeg",
             Codec::Av1 => "video/x-av1",
             Codec::Png => "image/png",
+            Codec::Vp8 => "video/x-vp8",
+            Codec::Vp9 => "video/x-vp9",
             Codec::RawRgba => "video/x-raw,format=RGBA",
             Codec::RawRgb => "video/x-raw,format=RGB",
+            Codec::RawNv12 => "video/x-raw,format=NV12",
         }
     }
 
@@ -72,8 +96,11 @@ impl Codec {
             "jpeg" => Some(Codec::Jpeg),
             "av1" => Some(Codec::Av1),
             "png" => Some(Codec::Png),
+            "vp8" => Some(Codec::Vp8),
+            "vp9" => Some(Codec::Vp9),
             "raw_rgba" => Some(Codec::RawRgba),
             "raw_rgb" => Some(Codec::RawRgb),
+            "raw_nv12" => Some(Codec::RawNv12),
             _ => None,
         }
     }
@@ -86,8 +113,11 @@ impl Codec {
             Codec::Jpeg => "jpeg",
             Codec::Av1 => "av1",
             Codec::Png => "png",
+            Codec::Vp8 => "vp8",
+            Codec::Vp9 => "vp9",
             Codec::RawRgba => "raw_rgba",
             Codec::RawRgb => "raw_rgb",
+            Codec::RawNv12 => "raw_nv12",
         }
     }
 }
@@ -116,7 +146,12 @@ mod tests {
         assert_eq!(Codec::from_name("RAW_RGBA"), Some(Codec::RawRgba));
         assert_eq!(Codec::from_name("raw_rgb"), Some(Codec::RawRgb));
         assert_eq!(Codec::from_name("RAW_RGB"), Some(Codec::RawRgb));
-        assert_eq!(Codec::from_name("vp9"), None);
+        assert_eq!(Codec::from_name("vp8"), Some(Codec::Vp8));
+        assert_eq!(Codec::from_name("VP8"), Some(Codec::Vp8));
+        assert_eq!(Codec::from_name("vp9"), Some(Codec::Vp9));
+        assert_eq!(Codec::from_name("VP9"), Some(Codec::Vp9));
+        assert_eq!(Codec::from_name("raw_nv12"), Some(Codec::RawNv12));
+        assert_eq!(Codec::from_name("RAW_NV12"), Some(Codec::RawNv12));
         assert_eq!(Codec::from_name(""), None);
     }
 
@@ -127,13 +162,19 @@ mod tests {
         assert_eq!(Codec::Jpeg.name(), "jpeg");
         assert_eq!(Codec::Av1.name(), "av1");
         assert_eq!(Codec::Png.name(), "png");
+        assert_eq!(Codec::Vp8.name(), "vp8");
+        assert_eq!(Codec::Vp9.name(), "vp9");
         assert_eq!(Codec::RawRgba.name(), "raw_rgba");
         assert_eq!(Codec::RawRgb.name(), "raw_rgb");
+        assert_eq!(Codec::RawNv12.name(), "raw_nv12");
     }
 
     #[test]
     fn test_display() {
         assert_eq!(format!("{}", Codec::Hevc), "hevc");
+        assert_eq!(format!("{}", Codec::Vp8), "vp8");
+        assert_eq!(format!("{}", Codec::Vp9), "vp9");
+        assert_eq!(format!("{}", Codec::RawNv12), "raw_nv12");
     }
 
     #[test]
@@ -143,8 +184,11 @@ mod tests {
         assert!(Codec::Jpeg.caps_str().contains("jpeg"));
         assert!(Codec::Av1.caps_str().contains("av1"));
         assert!(Codec::Png.caps_str().contains("png"));
+        assert_eq!(Codec::Vp8.caps_str(), "video/x-vp8");
+        assert_eq!(Codec::Vp9.caps_str(), "video/x-vp9");
         assert_eq!(Codec::RawRgba.caps_str(), "video/x-raw,format=RGBA");
         assert_eq!(Codec::RawRgb.caps_str(), "video/x-raw,format=RGB");
+        assert_eq!(Codec::RawNv12.caps_str(), "video/x-raw,format=NV12");
     }
 
     #[test]
@@ -154,8 +198,11 @@ mod tests {
         assert_eq!(Codec::Jpeg.parser_element(), "jpegparse");
         assert_eq!(Codec::Av1.parser_element(), "av1parse");
         assert_eq!(Codec::Png.parser_element(), "identity");
+        assert_eq!(Codec::Vp8.parser_element(), "identity");
+        assert_eq!(Codec::Vp9.parser_element(), "identity");
         assert_eq!(Codec::RawRgba.parser_element(), "identity");
         assert_eq!(Codec::RawRgb.parser_element(), "identity");
+        assert_eq!(Codec::RawNv12.parser_element(), "identity");
     }
 
     #[test]
@@ -165,7 +212,24 @@ mod tests {
         assert_eq!(Codec::Jpeg.encoder_element(), "nvjpegenc");
         assert_eq!(Codec::Av1.encoder_element(), "nvv4l2av1enc");
         assert_eq!(Codec::Png.encoder_element(), "pngenc");
+        assert_eq!(Codec::Vp8.encoder_element(), "identity");
+        assert_eq!(Codec::Vp9.encoder_element(), "identity");
         assert_eq!(Codec::RawRgba.encoder_element(), "identity");
         assert_eq!(Codec::RawRgb.encoder_element(), "identity");
+        assert_eq!(Codec::RawNv12.encoder_element(), "identity");
+    }
+
+    #[test]
+    fn test_decoder_element() {
+        assert_eq!(Codec::H264.decoder_element(), "nvv4l2decoder");
+        assert_eq!(Codec::Hevc.decoder_element(), "nvv4l2decoder");
+        assert_eq!(Codec::Vp8.decoder_element(), "nvv4l2decoder");
+        assert_eq!(Codec::Vp9.decoder_element(), "nvv4l2decoder");
+        assert_eq!(Codec::Av1.decoder_element(), "nvv4l2decoder");
+        assert_eq!(Codec::Jpeg.decoder_element(), "nvjpegdec");
+        assert_eq!(Codec::Png.decoder_element(), "pngdec");
+        assert_eq!(Codec::RawRgba.decoder_element(), "identity");
+        assert_eq!(Codec::RawRgb.decoder_element(), "identity");
+        assert_eq!(Codec::RawNv12.decoder_element(), "identity");
     }
 }

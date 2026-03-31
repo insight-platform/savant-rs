@@ -52,12 +52,12 @@ fn make_identity_batch(num_frames: u32) -> SharedBuffer {
 
     let config = common::platform_transform_config();
     let ids: Vec<SavantIdMetaKind> = (0..num_frames)
-        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .map(|i| SavantIdMetaKind::Frame(i as u128))
         .collect();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
     for i in 0..num_frames {
-        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_shared = src_gen.acquire(Some(i as u128)).unwrap();
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
         batch.transform_slot(i, &src_view, None).unwrap();
     }
@@ -266,14 +266,14 @@ fn make_nonuniform_batch_with_rois() -> (SharedBuffer, HashMap<u32, Vec<Roi>>) {
                 .build()
                 .expect("src generator");
 
-            let src_shared = gen.acquire(Some(id)).unwrap();
+            let src_shared = gen.acquire(Some(id as u128)).unwrap();
             src_shared
                 .with_view(0, |view| {
                     view.memset(fill)?;
                     batch.add(view)
                 })
                 .unwrap();
-            ids.push(SavantIdMetaKind::Frame(id));
+            ids.push(SavantIdMetaKind::Frame(id as u128));
         }
 
         batch.finalize(ids).unwrap()
@@ -349,7 +349,7 @@ fn test_nonuniform_slot_numbers() {
         let id = match &savant_in[elem.slot_number as usize] {
             SavantIdMetaKind::Frame(id) | SavantIdMetaKind::Batch(id) => *id,
         };
-        let expected = if elem.slot_number == 0 { 1i64 } else { 2 };
+        let expected = if elem.slot_number == 0 { 1u128 } else { 2 };
         assert_eq!(id, expected, "slot {} user id", elem.slot_number);
     }
 }

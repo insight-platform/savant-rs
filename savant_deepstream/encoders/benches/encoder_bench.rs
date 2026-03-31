@@ -157,7 +157,7 @@ fn encode_n_frames(mut encoder: NvEncoder) {
     for i in 0..THROUGHPUT_FRAMES {
         let shared = encoder
             .generator()
-            .acquire(Some(i as i64))
+            .acquire(Some(i as u128))
             .expect("acquire failed");
         let buffer = shared.into_buffer().expect("sole owner");
 

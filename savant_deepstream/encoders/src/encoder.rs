@@ -141,12 +141,22 @@ impl NvEncoder {
         // Raw pseudoencoders download GPU frames to CPU memory.
         // Other codecs use NVIDIA hardware encoders.
         let is_png = config.codec == Codec::Png;
-        let is_raw = matches!(config.codec, Codec::RawRgba | Codec::RawRgb);
+        let is_raw = matches!(
+            config.codec,
+            Codec::RawRgba | Codec::RawRgb | Codec::RawNv12
+        );
         if is_png && config.format != VideoFormat::RGBA {
             return Err(EncoderError::InvalidProperty {
                 name: "format".to_string(),
                 reason: "PNG encoder requires VideoFormat::RGBA".to_string(),
             });
+        }
+
+        // VP8/VP9 are decode-only in this project.
+        if matches!(config.codec, Codec::Vp8 | Codec::Vp9) {
+            return Err(EncoderError::UnsupportedCodec(
+                config.codec.name().to_string(),
+            ));
         }
 
         // H.264, HEVC and AV1 require NVENC hardware.  Fail early with a
@@ -184,6 +194,8 @@ impl NvEncoder {
             Codec::Png => ("pngenc", "identity", false),
             Codec::RawRgba => ("identity", "identity", false),
             Codec::RawRgb => ("identity", "identity", false),
+            Codec::RawNv12 => ("identity", "identity", false),
+            Codec::Vp8 | Codec::Vp9 => unreachable!("handled above"),
         };
 
         // Determine encoder-native format.
@@ -192,6 +204,7 @@ impl NvEncoder {
             Codec::Png => VideoFormat::RGBA,
             Codec::RawRgba => VideoFormat::RGBA,
             Codec::RawRgb => VideoFormat::RGBA,
+            Codec::RawNv12 => VideoFormat::NV12,
             _ => VideoFormat::NV12,
         };
 
@@ -312,10 +325,11 @@ impl NvEncoder {
             #[cfg(target_arch = "aarch64")]
             nvconv.set_property_from_str("compute-hw", "1");
 
-            let raw_format = if config.codec == Codec::RawRgba {
-                "RGBA"
-            } else {
-                "RGB"
+            let raw_format = match config.codec {
+                Codec::RawRgba => "RGBA",
+                Codec::RawRgb => "RGB",
+                Codec::RawNv12 => "NV12",
+                _ => unreachable!("raw pipeline only"),
             };
             let caps = gst::Caps::builder("video/x-raw")
                 .field("format", raw_format)
@@ -506,7 +520,7 @@ impl NvEncoder {
 
         if matches!(
             self.codec,
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12
         ) {
             self.intra_submit_fifo.push_back(frame_id);
         }
@@ -630,7 +644,7 @@ impl NvEncoder {
 
         let is_intra_only = matches!(
             self.codec,
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12
         );
         let buf_size = buffer.size() as u64;
 
@@ -736,12 +750,17 @@ impl NvEncoder {
         let final_duration = duration_ns.or(orig_duration);
 
         let keyframe = match self.codec {
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb => true,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12 => true,
             _ => !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
         };
 
         // Extract encoded data.
-        let data = if matches!(self.codec, Codec::RawRgba | Codec::RawRgb) {
+        let data = if self.codec == Codec::RawNv12 {
+            let map = buffer.map_readable().map_err(|e| {
+                EncoderError::PipelineError(format!("Failed to map NV12 buffer: {:?}", e))
+            })?;
+            map.as_slice().to_vec()
+        } else if matches!(self.codec, Codec::RawRgba | Codec::RawRgb) {
             Self::extract_raw_pixels(&sample, buffer)?
         } else {
             let map = buffer.map_readable().map_err(|e| {

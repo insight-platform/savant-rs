@@ -99,11 +99,7 @@ impl ZeromqSrc {
             "Custom ingress Python function returned True, processing the frame [{}]",
             get_frame_key_info_as_string(frame)
         );
-        let buf = self.build_frame_buffer(frame, data);
-        if buf.is_none() {
-            return None;
-        }
-        let buf = buf.unwrap();
+        let buf = self.build_frame_buffer(frame, data)?;
         let frame_meta = self.register_frame_in_pipeline(frame, context);
         let buf = savant_gstreamer::GstBuffer::from(buf);
         if let Some(frame_meta) = frame_meta {
@@ -126,7 +122,7 @@ impl ZeromqSrc {
             let settings_bind = self.settings.lock();
             let pipeline_name = settings_bind.pipeline_name.as_ref();
             let stage_name = settings_bind.pipeline_stage_name.as_ref();
-            if !pipeline_name.is_some() || !stage_name.is_some() {
+            if pipeline_name.is_none() || stage_name.is_none() {
                 gstreamer::debug!(
                     CAT,
                     imp = self,
@@ -161,7 +157,7 @@ impl ZeromqSrc {
                 frame_idx,
                 pipeline_name
             );
-            Some(SavantIdMetaKind::Frame(frame_idx))
+            Some(SavantIdMetaKind::Frame(frame_idx.max(0) as u128))
         } else {
             None
         }

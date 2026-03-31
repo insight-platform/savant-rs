@@ -115,7 +115,10 @@ fn test_fill_all_slots() {
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
 
     let ids = [10i64, 20, 30, 40];
-    let id_kinds: Vec<_> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
+    let id_kinds: Vec<_> = ids
+        .iter()
+        .map(|&id| SavantIdMetaKind::Frame(id as u128))
+        .collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
 
@@ -258,7 +261,7 @@ fn test_fill_different_source_resolutions() {
 
     let resolutions = [(320, 240), (1920, 1080), (1280, 720)];
     let id_kinds: Vec<_> = (0..resolutions.len())
-        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .map(|i| SavantIdMetaKind::Frame(i as u128))
         .collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
@@ -349,7 +352,10 @@ fn test_explicit_ids_in_order() {
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
 
     let ids = [100i64, 200, 300];
-    let id_kinds: Vec<_> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
+    let id_kinds: Vec<_> = ids
+        .iter()
+        .map(|&id| SavantIdMetaKind::Frame(id as u128))
+        .collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
 

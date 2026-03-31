@@ -44,8 +44,28 @@ pub use BufferGenerator, BufferGeneratorBuilder;  // from buffers/single
 pub use UniformBatchGenerator, UniformBatchGeneratorBuilder,
         SurfaceBatch;  // from buffers/batched/uniform
 pub use NonUniformBatch;     // from buffers/batched/non_uniform (re-exported via buffers::*)
+pub use BatchState;          // from buffers/batch_state
 pub use pipeline::{BufferGeneratorExt, UniformBatchGeneratorExt};  // from pipeline.rs
 ```
+
+---
+
+## BatchState (shared batching state)
+
+Generic helper used by higher-level batching operators (e.g. nvinfer/nvtracker).
+
+```rust
+pub struct BatchState<T> {
+    pub frames: Vec<T>,
+    pub deadline: Option<Instant>,
+}
+```
+
+| Method | Signature | Notes |
+|---|---|---|
+| `new` | `() -> Self` | empty queue, no deadline |
+| `take` | `(&mut self) -> Vec<T>` | drains `frames` and clears `deadline` |
+| `is_empty` | `(&self) -> bool` | whether `frames` is empty |
 
 ---
 

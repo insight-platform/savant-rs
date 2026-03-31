@@ -60,12 +60,12 @@ fn make_age_gender_batch(num_frames: u32) -> SharedBuffer {
 
     let config = TransformConfig::default();
     let ids: Vec<SavantIdMetaKind> = (0..num_frames)
-        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .map(|i| SavantIdMetaKind::Frame(i as u128))
         .collect();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
     for i in 0..num_frames {
-        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_shared = src_gen.acquire(Some(i as u128)).unwrap();
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
         batch.transform_slot(i, &src_view, None).unwrap();
     }

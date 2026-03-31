@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Optional, Tuple, final
 
 from savant_rs.deepstream import SavantIdMetaKind, SharedBuffer, VideoFormat
 from savant_rs.nvinfer import Roi
+from savant_rs.primitives import VideoFrame
 
 __all__ = [
     "TrackingIdResetMode",
@@ -17,6 +18,12 @@ __all__ = [
     "MiscTrackData",
     "TrackerOutput",
     "NvTracker",
+    "NvTrackerBatchingOperatorConfig",
+    "TrackerBatchFormationResult",
+    "TrackerOperatorFrameOutput",
+    "SealedDeliveries",
+    "TrackerOperatorOutput",
+    "NvTrackerBatchingOperator",
 ]
 
 @final
@@ -190,3 +197,78 @@ class NvTracker:
     def reset_stream(self, source_id: str) -> None: ...
     def shutdown(self) -> None: ...
     def __repr__(self) -> str: ...
+
+@final
+class NvTrackerBatchingOperatorConfig:
+    def __init__(
+        self,
+        max_batch_size: int,
+        max_batch_wait_ms: int,
+        nvtracker_config: NvTrackerConfig,
+    ) -> None: ...
+
+    @property
+    def max_batch_size(self) -> int: ...
+
+    @property
+    def max_batch_wait_ms(self) -> int: ...
+
+    @property
+    def nvtracker_config(self) -> NvTrackerConfig: ...
+
+@final
+class TrackerBatchFormationResult:
+    def __init__(
+        self,
+        ids: List[Tuple[SavantIdMetaKind, int]],
+        rois: List[Dict[int, List[Roi]]],
+    ) -> None: ...
+
+    @property
+    def ids(self) -> List[Tuple[SavantIdMetaKind, int]]: ...
+
+@final
+class TrackerOperatorFrameOutput:
+    @property
+    def frame(self) -> "VideoFrame": ...
+    @property
+    def tracked_objects(self) -> List[TrackedObject]: ...
+    @property
+    def shadow_tracks(self) -> List[MiscTrackData]: ...
+    @property
+    def terminated_tracks(self) -> List[MiscTrackData]: ...
+    @property
+    def past_frame_data(self) -> List[MiscTrackData]: ...
+
+@final
+class SealedDeliveries:
+    def __len__(self) -> int: ...
+    def is_empty(self) -> bool: ...
+    def is_released(self) -> bool: ...
+    def unseal(
+        self,
+        timeout_ms: Optional[int] = ...,
+    ) -> List[Tuple["VideoFrame", SharedBuffer]]: ...
+    def try_unseal(self) -> Optional[List[Tuple["VideoFrame", SharedBuffer]]]: ...
+
+@final
+class TrackerOperatorOutput:
+    @property
+    def frames(self) -> List[TrackerOperatorFrameOutput]: ...
+    @property
+    def num_frames(self) -> int: ...
+    def take_deliveries(self) -> Optional[SealedDeliveries]: ...
+
+@final
+class NvTrackerBatchingOperator:
+    def __init__(
+        self,
+        config: NvTrackerBatchingOperatorConfig,
+        batch_formation_callback: Callable[[List["VideoFrame"]], TrackerBatchFormationResult],
+        result_callback: Callable[[TrackerOperatorOutput], None],
+    ) -> None: ...
+
+    def add_frame(self, frame: "VideoFrame", buffer: SharedBuffer | int) -> None: ...
+    def flush(self) -> None: ...
+    def reset_stream(self, source_id: str) -> None: ...
+    def shutdown(self) -> None: ...

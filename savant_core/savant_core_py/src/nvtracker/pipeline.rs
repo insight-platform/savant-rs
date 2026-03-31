@@ -128,7 +128,7 @@ impl PyNvTracker {
         &self,
         py: Python<'_>,
         frames: Vec<PyRefMut<'_, PyTrackedFrame>>,
-        ids: Vec<(PySavantIdMetaKind, i64)>,
+        ids: Vec<(PySavantIdMetaKind, u128)>,
     ) -> PyResult<()> {
         let engine = self
             .inner
@@ -151,7 +151,7 @@ impl PyNvTracker {
         &self,
         py: Python<'_>,
         frames: Vec<PyRefMut<'_, PyTrackedFrame>>,
-        ids: Vec<(PySavantIdMetaKind, i64)>,
+        ids: Vec<(PySavantIdMetaKind, u128)>,
     ) -> PyResult<PyTrackerOutput> {
         let engine = self
             .inner

@@ -40,7 +40,7 @@ fn make_gen(format: VideoFormat, w: u32, h: u32, pool: u32) -> BufferGenerator {
 fn acquires(gen: &BufferGenerator, n: usize) -> Vec<(SharedBuffer, SurfaceView)> {
     (0..n)
         .map(|i| {
-            let shared = gen.acquire(Some(i as i64)).expect("acquire");
+            let shared = gen.acquire(Some(i as u128)).expect("acquire");
             let view = SurfaceView::from_buffer(&shared, 0).expect("surface view");
             (shared, view)
         })
@@ -54,7 +54,7 @@ fn assemble_batch(items: &[(SharedBuffer, SurfaceView)]) -> SharedBuffer {
     let mut ids = Vec::new();
     for (i, (_shared, view)) in items.iter().enumerate() {
         batch.add(view).expect("batch add");
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        ids.push(SavantIdMetaKind::Frame(i as u128));
     }
     batch.finalize(ids).expect("batch finalize")
 }

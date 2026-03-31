@@ -108,7 +108,7 @@ pub struct PyBatchFormationResult {
 #[pymethods]
 impl PyBatchFormationResult {
     #[new]
-    fn new(ids: Vec<(PySavantIdMetaKind, i64)>, rois: Vec<PyRef<'_, PyRoiKind>>) -> Self {
+    fn new(ids: Vec<(PySavantIdMetaKind, u128)>, rois: Vec<PyRef<'_, PyRoiKind>>) -> Self {
         let rust_ids: Vec<SavantIdMetaKind> = ids
             .into_iter()
             .map(|(kind, id)| to_rust_id_kind(kind, id))
@@ -124,7 +124,7 @@ impl PyBatchFormationResult {
 
     /// Per-frame Savant IDs as ``(SavantIdMetaKind, int)`` tuples.
     #[getter]
-    fn ids(&self) -> Vec<(PySavantIdMetaKind, i64)> {
+    fn ids(&self) -> Vec<(PySavantIdMetaKind, u128)> {
         self.inner.ids.iter().map(from_rust_id_kind).collect()
     }
 

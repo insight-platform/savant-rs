@@ -147,7 +147,7 @@ fn test_yolo_batching_operator_mixed_sizes() {
         let ids = frames
             .iter()
             .enumerate()
-            .map(|(i, _)| SavantIdMetaKind::Frame(i as i64))
+            .map(|(i, _)| SavantIdMetaKind::Frame(i as u128))
             .collect();
         let rois = frames.iter().map(|_| RoiKind::FullFrame).collect();
         BatchFormationResult { ids, rois }

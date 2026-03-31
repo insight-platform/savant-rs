@@ -70,7 +70,7 @@ fn make_frame(source: &str, rois: Vec<Roi>, w: u32, h: u32) -> TrackedFrame {
 
 fn frame_ids(n: usize) -> Vec<SavantIdMetaKind> {
     (0..n)
-        .map(|i| SavantIdMetaKind::Frame(i as i64 + 1))
+        .map(|i| SavantIdMetaKind::Frame(i as u128 + 1))
         .collect()
 }
 

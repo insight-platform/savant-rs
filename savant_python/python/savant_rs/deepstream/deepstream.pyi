@@ -192,6 +192,9 @@ class SavantIdMetaKind:
 
     - ``FRAME`` -- per-frame identifier.
     - ``BATCH`` -- per-batch identifier.
+
+    The associated numeric id is an unsigned 128-bit value (``0 <= id < 2**128``)
+    at the Rust boundary; Python passes it as ``int``.
     """
 
     FRAME: SavantIdMetaKind

@@ -197,7 +197,7 @@ impl BufferGenerator {
     /// * `id` - Optional frame identifier. When `Some(id)`, a
     ///   [`SavantIdMeta`](savant_gstreamer::id_meta::SavantIdMeta) containing
     ///   `Frame(id)` is attached to the buffer.
-    pub fn acquire(&self, id: Option<i64>) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
+    pub fn acquire(&self, id: Option<u128>) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
         self.0.acquire(id)
     }
 
