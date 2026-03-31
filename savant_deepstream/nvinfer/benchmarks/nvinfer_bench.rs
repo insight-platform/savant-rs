@@ -228,12 +228,12 @@ fn make_uniform_batch(
 
     let config = platform_transform_config();
     let ids: Vec<SavantIdMetaKind> = (0..batch_size)
-        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .map(|i| SavantIdMetaKind::Frame(i as u128))
         .collect();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
     for i in 0..batch_size {
-        let src = src_gen.acquire(Some(i as i64)).unwrap();
+        let src = src_gen.acquire(Some(i as u128)).unwrap();
         let src_view = SurfaceView::from_buffer(&src, 0).unwrap();
         batch.transform_slot(i, &src_view, None).unwrap();
     }
@@ -263,7 +263,7 @@ fn make_nonuniform_batch(
             .max_buffers(1)
             .build()
             .expect("src generator for nonuniform slot");
-        let shared = gen.acquire(Some(i as i64)).unwrap();
+        let shared = gen.acquire(Some(i as u128)).unwrap();
         let view = SurfaceView::from_buffer(&shared, 0).unwrap();
         keepalive.push((shared, view));
     }
@@ -272,7 +272,7 @@ fn make_nonuniform_batch(
     let mut ids = Vec::new();
     for (i, (_shared, view)) in keepalive.iter().enumerate() {
         batch.add(view).unwrap();
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        ids.push(SavantIdMetaKind::Frame(i as u128));
     }
 
     batch.finalize(ids).unwrap()
@@ -449,7 +449,7 @@ fn make_random_nonuniform_batch(rng: &mut impl Rng) -> deepstream_buffers::Share
             .max_buffers(1)
             .build()
             .expect("src generator for random nonuniform slot");
-        let shared = gen.acquire(Some(i as i64)).unwrap();
+        let shared = gen.acquire(Some(i as u128)).unwrap();
         let view = SurfaceView::from_buffer(&shared, 0).unwrap();
         keepalive.push((shared, view));
     }
@@ -458,7 +458,7 @@ fn make_random_nonuniform_batch(rng: &mut impl Rng) -> deepstream_buffers::Share
     let mut ids = Vec::new();
     for (i, (_shared, view)) in keepalive.iter().enumerate() {
         batch.add(view).unwrap();
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        ids.push(SavantIdMetaKind::Frame(i as u128));
     }
 
     batch.finalize(ids).unwrap()

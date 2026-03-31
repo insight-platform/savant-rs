@@ -94,7 +94,7 @@ impl PyTrackerBatchFormationResult {
     #[new]
     fn new(
         py: Python<'_>,
-        ids: Vec<(PySavantIdMetaKind, i64)>,
+        ids: Vec<(PySavantIdMetaKind, u128)>,
         rois: Vec<HashMap<i32, Vec<PyRoiHandle>>>,
     ) -> Self {
         let rust_ids: Vec<SavantIdMetaKind> = ids
@@ -134,7 +134,7 @@ impl PyTrackerBatchFormationResult {
 
     /// Per-frame Savant IDs as ``(SavantIdMetaKind, int)`` tuples.
     #[getter]
-    fn ids(&self) -> Vec<(PySavantIdMetaKind, i64)> {
+    fn ids(&self) -> Vec<(PySavantIdMetaKind, u128)> {
         self.inner.ids.iter().map(from_rust_id_kind).collect()
     }
 

@@ -42,7 +42,7 @@
 //!
 //! // Acquire NVMM buffer, render into it, then submit
 //! for i in 0..10u128 {
-//!     let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+//!     let shared = encoder.generator().acquire(Some(i as u128)).unwrap();
 //!     let buffer = shared.into_buffer().expect("sole owner");
 //!     let pts_ns = i as u64 * 33_333_333;
 //!     encoder.submit_frame(buffer, i, pts_ns, Some(33_333_333)).unwrap();
@@ -186,7 +186,7 @@ pub struct EncodedFrame {
     /// Duration in nanoseconds (if known).
     pub duration_ns: Option<u64>,
     /// Encoded bitstream data, or tightly-packed raw pixel data for
-    /// [`Codec::RawRgba`] / [`Codec::RawRgb`].
+    /// [`Codec::RawRgba`] / [`Codec::RawRgb`] / [`Codec::RawNv12`].
     pub data: Vec<u8>,
     /// Codec used to encode this frame.
     pub codec: Codec,

@@ -3,8 +3,8 @@ use std::{fmt, mem};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SavantIdMetaKind {
-    Frame(i64),
-    Batch(i64),
+    Frame(u128),
+    Batch(u128),
 }
 
 #[repr(transparent)]

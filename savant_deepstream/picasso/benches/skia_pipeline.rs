@@ -449,7 +449,7 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
 }
 
 fn make_nvmm_buffer(gen: &BufferGenerator, frame_id: i64) -> deepstream_buffers::SharedBuffer {
-    let shared = gen.acquire(Some(frame_id)).unwrap();
+    let shared = gen.acquire(Some(frame_id as u128)).unwrap();
     shared.set_pts_ns(frame_id as u64 * FRAME_DURATION_NS);
     shared.set_duration_ns(FRAME_DURATION_NS);
     shared

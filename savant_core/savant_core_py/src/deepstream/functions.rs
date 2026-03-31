@@ -158,7 +158,7 @@ pub fn py_has_nvenc(gpu_id: u32) -> PyResult<bool> {
 ///     list[tuple[str, int]]: Meta entries, e.g. ``[("frame", 42)]``.
 #[pyfunction]
 #[pyo3(name = "get_savant_id_meta")]
-pub fn py_get_savant_id_meta(buf: &Bound<'_, PyAny>) -> PyResult<Vec<(PySavantIdMetaKind, i64)>> {
+pub fn py_get_savant_id_meta(buf: &Bound<'_, PyAny>) -> PyResult<Vec<(PySavantIdMetaKind, u128)>> {
     let buf_ptr = extract_buf_ptr(buf)?;
     unsafe {
         let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);

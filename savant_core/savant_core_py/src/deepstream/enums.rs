@@ -77,7 +77,7 @@ impl From<Padding> for PyPadding {
 /// Kind tag for ``SavantIdMeta`` entries.
 ///
 /// Each NvBufSurface buffer can carry a list of ``(SavantIdMetaKind, int)``
-/// pairs that identify the logical frame or batch it belongs to.
+/// pairs (128-bit unsigned IDs) that identify the logical frame or batch.
 ///
 /// - ``FRAME`` — per-frame identifier.
 /// - ``BATCH`` — per-batch identifier.
@@ -109,7 +109,7 @@ impl PySavantIdMetaKind {
 }
 
 /// Convert a Python `(SavantIdMetaKind, int)` pair into the Rust enum.
-pub(crate) fn to_rust_id_kind(kind: PySavantIdMetaKind, id: i64) -> SavantIdMetaKind {
+pub(crate) fn to_rust_id_kind(kind: PySavantIdMetaKind, id: u128) -> SavantIdMetaKind {
     match kind {
         PySavantIdMetaKind::Frame => SavantIdMetaKind::Frame(id),
         PySavantIdMetaKind::Batch => SavantIdMetaKind::Batch(id),
@@ -117,7 +117,7 @@ pub(crate) fn to_rust_id_kind(kind: PySavantIdMetaKind, id: i64) -> SavantIdMeta
 }
 
 /// Convert a Rust `SavantIdMetaKind` into a Python `(SavantIdMetaKind, int)` pair.
-pub(crate) fn from_rust_id_kind(kind: &SavantIdMetaKind) -> (PySavantIdMetaKind, i64) {
+pub(crate) fn from_rust_id_kind(kind: &SavantIdMetaKind) -> (PySavantIdMetaKind, u128) {
     match kind {
         SavantIdMetaKind::Frame(id) => (PySavantIdMetaKind::Frame, *id),
         SavantIdMetaKind::Batch(id) => (PySavantIdMetaKind::Batch, *id),

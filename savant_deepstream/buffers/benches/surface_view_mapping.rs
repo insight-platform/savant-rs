@@ -110,7 +110,7 @@ fn bench_batched_multi_slot_views(c: &mut Criterion) {
         b.iter_with_setup(
             || {
                 let ids: Vec<_> = (0..batch_size)
-                    .map(|i| SavantIdMetaKind::Frame(i as i64))
+                    .map(|i| SavantIdMetaKind::Frame(i as u128))
                     .collect();
                 let config = TransformConfig::default();
                 let mut batch = batched_gen.acquire_batch(config, ids).unwrap();

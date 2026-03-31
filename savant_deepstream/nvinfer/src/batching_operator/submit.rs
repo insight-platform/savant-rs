@@ -6,7 +6,7 @@ use log::debug;
 use parking_lot::Mutex;
 use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use super::config::NvInferBatchingOperatorConfig;
@@ -21,7 +21,7 @@ pub(super) struct SubmitContext {
     pub(super) batch_formation: BatchFormationCallback,
     pub(super) state: Arc<Mutex<BatchState<FramePair>>>,
     pub(super) pending_batches: PendingMap,
-    pub(super) next_batch_id: Arc<AtomicI64>,
+    pub(super) next_batch_id: Arc<AtomicU64>,
     pub(super) nvinfer: Arc<Mutex<NvInfer>>,
     pub(super) shutdown_flag: Arc<AtomicBool>,
 }
@@ -56,7 +56,7 @@ impl SubmitContext {
             })?;
         }
 
-        let batch_id = self.next_batch_id.fetch_add(1, Ordering::Relaxed);
+        let batch_id = self.next_batch_id.fetch_add(1, Ordering::Relaxed) as u128;
         ids.insert(0, SavantIdMetaKind::Batch(batch_id));
 
         let shared_buffer = batch.finalize(ids).map_err(|e| {

@@ -107,7 +107,7 @@ impl PySharedBuffer {
     /// Returns:
     ///     list[tuple[SavantIdMetaKind, int]]: Meta entries,
     ///         e.g. ``[(SavantIdMetaKind.FRAME, 42)]``.
-    fn savant_ids(&self) -> PyResult<Vec<(PySavantIdMetaKind, i64)>> {
+    fn savant_ids(&self) -> PyResult<Vec<(PySavantIdMetaKind, u128)>> {
         let ids = self.shared()?.savant_ids();
         Ok(ids.iter().map(from_rust_id_kind).collect())
     }
@@ -116,7 +116,7 @@ impl PySharedBuffer {
     ///
     /// Args:
     ///     ids (list[tuple[SavantIdMetaKind, int]]): Meta entries to set.
-    fn set_savant_ids(&self, ids: Vec<(PySavantIdMetaKind, i64)>) -> PyResult<()> {
+    fn set_savant_ids(&self, ids: Vec<(PySavantIdMetaKind, u128)>) -> PyResult<()> {
         let kinds = ids
             .into_iter()
             .map(|(kind, id)| to_rust_id_kind(kind, id))

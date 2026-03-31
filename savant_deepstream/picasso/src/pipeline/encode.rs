@@ -272,7 +272,7 @@ pub(crate) fn process_encode(
             drop(input_guard);
 
             shared = generator
-                .acquire(Some(input.frame_id as i64))
+                .acquire(Some(input.frame_id))
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
             let dst_view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;

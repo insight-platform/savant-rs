@@ -23,7 +23,7 @@ pub fn push_to_appsrc(
     appsrc: &gstreamer_app::AppSrc,
     pts_ns: u64,
     duration_ns: u64,
-    id: Option<i64>,
+    id: Option<u128>,
 ) -> Result<(), NvBufSurfaceError> {
     let mut buffer = gen.acquire(id)?.into_buffer().map_err(|_| {
         NvBufSurfaceError::BufferAcquisitionFailed("SharedBuffer has outstanding references".into())
@@ -56,7 +56,7 @@ pub unsafe fn push_to_appsrc_raw(
     appsrc_ptr: usize,
     pts_ns: u64,
     duration_ns: u64,
-    id: Option<i64>,
+    id: Option<u128>,
 ) -> Result<(), NvBufSurfaceError> {
     if appsrc_ptr == 0 {
         return Err(NvBufSurfaceError::NullPointer(

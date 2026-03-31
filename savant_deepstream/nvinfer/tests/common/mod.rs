@@ -242,9 +242,9 @@ pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
 
     let shared = {
         let config = platform_transform_config();
-        let ids = vec![SavantIdMetaKind::Frame(-1)];
+        let ids = vec![SavantIdMetaKind::Frame(0)];
         let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
-        let src_shared = src_gen.acquire(Some(-1)).unwrap();
+        let src_shared = src_gen.acquire(Some(0)).unwrap();
         src_shared
             .with_view(0, |src_view| batch.transform_slot(0, src_view, None))
             .unwrap();

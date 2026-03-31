@@ -38,4 +38,4 @@ pub(super) struct PendingBatch {
 }
 
 /// Pending-batch map: batch-ID → [`PendingBatch`].
-pub(super) type PendingMap = Arc<Mutex<HashMap<i64, PendingBatch>>>;
+pub(super) type PendingMap = Arc<Mutex<HashMap<u128, PendingBatch>>>;

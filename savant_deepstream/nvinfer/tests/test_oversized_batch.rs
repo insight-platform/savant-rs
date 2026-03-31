@@ -226,7 +226,7 @@ fn test_oversized_uniform_batch() {
     let mut batch = batched_gen.acquire_batch(config, savant_in).unwrap();
 
     for (slot, canvas) in [(0u32, &canvas0), (1, &canvas1)] {
-        let src = src_gen.acquire(Some(slot as i64)).unwrap();
+        let src = src_gen.acquire(Some(slot as u128)).unwrap();
         src.with_view(0, |view| {
             view.upload(canvas, FRAME_W, FRAME_H, 4)?;
             batch.transform_slot(slot, view, None)

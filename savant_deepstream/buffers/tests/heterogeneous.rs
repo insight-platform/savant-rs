@@ -12,7 +12,7 @@ fn make_gen(format: VideoFormat, w: u32, h: u32) -> BufferGenerator {
         .expect("failed to build generator")
 }
 
-fn acquire_view(gen: &BufferGenerator, id: Option<i64>) -> (SharedBuffer, SurfaceView) {
+fn acquire_view(gen: &BufferGenerator, id: Option<u128>) -> (SharedBuffer, SurfaceView) {
     let shared = gen.acquire(id).unwrap();
     let view = SurfaceView::from_buffer(&shared, 0).unwrap();
     (shared, view)

@@ -31,7 +31,10 @@ fn make_batched_gen(
 fn build_uniform_batch(ids: &[i64]) -> SharedBuffer {
     let src_gen = make_src_gen(VideoFormat::RGBA, 1920, 1080);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, ids.len() as u32, 2);
-    let id_kinds: Vec<_> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
+    let id_kinds: Vec<_> = ids
+        .iter()
+        .map(|&id| SavantIdMetaKind::Frame(id as u128))
+        .collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
 
@@ -58,7 +61,10 @@ fn build_uniform_batch(ids: &[i64]) -> SharedBuffer {
 fn build_heterogeneous_batch(resolutions: &[(u32, u32)], ids: &[i64]) -> SharedBuffer {
     let mut batch = NonUniformBatch::new(0);
     let mut keepalive = Vec::new();
-    let id_kinds: Vec<_> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
+    let id_kinds: Vec<_> = ids
+        .iter()
+        .map(|&id| SavantIdMetaKind::Frame(id as u128))
+        .collect();
 
     for &(w, h) in resolutions.iter() {
         let gen = make_src_gen(VideoFormat::RGBA, w, h);
@@ -227,7 +233,7 @@ fn test_uniform_shared_valid_after_struct_drop() {
     let shared = {
         let id_kinds: Vec<_> = [10i64, 20, 30]
             .iter()
-            .map(|&id| SavantIdMetaKind::Frame(id))
+            .map(|&id| SavantIdMetaKind::Frame(id as u128))
             .collect();
         let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
         for (i, &_id) in [10i64, 20, 30].iter().enumerate() {
@@ -266,7 +272,7 @@ fn test_uniform_shared_valid_after_cow() {
     let shared = {
         let id_kinds: Vec<_> = [1i64, 2]
             .iter()
-            .map(|&id| SavantIdMetaKind::Frame(id))
+            .map(|&id| SavantIdMetaKind::Frame(id as u128))
             .collect();
         let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
         for (i, &_id) in [1i64, 2].iter().enumerate() {
@@ -315,7 +321,7 @@ fn test_uniform_id_meta_survives_struct_drop() {
     let shared = {
         let id_kinds: Vec<_> = [100i64, 200]
             .iter()
-            .map(|&id| SavantIdMetaKind::Frame(id))
+            .map(|&id| SavantIdMetaKind::Frame(id as u128))
             .collect();
         let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
         for (i, &_id) in [100i64, 200].iter().enumerate() {
@@ -347,7 +353,7 @@ fn test_uniform_slot_view_from_detached_shared() {
     let shared = {
         let id_kinds: Vec<_> = [10i64, 20, 30]
             .iter()
-            .map(|&id| SavantIdMetaKind::Frame(id))
+            .map(|&id| SavantIdMetaKind::Frame(id as u128))
             .collect();
         let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
         for (i, &_id) in [10i64, 20, 30].iter().enumerate() {
@@ -384,7 +390,7 @@ fn test_heterogeneous_shared_valid_after_finalize() {
             let s = gen.acquire(None).unwrap();
             let v = SurfaceView::from_buffer(&s, 0).unwrap();
             batch.add(&v).unwrap();
-            id_kinds.push(SavantIdMetaKind::Frame(keepalive.len() as i64 + 1));
+            id_kinds.push(SavantIdMetaKind::Frame(keepalive.len() as u128 + 1));
             keepalive.push((gen, s, v));
         }
         batch.finalize(id_kinds).unwrap()
@@ -459,7 +465,7 @@ fn test_uniform_surface_view_no_pool_leak() {
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 64, 64, 2, 2);
 
     for _ in 0..LEAK_ITERATIONS {
-        let id_kinds: Vec<_> = (0..2i64).map(SavantIdMetaKind::Frame).collect();
+        let id_kinds: Vec<_> = (0..2u128).map(SavantIdMetaKind::Frame).collect();
         let mut batch = batched_gen
             .acquire_batch(TransformConfig::default(), id_kinds)
             .unwrap();

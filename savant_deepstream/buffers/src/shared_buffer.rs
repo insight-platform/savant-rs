@@ -6,7 +6,7 @@
 //!
 //! [`SurfaceView`]: crate::SurfaceView
 
-use crate::{SavantIdMeta, SavantIdMetaKind};
+use crate::{Rect, SavantIdMeta, SavantIdMetaKind, TransformConfig};
 use gstreamer as gst;
 use parking_lot::{Mutex, MutexGuard};
 use std::fmt;
@@ -142,6 +142,77 @@ impl SharedBuffer {
     {
         let view = crate::SurfaceView::from_buffer(self, slot)?;
         f(&view)
+    }
+
+    /// Transform one source slot into one destination slot using
+    /// `NvBufSurfTransform`, without requiring EGL-CUDA mapping.
+    ///
+    /// This path is intended for decoder outputs that can be block-linear
+    /// on Jetson, where [`crate::SurfaceView::from_buffer`] may fail due to
+    /// pitch-only EGL frame constraints.
+    pub fn transform_into(
+        &self,
+        src_slot: u32,
+        dst: &SharedBuffer,
+        dst_slot: u32,
+        config: &TransformConfig,
+        src_rect: Option<&Rect>,
+    ) -> Result<(), crate::NvBufSurfaceError> {
+        if Arc::ptr_eq(&self.0, &dst.0) {
+            return Err(crate::NvBufSurfaceError::InvalidInput(
+                "in-place SharedBuffer transform is not supported".to_string(),
+            ));
+        }
+
+        let src_guard = self.lock();
+        let dst_guard = dst.lock();
+
+        let src_surf_ptr = unsafe {
+            crate::transform::extract_nvbufsurface(src_guard.as_ref())
+                .map_err(|e| crate::NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+        let dst_surf_ptr = unsafe {
+            crate::transform::extract_nvbufsurface(dst_guard.as_ref())
+                .map_err(|e| crate::NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+
+        let mut eff_config = config.clone();
+        eff_config.cuda_stream = config.cuda_stream.clone();
+
+        let (mut src_view, mut dst_view) = unsafe {
+            let mut src = *src_surf_ptr;
+            if src_slot >= src.numFilled {
+                return Err(crate::NvBufSurfaceError::SlotOutOfBounds {
+                    index: src_slot,
+                    max: src.numFilled,
+                });
+            }
+            src.surfaceList = src.surfaceList.add(src_slot as usize);
+            src.batchSize = 1;
+            src.numFilled = 1;
+
+            let mut dst_s = *dst_surf_ptr;
+            if dst_slot >= dst_s.numFilled {
+                return Err(crate::NvBufSurfaceError::SlotOutOfBounds {
+                    index: dst_slot,
+                    max: dst_s.numFilled,
+                });
+            }
+            dst_s.surfaceList = dst_s.surfaceList.add(dst_slot as usize);
+            dst_s.batchSize = 1;
+            dst_s.numFilled = 1;
+            (src, dst_s)
+        };
+
+        unsafe {
+            crate::transform::do_transform(
+                &mut src_view as *mut crate::ffi::NvBufSurface,
+                &mut dst_view as *mut crate::ffi::NvBufSurface,
+                &eff_config,
+                src_rect,
+            )
+        }
+        .map_err(|e| crate::NvBufSurfaceError::BufferCopyFailed(e.to_string()))
     }
 
     /// Replace [`SavantIdMeta`] on the buffer.

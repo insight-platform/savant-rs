@@ -93,7 +93,7 @@ class TestCodecFromName:
 
     def test_unknown_raises(self):
         with pytest.raises(ValueError, match="Unknown codec"):
-            Codec.from_name("vp9")
+            Codec.from_name("nonexistent_codec")
 
 
 @requires_gst_feature
@@ -183,7 +183,7 @@ class TestConstruction:
 
     def test_unsupported_string_raises(self):
         with pytest.raises(ValueError, match="Unknown codec"):
-            Mp4Muxer("vp9", "/tmp/bad.mp4")
+            Mp4Muxer("nonexistent_codec", "/tmp/bad.mp4")
 
     def test_case_insensitive_string(self):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:

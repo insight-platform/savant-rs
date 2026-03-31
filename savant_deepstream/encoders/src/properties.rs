@@ -18,6 +18,7 @@
 //! | [`Av1Jetson`](Av1JetsonProps) | AV1 | Jetson | `nvv4l2av1enc` |
 //! | [`RawRgba`](RawProps) | Raw RGBA | — | pseudoencoder |
 //! | [`RawRgb`](RawProps) | Raw RGB | — | pseudoencoder |
+//! | [`RawNv12`](RawProps) | Raw NV12 | — | pseudoencoder |
 
 use crate::error::EncoderError;
 use savant_gstreamer::Codec;
@@ -1049,7 +1050,8 @@ impl JpegProps {
 
 /// Raw frame download properties (pseudoencoder, no configurable properties).
 ///
-/// Used with [`Codec::RawRgba`] and [`Codec::RawRgb`] to download GPU frames
+/// Used with [`Codec::RawRgba`], [`Codec::RawRgb`] and [`Codec::RawNv12`]
+/// to download GPU frames
 /// to CPU memory as tightly-packed pixel data.
 #[derive(Debug, Clone, Default)]
 pub struct RawProps;
@@ -1342,6 +1344,8 @@ pub enum EncoderProperties {
     RawRgba(RawProps),
     /// Raw RGB pseudoencoder (GPU-to-CPU download, no encoding).
     RawRgb(RawProps),
+    /// Raw NV12 pseudoencoder (GPU-to-CPU download, no encoding).
+    RawNv12(RawProps),
 }
 
 impl EncoderProperties {
@@ -1355,6 +1359,7 @@ impl EncoderProperties {
             Self::Png(_) => Codec::Png,
             Self::RawRgba(_) => Codec::RawRgba,
             Self::RawRgb(_) => Codec::RawRgb,
+            Self::RawNv12(_) => Codec::RawNv12,
         }
     }
 
@@ -1365,7 +1370,11 @@ impl EncoderProperties {
             Self::H264Jetson(_) | Self::HevcJetson(_) | Self::Av1Jetson(_) => {
                 Some(Platform::Jetson)
             }
-            Self::Jpeg(_) | Self::Png(_) | Self::RawRgba(_) | Self::RawRgb(_) => None,
+            Self::Jpeg(_)
+            | Self::Png(_)
+            | Self::RawRgba(_)
+            | Self::RawRgb(_)
+            | Self::RawNv12(_) => None,
         }
     }
 
@@ -1380,7 +1389,7 @@ impl EncoderProperties {
             Self::Av1Dgpu(p) => p.to_gst_pairs(),
             Self::Av1Jetson(p) => p.to_gst_pairs(),
             Self::Png(p) => p.to_gst_pairs(),
-            Self::RawRgba(p) | Self::RawRgb(p) => p.to_gst_pairs(),
+            Self::RawRgba(p) | Self::RawRgb(p) | Self::RawNv12(p) => p.to_gst_pairs(),
         }
     }
 
@@ -1413,6 +1422,10 @@ impl EncoderProperties {
             }
             (Codec::RawRgba, _) => Ok(Self::RawRgba(RawProps::from_pairs(pairs)?)),
             (Codec::RawRgb, _) => Ok(Self::RawRgb(RawProps::from_pairs(pairs)?)),
+            (Codec::RawNv12, _) => Ok(Self::RawNv12(RawProps::from_pairs(pairs)?)),
+            (Codec::Vp8 | Codec::Vp9, _) => {
+                Err(EncoderError::UnsupportedCodec(codec.name().to_string()))
+            }
         }
     }
 }
@@ -1614,6 +1627,11 @@ mod tests {
         assert_eq!(p.codec(), Codec::RawRgb);
         assert_eq!(p.platform(), None);
         assert!(p.to_gst_pairs().is_empty());
+
+        let p = EncoderProperties::RawNv12(RawProps);
+        assert_eq!(p.codec(), Codec::RawNv12);
+        assert_eq!(p.platform(), None);
+        assert!(p.to_gst_pairs().is_empty());
     }
 
     #[test]
@@ -1621,6 +1639,8 @@ mod tests {
         let m = HashMap::new();
         let props = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m).unwrap();
         assert_eq!(props.codec(), Codec::RawRgba);
+        let props = EncoderProperties::from_pairs(Codec::RawNv12, Platform::Dgpu, &m).unwrap();
+        assert_eq!(props.codec(), Codec::RawNv12);
     }
 
     #[test]
@@ -1629,6 +1649,17 @@ mod tests {
         m.insert("quality".into(), "85".into());
         let result = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m);
         assert!(result.is_err());
+        let result = EncoderProperties::from_pairs(Codec::RawNv12, Platform::Dgpu, &m);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_vp8_vp9_from_pairs_unsupported() {
+        let m = HashMap::new();
+        let vp8 = EncoderProperties::from_pairs(Codec::Vp8, Platform::Dgpu, &m);
+        assert!(matches!(vp8, Err(EncoderError::UnsupportedCodec(_))));
+        let vp9 = EncoderProperties::from_pairs(Codec::Vp9, Platform::Dgpu, &m);
+        assert!(matches!(vp9, Err(EncoderError::UnsupportedCodec(_))));
     }
 
     // ─── Range validation ──────────────────────────────────────────────

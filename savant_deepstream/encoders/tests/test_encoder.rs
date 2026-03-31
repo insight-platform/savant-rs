@@ -64,8 +64,14 @@ fn test_codec_from_name() {
     assert_eq!(Codec::from_name("jpeg"), Some(Codec::Jpeg));
     assert_eq!(Codec::from_name("av1"), Some(Codec::Av1));
     assert_eq!(Codec::from_name("png"), Some(Codec::Png));
+    assert_eq!(Codec::from_name("vp8"), Some(Codec::Vp8));
+    assert_eq!(Codec::from_name("VP8"), Some(Codec::Vp8));
+    assert_eq!(Codec::from_name("vp9"), Some(Codec::Vp9));
+    assert_eq!(Codec::from_name("VP9"), Some(Codec::Vp9));
     assert_eq!(Codec::from_name("raw_rgba"), Some(Codec::RawRgba));
     assert_eq!(Codec::from_name("raw_rgb"), Some(Codec::RawRgb));
+    assert_eq!(Codec::from_name("raw_nv12"), Some(Codec::RawNv12));
+    assert_eq!(Codec::from_name("RAW_NV12"), Some(Codec::RawNv12));
     assert_eq!(Codec::from_name("unknown"), None);
 }
 
@@ -76,8 +82,11 @@ fn test_codec_names() {
     assert_eq!(Codec::Jpeg.name(), "jpeg");
     assert_eq!(Codec::Av1.name(), "av1");
     assert_eq!(Codec::Png.name(), "png");
+    assert_eq!(Codec::Vp8.name(), "vp8");
+    assert_eq!(Codec::Vp9.name(), "vp9");
     assert_eq!(Codec::RawRgba.name(), "raw_rgba");
     assert_eq!(Codec::RawRgb.name(), "raw_rgb");
+    assert_eq!(Codec::RawNv12.name(), "raw_nv12");
 }
 
 #[test]
@@ -87,8 +96,11 @@ fn test_codec_encoder_elements() {
     assert_eq!(Codec::Jpeg.encoder_element(), "nvjpegenc");
     assert_eq!(Codec::Av1.encoder_element(), "nvv4l2av1enc");
     assert_eq!(Codec::Png.encoder_element(), "pngenc");
+    assert_eq!(Codec::Vp8.encoder_element(), "identity");
+    assert_eq!(Codec::Vp9.encoder_element(), "identity");
     assert_eq!(Codec::RawRgba.encoder_element(), "identity");
     assert_eq!(Codec::RawRgb.encoder_element(), "identity");
+    assert_eq!(Codec::RawNv12.encoder_element(), "identity");
 }
 
 #[test]
@@ -98,8 +110,25 @@ fn test_codec_parser_elements() {
     assert_eq!(Codec::Jpeg.parser_element(), "jpegparse");
     assert_eq!(Codec::Av1.parser_element(), "av1parse");
     assert_eq!(Codec::Png.parser_element(), "identity");
+    assert_eq!(Codec::Vp8.parser_element(), "identity");
+    assert_eq!(Codec::Vp9.parser_element(), "identity");
     assert_eq!(Codec::RawRgba.parser_element(), "identity");
     assert_eq!(Codec::RawRgb.parser_element(), "identity");
+    assert_eq!(Codec::RawNv12.parser_element(), "identity");
+}
+
+#[test]
+fn test_codec_decoder_elements() {
+    assert_eq!(Codec::H264.decoder_element(), "nvv4l2decoder");
+    assert_eq!(Codec::Hevc.decoder_element(), "nvv4l2decoder");
+    assert_eq!(Codec::Vp8.decoder_element(), "nvv4l2decoder");
+    assert_eq!(Codec::Vp9.decoder_element(), "nvv4l2decoder");
+    assert_eq!(Codec::Av1.decoder_element(), "nvv4l2decoder");
+    assert_eq!(Codec::Jpeg.decoder_element(), "nvjpegdec");
+    assert_eq!(Codec::Png.decoder_element(), "pngdec");
+    assert_eq!(Codec::RawRgba.decoder_element(), "identity");
+    assert_eq!(Codec::RawRgb.decoder_element(), "identity");
+    assert_eq!(Codec::RawNv12.decoder_element(), "identity");
 }
 
 #[test]
@@ -109,8 +138,11 @@ fn test_codec_display() {
     assert_eq!(format!("{}", Codec::Jpeg), "jpeg");
     assert_eq!(format!("{}", Codec::Av1), "av1");
     assert_eq!(format!("{}", Codec::Png), "png");
+    assert_eq!(format!("{}", Codec::Vp8), "vp8");
+    assert_eq!(format!("{}", Codec::Vp9), "vp9");
     assert_eq!(format!("{}", Codec::RawRgba), "raw_rgba");
     assert_eq!(format!("{}", Codec::RawRgb), "raw_rgb");
+    assert_eq!(format!("{}", Codec::RawNv12), "raw_nv12");
 }
 
 // ─── EncoderConfig tests ─────────────────────────────────────────────────
@@ -223,6 +255,40 @@ fn test_encoder_creation_av1() {
 
 #[test]
 #[serial]
+fn test_encoder_rejects_vp8() {
+    init();
+    let config = EncoderConfig::new(Codec::Vp8, 640, 480);
+    match NvEncoder::new(&config) {
+        Err(EncoderError::UnsupportedCodec(msg)) => {
+            assert!(
+                msg.contains("vp8"),
+                "Error message should mention vp8: {msg}"
+            );
+        }
+        Err(other) => panic!("Expected UnsupportedCodec, got {:?}", other),
+        Ok(_) => panic!("VP8 encoding should not be supported"),
+    }
+}
+
+#[test]
+#[serial]
+fn test_encoder_rejects_vp9() {
+    init();
+    let config = EncoderConfig::new(Codec::Vp9, 640, 480);
+    match NvEncoder::new(&config) {
+        Err(EncoderError::UnsupportedCodec(msg)) => {
+            assert!(
+                msg.contains("vp9"),
+                "Error message should mention vp9: {msg}"
+            );
+        }
+        Err(other) => panic!("Expected UnsupportedCodec, got {:?}", other),
+        Ok(_) => panic!("VP9 encoding should not be supported"),
+    }
+}
+
+#[test]
+#[serial]
 fn test_encoder_codec_getter() {
     init();
     let Some(config) = make_default_config(320, 240) else {
@@ -250,7 +316,7 @@ fn test_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64; // ~30fps
 
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -285,7 +351,7 @@ fn test_submit_rgba_with_conversion() {
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * 33_333_333;
         encoder
@@ -313,7 +379,7 @@ fn test_h264_submit_and_pull_frames() {
 
     let frame_duration_ns = 33_333_333u64;
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -348,7 +414,7 @@ fn test_hevc_submit_and_pull_frames() {
 
     let frame_duration_ns = 33_333_333u64;
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -383,7 +449,7 @@ fn test_jpeg_submit_and_pull_frames() {
 
     let frame_duration_ns = 33_333_333u64;
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -451,7 +517,7 @@ fn test_av1_multi_frame() {
 
     let frame_dur = 33_333_333u64;
     for i in 0..10u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buf = shared.into_buffer().expect("sole owner");
         encoder
             .submit_frame(buf, i, i as u64 * frame_dur, Some(frame_dur))
@@ -478,7 +544,7 @@ fn test_av1_with_rgba_conversion() {
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buf = shared.into_buffer().expect("sole owner");
         encoder
             .submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
@@ -651,7 +717,7 @@ fn test_frame_id_preserved() {
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let shared = encoder.generator().acquire(Some(fid as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(fid)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -716,7 +782,7 @@ fn test_png_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64;
 
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -778,7 +844,7 @@ fn test_png_frame_id_preserved() {
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let shared = encoder.generator().acquire(Some(fid as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(fid)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -834,6 +900,19 @@ fn test_encoder_creation_raw_rgb() {
 
 #[test]
 #[serial]
+fn test_encoder_creation_raw_nv12() {
+    init();
+    let config = EncoderConfig::new(Codec::RawNv12, 640, 480).format(VideoFormat::NV12);
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create RawNv12 encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
 fn test_raw_rgba_submit_and_pull_frames() {
     init();
     let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::RGBA);
@@ -842,7 +921,7 @@ fn test_raw_rgba_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64;
 
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -881,7 +960,7 @@ fn test_raw_rgb_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64;
 
     for i in 0..5u128 {
-        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -912,6 +991,43 @@ fn test_raw_rgb_submit_and_pull_frames() {
 
 #[test]
 #[serial]
+fn test_raw_nv12_submit_and_pull_frames() {
+    init();
+    let config = EncoderConfig::new(Codec::RawNv12, 320, 240).format(VideoFormat::NV12);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+
+    for i in 0..5u128 {
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one raw NV12 frame"
+    );
+    let expected_size = 320 * 240 * 3 / 2;
+    for frame in &remaining {
+        assert_eq!(
+            frame.data.len(),
+            expected_size,
+            "Raw NV12 frame should be {} bytes, got {}",
+            expected_size,
+            frame.data.len()
+        );
+        assert_eq!(frame.codec, Codec::RawNv12);
+        assert!(frame.keyframe, "Every raw frame must be a keyframe");
+    }
+}
+
+#[test]
+#[serial]
 fn test_raw_frame_id_preserved() {
     init();
     let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::RGBA);
@@ -921,7 +1037,7 @@ fn test_raw_frame_id_preserved() {
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let shared = encoder.generator().acquire(Some(fid as i64)).unwrap();
+        let shared = encoder.generator().acquire(Some(fid)).unwrap();
         let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
@@ -946,6 +1062,32 @@ fn test_raw_frame_id_preserved() {
 
 #[test]
 #[serial]
+fn test_raw_nv12_frame_id_preserved() {
+    init();
+    let config = EncoderConfig::new(Codec::RawNv12, 320, 240).format(VideoFormat::NV12);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_ids: Vec<u128> = vec![10, 20, 30];
+    let frame_duration_ns = 33_333_333u64;
+
+    for (i, &fid) in frame_ids.iter().enumerate() {
+        let shared = encoder.generator().acquire(Some(fid)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+    for frame in &remaining {
+        let fid = frame.frame_id.expect("frame_id should be Some");
+        assert!(frame_ids.contains(&fid), "Unexpected frame_id {fid}");
+    }
+}
+
+#[test]
+#[serial]
 fn test_raw_rgba_from_nv12_input() {
     init();
     let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::NV12);
@@ -965,6 +1107,29 @@ fn test_raw_rgba_from_nv12_input() {
     let expected_size = 320 * 240 * 4;
     assert_eq!(frames[0].data.len(), expected_size);
     assert_eq!(frames[0].codec, Codec::RawRgba);
+}
+
+#[test]
+#[serial]
+fn test_raw_nv12_from_rgba_input() {
+    init();
+    let config = EncoderConfig::new(Codec::RawNv12, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let shared = encoder.generator().acquire(Some(0)).unwrap();
+    let buffer = shared.into_buffer().expect("sole owner");
+    encoder
+        .submit_frame(buffer, 0, 0, Some(33_333_333))
+        .unwrap();
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !frames.is_empty(),
+        "Expected at least one frame from RGBA->NV12 raw download"
+    );
+    let expected_size = 320 * 240 * 3 / 2;
+    assert_eq!(frames[0].data.len(), expected_size);
+    assert_eq!(frames[0].codec, Codec::RawNv12);
 }
 
 #[test]
@@ -1172,4 +1337,13 @@ fn test_encoder_creation_jpeg_props() {
         "Failed to create JPEG encoder with props: {:?}",
         encoder.err()
     );
+}
+
+#[test]
+#[serial]
+fn test_encoder_rejects_mismatched_properties_for_new_codecs() {
+    init();
+    let config = EncoderConfig::new(Codec::Vp8, 640, 480)
+        .properties(EncoderProperties::HevcDgpu(HevcDgpuProps::default()));
+    assert!(NvEncoder::new(&config).is_err());
 }

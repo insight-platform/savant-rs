@@ -163,7 +163,7 @@ fn make_frame_with_objects(source_id: &str, frame_idx: i64, num_objects: usize) 
 
 /// Acquires an RGBA GPU surface from the generator for the given frame index.
 fn make_gpu_buffer(gen: &BufferGenerator, frame_idx: i64) -> deepstream_buffers::SharedBuffer {
-    gen.acquire(Some(frame_idx)).unwrap()
+    gen.acquire(Some(frame_idx as u128)).unwrap()
 }
 
 fn bench_sync_hevc_render(c: &mut Criterion) {

@@ -62,7 +62,7 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
 }
 
 fn make_nvmm_buffer(gen: &BufferGenerator, frame_id: i64) -> deepstream_buffers::SurfaceView {
-    let shared = gen.acquire(Some(frame_id)).unwrap();
+    let shared = gen.acquire(Some(frame_id as u128)).unwrap();
     shared.set_pts_ns(frame_id as u64 * 33_333_333);
     shared.set_duration_ns(33_333_333);
     deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
@@ -353,7 +353,7 @@ fn leak_gpu_encoder_lifecycle_churn() {
         for j in 0..5u128 {
             let buf = enc
                 .generator()
-                .acquire(Some(j as i64))
+                .acquire(Some(j))
                 .unwrap()
                 .into_buffer()
                 .unwrap();
@@ -401,7 +401,7 @@ fn leak_gpu_sustained_encode() {
     for i in 0..20u128 {
         let buf = enc
             .generator()
-            .acquire(Some(i as i64))
+            .acquire(Some(i))
             .unwrap()
             .into_buffer()
             .unwrap();
@@ -419,7 +419,7 @@ fn leak_gpu_sustained_encode() {
     for i in 20..520u128 {
         let buf = enc
             .generator()
-            .acquire(Some(i as i64))
+            .acquire(Some(i))
             .unwrap()
             .into_buffer()
             .unwrap();
@@ -473,7 +473,7 @@ fn leak_gpu_surface_acquire_release() {
 
     // Warm-up
     for i in 0..10 {
-        let _buf = gen.acquire(Some(i)).unwrap();
+        let _buf = gen.acquire(Some(i as u128)).unwrap();
     }
     std::thread::sleep(Duration::from_millis(300));
 
@@ -483,7 +483,7 @@ fn leak_gpu_surface_acquire_release() {
 
     // Acquire and immediately drop 2000 surfaces
     for i in 10..2_010i64 {
-        let _buf = gen.acquire(Some(i)).unwrap();
+        let _buf = gen.acquire(Some(i as u128)).unwrap();
     }
     std::thread::sleep(Duration::from_millis(500));
 

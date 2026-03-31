@@ -1,0 +1,370 @@
+{
+  "schema_version": 1,
+  "generated_by": "gst-launch-1.0",
+  "source_support_matrix": "https://developer.nvidia.com/video-encode-decode-support-matrix",
+  "platform_ids": {
+    "turing": "GeForce RTX 20xx / GTX 16xx, Quadro RTX (NVDEC 4th gen)",
+    "ampere": "GeForce RTX 30xx, RTX Axx00 (NVDEC 5th gen)",
+    "ada": "GeForce RTX 40xx, RTX Ada (NVDEC 5th gen)",
+    "blackwell": "GeForce RTX 50xx (NVDEC 6th gen)",
+    "jetson_orin": "Jetson AGX/NX Orin (Ampere NVDEC)"
+  },
+  "assets": [
+    {
+      "file": "test_h264_bt709_ip.mp4",
+      "codec": "h264",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "h264-baseline-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 8,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! x264enc tune=zerolatency bframes=0 bitrate=256 ! h264parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_h264_bt709_ipb.mp4",
+      "codec": "h264",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": true,
+      "profile": "h264-main/high-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 6,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! x264enc bitrate=256 bframes=3 ! h264parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_hevc_bt709_ip.mp4",
+      "codec": "hevc",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "hevc-main-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 9,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! x265enc bitrate=256 option-string=\"bframes=0\" ! h265parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_hevc_bt709_ipb.mp4",
+      "codec": "hevc",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": true,
+      "profile": "hevc-main-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! x265enc bitrate=256 ! h265parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_vp8_bt709.mp4",
+      "codec": "vp8",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "vp8",
+      "width": 320,
+      "height": 240,
+      "num_frames": 8,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! vp8enc target-bitrate=256000 ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_vp9_bt709.mp4",
+      "codec": "vp9",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "vp9-profile0",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! vp9enc target-bitrate=256000 ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_av1_bt709.mp4",
+      "codec": "av1",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "av1-main",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! av1enc target-bitrate=256 cpu-used=5 ! av1parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_jpeg_bt709.mp4",
+      "codec": "jpeg",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "mjpeg",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! jpegenc quality=80 ! jpegparse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_h264_bt2020_ip.mp4",
+      "codec": "h264",
+      "colorspace": "bt2020",
+      "bit_depth": 10,
+      "b_frames": false,
+      "profile": "h264-high10-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! x264enc tune=zerolatency bframes=0 bitrate=256 ! h264parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_h264_bt2020_ipb.mp4",
+      "codec": "h264",
+      "colorspace": "bt2020",
+      "bit_depth": 10,
+      "b_frames": true,
+      "profile": "h264-high10-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! x264enc bitrate=256 bframes=3 ! h264parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_hevc_bt2020_ip.mp4",
+      "codec": "hevc",
+      "colorspace": "bt2020",
+      "bit_depth": 10,
+      "b_frames": false,
+      "profile": "hevc-main10-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 9,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! x265enc bitrate=256 option-string=\"bframes=0\" ! h265parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_hevc_bt2020_ipb.mp4",
+      "codec": "hevc",
+      "colorspace": "bt2020",
+      "bit_depth": 10,
+      "b_frames": true,
+      "profile": "hevc-main10-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! x265enc bitrate=256 ! h265parse ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_vp9_bt2020.mp4",
+      "codec": "vp9",
+      "colorspace": "bt2020",
+      "bit_depth": 10,
+      "b_frames": false,
+      "profile": "vp9-profile2",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! vp9enc target-bitrate=256000 ! qtmux ! filesink",
+      "container": "mp4"
+    },
+    {
+      "file": "test_h264_annexb_ip.h264",
+      "container": "raw",
+      "codec": "h264",
+      "stream_format": "byte-stream",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "h264-baseline-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 8,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 ! x264enc tune=zerolatency bframes=0 bitrate=256 ! h264parse ! video/x-h264,stream-format=byte-stream ! filesink"
+    },
+    {
+      "file": "test_h264_annexb_ipb.h264",
+      "container": "raw",
+      "codec": "h264",
+      "stream_format": "byte-stream",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": true,
+      "profile": "h264-main/high-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 6,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 ! x264enc bitrate=256 bframes=3 ! h264parse ! video/x-h264,stream-format=byte-stream ! filesink"
+    },
+    {
+      "file": "test_hevc_annexb_ip.h265",
+      "container": "raw",
+      "codec": "hevc",
+      "stream_format": "byte-stream",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": false,
+      "profile": "hevc-main-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 9,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 ! x265enc bitrate=256 option-string=\"bframes=0\" ! h265parse ! video/x-h265,stream-format=byte-stream ! filesink"
+    },
+    {
+      "file": "test_hevc_annexb_ipb.h265",
+      "container": "raw",
+      "codec": "hevc",
+      "stream_format": "byte-stream",
+      "colorspace": "bt709",
+      "bit_depth": 8,
+      "b_frames": true,
+      "profile": "hevc-main-like",
+      "width": 320,
+      "height": 240,
+      "num_frames": 10,
+      "fps": 30,
+      "supported_platforms": [
+        "turing",
+        "ampere",
+        "ada",
+        "blackwell",
+        "jetson_orin"
+      ],
+      "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1 ! x265enc bitrate=256 ! h265parse ! video/x-h265,stream-format=byte-stream ! filesink"
+    }
+  ]
+}

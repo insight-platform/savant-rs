@@ -6,7 +6,7 @@ use log::{error, warn};
 use parking_lot::{Condvar, Mutex};
 use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -142,7 +142,7 @@ impl NvTrackerBatchingOperator {
             batch_formation,
             state: state.clone(),
             pending_batches,
-            next_batch_id: Arc::new(AtomicI64::new(0)),
+            next_batch_id: Arc::new(AtomicU64::new(0)),
             source_frame_counters: Arc::new(Mutex::new(HashMap::new())),
             nvtracker: Arc::new(Mutex::new(nvtracker)),
             shutdown_flag: shutdown_flag.clone(),
@@ -237,7 +237,7 @@ impl Drop for NvTrackerBatchingOperator {
 }
 
 /// Scan buffer Savant IDs for a `Batch(id)` entry.
-fn find_batch_id(buffer: &SharedBuffer) -> Option<i64> {
+fn find_batch_id(buffer: &SharedBuffer) -> Option<u128> {
     let ids = buffer.savant_ids();
     ids.into_iter().find_map(|id| match id {
         SavantIdMetaKind::Batch(v) => Some(v),

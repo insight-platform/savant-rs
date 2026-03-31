@@ -334,7 +334,7 @@ impl UniformBatchGenerator {
     /// [`acquire_batch`](Self::acquire_batch) instead.
     pub(crate) fn acquire(
         &self,
-        id: Option<i64>,
+        id: Option<u128>,
     ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
         let mut buffer = self
             .pool

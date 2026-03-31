@@ -88,7 +88,7 @@ fn add_objects(frame: &VideoFrameProxy) {
 }
 
 fn make_buffer(gen: &BufferGenerator, idx: u64) -> SurfaceView {
-    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    let shared = gen.acquire(Some(idx as u128)).unwrap();
     shared.set_pts_ns(idx * FRAME_DURATION_NS);
     shared.set_duration_ns(FRAME_DURATION_NS);
     SurfaceView::from_buffer(&shared, 0).unwrap()

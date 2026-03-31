@@ -192,7 +192,7 @@ fn test_uniform_batch_slot_views_distinct() {
     common::init();
     let src_gen = make_src_gen();
     let batched_gen = make_batched_gen(4);
-    let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
+    let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as u128)).collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
@@ -233,7 +233,7 @@ fn test_uniform_batch_slot_cuda_readback() {
     common::init();
     let src_gen = make_src_gen();
     let batched_gen = make_batched_gen(2);
-    let ids: Vec<_> = (0..2).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
+    let ids: Vec<_> = (0..2).map(|i| SavantIdMetaKind::Frame(i as u128)).collect();
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
@@ -353,17 +353,17 @@ fn test_upload_crop_transform_readback_consistency() {
         let mut rng = StdRng::seed_from_u64(0xD15EA5E_u64 ^ iter);
         rng.fill(src_host.as_mut_slice());
 
-        let src_shared = src_gen.acquire(Some(iter as i64)).unwrap();
+        let src_shared = src_gen.acquire(Some(iter as u128)).unwrap();
         src_shared
             .with_view(0, |view| view.upload(&src_host, SRC_W, SRC_H, CHANNELS))
             .expect("upload failed");
 
-        let dst_shared = dst_gen.acquire(Some((1000 + iter) as i64)).unwrap();
+        let dst_shared = dst_gen.acquire(Some((1000 + iter) as u128)).unwrap();
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
         let dst_view = SurfaceView::from_buffer(&dst_shared, 0).unwrap();
         src_view
             .transform_into(&dst_view, &config, Some(&crop))
-            .expect("transform_into failed");x`
+            .expect("transform_into failed");
 
         let mut dst_host = vec![0u8; dst_row_bytes * DST_H as usize];
         let rc = unsafe {
@@ -511,7 +511,7 @@ mod tracking {
         let n_cycles = 5;
 
         for i in 0..n_cycles {
-            let shared = gen.acquire(Some(i)).unwrap();
+            let shared = gen.acquire(Some(i as u128)).unwrap();
             let view = SurfaceView::from_buffer(&shared, 0).unwrap();
             assert!(!view.data_ptr().is_null(), "cycle {i}: null data_ptr");
         }
@@ -581,7 +581,7 @@ mod tracking {
         {
             let src_gen = make_src_gen();
             let batched_gen = make_batched_gen(4);
-            let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
+            let ids: Vec<_> = (0..4).map(|i| SavantIdMetaKind::Frame(i as u128)).collect();
             let config = TransformConfig::default();
             let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 

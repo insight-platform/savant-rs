@@ -66,7 +66,7 @@ fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> Vide
 }
 
 fn make_buffer(gen: &BufferGenerator, idx: u64) -> deepstream_buffers::SurfaceView {
-    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    let shared = gen.acquire(Some(idx as u128)).unwrap();
     shared.set_pts_ns(idx * FRAME_DUR_NS);
     shared.set_duration_ns(FRAME_DUR_NS);
     deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
