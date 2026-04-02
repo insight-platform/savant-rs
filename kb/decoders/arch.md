@@ -92,7 +92,7 @@ those that still carry in-band VPS/SPS/PPS + IRAP satisfy this helper.
 ### `config-interval` Property
 
 `h264parse` and `h265parse` GStreamer elements are configured with
-`config-interval=1` in both:
+`config-interval=-1` in both:
 - `NvDecoder::build_pipeline()` in `decoder.rs`
 - `Mp4Demuxer::build_parser_chain()` in `savant_gstreamer/mp4_demuxer.rs`
 

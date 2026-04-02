@@ -495,7 +495,7 @@ impl NvDecoder {
         match config {
             DecoderConfig::H264(cfg) => {
                 let parser = make_elem("h264parse", "parse")?;
-                parser.set_property("config-interval", 1i32);
+                parser.set_property("config-interval", -1i32);
                 let dec = make_elem("nvv4l2decoder", "dec")?;
                 apply_v4l2_props(&dec, cfg.to_gst_pairs())?;
                 bridge_savant_id_meta(&dec)?;
@@ -506,7 +506,7 @@ impl NvDecoder {
             }
             DecoderConfig::Hevc(cfg) => {
                 let parser = make_elem("h265parse", "parse")?;
-                parser.set_property("config-interval", 1i32);
+                parser.set_property("config-interval", -1i32);
                 let dec = make_elem("nvv4l2decoder", "dec")?;
                 apply_v4l2_props(&dec, cfg.to_gst_pairs())?;
                 bridge_savant_id_meta(&dec)?;

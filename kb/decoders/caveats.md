@@ -62,7 +62,7 @@
 
 ## 9) config-interval Property
 
-- `h264parse` and `h265parse` are set with `config-interval=1` in both
+- `h264parse` and `h265parse` are set with `config-interval=-1` in both
   `NvDecoder` pipeline and `Mp4Demuxer` parsed mode.
 - This ensures SPS/PPS/VPS are re-injected into every IDR, which is
   critical for mid-stream decoder restarts and stream format detection.
