@@ -702,8 +702,8 @@ pub(super) mod implementation {
                                     )
                                 }
                                 ctx.span().end();
-                                let root_ctx = bind.remove(&id).unwrap();
-                                Ok((id, root_ctx))
+                                let root_ctx = bind.remove(&frame_id).unwrap();
+                                Ok((frame_id, root_ctx))
                             })
                             .collect::<Result<HashMap<_, _>, _>>()?
                     }),
