@@ -2,6 +2,7 @@ pub mod config;
 pub(crate) mod decoder;
 pub(crate) mod error;
 pub mod prelude;
+pub mod stream_detect;
 
 pub use config::{
     Av1DecoderConfig, DecoderConfig, H264DecoderConfig, H264StreamFormat, HevcDecoderConfig,
@@ -10,6 +11,7 @@ pub use config::{
 };
 pub use decoder::NvDecoder;
 pub use error::DecoderError;
+pub use stream_detect::{detect_stream_config, is_random_access_point};
 
 pub use deepstream_buffers::{
     cuda_init, BufferGenerator, SharedBuffer, SurfaceView, TransformConfig, VideoFormat,

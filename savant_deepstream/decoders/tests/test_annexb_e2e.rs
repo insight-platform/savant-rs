@@ -10,7 +10,7 @@ fn run_annexb_e2e(entry: &AssetEntry) {
     let file_path = assets_dir().join(&entry.file);
     let bitstream = std::fs::read(&file_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", file_path.display()));
-    let nalus = split_annexb_nalus(&bitstream);
+    let nalus = split_annexb_nalus(&bitstream, &entry.codec);
     assert!(
         !nalus.is_empty(),
         "{}: no Annex-B NAL units found",
@@ -93,7 +93,7 @@ fn test_minimal_nvdecoder_annexb() {
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
-    let nalus = split_annexb_nalus(&data);
+    let nalus = split_annexb_nalus(&data, "h264");
     let aus = group_nalus_to_access_units("h264", nalus);
 
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));

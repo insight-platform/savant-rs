@@ -51,7 +51,7 @@ fn run_mp4_e2e(entry: &AssetEntry) {
         for pkt in &demuxed_packets {
             bytestream.extend_from_slice(&pkt.data);
         }
-        let nalus = split_annexb_nalus(&bytestream);
+        let nalus = split_annexb_nalus(&bytestream, &entry.codec);
         let access_units = group_nalus_to_access_units(&entry.codec, nalus);
         assert!(
             access_units.len() >= entry.num_frames as usize,

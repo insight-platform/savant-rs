@@ -7,11 +7,11 @@ Self-contained reference for agents to write Rust code/tests for the
 ## Files
 | File | Content |
 |---|---|
-| `api.md` | Full Rust public API: structs, enums, methods, signatures |
-| `arch.md` | Architecture: module tree, GStreamer pipeline variants, frame-ID propagation, auto-restart |
-| `patterns.md` | Test patterns, helpers, platform-aware config builders, ready-to-copy code |
+| `api.md` | Full Rust public API: structs, enums, methods, signatures, stream detection |
+| `arch.md` | Architecture: module tree, GStreamer pipeline variants, stream detection, frame-ID propagation, auto-restart |
+| `patterns.md` | Test patterns, helpers, platform-aware config builders, stream detection E2E, ready-to-copy code |
 | `errors.md` | DecoderError variants, error conditions, testing patterns |
-| `caveats.md` | Critical Jetson/platform caveats, NVDEC detection, decoder pool behavior |
+| `caveats.md` | Critical Jetson/platform caveats, NVDEC detection, decoder pool behavior, stream detection limits |
 
 ## Usage Order
 1. `caveats.md` — read first for platform-specific pitfalls

@@ -2,8 +2,13 @@
 
 #![allow(dead_code)]
 
+use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
+use cros_codecs::codec::h264::parser::NaluType as H264NaluType;
+use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
+use cros_codecs::codec::h265::parser::NaluType as H265NaluType;
 use deepstream_decoders::prelude::*;
 use serde::Deserialize;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -134,38 +139,27 @@ pub fn drain_decoder(rx: &mpsc::Receiver<DecoderEvent>, mut on_frame: impl FnMut
     }
 }
 
-// ── Annex-B NALU parsing ────────────────────────────────────────────
-
-pub fn find_start_code_len(data: &[u8], at: usize) -> Option<usize> {
-    if at + 4 <= data.len() && data[at..at + 4] == [0, 0, 0, 1] {
-        Some(4)
-    } else if at + 3 <= data.len() && data[at..at + 3] == [0, 0, 1] {
-        Some(3)
-    } else {
-        None
-    }
-}
+// ── Annex-B NALU parsing (via cros-codecs) ──────────────────────────
 
 /// Split a concatenated Annex-B bitstream into individual NAL units,
 /// each retaining its start-code prefix.
-pub fn split_annexb_nalus(data: &[u8]) -> Vec<Vec<u8>> {
-    let mut starts = Vec::new();
-    let mut i = 0usize;
-    while i + 3 <= data.len() {
-        if let Some(sc_len) = find_start_code_len(data, i) {
-            starts.push((i, sc_len));
-            i += sc_len;
-            continue;
-        }
-        i += 1;
-    }
+///
+/// `codec` must be `"h264"` or `"hevc"`.
+pub fn split_annexb_nalus(data: &[u8], codec: &str) -> Vec<Vec<u8>> {
+    let mut cur = Cursor::new(data);
     let mut out = Vec::new();
-    for idx in 0..starts.len() {
-        let start = starts[idx].0;
-        let end = starts.get(idx + 1).map_or(data.len(), |(n, _)| *n);
-        if end > start {
-            out.push(data[start..end].to_vec());
+    match codec {
+        "h264" => {
+            while let Ok(nalu) = H264Nalu::next(&mut cur) {
+                out.push(nalu.data.into_owned());
+            }
         }
+        "hevc" => {
+            while let Ok(nalu) = H265Nalu::next(&mut cur) {
+                out.push(nalu.data.into_owned());
+            }
+        }
+        _ => panic!("split_annexb_nalus: unsupported codec {codec}"),
     }
     out
 }
@@ -181,46 +175,77 @@ pub fn nal_payload_offset(nalu: &[u8]) -> usize {
     }
 }
 
-/// Return raw NALU bytes (without start-code prefix).
-pub fn strip_start_code(nalu: &[u8]) -> &[u8] {
-    &nalu[nal_payload_offset(nalu)..]
-}
-
-/// H.264 NALU type (5-bit field from first payload byte).
-pub fn h264_nalu_type(nalu: &[u8]) -> u8 {
-    let off = nal_payload_offset(nalu);
-    if off < nalu.len() {
-        nalu[off] & 0x1f
-    } else {
-        0
-    }
-}
-
-/// H.265 NALU type (6-bit field from first payload byte).
-pub fn hevc_nalu_type(nalu: &[u8]) -> u8 {
-    let off = nal_payload_offset(nalu);
-    if off < nalu.len() {
-        (nalu[off] >> 1) & 0x3f
-    } else {
-        0
-    }
-}
-
 pub fn is_vcl_nalu(codec: &str, nalu: &[u8]) -> bool {
+    let mut c = Cursor::new(nalu);
     match codec {
         "h264" => {
-            let t = h264_nalu_type(nalu);
-            (1..=5).contains(&t)
+            if let Ok(n) = H264Nalu::next(&mut c) {
+                matches!(
+                    n.header.type_,
+                    H264NaluType::Slice
+                        | H264NaluType::SliceDpa
+                        | H264NaluType::SliceDpb
+                        | H264NaluType::SliceDpc
+                        | H264NaluType::SliceIdr
+                )
+            } else {
+                false
+            }
         }
-        "hevc" => hevc_nalu_type(nalu) <= 31,
+        "hevc" => {
+            if let Ok(n) = H265Nalu::next(&mut c) {
+                matches!(
+                    n.header.type_,
+                    H265NaluType::TrailN
+                        | H265NaluType::TrailR
+                        | H265NaluType::TsaN
+                        | H265NaluType::TsaR
+                        | H265NaluType::StsaN
+                        | H265NaluType::StsaR
+                        | H265NaluType::RadlN
+                        | H265NaluType::RadlR
+                        | H265NaluType::RaslN
+                        | H265NaluType::RaslR
+                        | H265NaluType::RsvVclN10
+                        | H265NaluType::RsvVclR11
+                        | H265NaluType::RsvVclN12
+                        | H265NaluType::RsvVclR13
+                        | H265NaluType::RsvVclN14
+                        | H265NaluType::RsvVclR15
+                        | H265NaluType::BlaWLp
+                        | H265NaluType::BlaWRadl
+                        | H265NaluType::BlaNLp
+                        | H265NaluType::IdrWRadl
+                        | H265NaluType::IdrNLp
+                        | H265NaluType::CraNut
+                        | H265NaluType::RsvIrapVcl22
+                        | H265NaluType::RsvIrapVcl23
+                        | H265NaluType::RsvVcl24
+                        | H265NaluType::RsvVcl25
+                        | H265NaluType::RsvVcl26
+                        | H265NaluType::RsvVcl27
+                        | H265NaluType::RsvVcl28
+                        | H265NaluType::RsvVcl29
+                        | H265NaluType::RsvVcl30
+                        | H265NaluType::RsvVcl31
+                )
+            } else {
+                false
+            }
+        }
         _ => false,
     }
 }
 
 pub fn is_aud_nalu(codec: &str, nalu: &[u8]) -> bool {
+    let mut c = Cursor::new(nalu);
     match codec {
-        "h264" => h264_nalu_type(nalu) == 9,
-        "hevc" => hevc_nalu_type(nalu) == 35,
+        "h264" => H264Nalu::next(&mut c)
+            .map(|n| matches!(n.header.type_, H264NaluType::AuDelimiter))
+            .unwrap_or(false),
+        "hevc" => H265Nalu::next(&mut c)
+            .map(|n| matches!(n.header.type_, H265NaluType::AudNut))
+            .unwrap_or(false),
         _ => false,
     }
 }

@@ -177,7 +177,7 @@ fn rnd_appsrc_individual_aus_h264() {
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
 
-    let nalus = split_annexb_nalus(&data);
+    let nalus = split_annexb_nalus(&data, "h264");
     eprintln!("[per-AU] total NALUs: {}", nalus.len());
     for (i, n) in nalus.iter().enumerate() {
         let off = nal_payload_offset(n);
@@ -294,7 +294,7 @@ fn rnd_nvdecoder_annexb_h264() {
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
-    let nalus = split_annexb_nalus(&data);
+    let nalus = split_annexb_nalus(&data, "h264");
     let aus = group_nalus_to_access_units("h264", nalus);
 
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));

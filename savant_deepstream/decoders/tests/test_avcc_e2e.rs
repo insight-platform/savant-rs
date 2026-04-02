@@ -17,7 +17,7 @@ fn run_avcc_e2e(entry: &AssetEntry) {
     let file_path = assets_dir().join(&entry.file);
     let bitstream = std::fs::read(&file_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", file_path.display()));
-    let nalus = split_annexb_nalus(&bitstream);
+    let nalus = split_annexb_nalus(&bitstream, &entry.codec);
     assert!(
         !nalus.is_empty(),
         "{}: no Annex-B NAL units found",
