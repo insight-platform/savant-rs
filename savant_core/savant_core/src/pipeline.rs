@@ -686,7 +686,6 @@ pub(super) mod implementation {
                         Ok(HashMap::from([(id, root_ctx)]))
                     }
                     PipelinePayload::Batch(batch, _, contexts, _, _) => Ok({
-                        let mut bind = self.root_spans.write();
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
