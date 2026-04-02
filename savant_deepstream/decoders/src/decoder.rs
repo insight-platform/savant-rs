@@ -168,7 +168,6 @@ impl NvDecoder {
                 });
             }
         }
-        self.last_input_pts_ns = Some(pts_ns);
 
         match &mut self.backend {
             DecoderBackend::Pipeline(state) => {
@@ -242,6 +241,7 @@ impl NvDecoder {
                 (self.callback.lock())(DecoderEvent::Frame(frame));
             }
         }
+        self.last_input_pts_ns = Some(pts_ns);
         Ok(())
     }
 
@@ -586,10 +586,11 @@ impl Drop for NvDecoder {
         match &mut self.backend {
             DecoderBackend::Pipeline(state) => {
                 let _ = state.appsrc.end_of_stream();
+                state.stop_drain.store(true, Ordering::Release);
+                let _ = state.pipeline.set_state(gst::State::Null);
                 if let Some(handle) = state.drain_thread.take() {
                     let _ = handle.join();
                 }
-                let _ = state.pipeline.set_state(gst::State::Null);
             }
             DecoderBackend::RawUpload(_) | DecoderBackend::ImageDecode(_) => {}
         }
