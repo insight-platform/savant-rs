@@ -315,11 +315,7 @@ fn test_e2e_png_decode_to_rgba() {
     for (i, ((exp_fid, exp_pts), (got_fid, got_pts))) in
         submitted.iter().zip(decoded.iter()).enumerate()
     {
-        assert_eq!(
-            *got_fid,
-            Some(*exp_fid),
-            "PNG frame {i}: frame_id mismatch"
-        );
+        assert_eq!(*got_fid, Some(*exp_fid), "PNG frame {i}: frame_id mismatch");
         assert_eq!(*got_pts, *exp_pts, "PNG frame {i}: pts mismatch");
     }
 }
@@ -521,9 +517,7 @@ fn test_dos_garbage_jpeg_png() {
         .unwrap();
         // PNG uses the `image` crate; garbage data causes an immediate
         // error from submit_packet rather than a deferred pipeline event.
-        assert!(png
-            .submit_packet(&[0; 128], 1, 1, Some(1), None)
-            .is_err());
+        assert!(png.submit_packet(&[0; 128], 1, 1, Some(1), None).is_err());
     }
 }
 
@@ -636,6 +630,31 @@ fn test_raw_rgba_rejects_wrong_payload_size() {
 
 #[test]
 #[serial]
+fn test_raw_rgb_rejects_rgba_payload_size() {
+    init();
+    let (w, h) = (64, 48);
+    let (tx, _rx) = mpsc::channel();
+    let mut decoder = NvDecoder::new(
+        0,
+        &DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h)),
+        make_rgba_pool(w, h),
+        identity_transform_config(),
+        move |ev| {
+            let _ = tx.send(ev);
+        },
+    )
+    .unwrap();
+
+    let rgba_sized = vec![0u8; (w as usize) * (h as usize) * 4];
+    let result = decoder.submit_packet(&rgba_sized, 1, 0, None, None);
+    assert!(
+        matches!(result, Err(DecoderError::BufferError(_))),
+        "expected BufferError for RGBA-sized payload on RawRgb config, got {result:?}"
+    );
+}
+
+#[test]
+#[serial]
 fn test_raw_rgb_codec_identity() {
     init();
     let (w, h) = (64, 48);
@@ -712,11 +731,7 @@ fn test_resolution_mismatch_raw_rgba() {
     let mut count = 0usize;
     drain_decoder(&rx, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
-        assert_eq!(
-            f.frame_id,
-            Some(42),
-            "raw RGBA mismatch: frame_id mismatch"
-        );
+        assert_eq!(f.frame_id, Some(42), "raw RGBA mismatch: frame_id mismatch");
         assert_eq!(f.pts_ns, 5000, "raw RGBA mismatch: pts mismatch");
         count += 1;
     });
@@ -783,9 +798,6 @@ fn test_resolution_mismatch_png() {
             Some(*exp_fid),
             "PNG mismatch frame {i}: frame_id mismatch"
         );
-        assert_eq!(
-            *got_pts, *exp_pts,
-            "PNG mismatch frame {i}: pts mismatch"
-        );
+        assert_eq!(*got_pts, *exp_pts, "PNG mismatch frame {i}: pts mismatch");
     }
 }

@@ -29,12 +29,18 @@ struct PipelineState {
     appsink: gst_app::AppSink,
     drain_thread: Option<JoinHandle<()>>,
     eos_at_pad: Arc<AtomicBool>,
+    /// Set before tearing down the pipeline on error restart so `drain_loop`
+    /// exits without waiting for EOS (which may never arrive).
+    stop_drain: Arc<AtomicBool>,
 }
 
 struct RawUploadState {
+    /// Output format reported on [`DecodedFrame`] (always RGBA for raw upload).
     format: VideoFormat,
     width: u32,
     height: u32,
+    /// Expected input bytes per pixel (`3` for RawRgb, `4` for RawRgba).
+    expected_bpp: u32,
 }
 
 struct ImageDecodeState {
@@ -162,7 +168,6 @@ impl NvDecoder {
                 });
             }
         }
-        self.last_input_pts_ns = Some(pts_ns);
 
         match &mut self.backend {
             DecoderBackend::Pipeline(state) => {
@@ -187,10 +192,17 @@ impl NvDecoder {
                     }
                     SavantIdMeta::replace(buf, vec![SavantIdMetaKind::Frame(frame_id)]);
                 }
-                let push_res = state.appsrc.push_buffer(buffer);
-                push_res.map_err(|e| {
-                    DecoderError::PipelineError(format!("appsrc push failed: {:?}", e))
-                })?;
+                if let Err(e) = state.appsrc.push_buffer(buffer) {
+                    let mut st = self.shared.lock();
+                    st.pts_map.remove(&pts_ns);
+                    if is_intra_only(self.codec) {
+                        st.intra_submit_fifo.pop_back();
+                    }
+                    return Err(DecoderError::PipelineError(format!(
+                        "appsrc push failed: {:?}",
+                        e
+                    )));
+                }
                 Self::ensure_drain_thread(
                     state,
                     &self.shared,
@@ -229,6 +241,7 @@ impl NvDecoder {
                 (self.callback.lock())(DecoderEvent::Frame(frame));
             }
         }
+        self.last_input_pts_ns = Some(pts_ns);
         Ok(())
     }
 
@@ -342,12 +355,16 @@ impl NvDecoder {
         let shared = Arc::clone(shared);
         let cb = Arc::clone(callback);
         let eos_flag = state.eos_at_pad.clone();
+        let stop_flag = state.stop_drain.clone();
         let pool = Arc::clone(pool);
         let tf = transform_config.clone();
         match std::thread::Builder::new()
             .name("decoder-drain".into())
-            .spawn(move || drain_loop(sink, pipeline, shared, cb, pool, tf, gpu_id, eos_flag))
-        {
+            .spawn(move || {
+                drain_loop(
+                    sink, pipeline, shared, cb, pool, tf, gpu_id, eos_flag, stop_flag,
+                )
+            }) {
             Ok(handle) => state.drain_thread = Some(handle),
             Err(e) => {
                 (callback.lock())(DecoderEvent::Error(DecoderError::PipelineError(format!(
@@ -393,6 +410,7 @@ impl NvDecoder {
         self.finalized = false;
 
         if let DecoderBackend::Pipeline(state) = &mut self.backend {
+            state.stop_drain.store(true, Ordering::Release);
             let _ = state.pipeline.set_state(gst::State::Null);
             if let Some(handle) = state.drain_thread.take() {
                 let _ = handle.join();
@@ -416,15 +434,16 @@ impl NvDecoder {
     }
 
     fn build_raw_upload(config: &DecoderConfig) -> Result<RawUploadState, DecoderError> {
-        let (format, width, height) = match config {
-            DecoderConfig::RawRgba(c) => (VideoFormat::RGBA, c.width, c.height),
-            DecoderConfig::RawRgb(c) => (VideoFormat::RGBA, c.width, c.height),
+        let (format, width, height, expected_bpp) = match config {
+            DecoderConfig::RawRgba(c) => (VideoFormat::RGBA, c.width, c.height, 4u32),
+            DecoderConfig::RawRgb(c) => (VideoFormat::RGBA, c.width, c.height, 3u32),
             _ => unreachable!("build_raw_upload called for non-raw config"),
         };
         Ok(RawUploadState {
             format,
             width,
             height,
+            expected_bpp,
         })
     }
 
@@ -458,6 +477,7 @@ impl NvDecoder {
         appsink_elem.set_property("emit-signals", false);
 
         let eos_at_pad = Arc::new(AtomicBool::new(false));
+        let stop_drain = Arc::new(AtomicBool::new(false));
         {
             let eos_flag = eos_at_pad.clone();
             if let Some(sink_pad) = appsink_elem.static_pad("sink") {
@@ -556,6 +576,7 @@ impl NvDecoder {
             appsink,
             drain_thread: None,
             eos_at_pad,
+            stop_drain,
         })
     }
 }
@@ -565,10 +586,11 @@ impl Drop for NvDecoder {
         match &mut self.backend {
             DecoderBackend::Pipeline(state) => {
                 let _ = state.appsrc.end_of_stream();
+                state.stop_drain.store(true, Ordering::Release);
+                let _ = state.pipeline.set_state(gst::State::Null);
                 if let Some(handle) = state.drain_thread.take() {
                     let _ = handle.join();
                 }
-                let _ = state.pipeline.set_state(gst::State::Null);
             }
             DecoderBackend::RawUpload(_) | DecoderBackend::ImageDecode(_) => {}
         }
@@ -599,20 +621,22 @@ fn raw_upload_frame(
         .acquire(None)
         .map_err(|e| DecoderError::BufferError(format!("pool acquire failed: {e}")))?;
 
-    let expected = (raw.width * raw.height * 4) as usize;
-    let upload_data = if data.len() == expected {
-        std::borrow::Cow::Borrowed(data)
-    } else if data.len() == (raw.width * raw.height * 3) as usize {
-        std::borrow::Cow::Owned(rgb_to_rgba(data))
-    } else {
+    let expected_len = (raw.width * raw.height * raw.expected_bpp) as usize;
+    if data.len() != expected_len {
         return Err(DecoderError::BufferError(format!(
-            "unexpected data size {} for {}x{} RGBA (expected {} or {} for RGB)",
+            "unexpected data size {} for {}x{} raw input (expected {} bytes for {} bpp)",
             data.len(),
             raw.width,
             raw.height,
-            expected,
-            raw.width as usize * raw.height as usize * 3,
+            expected_len,
+            raw.expected_bpp,
         )));
+    }
+
+    let upload_data: std::borrow::Cow<'_, [u8]> = if raw.expected_bpp == 3 {
+        std::borrow::Cow::Owned(rgb_to_rgba(data))
+    } else {
+        std::borrow::Cow::Borrowed(data)
     };
     let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
         .map_err(|e| DecoderError::BufferError(format!("SurfaceView::from_buffer failed: {e}")))?;
@@ -731,10 +755,14 @@ fn drain_loop(
     transform_config: TransformConfig,
     gpu_id: u32,
     eos_at_pad: Arc<AtomicBool>,
+    stop_drain: Arc<AtomicBool>,
 ) {
     let mut aux_pool: Option<BufferGenerator> = None;
 
     loop {
+        if stop_drain.load(Ordering::Acquire) {
+            break;
+        }
         let eos_seen = eos_at_pad.load(Ordering::Acquire);
 
         match sink.try_pull_sample(gst::ClockTime::from_mseconds(0)) {
@@ -806,7 +834,13 @@ fn sample_to_frame(
             }
             Some(id)
         }
-        None if is_intra_only(st.codec) && buf_size > 0 => st.intra_submit_fifo.pop_front(),
+        None if is_intra_only(st.codec) && buf_size > 0 => {
+            let id = st.intra_submit_fifo.pop_front();
+            if let Some(fid) = id {
+                st.pts_map.retain(|_, (map_id, _, _)| *map_id != fid);
+            }
+            id
+        }
         None => None,
     };
 
@@ -928,7 +962,9 @@ fn cpu_to_rgba(
         .map_err(|e| DecoderError::BufferError(format!("RGBA pool acquire failed: {e}")))?;
     drop(pool_guard);
 
-    if width == pool_w && height == pool_h {
+    // BGRx must go through transform so channels are converted to RGBA; direct
+    // upload would leave BGR order in an RGBA-labelled surface.
+    if width == pool_w && height == pool_h && src_format == VideoFormat::RGBA {
         let view = deepstream_buffers::SurfaceView::from_buffer(&dst, 0).map_err(|e| {
             DecoderError::BufferError(format!("SurfaceView::from_buffer failed: {e}"))
         })?;
