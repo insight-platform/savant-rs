@@ -72,12 +72,12 @@ Identity:
 ### `VideoFrameProxy` (Arc<RwLock<Box<VideoFrame>>>)
 
 Construction:
-- `new(source_id, framerate, width, height, content, transcoding_method, codec, keyframe, time_base: (i64, i64), pts, dts, duration) -> Result<Self>`
+- `new(source_id, fps: (i64, i64), width, height, content, transcoding_method, codec, keyframe, time_base: (i64, i64), pts, dts, duration) -> Result<Self>`
 - `smart_copy() -> Self` — deep independent copy
 
 Properties (get/set):
 - `source_id`, `uuid`, `pts`, `dts`, `duration`, `width`, `height`
-- `framerate`, `codec`, `keyframe`, `time_base: (i32, i32)`
+- `fps: (i64, i64)`, `codec`, `keyframe`, `time_base: (i64, i64)`
 - `transcoding_method`, `content`, `creation_timestamp_ns`
 
 Transformations:

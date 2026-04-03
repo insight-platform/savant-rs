@@ -41,14 +41,6 @@ fn has_nvenc() -> bool {
     nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
 }
 
-fn has_nvdec() -> bool {
-    gstreamer::ElementFactory::find("nvv4l2decoder").is_some()
-}
-
-fn has_nvjpegdec() -> bool {
-    gstreamer::ElementFactory::find("nvjpegdec").is_some()
-}
-
 fn bench_rgba_pool(w: u32, h: u32) -> BufferGenerator {
     BufferGenerator::builder(VideoFormat::RGBA, w, h)
         .gpu_id(0)
@@ -159,8 +151,8 @@ const RESOLUTIONS: [(&str, u32, u32); 3] = [
 
 fn bench_hevc_decode(c: &mut Criterion) {
     ensure_init();
-    if !has_nvenc() || !has_nvdec() {
-        eprintln!("skip: NVENC or NVDEC not available — skipping HEVC decode benchmarks");
+    if !has_nvenc() {
+        eprintln!("skip: NVENC not available — skipping HEVC decode benchmarks");
         return;
     }
 
@@ -214,10 +206,6 @@ fn bench_hevc_decode(c: &mut Criterion) {
 
 fn bench_jpeg_decode(c: &mut Criterion) {
     ensure_init();
-    if !has_nvjpegdec() {
-        eprintln!("skip: nvjpegdec not available — skipping JPEG decode benchmarks");
-        return;
-    }
 
     if NvEncoder::new(&EncoderConfig::new(Codec::Jpeg, 64, 48).format(VideoFormat::I420)).is_err() {
         eprintln!("skip: JPEG encoding not available — skipping JPEG decode benchmarks");

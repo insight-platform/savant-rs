@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     frame = VideoFrame(
         source_id="test",
-        framerate="30/1",
+        fps=(30, 1),
         width=1400,
         height=720,
         content=VideoFrameContent.internal(bytes("this is it", "utf-8")),

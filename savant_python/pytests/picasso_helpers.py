@@ -100,7 +100,7 @@ def make_frame(
     """Create a VideoFrame with default params."""
     return VideoFrame(
         source_id=source_id,
-        framerate="30/1",
+        fps=(30, 1),
         width=width,
         height=height,
         content=VideoFrameContent.none(),

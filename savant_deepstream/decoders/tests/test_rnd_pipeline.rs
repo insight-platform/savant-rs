@@ -16,10 +16,6 @@ use serial_test::serial;
 #[serial]
 fn rnd_filesrc_h264_annexb() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let pipeline_str = format!(
@@ -77,10 +73,6 @@ fn rnd_filesrc_h264_annexb() {
 #[serial]
 fn rnd_appsrc_whole_file_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
@@ -169,10 +161,6 @@ fn rnd_appsrc_whole_file_h264() {
 #[serial]
 fn rnd_appsrc_individual_aus_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
@@ -284,10 +272,6 @@ fn rnd_appsrc_individual_aus_h264() {
 #[serial]
 fn rnd_nvdecoder_annexb_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let platform_tag = current_platform_tag();
     eprintln!("[NvDecoder] platform tag: {platform_tag}");

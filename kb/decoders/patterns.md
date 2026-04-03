@@ -12,9 +12,13 @@ fn init() {
 
 ## Capability Guards
 
-- `has_nvdec()`: `ElementFactory::find("nvv4l2decoder").is_some()`
-- `has_nvjpegdec()`: `ElementFactory::find("nvjpegdec").is_some()`
-- `has_nvenc()`: `nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)`
+After `init()` / `cuda_init(0)`, integration tests assume NVDEC (`nvv4l2decoder`) and hardware JPEG (`nvjpegdec`) are present — no separate element probes.
+
+- `has_nvenc()`: `nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)` (encode-side tests/benches still skip when NVENC is missing)
+
+## `VideoFrameProxy` codec / time base
+
+`VideoFrameProxy::get_codec()` is `Option<VideoCodec>` (not a free-form string). `get_fps()` / `set_fps` and `get_time_base()` / `set_time_base` use `(i64, i64)` rationals. On the wire, protobuf uses the `VideoCodec` enum and `Rational32` messages for `fps` and `time_base`. Downstream decoders resolve `VideoCodec` to `DecoderConfig`; `VideoCodec::SwJpeg` selects CPU JPEG.
 
 ## Construction Pattern
 

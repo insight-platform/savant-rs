@@ -82,14 +82,14 @@ use gstreamer::ClockTime;  // for set_pts/set_duration on buffers
 ```rust
 VideoFrameProxy::new(
     source_id,     // &str
-    framerate,     // &str, e.g. "30/1"
+    (30, 1),       // fps (numerator, denominator)
     width,         // i64
     height,        // i64
     content,       // VideoFrameContent::None
     transcoding,   // VideoFrameTranscodingMethod::Copy
-    codec,         // &Option<String> → &None
+    codec,         // Option<VideoCodec> → None
     keyframe,      // Option<bool> → None
-    time_base,     // (i32, i32), e.g. (1, 1_000_000_000)
+    time_base,     // (i64, i64), e.g. (1, 1_000_000_000)
     pts,           // i64
     dts,           // Option<i64> → None
     duration,      // Option<i64> → None

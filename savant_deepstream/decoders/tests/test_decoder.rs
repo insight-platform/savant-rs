@@ -38,8 +38,8 @@ fn encode_test_frames(codec: Codec, w: u32, h: u32, n: usize) -> Vec<(u128, u64,
 #[serial]
 fn test_e2e_h264_decode_to_rgba() {
     init();
-    if !has_nvenc() || !has_nvdec() {
-        eprintln!("skip: no NVENC/NVDEC");
+    if !has_nvenc() {
+        eprintln!("skip: no NVENC");
         return;
     }
     let (w, h) = (320, 240);
@@ -89,8 +89,8 @@ fn test_e2e_h264_decode_to_rgba() {
 #[serial]
 fn test_e2e_hevc_decode_to_rgba() {
     init();
-    if !has_nvenc() || !has_nvdec() {
-        eprintln!("skip: no NVENC/NVDEC");
+    if !has_nvenc() {
+        eprintln!("skip: no NVENC");
         return;
     }
     let (w, h) = (320, 240);
@@ -140,10 +140,6 @@ fn test_e2e_hevc_decode_to_rgba() {
 #[serial]
 fn test_e2e_jpeg_decode_to_rgba() {
     init();
-    if !has_nvjpegdec() {
-        eprintln!("skip: no nvjpegdec");
-        return;
-    }
     let (w, h) = (320, 240);
     let config_enc = EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420);
     let mut encoder = NvEncoder::new(&config_enc).expect("JPEG encoder");
@@ -386,10 +382,6 @@ fn test_e2e_raw_rgb_upload_to_rgba() {
 #[serial]
 fn test_dos_garbage_from_start_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no NVDEC");
-        return;
-    }
     let (tx, rx) = mpsc::channel();
     let mut decoder = NvDecoder::new(
         0,
@@ -419,8 +411,8 @@ fn test_dos_garbage_from_start_h264() {
 #[serial]
 fn test_dos_garbage_mid_stream_h264() {
     init();
-    if !has_nvenc() || !has_nvdec() {
-        eprintln!("skip");
+    if !has_nvenc() {
+        eprintln!("skip: no NVENC");
         return;
     }
     let (w, h) = (320, 240);
@@ -482,7 +474,7 @@ fn test_dos_garbage_mid_stream_h264() {
 #[serial]
 fn test_dos_garbage_jpeg_png() {
     init();
-    if has_nvjpegdec() {
+    {
         let (tx, rx) = mpsc::channel();
         let mut jpeg = NvDecoder::new(
             0,

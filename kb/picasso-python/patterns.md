@@ -105,7 +105,7 @@ callbacks = Callbacks(on_encoded_frame=on_encoded)
 def make_frame(source_id: str, width=1280, height=720) -> VideoFrame:
     return VideoFrame(
         source_id=source_id,
-        framerate="30/1",
+        fps=(30, 1),
         width=width, height=height,
         content=VideoFrameContent.none(),
         time_base=(1, 1_000_000_000),
@@ -530,7 +530,7 @@ buf = gen.acquire(id=i)  # SharedBuffer
 with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((18, 20, 28, 255), stream=stream)       # dark background
 
-frame = VideoFrame(source_id="src-0", framerate="30/1",
+frame = VideoFrame(source_id="src-0", fps=(30, 1),
                    width=1280, height=720,
                    content=VideoFrameContent.none(),
                    time_base=(1, 1_000_000_000), pts=pts_ns)
@@ -590,7 +590,7 @@ vf = output.as_video_frame()  # raises if EOS
 assert vf.source_id == "src-0"
 assert vf.width == 1280
 assert vf.height == 720
-assert vf.framerate == "30/1"
+assert vf.fps == (30, 1)
 objects = vf.get_all_objects()
 ```
 

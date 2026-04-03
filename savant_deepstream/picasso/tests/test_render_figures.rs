@@ -85,12 +85,12 @@ fn make_frame_with_object(
 ) -> (VideoFrameProxy, i64) {
     let frame = VideoFrameProxy::new(
         "test",
-        "30/1",
+        (30, 1),
         W as i64,
         H as i64,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,

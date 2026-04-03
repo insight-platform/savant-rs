@@ -22,6 +22,7 @@ members = [
     "savant_deepstream/buffers",
     "savant_deepstream/encoders",
     "savant_deepstream/decoders",
+    "savant_deepstream/inputs",
     "savant_deepstream/nvidia_gpu_utils",
     "savant_deepstream/nvinfer",
     "savant_deepstream/nvtracker",

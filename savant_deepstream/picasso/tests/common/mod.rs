@@ -30,12 +30,12 @@ pub const FRAME_DUR_NS: u64 = 33_333_333;
 pub fn make_frame(source_id: &str) -> VideoFrameProxy {
     VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         320,
         240,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,
@@ -49,12 +49,12 @@ pub fn make_frame(source_id: &str) -> VideoFrameProxy {
 pub fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         w,
         h,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,

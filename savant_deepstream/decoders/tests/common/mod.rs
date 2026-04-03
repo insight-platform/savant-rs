@@ -15,20 +15,15 @@ use std::time::Duration;
 
 // ── Initialisation / capability probes ──────────────────────────────
 
+/// Initialize logging, GStreamer, and CUDA on GPU 0.
+///
+/// When CUDA initializes successfully, integration tests assume NVDEC
+/// (`nvv4l2decoder`) and hardware JPEG (`nvjpegdec`) are available — no
+/// separate element-factory probes.
 pub fn init() {
     let _ = env_logger::try_init();
     let _ = gstreamer::init();
     cuda_init(0).expect("CUDA init failed");
-}
-
-pub fn has_nvdec() -> bool {
-    let _ = gstreamer::init();
-    gstreamer::ElementFactory::find("nvv4l2decoder").is_some()
-}
-
-pub fn has_nvjpegdec() -> bool {
-    let _ = gstreamer::init();
-    gstreamer::ElementFactory::find("nvjpegdec").is_some()
 }
 
 pub fn has_nvenc() -> bool {

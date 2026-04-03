@@ -86,10 +86,6 @@ fn run_annexb_e2e(entry: &AssetEntry) {
 #[serial]
 fn test_minimal_nvdecoder_annexb() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
@@ -135,10 +131,6 @@ fn test_minimal_nvdecoder_annexb() {
 #[serial]
 fn test_annexb_e2e_all_assets() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let platform_tag = current_platform_tag();
     let manifest = load_manifest();

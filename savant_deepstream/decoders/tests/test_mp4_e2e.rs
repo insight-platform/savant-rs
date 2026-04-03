@@ -159,7 +159,6 @@ fn test_mp4_e2e_all_assets() {
 
     let mut tested = 0;
     let mut skipped_platform = 0;
-    let mut skipped_hw = 0;
 
     for entry in &manifest.assets {
         if entry.container.as_deref() != Some("mp4") {
@@ -171,36 +170,18 @@ fn test_mp4_e2e_all_assets() {
             continue;
         }
 
-        let needs_nvdec = matches!(
-            entry.codec.as_str(),
-            "h264" | "hevc" | "vp8" | "vp9" | "av1"
-        );
-        if needs_nvdec && !has_nvdec() {
-            eprintln!("  SKIP (no nvv4l2decoder) {}", entry.file);
-            skipped_hw += 1;
-            continue;
-        }
-
-        if entry.codec == "jpeg" && !has_nvjpegdec() {
-            eprintln!("  SKIP (no nvjpegdec) {}", entry.file);
-            skipped_hw += 1;
-            continue;
-        }
-
         run_mp4_e2e(entry);
         tested += 1;
     }
 
-    eprintln!(
-        "\nSummary: tested={tested}, skipped_platform={skipped_platform}, skipped_hw={skipped_hw}"
-    );
+    eprintln!("\nSummary: tested={tested}, skipped_platform={skipped_platform}");
     let mp4_count = manifest
         .assets
         .iter()
         .filter(|e| e.container.as_deref() == Some("mp4"))
         .count();
     assert!(
-        tested > 0 || skipped_platform + skipped_hw == mp4_count,
+        tested > 0 || skipped_platform == mp4_count,
         "No MP4 assets were tested and not all were expected to be skipped"
     );
 }

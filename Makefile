@@ -7,6 +7,9 @@ VENV_BIN  := $(VENV_DIR)/bin
 PYTHON    := $(VENV_BIN)/python3
 PIP       := $(VENV_BIN)/pip
 PYTEST    := $(VENV_BIN)/python3 -m pytest
+# Passed to utils/build.sh so maturin/PyO3 use the same interpreter as pip/pytest.
+# Override with `make PYTHON_INTERPRETER= dev` to let build.sh fall back (e.g. ./venv, maturin -f).
+PYTHON_INTERPRETER ?= $(VENV_BIN)/python3
 
 export PYTHON_VERSION=$(shell $(PYTHON) -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
@@ -85,11 +88,11 @@ docs: dev install
 
 build_savant:
 	@echo "Building..."
-	SAVANT_FEATURES=$(SAVANT_FEATURES) utils/build.sh debug
+	PYTHON_INTERPRETER=$(PYTHON_INTERPRETER) SAVANT_FEATURES=$(SAVANT_FEATURES) utils/build.sh debug
 
 build_savant_release:
 	@echo "Building..."
-	SAVANT_FEATURES=$(SAVANT_FEATURES) utils/build.sh release
+	PYTHON_INTERPRETER=$(PYTHON_INTERPRETER) SAVANT_FEATURES=$(SAVANT_FEATURES) utils/build.sh release
 
 clean:
 	@echo "Cleaning..."

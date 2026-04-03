@@ -34,7 +34,7 @@ from savant_rs.utils.serialization import (
 def _make_frame():
     return VideoFrame(
         source_id="cam",
-        framerate="30/1",
+        fps=(30, 1),
         width=640,
         height=480,
         content=VideoFrameContent.none(),

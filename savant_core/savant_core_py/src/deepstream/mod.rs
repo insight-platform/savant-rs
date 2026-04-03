@@ -8,6 +8,7 @@ pub mod config;
 pub mod enums;
 pub mod functions;
 pub mod generators;
+pub mod inputs;
 pub mod skia;
 pub mod surface_view;
 
@@ -61,5 +62,6 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_class::<skia::PySkiaContext>()?;
+    inputs::register_inputs_classes(m)?;
     Ok(())
 }

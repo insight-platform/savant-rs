@@ -85,7 +85,7 @@ from savant_rs.match_query import MatchQuery     # .idle() for querying objects
 ```python
 VideoFrame(
     source_id="src-0",
-    framerate="30/1",
+    fps=(30, 1),
     width=1280, height=720,
     content=VideoFrameContent.none(),
     time_base=(1, 1_000_000_000),

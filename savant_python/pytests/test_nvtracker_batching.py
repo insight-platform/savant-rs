@@ -68,7 +68,7 @@ def _require_tracker_assets() -> None:
 def _make_frame(source: str, width: int = 320, height: int = 240) -> VideoFrame:
     return VideoFrame(
         source_id=source,
-        framerate="30/1",
+        fps=(30, 1),
         width=width,
         height=height,
         content=VideoFrameContent.none(),

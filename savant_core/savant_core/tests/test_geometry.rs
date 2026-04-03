@@ -9,12 +9,12 @@ use savant_core::primitives::object::{
 fn make_frame(w: i64, h: i64) -> VideoFrameProxy {
     VideoFrameProxy::new(
         "test",
-        "30/1",
+        (30, 1),
         w,
         h,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1000000000),
         0,

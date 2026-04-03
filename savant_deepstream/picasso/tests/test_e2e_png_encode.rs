@@ -33,12 +33,12 @@ fn output_dir() -> PathBuf {
 fn create_frame(source_id: &str) -> VideoFrameProxy {
     let frame = VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         SRC_W as i64,
         SRC_H as i64,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,

@@ -129,10 +129,6 @@ fn run_avcc_e2e(entry: &AssetEntry) {
 #[serial]
 fn test_avcc_e2e_all_assets() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let platform_tag = current_platform_tag();
     let manifest = load_manifest();

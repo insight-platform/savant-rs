@@ -143,7 +143,7 @@ class TestPipeline:
     def test_add_frame_and_retrieve(self, pipeline):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -158,7 +158,7 @@ class TestPipeline:
     def test_delete(self, pipeline):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -170,7 +170,7 @@ class TestPipeline:
     def test_add_frame_update_and_apply(self, pipeline):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -194,7 +194,7 @@ class TestPipeline:
     def test_add_frame_with_telemetry(self, pipeline):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),

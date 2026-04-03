@@ -551,7 +551,7 @@ def test_sealed_deliveries_guard_behavior():
 
         frame = VideoFrame(
             source_id="test",
-            framerate="30/1",
+            fps=(30, 1),
             width=W,
             height=H,
             content=VideoFrameContent.none(),

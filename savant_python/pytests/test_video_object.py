@@ -181,7 +181,7 @@ class TestBorrowedVideoObject:
     def frame_with_object(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -302,7 +302,7 @@ class TestVideoObjectsView:
     def frame_with_objects(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -354,7 +354,7 @@ class TestVideoObjectTree:
     def test_export_import_object_trees(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -372,7 +372,7 @@ class TestVideoObjectTree:
 
         f2 = VideoFrame(
             source_id="cam2",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -383,7 +383,7 @@ class TestVideoObjectTree:
     def test_walk_objects(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),

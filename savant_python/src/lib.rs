@@ -24,7 +24,8 @@ use savant_core_py::primitives::bbox::{
 };
 use savant_core_py::primitives::eos::EndOfStream;
 use savant_core_py::primitives::frame::{
-    VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrame, VideoFrameCodec, VideoFrameContent, VideoFrameTranscodingMethod,
+    VideoFrameTransformation,
 };
 use savant_core_py::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
@@ -262,6 +263,7 @@ pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<UserData>()?;
 
     m.add_class::<VideoFrame>()?;
+    m.add_class::<VideoFrameCodec>()?;
     m.add_class::<VideoFrameBatch>()?;
     m.add_class::<VideoFrameContent>()?;
     m.add_class::<VideoFrameTranscodingMethod>()?;

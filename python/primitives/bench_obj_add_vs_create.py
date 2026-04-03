@@ -10,7 +10,7 @@ from savant_rs.primitives.geometry import BBox
 
 frame = VideoFrame(
     source_id="Test",
-    framerate="30/1",
+    fps=(30, 1),
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
@@ -41,7 +41,7 @@ print(timeit(lambda: add_object_fn(frame), number=10000))
 
 frame = VideoFrame(
     source_id="Test",
-    framerate="30/1",
+    fps=(30, 1),
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),

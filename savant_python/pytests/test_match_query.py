@@ -282,7 +282,7 @@ class TestMatchQueryFiltering:
     def frame(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -311,7 +311,7 @@ class TestQueryFunctions:
     def frame(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),

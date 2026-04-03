@@ -10,8 +10,8 @@ use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::bigint::fit_i64;
 use crate::{detach, err_to_pyerr};
-use pyo3::exceptions::{PyRuntimeError, PySystemError, PyValueError};
-use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::exceptions::{PyRuntimeError, PySystemError, PyTypeError, PyValueError};
+use pyo3::types::{PyAnyMethods, PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::ObjectOperations;
@@ -232,6 +232,98 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
             rust::VideoFrameTranscodingMethod::from(*self)
         ))
     }
+}
+
+/// Video codec on a :class:`VideoFrame` (includes ``SwJpeg`` for software JPEG).
+#[pyclass(from_py_object, eq, eq_int, frozen)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum VideoFrameCodec {
+    H264,
+    Hevc,
+    Jpeg,
+    SwJpeg,
+    Av1,
+    Png,
+    Vp8,
+    Vp9,
+    RawRgba,
+    RawRgb,
+    RawNv12,
+}
+
+impl From<VideoFrameCodec> for rust::VideoCodec {
+    fn from(value: VideoFrameCodec) -> Self {
+        match value {
+            VideoFrameCodec::H264 => rust::VideoCodec::H264,
+            VideoFrameCodec::Hevc => rust::VideoCodec::Hevc,
+            VideoFrameCodec::Jpeg => rust::VideoCodec::Jpeg,
+            VideoFrameCodec::SwJpeg => rust::VideoCodec::SwJpeg,
+            VideoFrameCodec::Av1 => rust::VideoCodec::Av1,
+            VideoFrameCodec::Png => rust::VideoCodec::Png,
+            VideoFrameCodec::Vp8 => rust::VideoCodec::Vp8,
+            VideoFrameCodec::Vp9 => rust::VideoCodec::Vp9,
+            VideoFrameCodec::RawRgba => rust::VideoCodec::RawRgba,
+            VideoFrameCodec::RawRgb => rust::VideoCodec::RawRgb,
+            VideoFrameCodec::RawNv12 => rust::VideoCodec::RawNv12,
+        }
+    }
+}
+
+impl From<rust::VideoCodec> for VideoFrameCodec {
+    fn from(value: rust::VideoCodec) -> Self {
+        match value {
+            rust::VideoCodec::H264 => VideoFrameCodec::H264,
+            rust::VideoCodec::Hevc => VideoFrameCodec::Hevc,
+            rust::VideoCodec::Jpeg => VideoFrameCodec::Jpeg,
+            rust::VideoCodec::SwJpeg => VideoFrameCodec::SwJpeg,
+            rust::VideoCodec::Av1 => VideoFrameCodec::Av1,
+            rust::VideoCodec::Png => VideoFrameCodec::Png,
+            rust::VideoCodec::Vp8 => VideoFrameCodec::Vp8,
+            rust::VideoCodec::Vp9 => VideoFrameCodec::Vp9,
+            rust::VideoCodec::RawRgba => VideoFrameCodec::RawRgba,
+            rust::VideoCodec::RawRgb => VideoFrameCodec::RawRgb,
+            rust::VideoCodec::RawNv12 => VideoFrameCodec::RawNv12,
+        }
+    }
+}
+
+#[pymethods]
+impl VideoFrameCodec {
+    #[staticmethod]
+    pub fn from_name(name: &str) -> PyResult<Self> {
+        rust::VideoCodec::from_name(name.trim())
+            .map(Into::into)
+            .ok_or_else(|| PyValueError::new_err(format!("Unknown video frame codec: '{name}'")))
+    }
+
+    /// Canonical wire name (e.g. ``\"hevc\"``, ``\"swjpeg\"``).
+    pub fn name(&self) -> &'static str {
+        rust::VideoCodec::from(*self).name()
+    }
+}
+
+fn optional_codec_from_py_any(ob: Option<Bound<'_, PyAny>>) -> PyResult<Option<rust::VideoCodec>> {
+    let Some(ob) = ob else {
+        return Ok(None);
+    };
+    if ob.is_none() {
+        return Ok(None);
+    }
+    if let Ok(c) = ob.extract::<VideoFrameCodec>() {
+        return Ok(Some(c.into()));
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        let t = s.trim();
+        if t.is_empty() {
+            return Ok(None);
+        }
+        return rust::VideoCodec::from_name(t)
+            .map(Some)
+            .ok_or_else(|| PyValueError::new_err(format!("Unknown video frame codec: '{t}'")));
+    }
+    Err(PyTypeError::new_err(
+        "codec must be VideoFrameCodec, str, or None",
+    ))
 }
 
 /// Represents the structure for accessing/defining video frame transformation information.
@@ -601,31 +693,32 @@ impl VideoFrame {
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(
-        signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, time_base=(1, 1000000), pts=0, dts=None, duration=None)
+        signature = (source_id, fps, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, time_base=(1, 1000000), pts=0, dts=None, duration=None)
     )]
     pub fn new(
         source_id: &str,
-        framerate: &str,
+        fps: (i64, i64),
         width: i64,
         height: i64,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod,
-        codec: Option<String>,
+        codec: Option<Bound<'_, PyAny>>,
         keyframe: Option<bool>,
         time_base: (i64, i64),
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
     ) -> PyResult<Self> {
+        let vcodec = optional_codec_from_py_any(codec)?;
         Ok(VideoFrame(err_to_pyerr!(
             rust::VideoFrameProxy::new(
                 source_id,
-                framerate,
+                fps,
                 width,
                 height,
                 content.0,
                 transcoding_method.into(),
-                &codec.as_deref(),
+                vcodec,
                 keyframe,
                 time_base,
                 pts,
@@ -669,10 +762,10 @@ impl VideoFrame {
     /// Returns
     /// -------
     /// Tuple[int, int]
-    ///   The stream time base for the frame.
+    ///   The stream time base ``(numerator, denominator)`` for the frame.
     ///
     #[getter]
-    pub fn get_time_base(&self) -> (i32, i32) {
+    pub fn get_time_base(&self) -> (i64, i64) {
         self.0.get_time_base()
     }
 
@@ -681,7 +774,7 @@ impl VideoFrame {
     /// Parameters
     /// ----------
     /// time_base : Tuple[int, int]
-    ///   The stream time base for the frame.
+    ///   The stream time base ``(numerator, denominator)``.
     ///
     /// Raises
     /// ------
@@ -689,7 +782,7 @@ impl VideoFrame {
     ///   If the time base value is invalid.
     ///
     #[setter]
-    pub fn set_time_base(&mut self, time_base: (i32, i32)) -> PyResult<()> {
+    pub fn set_time_base(&mut self, time_base: (i64, i64)) -> PyResult<()> {
         Ok(err_to_pyerr!(
             self.0.set_time_base(time_base),
             PyValueError
@@ -741,13 +834,13 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_framerate(&self) -> String {
-        self.0.get_framerate()
+    pub fn get_fps(&self) -> (i64, i64) {
+        self.0.get_fps()
     }
 
     #[setter]
-    pub fn set_framerate(&mut self, framerate: &str) {
-        self.0.set_framerate(framerate)
+    pub fn set_fps(&mut self, fps: (i64, i64)) -> PyResult<()> {
+        Ok(err_to_pyerr!(self.0.set_fps(fps), PyValueError)?)
     }
 
     #[getter]
@@ -849,13 +942,13 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_codec(&self) -> Option<String> {
-        self.0.get_codec()
+    pub fn get_codec(&self) -> Option<VideoFrameCodec> {
+        self.0.get_codec().map(Into::into)
     }
 
     #[setter]
-    pub fn set_codec(&mut self, codec: Option<String>) {
-        self.0.set_codec(codec)
+    pub fn set_codec(&mut self, codec: Option<VideoFrameCodec>) {
+        self.0.set_codec(codec.map(Into::into));
     }
 
     #[getter]

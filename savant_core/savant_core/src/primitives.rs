@@ -14,10 +14,12 @@ pub mod eos;
 pub mod frame;
 pub mod frame_batch;
 pub mod frame_update;
+pub mod gstreamer_frame_time;
 pub mod object;
 pub mod segment;
 pub mod shutdown;
 pub mod userdata;
+pub mod video_codec;
 
 pub use segment::*;
 
@@ -37,6 +39,9 @@ pub mod rust {
     pub use super::frame::VideoObjectTree;
     pub use super::frame_batch::VideoFrameBatch;
     pub use super::frame_update::VideoFrameUpdate;
+    pub use super::gstreamer_frame_time::{
+        frame_clock_ns, normalize_frame_to_gst_ns, time_base_to_ns, FrameClockNs, GST_TIME_BASE,
+    };
     pub use super::object::BorrowedVideoObject;
     pub use super::object::VideoObject;
     pub use super::object::VideoObjectBBoxTransformation;
@@ -48,6 +53,7 @@ pub mod rust {
     pub use super::segment::Segment;
     pub use super::shutdown::Shutdown;
     pub use super::userdata::UserData;
+    pub use super::video_codec::VideoCodec;
     pub use crate::message::Message;
     pub use crate::primitives::frame::ExternalFrame;
     pub use crate::primitives::object::IdCollisionResolutionPolicy;

@@ -45,12 +45,12 @@ fn source_id(idx: usize) -> String {
 fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     let f = VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         WIDTH as i64,
         HEIGHT as i64,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,

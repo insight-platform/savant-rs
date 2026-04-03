@@ -133,7 +133,7 @@ class TestPicassoPipelineEncode:
         assert vf.source_id == "src-0"
         assert vf.width == WIDTH
         assert vf.height == HEIGHT
-        assert vf.framerate == "30/1"
+        assert vf.fps == (30, 1)
 
     def test_encode_objects_preserved(self) -> None:
         """Verify objects are carried through the encode pipeline."""
@@ -511,7 +511,7 @@ class TestFrameObjectGeneration:
     def test_make_frame(self) -> None:
         f = make_frame("test-src")
         assert f.source_id == "test-src"
-        assert f.framerate == "30/1"
+        assert f.fps == (30, 1)
         assert f.width == WIDTH
         assert f.height == HEIGHT
 

@@ -20,7 +20,7 @@ use retina::{
 };
 use savant_core::primitives::{
     frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
-    rust::ExternalFrame,
+    rust::{ExternalFrame, VideoCodec},
 };
 use savant_services_common::job_writer::JobWriter;
 
@@ -388,10 +388,10 @@ impl RtspServiceGroup {
                     size,
                 );
 
-                let frame_rate = stream_info
+                let fps = stream_info
                     .frame_rate
-                    .map(|(num, den)| format!("{}/{}", den / num, 1))
-                    .unwrap_or("30/1".to_string());
+                    .map(|(num, den)| (i64::from(den / num), 1_i64))
+                    .unwrap_or((30, 1));
 
                 let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
                     Cow::Owned(convert_to_annexb(video_frame)?)
@@ -462,12 +462,12 @@ impl RtspServiceGroup {
 
                 let frame = VideoFrameProxy::new(
                     source_id,
-                    &frame_rate,
+                    fps,
                     stream_info.pixel_dimensions.0 as i64,
                     stream_info.pixel_dimensions.1 as i64,
                     VideoFrameContent::External(ExternalFrame::new("zeromq", &None)),
                     VideoFrameTranscodingMethod::Copy,
-                    &Some(&stream_info.encoding),
+                    VideoCodec::from_name(stream_info.encoding.as_str()),
                     Some(kf),
                     TIME_BASE,
                     pts,

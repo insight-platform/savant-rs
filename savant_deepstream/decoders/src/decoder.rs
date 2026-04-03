@@ -28,7 +28,6 @@ struct PipelineState {
     appsrc: gst_app::AppSrc,
     appsink: gst_app::AppSink,
     drain_thread: Option<JoinHandle<()>>,
-    eos_at_pad: Arc<AtomicBool>,
     /// Set before tearing down the pipeline on error restart so `drain_loop`
     /// exits without waiting for EOS (which may never arrive).
     stop_drain: Arc<AtomicBool>,
@@ -354,17 +353,13 @@ impl NvDecoder {
         let pipeline = state.pipeline.clone();
         let shared = Arc::clone(shared);
         let cb = Arc::clone(callback);
-        let eos_flag = state.eos_at_pad.clone();
         let stop_flag = state.stop_drain.clone();
         let pool = Arc::clone(pool);
         let tf = transform_config.clone();
         match std::thread::Builder::new()
             .name("decoder-drain".into())
-            .spawn(move || {
-                drain_loop(
-                    sink, pipeline, shared, cb, pool, tf, gpu_id, eos_flag, stop_flag,
-                )
-            }) {
+            .spawn(move || drain_loop(sink, pipeline, shared, cb, pool, tf, gpu_id, stop_flag))
+        {
             Ok(handle) => state.drain_thread = Some(handle),
             Err(e) => {
                 (callback.lock())(DecoderEvent::Error(DecoderError::PipelineError(format!(
@@ -476,21 +471,7 @@ impl NvDecoder {
         appsink_elem.set_property("sync", false);
         appsink_elem.set_property("emit-signals", false);
 
-        let eos_at_pad = Arc::new(AtomicBool::new(false));
         let stop_drain = Arc::new(AtomicBool::new(false));
-        {
-            let eos_flag = eos_at_pad.clone();
-            if let Some(sink_pad) = appsink_elem.static_pad("sink") {
-                sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
-                    if let Some(ev) = info.event() {
-                        if ev.type_() == gst::EventType::Eos {
-                            eos_flag.store(true, Ordering::Release);
-                        }
-                    }
-                    gst::PadProbeReturn::Ok
-                });
-            }
-        }
 
         match config {
             DecoderConfig::H264(cfg) => {
@@ -577,7 +558,6 @@ impl NvDecoder {
             appsrc,
             appsink,
             drain_thread: None,
-            eos_at_pad,
             stop_drain,
         })
     }
@@ -756,18 +736,32 @@ fn drain_loop(
     pool: Arc<Mutex<BufferGenerator>>,
     transform_config: TransformConfig,
     gpu_id: u32,
-    eos_at_pad: Arc<AtomicBool>,
     stop_drain: Arc<AtomicBool>,
 ) {
     let mut aux_pool: Option<BufferGenerator> = None;
+
+    // Pull with a small blocking timeout.  `try_pull_sample` internally
+    // waits on a condvar that is signalled both when a buffer arrives
+    // and when the appsink receives EOS, so this wakes up immediately
+    // on either event.  The 10 ms cap keeps `stop_drain` responsive.
+    //
+    // Termination uses `sink.is_eos()` exclusively — NOT the early
+    // `eos_at_pad` flag.  `is_eos()` is set by appsink's internal
+    // event handler which runs *after* all preceding buffers have been
+    // committed to its queue.  This guarantees that a non-blocking pull
+    // at that point returns any remaining frame before we declare EOS.
+    // HW decoder elements (nvjpegdec, nvv4l2decoder) use internal
+    // threads where the EOS event can outrace the last decoded buffer
+    // to the sink pad, making `eos_at_pad` unsafe as a termination
+    // condition.
+    const PULL_TIMEOUT: gst::ClockTime = gst::ClockTime::from_mseconds(10);
 
     loop {
         if stop_drain.load(Ordering::Acquire) {
             break;
         }
-        let eos_seen = eos_at_pad.load(Ordering::Acquire);
 
-        match sink.try_pull_sample(gst::ClockTime::from_mseconds(0)) {
+        match sink.try_pull_sample(PULL_TIMEOUT) {
             Some(sample) => {
                 let result = sample_to_frame(
                     &shared,
@@ -782,13 +776,11 @@ fn drain_loop(
                     Err(e) => (callback.lock())(DecoderEvent::Error(e)),
                 }
             }
-            None if sink.is_eos() || eos_seen => {
+            None if sink.is_eos() => {
                 (callback.lock())(DecoderEvent::Eos);
                 break;
             }
-            None => {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
+            None => {}
         }
     }
 }

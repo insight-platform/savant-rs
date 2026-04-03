@@ -494,7 +494,7 @@ class PicassoSession:
         """Create a :class:`VideoFrame` for source *source_idx*."""
         frame = VideoFrame(
             source_id=self.source_ids[source_idx],
-            framerate=f"{self._fps}/1",
+            fps=(self._fps, 1),
             width=self._width,
             height=self._height,
             content=VideoFrameContent.none(),

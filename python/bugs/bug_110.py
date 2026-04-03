@@ -9,7 +9,7 @@ from savant_rs.utils.serialization import Message, load_message, save_message
 
 frame = VideoFrame(
     source_id="Test",
-    framerate="30/1",
+    fps=(30, 1),
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
