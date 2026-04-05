@@ -32,8 +32,10 @@ fn fps_from_pb(fps: &Option<generated::Rational32>) -> (i64, i64) {
 
 fn time_base_from_pb(tb: &Option<generated::Rational32>) -> (i64, i64) {
     match tb {
-        None => (0, 0),
-        Some(r) => (i64::from(r.numerator), i64::from(r.denominator)),
+        Some(r) if r.numerator > 0 && r.denominator > 0 => {
+            (i64::from(r.numerator), i64::from(r.denominator))
+        }
+        _ => (1, 1_000_000),
     }
 }
 
@@ -223,6 +225,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrameProxy {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::frame::VideoFrameProxy;
     use crate::test::gen_frame;
@@ -237,5 +240,55 @@ mod tests {
         let restored = VideoFrameProxy::try_from(&serialized).unwrap();
         assert_eq!(restored.inner.read().creation_timestamp_ns, pattern);
         assert_eq!(frame.to_serde_json_value(), restored.to_serde_json_value());
+    }
+
+    #[test]
+    fn time_base_from_pb_none_returns_default() {
+        assert_eq!(time_base_from_pb(&None), (1, 1_000_000));
+    }
+
+    #[test]
+    fn time_base_from_pb_zero_values_return_default() {
+        let zero_both = generated::Rational32 {
+            numerator: 0,
+            denominator: 0,
+        };
+        assert_eq!(time_base_from_pb(&Some(zero_both)), (1, 1_000_000));
+
+        let zero_num = generated::Rational32 {
+            numerator: 0,
+            denominator: 90_000,
+        };
+        assert_eq!(time_base_from_pb(&Some(zero_num)), (1, 1_000_000));
+
+        let zero_den = generated::Rational32 {
+            numerator: 1,
+            denominator: 0,
+        };
+        assert_eq!(time_base_from_pb(&Some(zero_den)), (1, 1_000_000));
+    }
+
+    #[test]
+    fn time_base_from_pb_negative_values_return_default() {
+        let neg_num = generated::Rational32 {
+            numerator: -1,
+            denominator: 90_000,
+        };
+        assert_eq!(time_base_from_pb(&Some(neg_num)), (1, 1_000_000));
+
+        let neg_den = generated::Rational32 {
+            numerator: 1,
+            denominator: -1,
+        };
+        assert_eq!(time_base_from_pb(&Some(neg_den)), (1, 1_000_000));
+    }
+
+    #[test]
+    fn time_base_from_pb_valid_values_pass_through() {
+        let valid = generated::Rational32 {
+            numerator: 1,
+            denominator: 90_000,
+        };
+        assert_eq!(time_base_from_pb(&Some(valid)), (1, 90_000));
     }
 }
