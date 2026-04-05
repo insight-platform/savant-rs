@@ -11,7 +11,7 @@ use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::bigint::fit_i64;
 use crate::{detach, err_to_pyerr};
 use pyo3::exceptions::{PyRuntimeError, PySystemError, PyTypeError, PyValueError};
-use pyo3::types::{PyAnyMethods, PyBytes, PyBytesMethods};
+use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::ObjectOperations;
@@ -300,30 +300,6 @@ impl VideoFrameCodec {
     pub fn name(&self) -> &'static str {
         rust::VideoCodec::from(*self).name()
     }
-}
-
-fn optional_codec_from_py_any(ob: Option<Bound<'_, PyAny>>) -> PyResult<Option<rust::VideoCodec>> {
-    let Some(ob) = ob else {
-        return Ok(None);
-    };
-    if ob.is_none() {
-        return Ok(None);
-    }
-    if let Ok(c) = ob.extract::<VideoFrameCodec>() {
-        return Ok(Some(c.into()));
-    }
-    if let Ok(s) = ob.extract::<String>() {
-        let t = s.trim();
-        if t.is_empty() {
-            return Ok(None);
-        }
-        return rust::VideoCodec::from_name(t)
-            .map(Some)
-            .ok_or_else(|| PyValueError::new_err(format!("Unknown video frame codec: '{t}'")));
-    }
-    Err(PyTypeError::new_err(
-        "codec must be VideoFrameCodec, str, or None",
-    ))
 }
 
 /// Represents the structure for accessing/defining video frame transformation information.
@@ -702,14 +678,13 @@ impl VideoFrame {
         height: i64,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod,
-        codec: Option<Bound<'_, PyAny>>,
+        codec: Option<VideoFrameCodec>,
         keyframe: Option<bool>,
         time_base: (i64, i64),
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
     ) -> PyResult<Self> {
-        let vcodec = optional_codec_from_py_any(codec)?;
         Ok(VideoFrame(err_to_pyerr!(
             rust::VideoFrameProxy::new(
                 source_id,
@@ -718,7 +693,7 @@ impl VideoFrame {
                 height,
                 content.0,
                 transcoding_method.into(),
-                vcodec,
+                codec.map(Into::into),
                 keyframe,
                 time_base,
                 pts,

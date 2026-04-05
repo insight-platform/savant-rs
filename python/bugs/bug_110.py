@@ -1,6 +1,7 @@
 from savant_rs.primitives import (
     IdCollisionResolutionPolicy,
     VideoFrame,
+    VideoFrameCodec,
     VideoFrameContent,
     VideoObject,
 )
@@ -13,7 +14,7 @@ frame = VideoFrame(
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
-    codec="jpeg",
+    codec=VideoFrameCodec.Jpeg,
     keyframe=True,
     pts=0,
     dts=None,

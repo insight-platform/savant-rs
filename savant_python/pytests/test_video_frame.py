@@ -150,7 +150,7 @@ class TestVideoFrameConstruction:
             height=480,
             content=VideoFrameContent.internal(b"\x00"),
             transcoding_method=VideoFrameTranscodingMethod.Encoded,
-            codec="h264",
+            codec=VideoFrameCodec.H264,
             keyframe=True,
             time_base=(1, 90000),
             pts=12345,

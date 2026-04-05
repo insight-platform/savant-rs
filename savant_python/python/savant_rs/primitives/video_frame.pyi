@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import MatchQuery
@@ -92,7 +92,7 @@ class VideoFrame:
         height: int,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod = VideoFrameTranscodingMethod.Copy,
-        codec: Optional[Union[VideoFrameCodec, str]] = None,
+        codec: Optional[VideoFrameCodec] = None,
         keyframe: Optional[bool] = None,
         time_base: Tuple[int, int] = (1, 1_000_000),
         pts: int = 0,
