@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use anyhow::Context;
 use glib::prelude::*;
@@ -353,22 +354,26 @@ pub async fn run_group(
                 ntp_time,
             } => {
                 let source_id = &sources[source_idx].source_id;
-                let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
-                if clock_rate == 0 {
-                    warn!("RTCP SR received before clock rate known for {}", source_id);
-                    continue;
-                }
 
                 info!(
                     "RTCP SR source_id={} rtp={} ntp=0x{:016X}",
                     source_id, rtp_time, ntp_time
                 );
 
-                // Queue SR — will be applied when a video frame's RTP >= this SR's RTP
+                // Always queue SR — clock_rate is not needed for queuing
                 sr_queues
                     .entry(source_idx)
                     .or_default()
                     .push_back((rtp_time, ntp_time));
+
+                let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
+                if clock_rate == 0 {
+                    warn!(
+                        "RTCP SR queued but clock rate unknown for {}, skipping NTP sync",
+                        source_id
+                    );
+                    continue;
+                }
 
                 if let Some(ntp) = &mut ntp_sync {
                     if ntp.is_ready(source_id) && rtcp_once {
@@ -428,12 +433,33 @@ pub async fn run_group(
                     }
                 }
 
-                // Map RTP to PTS via RtpPtsMapper
+                // Fallback: when NTP sync is not configured and no RTCP SR has
+                // seeded the mapper yet, use the first keyframe's RTP timestamp
+                // as PTS base (matching the retina backend's rtp_bases approach).
+                if !rtp_mappers.contains_key(&source_idx)
+                    && ntp_sync.is_none()
+                    && is_keyframe
+                    && clock_rate > 0
+                {
+                    info!(
+                        "Source {}: seeding RTP mapper from keyframe (no RTCP SR), rtp={}",
+                        source_id, rtp_timestamp
+                    );
+                    let mapper = RtpPtsMapper::with_seed(
+                        rtp_timestamp,
+                        Duration::ZERO,
+                        (1, clock_rate as i64),
+                        (1, TIME_BASE.1),
+                    )
+                    .expect("valid timebase");
+                    rtp_mappers.insert(source_idx, mapper);
+                }
+
                 let mapper = match rtp_mappers.get_mut(&source_idx) {
                     Some(m) => m,
                     None => {
                         debug!(
-                            "No RTP mapper for {} yet (no applicable RTCP SR), skipping",
+                            "No RTP mapper for {} yet (waiting for RTCP SR or keyframe), skipping",
                             source_id
                         );
                         continue;
