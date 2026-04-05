@@ -1027,7 +1027,7 @@ fn apply_v4l2_props(
     pairs: Vec<(&'static str, String)>,
 ) -> Result<(), DecoderError> {
     for (name, val) in pairs {
-        if element.has_property(name, None) {
+        if element.has_property(name) {
             if let Ok(parsed) = val.parse::<u32>() {
                 element.set_property(name, parsed);
             } else if let Ok(parsed) = val.parse::<i32>() {
