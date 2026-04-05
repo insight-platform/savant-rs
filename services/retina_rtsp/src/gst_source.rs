@@ -86,12 +86,7 @@ pub async fn run_group(
             .property_from_str("protocols", "tcp")
             .property("ntp-sync", false)
             .build()
-            .with_context(|| {
-                format!(
-                    "Failed to create rtspsrc for source {}",
-                    source.source_id
-                )
-            })?;
+            .with_context(|| format!("Failed to create rtspsrc for source {}", source.source_id))?;
 
         if let Some(opts) = &source.options {
             rtspsrc.set_property("user-id", &opts.username);
@@ -125,8 +120,13 @@ pub async fn run_group(
                     return None;
                 }
                 let element = values[0].get::<gst::Element>().unwrap();
+                let pad_name = pad.name();
+                let session_idx: u32 = pad_name
+                    .strip_prefix("recv_rtcp_sink_")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
                 let session: glib::Object =
-                    element.emit_by_name("get-internal-session", &[&0u32]);
+                    element.emit_by_name("get-internal-session", &[&session_idx]);
                 let tx_sr = tx_inner.clone();
                 let si = src_idx;
                 session.connect("on-receiving-rtcp", false, move |values| {
@@ -242,9 +242,7 @@ pub async fn run_group(
             let rtp_atomic = rtp_current_for_pad.clone();
             pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
                 if let Some(gst::PadProbeData::Buffer(ref buffer)) = info.data {
-                    if let Ok(rtp_buffer) =
-                        gst_rtp::RTPBuffer::from_buffer_readable(buffer)
-                    {
+                    if let Ok(rtp_buffer) = gst_rtp::RTPBuffer::from_buffer_readable(buffer) {
                         rtp_atomic.store(rtp_buffer.timestamp(), Ordering::Release);
                     }
                 }
@@ -264,15 +262,12 @@ pub async fn run_group(
                         let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
                         let buffer = sample.buffer().ok_or(gst::FlowError::Error)?;
 
-                        let is_keyframe =
-                            !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT);
+                        let is_keyframe = !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT);
 
-                        let map =
-                            buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
+                        let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
                         let data = map.as_slice().to_vec();
 
-                        let rtp_timestamp =
-                            rtp_atomic_appsink.load(Ordering::Acquire);
+                        let rtp_timestamp = rtp_atomic_appsink.load(Ordering::Acquire);
 
                         let (width, height, framerate) = extract_video_info(&sample);
 
@@ -358,13 +353,9 @@ pub async fn run_group(
                 ntp_time,
             } => {
                 let source_id = &sources[source_idx].source_id;
-                let clock_rate =
-                    *per_source_states[source_idx].clock_rate.lock().unwrap();
+                let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
                 if clock_rate == 0 {
-                    warn!(
-                        "RTCP SR received before clock rate known for {}",
-                        source_id
-                    );
+                    warn!("RTCP SR received before clock rate known for {}", source_id);
                     continue;
                 }
 
@@ -415,8 +406,7 @@ pub async fn run_group(
                 // discard the rest (subsequent SRs already fed to NTP sync).
                 // Only the first SR establishes the PTS base — reseeding would
                 // cause PTS discontinuities that the Syncer rejects.
-                let clock_rate =
-                    *per_source_states[source_idx].clock_rate.lock().unwrap();
+                let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
                 if let Some(sr_queue) = sr_queues.get_mut(&source_idx) {
                     while let Some(&(sr_rtp, _)) = sr_queue.front() {
                         if rtp_timestamp >= sr_rtp {
@@ -492,10 +482,8 @@ pub async fn run_group(
                     continue;
                 }
 
-                // GStreamer Fraction: numer/denom = fps (e.g. 25/1 = 25fps)
-                // VideoFrameProxy expects fps as (fps_value, 1)
                 let fps = framerate
-                    .map(|(num, den)| (i64::from(num / den.max(1)), 1_i64))
+                    .map(|(num, den)| (i64::from(num), i64::from(den.max(1))))
                     .unwrap_or((30, 1));
                 let fps = if fps.0 <= 0 { (30_i64, 1_i64) } else { fps };
 
@@ -524,9 +512,7 @@ pub async fn run_group(
                             ts,
                             frame.get_source_id()
                         );
-                        if let Some((frame, data)) =
-                            frame_buffer.add_frame(frame, frame_data)
-                        {
+                        if let Some((frame, data)) = frame_buffer.add_frame(frame, frame_data) {
                             let message = frame.to_message();
                             let _ = sink.lock().await.send_message(
                                 &frame.get_source_id(),
@@ -535,9 +521,7 @@ pub async fn run_group(
                             )?;
                         }
                     }
-                } else if let Some((frame, fdata)) =
-                    frame_buffer.add_frame(frame, data)
-                {
+                } else if let Some((frame, fdata)) = frame_buffer.add_frame(frame, data) {
                     let message = frame.to_message();
                     let _ = sink
                         .lock()
@@ -575,8 +559,7 @@ fn parse_rtcp_sr(source_idx: usize, buffer: &gst::Buffer) -> Option<Vec<GstEvent
     while offset + 4 <= data.len() {
         // RTCP header: V(2) P(1) RC(5) PT(8) length(16)
         let pt = data[offset + 1];
-        let length_field =
-            u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
+        let length_field = u16::from_be_bytes([data[offset + 2], data[offset + 3]]) as usize;
         let packet_len = (length_field + 1) * 4;
 
         if pt == 200 && offset + 28 <= data.len() {
