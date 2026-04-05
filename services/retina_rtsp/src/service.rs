@@ -551,7 +551,7 @@ impl RtspServiceGroup {
                             return Ok(());
                         }
 
-                        s.add_rtp_mark(source_id, t.elapsed(), sr.ntp_timestamp(), t.clock_rate())
+                        s.add_rtp_mark(source_id, t.elapsed(), sr.ntp_timestamp().0, t.clock_rate())
                     }
                 }
             }

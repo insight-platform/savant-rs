@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use anyhow::bail;
 use log::debug;
-use retina::NtpTimestamp;
 
 use crate::service::StreamInfo;
 use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
@@ -17,11 +16,14 @@ use cros_codecs::codec::h265::parser::NaluType::IdrWRadl as H265IdrWRadl;
 
 pub const ONE_NS: f64 = 1_000_000_000.0;
 
+/// NTP epoch (1900-01-01) to UNIX epoch (1970-01-01) offset in NTP 32.32 fixed-point format.
+const NTP_UNIX_EPOCH_OFFSET: u64 = 0x83AA7E80_00000000;
+
 pub const H264_AU_DELIMITER: [u8; 6] = [0, 0, 0, 1, 0x09, 0xF0];
 pub const HEVC_AU_DELIMITER: [u8; 6] = [0, 0, 0, 1, 0x23, 0xF0];
 
-pub fn ts2epoch_duration(ts: NtpTimestamp, skew_millis: i64) -> Duration {
-    let since_epoch = ts.0.wrapping_sub(retina::UNIX_EPOCH.0);
+pub fn ts2epoch_duration(ntp_raw: u64, skew_millis: i64) -> Duration {
+    let since_epoch = ntp_raw.wrapping_sub(NTP_UNIX_EPOCH_OFFSET);
     let sec_since_epoch = (since_epoch >> 32) as u32;
     let ns = u32::try_from(((since_epoch & 0xFFFF_FFFF) * 1_000_000_000) >> 32)
         .expect("should be < 1_000_000_000");

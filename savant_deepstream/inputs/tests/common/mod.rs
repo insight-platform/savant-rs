@@ -89,18 +89,19 @@ pub fn asset_supported_on_platform(entry: &AssetEntry, platform_tag: &str) -> bo
         .any(|t| manifest_tag_matches_platform(t, platform_tag))
 }
 
-pub fn codec_to_str(c: Codec) -> &'static str {
+/// Convert a GStreamer [`Codec`] to the domain [`VideoCodec`].
+pub fn gst_codec_to_video_codec(c: Codec) -> VideoCodec {
     match c {
-        Codec::H264 => "h264",
-        Codec::Hevc => "hevc",
-        Codec::Vp8 => "vp8",
-        Codec::Vp9 => "vp9",
-        Codec::Av1 => "av1",
-        Codec::Jpeg => "jpeg",
-        Codec::Png => "png",
-        Codec::RawRgba => "raw_rgba",
-        Codec::RawRgb => "raw_rgb",
-        Codec::RawNv12 => "raw_nv12",
+        Codec::H264 => VideoCodec::H264,
+        Codec::Hevc => VideoCodec::Hevc,
+        Codec::Jpeg => VideoCodec::Jpeg,
+        Codec::Vp8 => VideoCodec::Vp8,
+        Codec::Vp9 => VideoCodec::Vp9,
+        Codec::Av1 => VideoCodec::Av1,
+        Codec::Png => VideoCodec::Png,
+        Codec::RawRgba => VideoCodec::RawRgba,
+        Codec::RawRgb => VideoCodec::RawRgb,
+        Codec::RawNv12 => VideoCodec::RawNv12,
     }
 }
 
@@ -108,7 +109,7 @@ pub fn codec_to_str(c: Codec) -> &'static str {
 #[allow(clippy::too_many_arguments)]
 pub fn make_video_frame_ns(
     source_id: &str,
-    codec_str: &str,
+    codec: VideoCodec,
     width: i64,
     height: i64,
     pts_ns: i64,
@@ -123,10 +124,7 @@ pub fn make_video_frame_ns(
         height,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        Some(
-            VideoCodec::from_name(codec_str)
-                .unwrap_or_else(|| panic!("make_video_frame_ns: unknown codec {codec_str}")),
-        ),
+        Some(codec),
         keyframe,
         (1, 1_000_000_000),
         pts_ns,
@@ -140,7 +138,7 @@ pub fn make_video_frame_ns(
 #[allow(clippy::too_many_arguments)]
 pub fn make_video_frame_scaled(
     source_id: &str,
-    codec_str: &str,
+    codec: VideoCodec,
     width: i64,
     height: i64,
     time_base: (i64, i64),
@@ -156,10 +154,7 @@ pub fn make_video_frame_scaled(
         height,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        Some(
-            VideoCodec::from_name(codec_str)
-                .unwrap_or_else(|| panic!("make_video_frame_scaled: unknown codec {codec_str}")),
-        ),
+        Some(codec),
         keyframe,
         time_base,
         pts,
@@ -169,21 +164,21 @@ pub fn make_video_frame_scaled(
     .expect("make_video_frame_scaled")
 }
 
-pub fn split_annexb_nalus(data: &[u8], codec: &str) -> Vec<Vec<u8>> {
+pub fn split_annexb_nalus(data: &[u8], codec: Codec) -> Vec<Vec<u8>> {
     let mut cur = Cursor::new(data);
     let mut out = Vec::new();
     match codec {
-        "h264" => {
+        Codec::H264 => {
             while let Ok(nalu) = H264Nalu::next(&mut cur) {
                 out.push(nalu.data.into_owned());
             }
         }
-        "hevc" => {
+        Codec::Hevc => {
             while let Ok(nalu) = H265Nalu::next(&mut cur) {
                 out.push(nalu.data.into_owned());
             }
         }
-        _ => panic!("split_annexb_nalus: unsupported codec {codec}"),
+        other => panic!("split_annexb_nalus: unsupported codec {other:?}"),
     }
     out
 }
@@ -198,10 +193,10 @@ pub fn nal_payload_offset(nalu: &[u8]) -> usize {
     }
 }
 
-pub fn is_vcl_nalu(codec: &str, nalu: &[u8]) -> bool {
+pub fn is_vcl_nalu(codec: Codec, nalu: &[u8]) -> bool {
     let mut c = Cursor::new(nalu);
     match codec {
-        "h264" => {
+        Codec::H264 => {
             if let Ok(n) = H264Nalu::next(&mut c) {
                 matches!(
                     n.header.type_,
@@ -215,7 +210,7 @@ pub fn is_vcl_nalu(codec: &str, nalu: &[u8]) -> bool {
                 false
             }
         }
-        "hevc" => {
+        Codec::Hevc => {
             if let Ok(n) = H265Nalu::next(&mut c) {
                 matches!(
                     n.header.type_,
@@ -260,20 +255,20 @@ pub fn is_vcl_nalu(codec: &str, nalu: &[u8]) -> bool {
     }
 }
 
-pub fn is_aud_nalu(codec: &str, nalu: &[u8]) -> bool {
+pub fn is_aud_nalu(codec: Codec, nalu: &[u8]) -> bool {
     let mut c = Cursor::new(nalu);
     match codec {
-        "h264" => H264Nalu::next(&mut c)
+        Codec::H264 => H264Nalu::next(&mut c)
             .map(|n| matches!(n.header.type_, H264NaluType::AuDelimiter))
             .unwrap_or(false),
-        "hevc" => H265Nalu::next(&mut c)
+        Codec::Hevc => H265Nalu::next(&mut c)
             .map(|n| matches!(n.header.type_, H265NaluType::AudNut))
             .unwrap_or(false),
         _ => false,
     }
 }
 
-pub fn group_nalus_to_access_units(codec: &str, nalus: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+pub fn group_nalus_to_access_units(codec: Codec, nalus: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
     let has_aud = nalus.iter().any(|n| is_aud_nalu(codec, n));
     if has_aud {
         let mut out = Vec::new();

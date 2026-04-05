@@ -38,3 +38,6 @@ Cargo.lock
 **/*.csr
 
 services/replay/samples/file_restreaming/data
+
+AGENTS.md
+CLAUDE.md
