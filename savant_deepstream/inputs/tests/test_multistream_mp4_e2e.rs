@@ -91,7 +91,11 @@ fn submit_segment_packets(
     h26x_as_annexb_aus: bool,
 ) -> u32 {
     if matches!(entry.codec.as_str(), "h264" | "hevc") && h26x_as_annexb_aus {
-        let h26x_codec = if entry.codec == "h264" { GstCodec::H264 } else { GstCodec::Hevc };
+        let h26x_codec = if entry.codec == "h264" {
+            GstCodec::H264
+        } else {
+            GstCodec::Hevc
+        };
         let mut bytestream = Vec::new();
         for pkt in packets {
             bytestream.extend_from_slice(&pkt.data);
@@ -453,7 +457,11 @@ fn prepare_mp4_asset(entry: &AssetEntry) -> Option<Vec<PreparedPacket>> {
     let mut out = Vec::new();
 
     if matches!(entry.codec.as_str(), "h264" | "hevc") {
-        let h26x_codec = if entry.codec == "h264" { GstCodec::H264 } else { GstCodec::Hevc };
+        let h26x_codec = if entry.codec == "h264" {
+            GstCodec::H264
+        } else {
+            GstCodec::Hevc
+        };
         let mut bytestream = Vec::new();
         for pkt in &demuxed_packets {
             bytestream.extend_from_slice(&pkt.data);

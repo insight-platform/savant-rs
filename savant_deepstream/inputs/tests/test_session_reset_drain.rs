@@ -261,8 +261,13 @@ fn test_session_reset_drain_codec_change_with_eos() {
     assert!(h264_count > 0, "no H264 frames submitted");
 
     let pts_offset = h264_count as i64 * FRAME_DUR_NS;
-    let (hevc_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_hevc_bt709_ip.mp4", Codec::Hevc, pts_offset);
+    let (hevc_count, _, _) = submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_hevc_bt709_ip.mp4",
+        Codec::Hevc,
+        pts_offset,
+    );
     assert!(hevc_count > 0, "no HEVC frames submitted");
 
     // Drain events from the H264 session reset.
@@ -333,7 +338,13 @@ fn test_session_reset_drain_codec_change_without_eos() {
     assert!(h264_count > 0);
 
     let pts_offset = h264_count as i64 * FRAME_DUR_NS;
-    submit_h26x_from_asset(&decoder, SID, "test_hevc_bt709_ip.mp4", Codec::Hevc, pts_offset);
+    submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_hevc_bt709_ip.mp4",
+        Codec::Hevc,
+        pts_offset,
+    );
 
     let events = drain_until_stopped(&rx);
     let decoded = count_decoded(&events);
@@ -406,7 +417,16 @@ fn test_session_reset_resolution_change_with_eos() {
 
     let aus = load_h26x_access_units("test_h264_bt709_ip.mp4", Codec::H264);
     let pts = n as i64 * FRAME_DUR_NS;
-    let frame = make_video_frame_ns(sid, VideoCodec::H264, w, h, pts, Some(pts), Some(FRAME_DUR_NS), None);
+    let frame = make_video_frame_ns(
+        sid,
+        VideoCodec::H264,
+        w,
+        h,
+        pts,
+        Some(pts),
+        Some(FRAME_DUR_NS),
+        None,
+    );
     decoder
         .submit(frame, Some(aus[0].as_slice()), SUBMIT_TIMEOUT)
         .expect("submit resolution-change frame");
@@ -465,7 +485,16 @@ fn test_session_reset_resolution_change_without_eos() {
 
     let aus = load_h26x_access_units("test_h264_bt709_ip.mp4", Codec::H264);
     let pts = n as i64 * FRAME_DUR_NS;
-    let frame = make_video_frame_ns(sid, VideoCodec::H264, w, h, pts, Some(pts), Some(FRAME_DUR_NS), None);
+    let frame = make_video_frame_ns(
+        sid,
+        VideoCodec::H264,
+        w,
+        h,
+        pts,
+        Some(pts),
+        Some(FRAME_DUR_NS),
+        None,
+    );
     decoder
         .submit(frame, Some(aus[0].as_slice()), SUBMIT_TIMEOUT)
         .expect("submit resolution-change frame");
@@ -590,8 +619,13 @@ fn test_session_reset_drain_multiple_hops() {
 
     // Hop 2: HEVC (triggers CodecChanged on H264 session)
     let pts_offset = total_submitted as i64 * FRAME_DUR_NS;
-    let (hevc_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_hevc_bt709_ip.mp4", Codec::Hevc, pts_offset);
+    let (hevc_count, _, _) = submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_hevc_bt709_ip.mp4",
+        Codec::Hevc,
+        pts_offset,
+    );
     total_submitted += hevc_count;
 
     // Drain H264 session.
@@ -602,8 +636,13 @@ fn test_session_reset_drain_multiple_hops() {
 
     // Hop 3: H264 again (triggers CodecChanged on HEVC session)
     let pts_offset2 = total_submitted as i64 * FRAME_DUR_NS;
-    let (h264_count2, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", Codec::H264, pts_offset2);
+    let (h264_count2, _, _) = submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_h264_bt709_ip.mp4",
+        Codec::H264,
+        pts_offset2,
+    );
     total_submitted += h264_count2;
 
     // Drain HEVC session.

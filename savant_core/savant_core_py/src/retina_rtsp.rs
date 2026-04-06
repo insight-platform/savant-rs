@@ -8,7 +8,13 @@ use retina_rtsp::configuration;
 
 // ── RtspBackend ──────────────────────────────────────────────────────
 
-#[pyclass(name = "RtspBackend", module = "savant_rs.retina_rtsp", from_py_object, eq, eq_int)]
+#[pyclass(
+    name = "RtspBackend",
+    module = "savant_rs.retina_rtsp",
+    from_py_object,
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PyRtspBackend {
     Retina = 0,
@@ -33,7 +39,11 @@ impl PyRtspBackend {
 
 // ── RtspSourceOptions ────────────────────────────────────────────────
 
-#[pyclass(name = "RtspSourceOptions", module = "savant_rs.retina_rtsp", from_py_object)]
+#[pyclass(
+    name = "RtspSourceOptions",
+    module = "savant_rs.retina_rtsp",
+    from_py_object
+)]
 #[derive(Debug, Clone)]
 pub struct PyRtspSourceOptions {
     inner: configuration::RtspSourceOptions,
@@ -127,7 +137,11 @@ impl PyRtspSource {
 
 // ── SyncConfiguration ────────────────────────────────────────────────
 
-#[pyclass(name = "SyncConfiguration", module = "savant_rs.retina_rtsp", from_py_object)]
+#[pyclass(
+    name = "SyncConfiguration",
+    module = "savant_rs.retina_rtsp",
+    from_py_object
+)]
 #[derive(Debug, Clone)]
 pub struct PySyncConfiguration {
     inner: configuration::SyncConfiguration,
@@ -184,7 +198,11 @@ impl PySyncConfiguration {
 
 // ── RtspSourceGroup ──────────────────────────────────────────────────
 
-#[pyclass(name = "RtspSourceGroup", module = "savant_rs.retina_rtsp", from_py_object)]
+#[pyclass(
+    name = "RtspSourceGroup",
+    module = "savant_rs.retina_rtsp",
+    from_py_object
+)]
 #[derive(Debug, Clone)]
 pub struct PyRtspSourceGroup {
     inner: configuration::RtspSourceGroup,
@@ -248,16 +266,16 @@ impl PyRtspSourceGroup {
     }
 }
 
-// ── RetinarRtspService ───────────────────────────────────────────────
+// ── RetinaRtspService ───────────────────────────────────────────────
 
-#[pyclass(name = "RetinarRtspService", module = "savant_rs.retina_rtsp")]
-pub struct PyRetinarRtspService {
+#[pyclass(name = "RetinaRtspService", module = "savant_rs.retina_rtsp")]
+pub struct PyRetinaRtspService {
     service: Arc<retina_rtsp::Service>,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
 #[pymethods]
-impl PyRetinarRtspService {
+impl PyRetinaRtspService {
     #[new]
     fn new(config_path: String) -> PyResult<Self> {
         let conf = configuration::ServiceConfiguration::new(&config_path)
@@ -273,12 +291,7 @@ impl PyRetinarRtspService {
     }
 
     /// Run a group.  Blocks (GIL released) until stopped or fatal error.
-    fn run_group(
-        &self,
-        py: Python<'_>,
-        group: &PyRtspSourceGroup,
-        name: String,
-    ) -> PyResult<()> {
+    fn run_group(&self, py: Python<'_>, group: &PyRtspSourceGroup, name: String) -> PyResult<()> {
         let svc = self.service.clone();
         let rt = self.runtime.clone();
         let group = group.to_rust();
@@ -315,7 +328,7 @@ impl PyRetinarRtspService {
 
     pub fn __repr__(&self) -> String {
         let groups = self.service.running_groups();
-        format!("RetinarRtspService(running_groups={:?})", groups)
+        format!("RetinaRtspService(running_groups={:?})", groups)
     }
 }
 
@@ -327,6 +340,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRtspSource>()?;
     m.add_class::<PySyncConfiguration>()?;
     m.add_class::<PyRtspSourceGroup>()?;
-    m.add_class::<PyRetinarRtspService>()?;
+    m.add_class::<PyRetinaRtspService>()?;
     Ok(())
 }

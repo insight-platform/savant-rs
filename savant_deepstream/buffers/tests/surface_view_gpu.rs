@@ -604,9 +604,15 @@ mod tracking {
 
             let (reg, dereg) = deepstream_buffers::egl_cuda_meta::tracking_counts();
             // 1 source + 4 batch slots
-            assert_eq!(reg, 5, "expected 5 slot registrations (1 source + 4 batch), got {reg}");
+            assert_eq!(
+                reg, 5,
+                "expected 5 slot registrations (1 source + 4 batch), got {reg}"
+            );
             // source pool destroyed → 1 deregistration
-            assert_eq!(dereg, 1, "source buffer should be deregistered after src_gen drop, got {dereg}");
+            assert_eq!(
+                dereg, 1,
+                "source buffer should be deregistered after src_gen drop, got {dereg}"
+            );
         }
 
         let (reg, dereg) = deepstream_buffers::egl_cuda_meta::tracking_counts();

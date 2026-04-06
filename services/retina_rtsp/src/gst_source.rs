@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -57,23 +58,37 @@ struct PerSourceState {
 }
 
 struct PipelineGuard {
-    pipeline: gst::Pipeline,
+    pipeline: Option<gst::Pipeline>,
     group_name: String,
+}
+
+impl PipelineGuard {
+    /// Sets the pipeline to Null so streaming stops and the processing loop can exit.
+    fn stop(&mut self) {
+        if let Some(pipeline) = self.pipeline.take() {
+            if let Err(e) = pipeline.set_state(gst::State::Null) {
+                error!(
+                    "Failed to set pipeline to Null for group '{}': {:?}",
+                    self.group_name, e
+                );
+            } else {
+                info!("GStreamer pipeline stopped for group '{}'", self.group_name);
+            }
+        }
+    }
 }
 
 impl Drop for PipelineGuard {
     fn drop(&mut self) {
-        if let Err(e) = self.pipeline.set_state(gst::State::Null) {
-            error!(
-                "Failed to set pipeline to Null for group '{}': {:?}",
-                self.group_name, e
-            );
-        } else {
-            info!(
-                "GStreamer pipeline stopped for group '{}'",
-                self.group_name
-            );
-        }
+        self.stop();
+    }
+}
+
+/// Yields when `shutdown` is set (cooperative stop for [`run_group`]).
+async fn wait_for_shutdown_flag(shutdown: &Arc<AtomicBool>) {
+    const POLL_MS: u64 = 50;
+    while !shutdown.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
     }
 }
 
@@ -82,6 +97,7 @@ pub async fn run_group(
     group_name: String,
     sink: Arc<Mutex<JobWriter>>,
     eos_on_restart: bool,
+    shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let sources: Vec<_> = group_conf
         .sources
@@ -327,12 +343,11 @@ pub async fn run_group(
 
     // Bus stream for errors and EOS (async-compatible, no GLib main loop needed)
     let bus = pipeline.bus().unwrap();
-    let mut bus_stream =
-        bus.stream_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]);
+    let mut bus_stream = bus.stream_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]);
 
     pipeline.set_state(gst::State::Playing)?;
-    let _pipeline_guard = PipelineGuard {
-        pipeline,
+    let mut pipeline_guard = PipelineGuard {
+        pipeline: Some(pipeline),
         group_name: group_name.clone(),
     };
     info!("GStreamer pipeline started for group '{}'", group_name);
@@ -370,6 +385,16 @@ pub async fn run_group(
 
     loop {
         tokio::select! {
+            biased;
+
+            _ = wait_for_shutdown_flag(&shutdown) => {
+                info!(
+                    "Shutdown requested for GStreamer group '{}', stopping pipeline",
+                    group_name
+                );
+                pipeline_guard.stop();
+                break;
+            }
             event = rx.recv() => {
                 let event = match event {
                     Some(e) => e,

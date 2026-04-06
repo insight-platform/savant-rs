@@ -11,7 +11,7 @@ __all__ = [
     "RtspSource",
     "SyncConfiguration",
     "RtspSourceGroup",
-    "RetinarRtspService",
+    "RetinaRtspService",
 ]
 
 class RtspBackend:
@@ -85,7 +85,7 @@ class RtspSourceGroup:
     @property
     def rtcp_sr_sync(self) -> Optional[SyncConfiguration]: ...
 
-class RetinarRtspService:
+class RetinaRtspService:
     """Stateful RTSP ingestion service with a shared sink socket.
 
     Create from a JSON configuration file.  Use :meth:`run_group` (from a

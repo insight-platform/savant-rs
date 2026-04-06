@@ -283,7 +283,7 @@ Embeddable RTSP ingestion service with dynamic group management.
 
 ```python
 from savant_rs.retina_rtsp import (
-    RetinarRtspService, RtspSourceGroup, RtspSource,
+    RetinaRtspService, RtspSourceGroup, RtspSource,
     RtspBackend, RtspSourceOptions, SyncConfiguration,
 )
 ```
@@ -295,7 +295,7 @@ from savant_rs.retina_rtsp import (
 | `RtspSource` | SIG: `(source_id, url, stream_position=None, options=None)` — single RTSP source |
 | `SyncConfiguration` | SIG: `(group_window_duration_ms, batch_duration_ms, network_skew_correction=False, rtcp_once=False)` |
 | `RtspSourceGroup` | SIG: `(sources: List[RtspSource], backend=RtspBackend.Retina, rtcp_sr_sync=None)` |
-| `RetinarRtspService` | SIG: `(config_path: str)` — loads JSON config, opens shared sink socket |
+| `RetinaRtspService` | SIG: `(config_path: str)` — loads JSON config, opens shared sink socket |
 
 | Method | Signature | Description |
 |--------|-----------|-------------|

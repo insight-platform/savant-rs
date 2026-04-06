@@ -115,8 +115,7 @@ fn acquire_frame(encoder: &NvEncoder, id: u128) -> gstreamer::Buffer {
         .expect("acquire failed");
     // Creating a SurfaceView resolves the CUDA pointer and, on Jetson,
     // performs the one-time EGL-CUDA registration for this pool slot.
-    let _view =
-        SurfaceView::from_buffer(&shared, 0).expect("SurfaceView failed");
+    let _view = SurfaceView::from_buffer(&shared, 0).expect("SurfaceView failed");
     drop(_view);
     shared.into_buffer().expect("sole owner")
 }

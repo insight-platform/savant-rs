@@ -1,6 +1,6 @@
 """Integration test for savant_rs.retina_rtsp — GStreamer backend.
 
-Starts the RetinarRtspService against public RTSP test streams and verifies
+Starts the RetinaRtspService against public RTSP test streams and verifies
 that at least 100 video frames per source are received via a ZeroMQ reader.
 
 Requires:
@@ -20,11 +20,17 @@ from collections import defaultdict
 
 import pytest
 
+from savant_rs.py.log import init_logging, get_logger
+
+init_logging()
+
+logger = get_logger(__name__)
+
 # ── Feature detection ─────────────────────────────────────────────────
 
 try:
     from savant_rs.retina_rtsp import (
-        RetinarRtspService,
+        RetinaRtspService,
         RtspBackend,
         RtspSource,
         RtspSourceGroup,
@@ -114,7 +120,7 @@ def test_receive_frames_from_rtsp_sources():
     # 2. Write config and create the service.
     with tempfile.TemporaryDirectory() as tmp_dir:
         config_path = _write_config(tmp_dir)
-        service = RetinarRtspService(config_path)
+        service = RetinaRtspService(config_path)
 
         # 3. Build the group programmatically (mirrors the JSON config).
         group = RtspSourceGroup(

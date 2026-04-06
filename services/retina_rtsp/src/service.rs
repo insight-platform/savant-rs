@@ -21,13 +21,28 @@ use savant_core::primitives::{
 };
 use savant_services_common::job_writer::JobWriter;
 
-use std::{borrow::Cow, num::NonZeroU32, sync::Arc, time::Duration, time::SystemTime};
+use std::{
+    borrow::Cow,
+    num::NonZeroU32,
+    sync::atomic::{AtomicBool, Ordering},
+    sync::Arc,
+    time::Duration,
+    time::SystemTime,
+};
 use tokio::{select, sync::Mutex, task::JoinSet};
 use url::Url;
 
 const MAX_JUMP_SECS: u32 = 10;
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
 const TIME_BASE: (i64, i64) = (1, 1_000_000_000);
+
+/// Cooperatively wait until `shutdown` is set (aligned with the GStreamer backend).
+async fn wait_for_shutdown_flag(shutdown: &Arc<AtomicBool>) {
+    const POLL_MS: u64 = 50;
+    while !shutdown.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
@@ -261,6 +276,7 @@ impl RtspServiceGroup {
         &mut self,
         sink: Arc<Mutex<JobWriter>>,
         session_group: Arc<SessionGroup>,
+        shutdown: Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(MAX_CHANNEL_CAPACITY);
         let mut tasks = JoinSet::new();
@@ -272,55 +288,81 @@ impl RtspServiceGroup {
             let source = source.clone();
             let session_group = session_group.clone();
             let reconnect_interval = self.reconnect_interval;
+            let shutdown_task = shutdown.clone();
 
             tasks.spawn(async move {
                 loop {
-                    let stream = Self::init_source(
-                        &source,
-                        &group_conf,
-                        &group_name,
-                        session_group.clone(),
-                    ).await;
+                    if shutdown_task.load(Ordering::SeqCst) {
+                        break;
+                    }
+
+                    let stream =
+                        Self::init_source(&source, &group_conf, &group_name, session_group.clone())
+                            .await;
 
                     if let Err(e) = stream {
-                        error!("Failed to initialize stream for source {}, error: {:?}", source_id, e);
-                        tokio::time::sleep(reconnect_interval).await;
+                        error!(
+                            "Failed to initialize stream for source {}, error: {:?}",
+                            source_id, e
+                        );
+                        select! {
+                            _ = tokio::time::sleep(reconnect_interval) => {}
+                            _ = wait_for_shutdown_flag(&shutdown_task) => {
+                                break;
+                            }
+                        }
                         continue;
                     }
 
                     let mut stream = stream.unwrap();
                     let mut restarted = true;
-                    while let Some(res) = stream.session.next().await {
-                        match res {
-                            Ok(item) => {
-                            tx
-                                .send((restarted, item, stream.stream_info.clone()))
-                                .await
-                                .unwrap_or_else(|e| {
-                                    let message = format!(
-                                        "Failed to send item to channel for RTSP source {}, error: {:?}",
-                                        source_id, e
-                                    );
-                                    panic!("{}", message);
-                                });
-                                restarted = false;
-                            },
-                            Err(e) => {
-                                error!(
-                                    "Stream {} ended unexpectedly with error: {:?}",
-                                    source_id, e
-                                );
-                                break;
+                    loop {
+                        select! {
+                            biased;
+                            _ = wait_for_shutdown_flag(&shutdown_task) => {
+                                return;
+                            }
+                            res = stream.session.next() => {
+                                let Some(res) = res else {
+                                    error!("Stream {} ended unexpectedly", source_id);
+                                    break;
+                                };
+                                match res {
+                                    Ok(item) => {
+                                        if tx
+                                            .send((restarted, item, stream.stream_info.clone()))
+                                            .await
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                        restarted = false;
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Stream {} ended unexpectedly with error: {:?}",
+                                            source_id, e
+                                        );
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
-                    error!("Stream {} ended unexpectedly", source_id);
                 }
             });
         }
 
         loop {
             select! {
+                _ = wait_for_shutdown_flag(&shutdown) => {
+                    info!(
+                        "Retina group '{}' shutdown requested; stopping play loop",
+                        self.group_name
+                    );
+                    tasks.abort_all();
+                    break;
+                }
                 err = tasks.join_next() => {
                     if let Some(Err(e)) = err {
                         error!("Task ended with error: {:?}", e);
@@ -406,7 +448,10 @@ impl RtspServiceGroup {
                 };
 
                 let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
-                    Cow::Owned(ensure_au_delimiter(frame_data.into_owned(), &stream_info.encoding))
+                    Cow::Owned(ensure_au_delimiter(
+                        frame_data.into_owned(),
+                        &stream_info.encoding,
+                    ))
                 } else {
                     frame_data
                 };
@@ -559,10 +604,15 @@ pub async fn run_group(
     sink: Arc<Mutex<JobWriter>>,
     eos_on_restart: bool,
     reconnect_interval: Duration,
+    shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let mut service_group =
-        RtspServiceGroup::new(group_conf.clone(), group_name, eos_on_restart, reconnect_interval)
-            .await?;
-    service_group.play(sink, session_group).await?;
+    let mut service_group = RtspServiceGroup::new(
+        group_conf.clone(),
+        group_name,
+        eos_on_restart,
+        reconnect_interval,
+    )
+    .await?;
+    service_group.play(sink, session_group, shutdown).await?;
     Ok(())
 }

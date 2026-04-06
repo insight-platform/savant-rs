@@ -234,39 +234,54 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             "Waiting for message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
 
-        let parts = {
-            let mut bind = self.socket.lock();
-            let socket = bind.as_mut().unwrap();
-            socket.recv_multipart(0)
-        };
+        // EINTR can be returned when a signal arrives during a blocking recv; retry instead of
+        // failing (same idea as zmq crate's `retry_on_intr`).
+        let parts = loop {
+            let recv_result = {
+                let mut bind = self.socket.lock();
+                let socket = bind.as_mut().unwrap();
+                socket.recv_multipart(0)
+            };
 
-        debug!(
-            target: "savant_rs::zeromq::reader::receive::after_recv",
-            "Received message from ZeroMQ socket for endpoint {}",
-            self.config.endpoint());
-
-        if let Err(e) = parts {
-            if let zmq::Error::EAGAIN = e {
-                debug!(
-                    target: "savant_rs::zeromq::reader::receive::eagain",
-                    "Failed to receive message from ZeroMQ socket due to timeout (EAGAIN)"
-                );
-                return Ok(ReaderResult::Timeout);
-            } else {
-                error!(
-                    target: "savant_rs::zeromq::reader::receive::error",
-                    "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
-                    e.to_raw(), e
-                );
-                bail!(
-                    "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
-                    e.to_raw(),
-                    e
-                );
+            match recv_result {
+                Ok(parts) => {
+                    debug!(
+                        target: "savant_rs::zeromq::reader::receive::after_recv",
+                        "Received message from ZeroMQ socket for endpoint {}",
+                        self.config.endpoint()
+                    );
+                    break parts;
+                }
+                Err(zmq::Error::EAGAIN) => {
+                    debug!(
+                        target: "savant_rs::zeromq::reader::receive::eagain",
+                        "Failed to receive message from ZeroMQ socket due to timeout (EAGAIN)"
+                    );
+                    return Ok(ReaderResult::Timeout);
+                }
+                Err(zmq::Error::EINTR) => {
+                    debug!(
+                        target: "savant_rs::zeromq::reader::receive::eintr",
+                        "recv_multipart interrupted (EINTR), retrying for endpoint {}",
+                        self.config.endpoint()
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    error!(
+                        target: "savant_rs::zeromq::reader::receive::error",
+                        "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                        e.to_raw(),
+                        e
+                    );
+                    bail!(
+                        "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                        e.to_raw(),
+                        e
+                    );
+                }
             }
-        }
-
-        let parts = parts.unwrap();
+        };
 
         let min_required_parts = match self.config.socket_type() {
             ReaderSocketType::Sub => 2,
