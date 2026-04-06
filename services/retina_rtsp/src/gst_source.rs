@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ use tokio::sync::{mpsc, Mutex};
 use crate::configuration::RtspSourceGroup;
 use crate::ntp_sync::NtpSync;
 use crate::syncer::Syncer;
-use crate::utils::{ensure_au_delimiter, ts2epoch_duration};
+use crate::utils::{ensure_au_delimiter, ts2epoch_duration, wait_for_shutdown_flag};
 
 const TIME_BASE: (i64, i64) = (1, 1_000_000_000);
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
@@ -81,14 +81,6 @@ impl PipelineGuard {
 impl Drop for PipelineGuard {
     fn drop(&mut self) {
         self.stop();
-    }
-}
-
-/// Yields when `shutdown` is set (cooperative stop for [`run_group`]).
-async fn wait_for_shutdown_flag(shutdown: &Arc<AtomicBool>) {
-    const POLL_MS: u64 = 50;
-    while !shutdown.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
     }
 }
 

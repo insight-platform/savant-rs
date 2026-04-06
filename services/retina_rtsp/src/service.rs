@@ -2,7 +2,7 @@ use crate::{
     configuration::{RtspSource, RtspSourceGroup},
     ntp_sync::NtpSync,
     syncer::Syncer,
-    utils::{convert_to_annexb, ensure_au_delimiter, is_keyframe},
+    utils::{convert_to_annexb, ensure_au_delimiter, is_keyframe, wait_for_shutdown_flag},
 };
 use anyhow::{bail, Context};
 use futures::StreamExt;
@@ -35,14 +35,6 @@ use url::Url;
 const MAX_JUMP_SECS: u32 = 10;
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
 const TIME_BASE: (i64, i64) = (1, 1_000_000_000);
-
-/// Cooperatively wait until `shutdown` is set (aligned with the GStreamer backend).
-async fn wait_for_shutdown_flag(shutdown: &Arc<AtomicBool>) {
-    const POLL_MS: u64 = 50;
-    while !shutdown.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {

@@ -1,4 +1,6 @@
 use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -21,6 +23,14 @@ const NTP_UNIX_EPOCH_OFFSET: u64 = 0x83AA7E80_00000000;
 
 pub const H264_AU_DELIMITER: [u8; 6] = [0, 0, 0, 1, 0x09, 0xF0];
 pub const HEVC_AU_DELIMITER: [u8; 6] = [0, 0, 0, 1, 0x23, 0xF0];
+
+/// Cooperatively wait until `shutdown` is set (shared by GStreamer and Retina `run_group` paths).
+pub(crate) async fn wait_for_shutdown_flag(shutdown: &Arc<AtomicBool>) {
+    const POLL_MS: u64 = 50;
+    while !shutdown.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+    }
+}
 
 pub fn ts2epoch_duration(ntp_raw: u64, skew_millis: i64) -> Duration {
     let since_epoch = ntp_raw.wrapping_sub(NTP_UNIX_EPOCH_OFFSET);
