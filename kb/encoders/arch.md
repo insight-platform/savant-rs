@@ -38,6 +38,12 @@ appsrc (NVMM) → nvvideoconvert → capsfilter(video/x-raw,format=RGBA|RGB) →
 - On Jetson (aarch64): `nvvideoconvert` gets `compute-hw=1` to bypass VIC limitations
 - Output: tightly-packed pixel data (stride padding stripped by `extract_raw_pixels`)
 
+### Raw pseudoencoder (RawNv12) — always available
+```
+appsrc (NVMM) → nvvideoconvert → capsfilter(video/x-raw,format=NV12) → appsink
+```
+- Output: tightly-packed NV12 pixel data (Y plane followed by interleaved UV plane, stride padding stripped)
+
 ## Format Conversion Architecture
 
 When user format differs from encoder-native format:
@@ -69,6 +75,7 @@ Destroyed on: `NvEncoder::drop()`.
 | PNG | RGBA |
 | RawRgba | RGBA |
 | RawRgb | RGB |
+| RawNv12 | NV12 |
 
 ## NVENC Detection
 
@@ -89,7 +96,9 @@ B-frames are **always** disabled:
 
 ## Buffer Pool Size
 
-Internal pools are always `pool_size=1`. The NVENC hardware encoder may continue DMA-reading from GPU memory after GStreamer releases the buffer reference. A pool of 1 forces serialization.
+On dGPU: `pool_size=1`. The NVENC hardware encoder may continue DMA-reading from GPU memory after GStreamer releases the buffer reference. A pool of 1 forces serialization.
+
+On Jetson (aarch64) for H264/HEVC/AV1: `pool_size=4`. On Jetson for other codecs: `pool_size=1`.
 
 ## PTS Tracking
 

@@ -9,9 +9,9 @@ use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
 use savant_core_py::metrics::*;
 use savant_core_py::pipeline::{
-    load_stage_function_plugin, FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline,
-    PipelineConfiguration, StageFunction, StageLatencyMeasurements, StageLatencyStat,
-    StageProcessingStat, VideoPipelineStagePayloadType,
+    FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline, PipelineConfiguration,
+    StageFunction, StageLatencyMeasurements, StageLatencyStat, StageProcessingStat,
+    VideoPipelineStagePayloadType,
 };
 use savant_core_py::primitives::attribute::Attribute;
 use savant_core_py::primitives::attribute_value::{
@@ -299,7 +299,6 @@ pub(crate) fn pipeline(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StageLatencyMeasurements>()?;
     m.add_class::<FrameProcessingStatRecordType>()?;
     m.add_class::<StageFunction>()?;
-    m.add_function(wrap_pyfunction!(load_stage_function_plugin, m)?)?;
     Ok(())
 }
 

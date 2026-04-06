@@ -329,6 +329,7 @@ overhead is acceptable as it only runs during letterbox padding operations.
 |---|---|
 | `default` | empty |
 | `skia` | Enables `skia-safe`, `gl`; adds EglHeadlessContext, SkiaRenderer |
+| `testing` | Enables test-only helpers (e.g. `SurfaceView::wrap`, `EglCudaMeta::reset_tracking`) |
 
 ## Python Bindings
 

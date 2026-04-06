@@ -44,17 +44,14 @@ duplicate them.
 
 ```rust
 let props = identity_properties();
-let config = NvInferConfig::new(props, "RGBA", 12, 12)
+let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB)
     .gpu_id(0)
     .queue_depth(0)
     .meta_clear_policy(MetaClearPolicy::Before);
 ```
 
-For heterogeneous batches (variable slot dimensions):
-```rust
-let config = NvInferConfig::new_flexible(props, "RGBA");
-// Must supply explicit rois for every slot
-```
+When `rois = None` is passed to `submit`/`infer_sync`, the pipeline reads actual
+slot dimensions from the `NvBufSurface` and creates full-frame ROIs automatically.
 
 ---
 
@@ -184,7 +181,7 @@ Use `#[serial]` when tests share GStreamer/CUDA state.
 use nvinfer::{NvInferBatchingOperatorConfig, NvInferConfig, ModelInputScaling};
 use std::time::Duration;
 
-let nvinfer_config = NvInferConfig::new(props, "RGBA", 112, 112)
+let nvinfer_config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB)
     .gpu_id(0)
     .queue_depth(1)
     .scaling(ModelInputScaling::KeepAspectRatio);

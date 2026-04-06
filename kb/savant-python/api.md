@@ -44,8 +44,18 @@ Core data types for video frames and objects.
 ## Module: `savant_rs.primitives.geometry`
 
 ```python
-from savant_rs.primitives.geometry import RBBox, BBox, Point, Segment, PolygonalArea, Intersection, IntersectionKind
+from savant_rs.primitives.geometry import (
+    RBBox, BBox, Point, Segment, PolygonalArea, Intersection, IntersectionKind,
+    solely_owned_areas, associate_bboxes,
+)
 ```
+
+### Free Functions
+
+| Function | Description |
+|----------|-------------|
+| `solely_owned_areas(polys, bboxes)` | Compute areas solely owned by each polygon for given bboxes |
+| `associate_bboxes(polys, bboxes)` | Associate bounding boxes with polygonal areas |
 
 ### BBox
 Axis-aligned bounding box (no rotation). See `geometry.pyi` for full API.
@@ -164,7 +174,6 @@ Also available as `savant_rs.pipeline2` (alias registered in `sys.modules`).
 from savant_rs.pipeline import (
     VideoPipeline, VideoPipelineConfiguration,
     VideoPipelineStagePayloadType, StageFunction,
-    handle_psf, load_stage_function_plugin,
     StageLatencyMeasurements, StageLatencyStat,
     StageProcessingStat, FrameProcessingStatRecord,
     FrameProcessingStatRecordType,
@@ -213,7 +222,7 @@ from savant_rs.zmq import (
     ReaderConfig, ReaderConfigBuilder, ReaderSocketType,
     BlockingWriter, NonBlockingWriter,
     BlockingReader, NonBlockingReader,
-    TopicPrefixSpec,
+    TopicPrefixSpec, WriteOperationResult,
 )
 ```
 
@@ -322,6 +331,9 @@ from savant_rs.deepstream import (
     get_savant_id_meta, get_nvbufsurface_info,  # meta functions (was: get_buffers_info)
     GpuMatCudaArray, make_gpu_mat, nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat,  # OpenCV CUDA helpers
     SkiaCanvas,                 # convenience Skia wrapper
+    MultiStreamDecoderConfig, MultiStreamDecoder,  # multi-stream decoder
+    SubmitResult, EvictionVerdict, StopReason,      # decoder enums
+    UndecodedReason, DecoderOutput,                 # decoder output types
 )
 ```
 
@@ -362,3 +374,19 @@ from savant_rs.picasso import (
 ```
 
 See `kb/picasso-python/` for detailed API reference.
+
+---
+
+## Module: `savant_rs.nvtracker` [feature=deepstream]
+
+```python
+from savant_rs.nvtracker import (
+    NvTracker, NvTrackerConfig, TrackingIdResetMode, TrackState,
+    TrackedFrame, TrackedObject, MiscTrackFrame, MiscTrackData,
+    TrackerOutput, NvTrackerBatchingOperatorConfig,
+    TrackerBatchFormationResult, TrackerOperatorFrameOutput,
+    SealedDeliveries, TrackerOperatorOutput, NvTrackerBatchingOperator,
+)
+```
+
+See `kb/nvtracker-python/` for detailed API reference.

@@ -147,7 +147,7 @@ pub struct VideoFrame {
     pub transcoding_method: VideoFrameTranscodingMethod,
     pub codec: Option<VideoCodec>,
     pub keyframe: Option<bool>,
-    #[builder(setter(skip))]
+    #[builder(setter(skip), default = "(1, 1_000_000)")]
     pub time_base: (i64, i64),
     pub pts: i64,
     #[builder(setter(skip))]
@@ -541,12 +541,12 @@ impl VideoFrameProxy {
             .collect()
     }
 
-    pub fn get_json(&self) -> String {
-        serde_json::to_string(&self.to_serde_json_value()).unwrap()
+    pub fn get_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string(&self.to_serde_json_value())
     }
 
-    pub fn get_json_pretty(&self) -> String {
-        serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
+    pub fn get_json_pretty(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(&self.to_serde_json_value())
     }
 
     pub fn access_objects_with_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {

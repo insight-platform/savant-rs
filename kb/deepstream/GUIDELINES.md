@@ -27,4 +27,6 @@ Self-contained reference for agents to write Rust code using the
 ## Note
 This crate is a **low-level wrapper** around DeepStream C metadata. Most
 users interact with it indirectly via `nvinfer`, which consumes `BatchMeta`,
-`InferTensorMeta`, `InferDims` for inference output extraction.
+`InferTensorMeta`, `InferDims` for inference output extraction, and via
+`tracker_meta` types (`TrackState`, `TargetMiscBatch`, `TargetMiscFrame`,
+`TargetMiscObject`, `TargetMiscStream`) for tracker metadata parsing.

@@ -70,8 +70,6 @@ Builds `appsrc ! [queue] ! nvinfer ! appsink`. Operates in `process-mode=2`
 | `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to 30s. Delegates to `infer_sync_with_timeout`. |
 | `infer_sync_with_timeout` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>, timeout: Duration) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to `timeout`. Same ROI semantics as `submit`. |
 | `shutdown` | `(&mut self) → Result<()>` | Graceful shutdown: sends EOS, waits up to 10s for drain, sets pipeline to Null. |
-| `input_width` | `(&self) → u32` | Model input width (0 for flexible config). |
-| `input_height` | `(&self) → u32` | Model input height (0 for flexible config). |
 
 **InferCallback:** `Box<dyn FnMut(BatchInferenceOutput) + Send>`
 
@@ -86,9 +84,10 @@ pub struct NvInferConfig {
     pub element_properties: HashMap<String, String>,
     pub gpu_id: u32,
     pub queue_depth: u32,
-    pub input_format: String,
-    pub input_width: Option<u32>,
-    pub input_height: Option<u32>,
+    pub input_format: VideoFormat,
+    pub model_width: u32,
+    pub model_height: u32,
+    pub model_color_format: ModelColorFormat,
     pub meta_clear_policy: MetaClearPolicy,
     pub disable_output_host_copy: bool,
     pub scaling: ModelInputScaling,
@@ -97,8 +96,7 @@ pub struct NvInferConfig {
 
 | Constructor | Signature | Notes |
 |---|---|---|
-| `new` | `(nvinfer_properties, input_format, input_width, input_height) → Self` | Fixed dimensions; full-frame ROI fallback when no ROIs supplied |
-| `new_flexible` | `(nvinfer_properties, input_format) → Self` | No width/height; **must** supply explicit ROIs per slot |
+| `new` | `(nvinfer_properties, input_format: VideoFormat, model_width: u32, model_height: u32, model_color_format: ModelColorFormat) → Self` | Creates config with model dimensions; when rois = None, reads actual slot dimensions for full-frame inference |
 
 | Builder | Signature |
 |---|---|
@@ -109,6 +107,7 @@ pub struct NvInferConfig {
 | `meta_clear_policy` | `(self, policy: MetaClearPolicy) → Self` |
 | `disable_output_host_copy` | `(self, disable: bool) → Self` — skip D2H copy; only GPU pointers valid |
 | `scaling` | `(self, scaling: ModelInputScaling) → Self` — input resize / padding mode |
+| `model_input_dimensions` | `(&self) → (u32, u32)` — returns `(model_width, model_height)` |
 
 **Mandatory nvinfer keys** (auto-injected if missing): `process-mode=2`, `output-tensor-meta=1`, `network-type=100`, `gie-unique-id=1`.
 
@@ -251,8 +250,6 @@ pub fn attach_batch_meta_with_rois(
     max_batch_size: u32,
     policy: MetaClearPolicy,
     rois: Option<&HashMap<u32, Vec<Roi>>>,
-    input_width: u32,
-    input_height: u32,
 ) → Result<usize>
 ```
 

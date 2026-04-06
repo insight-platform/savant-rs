@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -10,18 +11,16 @@ pub use implementation::PipelineConfigurationBuilder;
 
 use crate::match_query::MatchQuery;
 use crate::pipeline::stage::PipelineStage;
-use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
 use crate::webserver::{register_pipeline, unregister_pipeline};
 
-const MAX_TRACKED_STREAMS: usize = 8192; // defines how many streams are tracked for the frame ordering
+/// Capacity for per-stream frame ordering and keyframe LRU caches.
+const MAX_TRACKED_STREAMS: NonZeroUsize = NonZeroUsize::new(8192).unwrap();
 
 pub mod stage;
-pub mod stage_function_loader;
-pub mod stage_plugin_sample;
 pub mod stats;
 
 pub trait PipelineStageFunction: Send {
@@ -41,15 +40,6 @@ pub enum PipelineStageFunctionOrder {
     Ingress,
     Egress,
 }
-
-#[repr(C)]
-#[derive(Default, Debug, Clone)]
-pub struct PluginParams {
-    pub params: HashMap<String, AttributeValue>,
-}
-
-pub type PipelineStageFunctionFactory =
-    fn(name: &str, parameters: PluginParams) -> *mut dyn PipelineStageFunction;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineStagePayloadType {
@@ -246,7 +236,6 @@ impl Drop for Pipeline {
 
 pub(super) mod implementation {
     use std::collections::VecDeque;
-    use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::OnceLock;
     use std::time::SystemTime;
@@ -313,15 +302,9 @@ pub(super) mod implementation {
                 root_spans: SavantRwLock::new(HashMap::new()),
                 stages: Vec::new(),
                 frame_locations: SavantRwLock::new(HashMap::new()),
-                frame_ordering: SavantRwLock::new(LruCache::new(
-                    NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
-                )),
-                keyframe_tracking: SavantRwLock::new(LruCache::new(
-                    NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
-                )),
-                keyframe_history: SavantRwLock::new(LruCache::new(
-                    NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
-                )),
+                frame_ordering: SavantRwLock::new(LruCache::new(MAX_TRACKED_STREAMS)),
+                keyframe_tracking: SavantRwLock::new(LruCache::new(MAX_TRACKED_STREAMS)),
+                keyframe_history: SavantRwLock::new(LruCache::new(MAX_TRACKED_STREAMS)),
                 sampling_period: OnceLock::new(),
                 root_span_name: OnceLock::new(),
                 configuration: PipelineConfiguration::default(),
@@ -441,7 +424,13 @@ pub(super) mod implementation {
 
         fn get_stage_span(&self, id: i64, span_name: String) -> Context {
             let bind = self.root_spans.read();
-            let ctx = bind.get(&id).unwrap();
+            let Some(ctx) = bind.get(&id) else {
+                log::warn!(
+                    target: "savant_rs::pipeline",
+                    "Root span not found for id {id}, returning default context"
+                );
+                return Context::default();
+            };
 
             if !ctx.span().span_context().is_valid() {
                 return Context::default();
@@ -655,8 +644,18 @@ pub(super) mod implementation {
 
         fn add_frame_json(&self, frame: &VideoFrameProxy, ctx: &Context) {
             if self.configuration.append_frame_meta_to_otlp_span {
-                let json = frame.get_json();
-                ctx.span().set_attribute(KeyValue::new("frame_json", json));
+                match frame.get_json() {
+                    Ok(json) => {
+                        ctx.span().set_attribute(KeyValue::new("frame_json", json));
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            target: "savant_rs::pipeline",
+                            "Failed to serialize frame to JSON for OTLP span: {}",
+                            e
+                        );
+                    }
+                }
             }
         }
 

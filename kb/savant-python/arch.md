@@ -94,6 +94,7 @@ savant_rs (root module)
  ├── retina_rtsp       → savant_core_py::retina_rtsp [feature=gst]
  ├── deepstream        → savant_core_py::deepstream [feature=deepstream]
  ├── nvinfer           → savant_core_py::nvinfer [feature=deepstream]
+ ├── nvtracker         → savant_core_py::nvtracker [feature=deepstream]
  └── picasso           → savant_core_py::picasso [feature=deepstream]
 ```
 

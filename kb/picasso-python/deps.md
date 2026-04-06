@@ -70,6 +70,7 @@ from savant_rs.primitives import (
     VideoFrame,        # frame container
     VideoFrameContent, # .none(), .external(url, method?)
     VideoObject,       # detection object
+    BorrowedVideoObject, # borrowed reference to an object on a frame
     IdCollisionResolutionPolicy,  # .GenerateNewId
     EndOfStream,       # EOS signal
 )
@@ -110,7 +111,7 @@ frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
 gen = BufferGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
 buf = gen.acquire(id=frame_idx)  # returns SharedBuffer
 # pts/duration are taken from the VideoFrame; set frame.pts and frame.duration before send_frame.
-# For raw buffer info (data_ptr, pitch, width, height) use get_nvbufsurface_info(buf).
+# For raw buffer info (data_ptr, pitch, width, height) use SurfaceView.from_buffer(buf).
 ```
 
 ### Rect

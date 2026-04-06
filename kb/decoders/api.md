@@ -144,6 +144,15 @@ Returns `true` when a **single access unit** is a valid decode entry point
 Re-exported via `deepstream_decoders::prelude::*` and
 `deepstream_decoders::is_random_access_point`.
 
+### Stream Format Generation
+
+`detect_stream_config` auto-generates only:
+- H264: `ByteStream` or `Avc` (never `Avc3`)  
+- HEVC: `ByteStream` or `Hvc1` (never `Hev1`)
+
+All format variants (`ByteStream`, `Avc`, `Avc3` for H264; `ByteStream`, `Hvc1`, `Hev1` for HEVC) 
+can be manually configured via `H264DecoderConfig` and `HevcDecoderConfig` constructors.
+
 ## Output Semantics
 
 - Decoder output delivered to callbacks is RGBA for all supported codecs.

@@ -19,7 +19,6 @@ use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::fmt::Debug;
-use std::mem;
 
 use super::object::object_tree::VideoObjectTree;
 
@@ -966,18 +965,20 @@ impl VideoFrame {
 
     #[getter]
     #[pyo3(name = "json")]
-    pub fn json_gil(&self) -> String {
-        detach!(true, || serde_json::to_string(&self.to_serde_json_value())
-            .unwrap())
+    pub fn json_gil(&self) -> PyResult<String> {
+        detach!(true, || {
+            serde_json::to_string(&self.to_serde_json_value())
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
-    fn json_pretty_gil(&self) -> String {
-        detach!(true, || serde_json::to_string_pretty(
-            &self.to_serde_json_value()
-        )
-        .unwrap())
+    fn json_pretty_gil(&self) -> PyResult<String> {
+        detach!(true, || {
+            serde_json::to_string_pretty(&self.to_serde_json_value())
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
     }
 
     /// Resets all transformation records for a frame
@@ -1005,11 +1006,11 @@ impl VideoFrame {
     ///
     #[getter]
     pub fn get_transformations(&self) -> Vec<VideoFrameTransformation> {
-        unsafe {
-            mem::transmute::<Vec<rust::VideoFrameTransformation>, Vec<VideoFrameTransformation>>(
-                self.0.get_transformations(),
-            )
-        }
+        self.0
+            .get_transformations()
+            .into_iter()
+            .map(VideoFrameTransformation)
+            .collect()
     }
 
     /// Returns the list of attributes

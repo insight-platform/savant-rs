@@ -92,6 +92,18 @@ unsafe impl Sync for EglCudaMapping {}
 #[repr(transparent)]
 pub struct EglCudaMeta(imp::EglCudaMetaInner);
 
+// SAFETY: `EglCudaMeta` is stored inline as `GstMeta` on a refcounted `GstBuffer`. `Send` is
+// required because GStreamer may pass buffers between threads.
+//
+// `Sync`: New slots are registered and existing slots are updated only while the caller holds
+// `&mut BufferRef` in `ensure_meta` (see SAFETY there for why interior mutation through a
+// shared `MetaRef` is still exclusive to this buffer). `read_meta` and the read-only path in
+// `ensure_meta` only copy POD fields (`cuda_ptrs`, `pitches`, `plane_count`) and check
+// whether `resource` is null — values that are stable after a successful registration until
+// `meta_free` runs on buffer teardown. `CUgraphicsResource` lifetime is tied to a CUDA context;
+// registration uses `ensure_cuda_egl_context` before driver calls, and `meta_free` unregisters
+// on the same buffer-finalization path. This relies on the usual GstBuffer contract: no
+// concurrent mutation of the same buffer from multiple threads without external synchronization.
 unsafe impl Send for EglCudaMeta {}
 unsafe impl Sync for EglCudaMeta {}
 

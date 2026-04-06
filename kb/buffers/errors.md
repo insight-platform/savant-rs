@@ -55,6 +55,12 @@ pub enum NvBufSurfaceError {
 
     #[error("{0}")]
     InvalidInput(String),
+
+    #[error("Element missing required pad: {0}")]
+    MissingPad(String),
+
+    #[error(transparent)]
+    Transform(#[from] TransformError),
 }
 ```
 
@@ -79,6 +85,8 @@ pub enum NvBufSurfaceError {
 | `SurfaceSyncFailed` | `NvBufSurfaceSyncForDevice()` returns non-zero (Jetson CPU-staging path) |
 | `CudaDriverError` | `cuMemsetD8_v2` or `cuMemcpyHtoD_v2` fails in `surface_ops` (dGPU path) |
 | `InvalidInput` | `SurfaceView::upload` dimension/data mismatch, `EglCudaMeta` registration failure (e.g., `NvBufSurfaceMapEglImage` or `cuGraphicsEGLRegisterImage` error), `extract_nvbufsurface` failure |
+| `MissingPad` | Element missing required pad (e.g., `bridge_savant_id_meta` when element lacks "sink" or "src" static pads) |
+| `Transform` | Transform errors bubble up via `#[from]` — wraps `TransformError` variants |
 
 ---
 

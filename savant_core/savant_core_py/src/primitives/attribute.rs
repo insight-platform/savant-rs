@@ -4,7 +4,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
-use std::mem;
 use std::sync::Arc;
 
 /// Attribute represents a specific knowledge about certain entity. The attribute is identified by ``(creator, label)`` pair which is unique within the entity.
@@ -21,8 +20,7 @@ pub struct Attribute(pub rust::Attribute);
 
 impl Attribute {
     pub fn values(&mut self, vals: Vec<AttributeValue>) -> &mut Self {
-        let vals =
-            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(vals) };
+        let vals: Vec<rust::AttributeValue> = vals.into_iter().map(|v| v.0).collect();
         self.0.values = Arc::new(vals);
         self
     }
@@ -57,8 +55,7 @@ impl Attribute {
         is_persistent: bool,
         is_hidden: bool,
     ) -> Self {
-        let values =
-            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
+        let values: Vec<rust::AttributeValue> = values.into_iter().map(|v| v.0).collect();
 
         Self(rust::Attribute::new(
             namespace,
@@ -99,8 +96,7 @@ impl Attribute {
         hint: Option<String>,
         is_hidden: bool,
     ) -> Self {
-        let values =
-            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
+        let values: Vec<rust::AttributeValue> = values.into_iter().map(|v| v.0).collect();
         Self(rust::Attribute::persistent(
             namespace,
             name,
@@ -139,8 +135,7 @@ impl Attribute {
         hint: Option<String>,
         is_hidden: bool,
     ) -> Self {
-        let values =
-            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
+        let values: Vec<rust::AttributeValue> = values.into_iter().map(|v| v.0).collect();
 
         Self(rust::Attribute::temporary(
             namespace,
@@ -229,11 +224,11 @@ impl Attribute {
     ///
     #[getter]
     pub fn get_values(&self) -> Vec<AttributeValue> {
-        unsafe {
-            mem::transmute::<Vec<rust::AttributeValue>, Vec<AttributeValue>>(
-                (*self.0.values).clone(),
-            )
-        }
+        (*self.0.values)
+            .clone()
+            .into_iter()
+            .map(AttributeValue)
+            .collect()
     }
 
     /// Returns a link to attributes without retrieving them. It is convenience method if you need to access certain value.
@@ -279,9 +274,7 @@ impl Attribute {
     ///
     #[setter]
     pub fn set_values(&mut self, values: Vec<AttributeValue>) {
-        self.0.values = Arc::new(unsafe {
-            mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values)
-        });
+        self.0.values = Arc::new(values.into_iter().map(|v| v.0).collect());
     }
 
     #[getter]

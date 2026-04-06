@@ -40,6 +40,21 @@ Supports `==`, `!=`, `int()`, `hash()`, `repr()`.
 
 ---
 
+## ModelColorFormat
+
+Color format the model expects for its input tensor.
+
+```python
+class ModelColorFormat:
+    RGB: ModelColorFormat
+    BGR: ModelColorFormat
+    GRAY: ModelColorFormat
+```
+
+Supports `==`, `!=`, `int()`, `hash()`, `repr()`.
+
+---
+
 ## DataType
 
 Enum for tensor element types.
@@ -79,6 +94,32 @@ logic.
 
 ---
 
+## RoiKind
+
+Specifies how ROIs are provided for a frame: either the entire frame or an
+explicit list of `Roi` objects.
+
+```python
+class RoiKind:
+    @staticmethod
+    def full_frame() -> RoiKind: ...
+
+    @staticmethod
+    def rois(rois: List[Roi]) -> RoiKind: ...
+
+    @property
+    def is_full_frame(self) -> bool: ...
+
+    def get_rois(self) -> List[Roi]: ...
+```
+
+- `full_frame()` — the entire frame is the ROI (no crop).
+- `rois(...)` — explicit list of per-frame ROIs.
+- `is_full_frame` — `True` when constructed via `full_frame()`.
+- `get_rois()` — returns the ROI list; empty for `full_frame()`.
+
+---
+
 ## NvInferConfig
 
 ```python
@@ -86,9 +127,9 @@ class NvInferConfig:
     def __init__(
         self,
         nvinfer_properties: Dict[str, str],   # REQ
-        input_format: str,                     # REQ (e.g. "RGBA")
-        input_width: int,                      # REQ
-        input_height: int,                     # REQ
+        input_format: VideoFormat,             # REQ (e.g. VideoFormat.RGBA)
+        model_width: int,                      # REQ
+        model_height: int,                     # REQ
         *,
         name: str = "",                                           # OPT
         element_properties: Optional[Dict[str, str]] = None,     # OPT
@@ -97,21 +138,8 @@ class NvInferConfig:
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE, # OPT
         disable_output_host_copy: bool = False,                  # OPT
         scaling: ModelInputScaling = ModelInputScaling.FILL,      # OPT
+        model_color_format: ModelColorFormat = ModelColorFormat.RGB, # OPT
     ) -> None: ...
-
-    @staticmethod
-    def new_flexible(
-        nvinfer_properties: Dict[str, str],
-        input_format: str,
-        *,
-        name: str = "",
-        element_properties: Optional[Dict[str, str]] = None,
-        gpu_id: int = 0,
-        queue_depth: int = 0,
-        meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
-        disable_output_host_copy: bool = False,
-        scaling: ModelInputScaling = ModelInputScaling.FILL,
-    ) -> NvInferConfig: ...
 
     @property
     def name(self) -> str: ...
@@ -120,11 +148,13 @@ class NvInferConfig:
     @property
     def queue_depth(self) -> int: ...
     @property
-    def input_format(self) -> str: ...
+    def input_format(self) -> VideoFormat: ...
     @property
-    def input_width(self) -> Optional[int]: ...    # None for flexible configs
+    def model_width(self) -> int: ...
     @property
-    def input_height(self) -> Optional[int]: ...   # None for flexible configs
+    def model_height(self) -> int: ...
+    @property
+    def model_color_format(self) -> ModelColorFormat: ...
     @property
     def meta_clear_policy(self) -> MetaClearPolicy: ...
     @property
@@ -270,13 +300,14 @@ class NvInfer:
 
     def submit(
         self,
-        batch: SharedBuffer,
+        batch: Union[SharedBuffer, int],
         rois: Optional[Dict[int, List[Roi]]] = None,
+        batch_id: int = ...,
     ) -> None: ...
 
     def infer_sync(
         self,
-        batch: SharedBuffer,
+        batch: Union[SharedBuffer, int],
         rois: Optional[Dict[int, List[Roi]]] = None,
         timeout_ms: int = 30000,
     ) -> BatchInferenceOutput: ...
@@ -309,8 +340,9 @@ crashes (SIGSEGV) when the meta pool doesn't support cloning outside the DS
 pipeline context. Always use `from_glib_none(buffer.as_ptr())` to get a
 ref-counted owned `gst::Buffer` without copying.
 
-Pipeline correlation (PTS) is auto-generated internally — callers do not
-provide a `batch_id`.
+Pipeline correlation (PTS) is managed via the `batch_id` parameter on
+`submit()`. The Python API also accepts a raw `int` (GstBuffer pointer)
+in addition to `SharedBuffer`.
 
 ---
 

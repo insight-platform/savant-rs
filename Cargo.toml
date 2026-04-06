@@ -110,7 +110,6 @@ imagehash = "0.3"
 jmespath = { version = "0.3", features = ["sync"] }
 
 lazy_static = "1.5"
-libloading = "0.8"
 lru = { version = "0.13", features = ["hashbrown"] }
 log = "0.4"
 

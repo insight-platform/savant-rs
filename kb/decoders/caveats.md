@@ -60,6 +60,10 @@
 - VP8/VP9/AV1 always `false`; intra codecs (JPEG, PNG, raw) are `true` when
   non-empty.
 
+> **Note:** `RawNv12` is handled by `is_random_access_point()` for completeness 
+> but is NOT a supported `DecoderConfig` variant. It cannot be used to 
+> instantiate an `NvDecoder`.
+
 ## 9) config-interval Property
 
 - `h264parse` and `h265parse` are set with `config-interval=-1` in both

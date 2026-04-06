@@ -1,6 +1,11 @@
 //! Detect H.264 / HEVC stream packaging from one access unit and build [`DecoderConfig`].
 //!
-//! Annex-B (byte-stream) is detected when the buffer starts with a 3- or 4-byte start code.
+//! Annex-B (byte-stream) is detected when the buffer starts with a 4-byte start code
+//! (`00 00 00 01`) or a 3-byte start code (`00 00 01`) that is **not** a false positive.
+//! The prefix `00 00 01 XX` is ambiguous: it is either a 3-byte start code (NAL begins at
+//! `XX`) or the first four bytes of a 4-byte big-endian length in **256..=511** (NAL begins
+//! after the length). In the ambiguous case we prefer AVCC/HVCC only when the buffer fully
+//! splits as length-prefixed NALs and the first NAL parses for the codec.
 //! Otherwise the buffer is treated as 4-byte big-endian length–prefixed NAL units (AVCC/HVCC).
 //!
 //! [`is_random_access_point`] checks whether a single access unit is a valid decode entry point
@@ -90,8 +95,9 @@ pub fn detect_stream_config(codec: Codec, data: &[u8]) -> Option<DecoderConfig> 
 /// Returns `true` when the access unit is a valid random access point from which a decoder
 /// can start producing pictures.
 ///
-/// Framing matches [`detect_stream_config`]: Annex-B if `data` starts with a start code,
-/// otherwise 4-byte big-endian length–prefixed NAL units.
+/// Framing matches [`detect_stream_config`]: Annex-B if `data` starts with an unambiguous
+/// start code or an ambiguous `00 00 01` prefix that does not resolve as a valid
+/// length-prefixed AU; otherwise 4-byte big-endian length–prefixed NAL units.
 ///
 /// - **H.264**: requires at least one SPS, one PPS, and one IDR slice (NAL type 5) in the same
 ///   access unit.
@@ -141,7 +147,7 @@ pub fn is_random_access_point(codec: Codec, data: &[u8]) -> bool {
 }
 
 fn is_h264_rap(data: &[u8]) -> bool {
-    if has_annexb_prefix(data) {
+    if has_annexb_prefix(data, true) {
         scan_h264_annexb_rap(data)
     } else {
         scan_h264_length_prefixed_rap(data)
@@ -188,7 +194,7 @@ fn scan_h264_length_prefixed_rap(data: &[u8]) -> bool {
 }
 
 fn is_hevc_rap(data: &[u8]) -> bool {
-    if has_annexb_prefix(data) {
+    if has_annexb_prefix(data, false) {
         scan_hevc_annexb_rap(data)
     } else {
         scan_hevc_length_prefixed_rap(data)
@@ -242,7 +248,7 @@ fn detect_h264(data: &[u8]) -> Option<DecoderConfig> {
     if data.is_empty() {
         return None;
     }
-    if has_annexb_prefix(data) {
+    if has_annexb_prefix(data, true) {
         return Some(DecoderConfig::H264(H264DecoderConfig::new(
             H264StreamFormat::ByteStream,
         )));
@@ -258,7 +264,7 @@ fn detect_hevc(data: &[u8]) -> Option<DecoderConfig> {
     if data.is_empty() {
         return None;
     }
-    if has_annexb_prefix(data) {
+    if has_annexb_prefix(data, false) {
         return Some(DecoderConfig::Hevc(HevcDecoderConfig::new(
             HevcStreamFormat::ByteStream,
         )));
@@ -270,15 +276,40 @@ fn detect_hevc(data: &[u8]) -> Option<DecoderConfig> {
     ))
 }
 
-/// True if `data` begins with `00 00 01` or `00 00 00 01`.
-fn has_annexb_prefix(data: &[u8]) -> bool {
+/// True if `data` begins with `00 00 00 01`, or with `00 00 01` as a 3-byte Annex-B start code
+/// (not as the first four bytes of a valid length-prefixed AU for this codec).
+fn has_annexb_prefix(data: &[u8], is_h264: bool) -> bool {
     if data.len() >= 4 && data[..4] == [0, 0, 0, 1] {
         return true;
     }
-    if data.len() >= 3 && data[..3] == [0, 0, 1] {
-        return true;
+    if data.len() < 3 || data[..3] != [0, 0, 1] {
+        return false;
     }
-    false
+    // `00 00 01` + next byte: either 3-byte start code or AVCC/HVCC length in 256..=511.
+    if data.len() >= 4 {
+        let first_len = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        if data.len() >= 4 + first_len && length_prefixed_au_first_nal_parses(data, is_h264) {
+            return false;
+        }
+    }
+    true
+}
+
+/// `data` fully splits as 4-byte length–prefixed NALs and the first NAL decodes for `is_h264`.
+fn length_prefixed_au_first_nal_parses(data: &[u8], is_h264: bool) -> bool {
+    let Some(nals) = split_length_prefixed_nalus(data) else {
+        return false;
+    };
+    let Some(first) = nals.first().copied() else {
+        return false;
+    };
+    let wrapped = prepend_start_code(first);
+    let mut cur = Cursor::new(wrapped.as_slice());
+    if is_h264 {
+        H264Nalu::next(&mut cur).is_ok()
+    } else {
+        H265Nalu::next(&mut cur).is_ok()
+    }
 }
 
 /// Split `data` into NAL units using 4-byte big-endian length prefixes; returns [`None`] if truncated or malformed.
@@ -599,6 +630,42 @@ mod tests {
         }
     }
 
+    /// H.264 filler NAL (type 12): 1-byte header + 255 `0xFF` RBSP bytes → 256-byte NAL.
+    /// Prefix `00 00 01 00` is length **256** in big-endian and must not be mistaken for a
+    /// 3-byte Annex-B start code.
+    fn h264_filler_nalu_256() -> Vec<u8> {
+        let mut nal = vec![0x0Cu8];
+        nal.extend(std::iter::repeat_n(0xFFu8, 255));
+        assert_eq!(nal.len(), 256);
+        nal
+    }
+
+    #[test]
+    fn test_avcc_h264_first_nal_len_256_detects_avc() {
+        let au = len_prefixed(&[
+            h264_filler_nalu_256().as_slice(),
+            minimal_h264_sps().as_slice(),
+            minimal_h264_pps().as_slice(),
+        ]);
+        let c = detect_stream_config(Codec::H264, &au).expect("avc");
+        match c {
+            DecoderConfig::H264(cfg) => assert_eq!(cfg.stream_format, H264StreamFormat::Avc),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_avcc_h264_first_nal_len_256_rap_length_prefixed_path() {
+        let idr = vec![0x65, 0x88, 0x84, 0x00];
+        let au = len_prefixed(&[
+            h264_filler_nalu_256().as_slice(),
+            minimal_h264_sps().as_slice(),
+            minimal_h264_pps().as_slice(),
+            idr.as_slice(),
+        ]);
+        assert!(is_random_access_point(Codec::H264, &au));
+    }
+
     #[test]
     fn test_avcc_h264_sps_pps_idr() {
         let idr = vec![0x65, 0x88, 0x84, 0x00];
@@ -785,6 +852,29 @@ mod tests {
         let c = detect_stream_config(Codec::Hevc, &au).unwrap();
         match c {
             DecoderConfig::Hevc(cfg) => assert_eq!(cfg.stream_format, HevcStreamFormat::ByteStream),
+            _ => panic!(),
+        }
+    }
+
+    /// Pad VPS RBSP so the first length-prefixed NAL is exactly **256** bytes (`00 00 01 00`).
+    fn hevc_vps_nalu_len_256() -> Vec<u8> {
+        let mut v = hevc_vps();
+        assert!(v.len() < 256);
+        v.resize(256, 0);
+        v
+    }
+
+    #[test]
+    fn test_hvcc_hevc_first_nal_len_256_detects_hvc1() {
+        let au = len_prefixed(&[
+            hevc_vps_nalu_len_256().as_slice(),
+            hevc_vps().as_slice(),
+            hevc_sps().as_slice(),
+            hevc_pps().as_slice(),
+        ]);
+        let c = detect_stream_config(Codec::Hevc, &au).expect("hvc1");
+        match c {
+            DecoderConfig::Hevc(cfg) => assert_eq!(cfg.stream_format, HevcStreamFormat::Hvc1),
             _ => panic!(),
         }
     }

@@ -93,6 +93,28 @@ fn hevc_encoder_config(w: u32, h: u32) -> EncoderConfig {
 }
 ```
 
+### Platform-aware AV1 config
+```rust
+fn av1_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::Av1, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::Av1Jetson(Av1JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Av1, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::Av1Dgpu(Av1DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+```
+
 ### Default encoder config with fallback (platform-aware)
 ```rust
 fn make_default_encoder_config(w: u32, h: u32) -> Option<EncoderConfig> {
@@ -194,6 +216,32 @@ fn test_raw_rgba_pixel_data_round_trip() {
     encoder.submit_frame(buffer, 42, 0, Some(33_333_333)).unwrap();
     let frames = encoder.finish(Some(5000)).unwrap();
     assert_eq!(frames[0].data, input_pixels);
+}
+```
+
+### Raw NV12 pixel round-trip test
+```rust
+#[test]
+#[serial]
+fn test_raw_nv12_pixel_data_round_trip() {
+    init();
+    let (w, h) = (64u32, 48u32);
+    let nv12_size = (w as usize) * (h as usize) * 3 / 2;
+    let config = EncoderConfig::new(Codec::RawNv12, w, h).format(VideoFormat::NV12);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let mut input_pixels = vec![0u8; nv12_size];
+    // ... fill Y plane and UV plane with pattern ...
+
+    let shared = encoder.generator().acquire(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(&shared, 0).unwrap();
+    view.upload_nv12(&input_pixels, w, h).expect("upload failed");
+    drop(view);
+    let buffer = shared.into_buffer().expect("sole owner");
+    encoder.submit_frame(buffer, 42, 0, Some(33_333_333)).unwrap();
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert_eq!(frames[0].data.len(), nv12_size);
+    assert_eq!(frames[0].codec, Codec::RawNv12);
 }
 ```
 

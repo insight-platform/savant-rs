@@ -13,6 +13,10 @@ pub use error::DeepStreamError;
 pub use frame_meta::FrameMeta;
 pub use infer_tensor_meta::{InferDims, InferTensorMeta};
 pub use object_meta::ObjectMeta;
+pub use tracker_meta::{
+    target_misc_batch_from_user_meta, TargetMiscBatch, TargetMiscFrame, TargetMiscObject,
+    TargetMiscStream, TrackState,
+};
 pub use user_meta::UserMeta;
 
 pub type Result<T> = std::result::Result<T, DeepStreamError>;
@@ -37,6 +41,7 @@ same underlying batch and keep the DS metadata lock alive.
 | `max_frames_in_batch` | `(&self) → u32` | Max capacity |
 | `frames` | `(&self) → Vec<FrameMeta>` | Iterate frame metadata |
 | `is_empty` | `(&self) → bool` | `num_frames == 0` |
+| `batch_user_meta` | `(&self) → Vec<UserMeta>` | Batch-level user metadata (tracker shadow/terminated lists) |
 
 ---
 
@@ -132,9 +137,14 @@ Implements `Clone` (shallow), `Debug`.
 | `set_reserved` | `(&mut self, reserved: [i64; 4])` | |
 | `user_meta` | `(&self) → Vec<UserMeta>` | All user metadata on this object |
 | `has_user_meta` | `(&self) → bool` | |
-
-> **No `rect_params`**: The wrapper does not expose rect fields directly.
-> Use `as_raw()` to access `NvDsObjectMeta` fields like `rect_params` via FFI.
+| **Bounding boxes (rect_params)** | | |
+| `rect_left` | `(&self) → f32` | Left coordinate of rect_params |
+| `rect_top` | `(&self) → f32` | Top coordinate of rect_params |
+| `rect_width` | `(&self) → f32` | Width of rect_params |
+| `rect_height` | `(&self) → f32` | Height of rect_params |
+| `set_rect_params` | `(&mut self, left: f32, top: f32, width: f32, height: f32)` | Set axis-aligned rectangle |
+| `sync_detector_bbox_from_rect` | `(&mut self)` | Copy rect_params to detector_bbox_info.org_bbox_coords |
+| `sync_tracker_bbox_from_rect` | `(&mut self)` | Copy rect_params to tracker_bbox_info.org_bbox_coords |
 
 ---
 
@@ -200,6 +210,90 @@ Implements `Clone` (shallow), `Debug`.
 | `unsafe user_meta_data_as_mut<T>` | `(&mut self) → Option<&mut T>` | Mutable cast |
 | `has_user_data` | `(&self) → bool` | |
 | `as_infer_tensor_meta` | `(&self) → Option<InferTensorMeta>` | Checks for `NVDSINFER_TENSOR_OUTPUT_META` type |
+
+---
+
+## TrackState
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackState {
+    New,
+    Tracked,
+    Shadow,
+    Terminated,
+}
+```
+
+Represents the lifecycle state of a tracked object as reported by the
+DeepStream tracker. Parsed from `misc_obj_info` fields on `NvDsObjectMeta`.
+
+---
+
+## TargetMiscObject
+
+```rust
+pub struct TargetMiscObject {
+    pub class_id: i32,
+    pub object_id: u64,
+    pub state: TrackState,
+    pub misc_obj_info: [i64; 4],
+}
+```
+
+Per-object tracker metadata extracted from `NvDsObjectMeta`.
+
+---
+
+## TargetMiscFrame
+
+```rust
+pub struct TargetMiscFrame {
+    pub frame_num: i32,
+    pub misc_frame_info: [i64; 4],
+    pub objects: Vec<TargetMiscObject>,
+}
+```
+
+Per-frame tracker metadata containing all tracked objects for a single frame.
+
+---
+
+## TargetMiscStream
+
+```rust
+pub struct TargetMiscStream {
+    pub source_id: u32,
+    pub frames: Vec<TargetMiscFrame>,
+}
+```
+
+Per-stream tracker metadata grouping frames by source ID.
+
+---
+
+## TargetMiscBatch
+
+```rust
+pub struct TargetMiscBatch {
+    pub streams: Vec<TargetMiscStream>,
+}
+```
+
+Batch-level tracker metadata aggregating all streams. Typically parsed from
+batch user metadata entries.
+
+---
+
+## target_misc_batch_from_user_meta
+
+```rust
+pub fn target_misc_batch_from_user_meta(user_metas: &[UserMeta]) -> Result<TargetMiscBatch>
+```
+
+Parses tracker shadow / terminated / past-frame lists from batch-level
+`UserMeta` entries into a `TargetMiscBatch`. Call `BatchMeta::batch_user_meta()`
+first to obtain the `Vec<UserMeta>` input.
 
 ---
 

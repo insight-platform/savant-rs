@@ -1,12 +1,10 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from savant_rs.primitives import VideoFrame, VideoFrameBatch, VideoFrameUpdate
 from savant_rs.utils import TelemetrySpan
 
 __all__ = [
     "StageFunction",
-    "handle_psf",
-    "load_stage_function_plugin",
     "VideoPipelineStagePayloadType",
     "FrameProcessingStatRecordType",
     "StageLatencyMeasurements",
@@ -22,11 +20,6 @@ class StageFunction:
 
     @classmethod
     def none(cls) -> "StageFunction": ...
-
-def handle_psf(f: StageFunction) -> None: ...
-def load_stage_function_plugin(
-    libname: str, init_name: str, plugin_name: str, params: Dict[str, Any]
-) -> StageFunction: ...
 
 class VideoPipelineStagePayloadType:
     """Defines which type of payload a stage handles."""

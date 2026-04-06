@@ -28,6 +28,7 @@ try:
         TransformConfig,
         SurfaceView,
         SavantIdMetaKind,
+        VideoFormat,
         init_cuda,
         nvbuf_as_gpu_mat,
     )
@@ -74,9 +75,9 @@ def test_e2e():
 
     config = NvInferConfig(
         nvinfer_properties=age_gender_properties(),
-        input_format="RGBA",
-        input_width=1920,
-        input_height=1080,
+        input_format=VideoFormat.RGBA,
+        model_width=1920,
+        model_height=1080,
     )
     engine = NvInfer(config, callback=lambda output: None)
 
@@ -111,9 +112,9 @@ def test_e2e_async():
 
     config = NvInferConfig(
         nvinfer_properties=age_gender_properties(),
-        input_format="RGBA",
-        input_width=1920,
-        input_height=1080,
+        input_format=VideoFormat.RGBA,
+        model_width=1920,
+        model_height=1080,
     )
     engine = NvInfer(config, callback=on_output)
 

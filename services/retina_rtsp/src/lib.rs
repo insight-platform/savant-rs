@@ -7,13 +7,14 @@ pub mod utils;
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex as StdMutex,
+    Arc,
 };
 use std::time::Duration;
 
 use anyhow::Result;
 use hashbrown::HashMap;
 use log::{error, info};
+use parking_lot::Mutex as ParkingMutex;
 use retina::client::SessionGroup;
 use savant_core::transport::zeromq::NonBlockingWriter;
 use savant_services_common::job_writer::JobWriter;
@@ -30,8 +31,8 @@ pub struct Service {
     sink: Arc<Mutex<JobWriter>>,
     reconnect_interval: Duration,
     eos_on_restart: bool,
-    shutdown_flags: Arc<StdMutex<HashMap<String, Arc<AtomicBool>>>>,
-    done_notifiers: Arc<StdMutex<HashMap<String, Vec<tokio::sync::oneshot::Sender<()>>>>>,
+    shutdown_flags: Arc<ParkingMutex<HashMap<String, Arc<AtomicBool>>>>,
+    done_notifiers: Arc<ParkingMutex<HashMap<String, Vec<tokio::sync::oneshot::Sender<()>>>>>,
     rtsp_session_group: Arc<SessionGroup>,
 }
 
@@ -46,8 +47,8 @@ impl Service {
             sink,
             reconnect_interval: conf.reconnect_interval.unwrap_or(Duration::from_secs(5)),
             eos_on_restart: conf.eos_on_restart.unwrap_or(true),
-            shutdown_flags: Arc::new(StdMutex::new(HashMap::new())),
-            done_notifiers: Arc::new(StdMutex::new(HashMap::new())),
+            shutdown_flags: Arc::new(ParkingMutex::new(HashMap::new())),
+            done_notifiers: Arc::new(ParkingMutex::new(HashMap::new())),
             rtsp_session_group: Arc::new(SessionGroup::default()),
         })
     }
@@ -65,14 +66,13 @@ impl Service {
         let shutdown = Arc::new(AtomicBool::new(false));
         self.shutdown_flags
             .lock()
-            .unwrap()
             .insert(name.clone(), shutdown.clone());
 
         let result = self.run_group_loop(group, name.clone(), shutdown).await;
 
         // Cleanup: remove from maps and notify waiters.
-        self.shutdown_flags.lock().unwrap().remove(&name);
-        if let Some(senders) = self.done_notifiers.lock().unwrap().remove(&name) {
+        self.shutdown_flags.lock().remove(&name);
+        if let Some(senders) = self.done_notifiers.lock().remove(&name) {
             for tx in senders {
                 let _ = tx.send(());
             }
@@ -83,7 +83,7 @@ impl Service {
 
     /// Signal a running group to stop.  Returns immediately.
     pub fn request_stop(&self, name: &str) {
-        if let Some(flag) = self.shutdown_flags.lock().unwrap().get(name) {
+        if let Some(flag) = self.shutdown_flags.lock().get(name) {
             flag.store(true, Ordering::SeqCst);
         }
     }
@@ -92,7 +92,7 @@ impl Service {
     pub async fn stop_group(&self, name: &str) {
         let rx = {
             let (tx, rx) = tokio::sync::oneshot::channel();
-            let mut notifiers = self.done_notifiers.lock().unwrap();
+            let mut notifiers = self.done_notifiers.lock();
             notifiers.entry(name.to_string()).or_default().push(tx);
             self.request_stop(name);
             rx
@@ -102,17 +102,11 @@ impl Service {
 
     /// Stop all running groups and wait for them to finish.
     pub async fn shutdown(&self) {
-        let names: Vec<String> = self
-            .shutdown_flags
-            .lock()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect();
+        let names: Vec<String> = self.shutdown_flags.lock().keys().cloned().collect();
 
         let mut receivers = Vec::new();
         {
-            let mut notifiers = self.done_notifiers.lock().unwrap();
+            let mut notifiers = self.done_notifiers.lock();
             for name in &names {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 notifiers.entry(name.clone()).or_default().push(tx);
@@ -131,12 +125,7 @@ impl Service {
 
     /// Names of currently running groups.
     pub fn running_groups(&self) -> Vec<String> {
-        self.shutdown_flags
-            .lock()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect()
+        self.shutdown_flags.lock().keys().cloned().collect()
     }
 
     // ── private ──────────────────────────────────────────────────────

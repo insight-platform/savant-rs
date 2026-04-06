@@ -14,9 +14,9 @@ Maps tracker misc state: `EMPTY`, `ACTIVE`, `INACTIVE`, `TENTATIVE`, `PROJECTED`
 
 ## `NvTrackerConfig`
 
-`SIG: __init__(ll_lib_file: str, ll_config_file: str, input_format: VideoFormat, *, name: str = "", tracker_width: int = 640, tracker_height: int = 384, max_batch_size: int = 16, gpu_id: int = 0, element_properties: Optional[dict[str, str]] = None, tracking_id_reset_mode: TrackingIdResetMode = NONE)`
+`SIG: __init__(ll_lib_file: str, ll_config_file: str, input_format: VideoFormat, *, name: str = "", tracker_width: int = 640, tracker_height: int = 384, max_batch_size: int = 16, gpu_id: int = 0, element_properties: Optional[dict[str, str]] = None, tracking_id_reset_mode: TrackingIdResetMode = NONE, queue_depth: int = 0)`
 
-**Getters:** `ll_lib_file`, `ll_config_file` (other fields are ctor-only in the binding).
+**Getters:** `ll_lib_file`, `ll_config_file`, `queue_depth` (other fields are ctor-only in the binding).
 
 Rust `validate()` runs inside `NvTracker.__init__` (via `NvTracker::new`).
 

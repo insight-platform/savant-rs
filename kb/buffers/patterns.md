@@ -111,14 +111,14 @@ fn make_batched_gen(
 
 ### Build Uniform Batch (with timestamps and IDs)
 ```rust
-fn build_uniform_batch(ids: &[i64]) -> SharedBuffer {
+fn build_uniform_batch(ids: &[u128]) -> SharedBuffer {
     let src_gen = make_src_gen(VideoFormat::RGBA, 1920, 1080);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, ids.len() as u32, 2);
     let config = TransformConfig::default();
     let ids_vec: Vec<SavantIdMetaKind> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
     let mut batch = batched_gen.acquire_batch(config, ids_vec).unwrap();
-    for (slot, &id) in ids.iter().enumerate() {
-        let src_shared = src_gen.acquire(Some(id)).unwrap();
+    for (slot, _) in ids.iter().enumerate() {
+        let src_shared = src_gen.acquire(Some(ids[slot])).unwrap();
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
         batch.transform_slot(slot as u32, &src_view, None).unwrap();
     }
@@ -139,7 +139,7 @@ fn build_uniform_batch(ids: &[i64]) -> SharedBuffer {
 
 ### Build Heterogeneous Batch
 ```rust
-fn build_heterogeneous_batch(resolutions: &[(u32, u32)], ids: &[i64]) -> SharedBuffer {
+fn build_heterogeneous_batch(resolutions: &[(u32, u32)], ids: &[u128]) -> SharedBuffer {
     let mut batch = NonUniformBatch::new(0);
     for (i, &(w, h)) in resolutions.iter().enumerate() {
         let gen = make_src_gen(VideoFormat::RGBA, w, h);

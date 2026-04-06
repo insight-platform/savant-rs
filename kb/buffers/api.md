@@ -30,7 +30,7 @@ Crate: `deepstream_buffers`
 
 ### Re-exports
 ```rust
-pub use SavantIdMeta, SavantIdMetaKind;  // from savant_gstreamer
+pub use SavantIdMetaKind;                // from savant_gstreamer
 pub use VideoFormat;                      // from savant_gstreamer
 pub use SharedBuffer;           // from shared_buffer
 pub use SurfaceView;                     // from surface_view
@@ -94,6 +94,8 @@ Picasso, and the encoder without ownership transfer. Implements `Send + Sync`.
 | `savant_ids` | `(&self) → Vec<SavantIdMetaKind>` | Read `SavantIdMeta` IDs (empty vec if no meta) |
 | `set_savant_ids` | `(&self, ids: Vec<SavantIdMetaKind>)` | Replace `SavantIdMeta` (removes old, adds new) |
 | `Debug` | `impl Debug` | Prints `SharedBuffer { strong_count: N }` |
+| `with_view` | `(&self, slot: u32, f: F) → Result<R, E>` | Creates temp SurfaceView, calls closure, auto-drops |
+| `transform_into` | `(&self, src_slot: u32, dst: &SharedBuffer, dst_slot: u32, config: &TransformConfig, src_rect: Option<&Rect>) → Result<(), E>` | GPU transform between SharedBuffers |
 
 ---
 
@@ -110,7 +112,7 @@ pub struct BufferGenerator { inner: UniformBatchGenerator }
 |---|---|---|
 | `new` | `(format, w, h, fps_num, fps_den, gpu_id, mem_type) → Result<Self, E>` | Simple constructor |
 | `builder` | `(format, w, h) → BufferGeneratorBuilder` | Advanced config |
-| `acquire` | `(&self, frame_id: Option<i64>) → Result<SharedBuffer, E>` | Acquire single buffer from pool. Attaches SavantIdMeta if frame_id given |
+| `acquire` | `(&self, id: Option<u128>) → Result<SharedBuffer, E>` | Acquire single buffer from pool. Attaches SavantIdMeta if id given |
 | `transform` | `(&self, src: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) → Result<SharedBuffer, E>` | Acquire + GPU transform |
 | `width` / `height` / `format` / `gpu_id` | `(&self) → T` | Getters |
 | `nvmm_caps` | `(&self) → String` | NVMM caps string (delegates to inner `UniformBatchGenerator`) |
@@ -130,11 +132,11 @@ Extension trait providing GStreamer-level caps access:
 
 ### gst_app (free functions)
 
-AppSrc helpers extracted from `BufferGenerator` into `deepstream_buffers::gst_app`.
+AppSrc helpers extracted from `BufferGenerator` into `deepstream_buffers::buffers::single::gst_app`.
 
 | Function | Signature | Notes |
 |---|---|---|
-| `push_to_appsrc` | `(gen: &BufferGenerator, appsrc: &AppSrc, pts_ns: u64, duration_ns: u64, id: Option<i64>) → Result<(), E>` | Acquire + set PTS/duration + push |
+| `push_to_appsrc` | `(gen: &BufferGenerator, appsrc: &AppSrc, pts_ns: u64, duration_ns: u64, id: Option<u128>) → Result<(), E>` | Acquire + set PTS/duration + push |
 | `push_to_appsrc_raw` | `unsafe (gen: &BufferGenerator, appsrc_ptr: usize, ...) → Result<(), E>` | FFI variant via raw pointer |
 | `send_eos` | `(appsrc: &AppSrc) → Result<(), E>` | Send EOS to AppSrc |
 | `send_eos_raw` | `unsafe (appsrc_ptr: usize) → Result<(), E>` | FFI variant via raw pointer |
@@ -199,6 +201,7 @@ not deferred to `finalize`. This is consistent with `acquire()` for single frame
 | `is_finalized` | `(&self) → bool` | |
 | `shared_buffer` | `(&self) → SharedBuffer` | Clone of Arc for shared access; use for downstream consumers |
 | `view` | `(&self, index: u32) → Result<SurfaceView, E>` | Creates SurfaceView for a specific slot |
+| `into_shared_buffer` | `(self) → SharedBuffer` | Consume batch and return inner SharedBuffer |
 
 **REMOVED:** `as_gst_buffer`, `extract_slot_view`. Use `shared_buffer()` and `SurfaceView::from_buffer` instead.
 

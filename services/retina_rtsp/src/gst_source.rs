@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -13,6 +13,7 @@ use gstreamer_app as gst_app;
 use gstreamer_rtp as gst_rtp;
 use hashbrown::HashMap;
 use log::{debug, error, info, warn};
+use parking_lot::Mutex as ParkingMutex;
 use savant_core::primitives::{
     frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
     rust::{ExternalFrame, VideoCodec},
@@ -54,7 +55,7 @@ enum GstEvent {
 }
 
 struct PerSourceState {
-    clock_rate: Arc<StdMutex<u32>>,
+    clock_rate: Arc<ParkingMutex<u32>>,
 }
 
 struct PipelineGuard {
@@ -127,8 +128,8 @@ pub async fn run_group(
         pipeline.add_many([&rtspsrc, appsink.upcast_ref()])?;
 
         // Queue of per-frame RTP timestamps, filled by pad probe, consumed by appsink.
-        let rtp_queue = Arc::new(StdMutex::new((0u32, VecDeque::<u32>::new())));
-        let clock_rate_shared = Arc::new(StdMutex::new(0u32));
+        let rtp_queue = Arc::new(ParkingMutex::new((0u32, VecDeque::<u32>::new())));
+        let clock_rate_shared = Arc::new(ParkingMutex::new(0u32));
 
         per_source_states.push(PerSourceState {
             clock_rate: clock_rate_shared.clone(),
@@ -204,7 +205,7 @@ pub async fn run_group(
             }
 
             let clock_rate = structure.get::<i32>("clock-rate").unwrap_or(90000) as u32;
-            *clock_rate_for_pad.lock().unwrap() = clock_rate;
+            *clock_rate_for_pad.lock() = clock_rate;
 
             let encoding_name = structure
                 .get::<&str>("encoding-name")
@@ -275,7 +276,7 @@ pub async fn run_group(
                 if let Some(gst::PadProbeData::Buffer(ref buffer)) = info.data {
                     if let Ok(rtp_buffer) = gst_rtp::RTPBuffer::from_buffer_readable(buffer) {
                         let ts = rtp_buffer.timestamp();
-                        let mut guard = rtp_q.lock().unwrap();
+                        let mut guard = rtp_q.lock();
                         if guard.0 != ts || guard.1.is_empty() {
                             guard.0 = ts;
                             guard.1.push_back(ts);
@@ -304,7 +305,7 @@ pub async fn run_group(
                         let data = map.as_slice().to_vec();
 
                         let rtp_timestamp = {
-                            let mut guard = rtp_q_appsink.lock().unwrap();
+                            let mut guard = rtp_q_appsink.lock();
                             guard.1.pop_front().unwrap_or(guard.0)
                         };
 
@@ -414,7 +415,7 @@ pub async fn run_group(
                             .or_default()
                             .push_back((rtp_time, ntp_time));
 
-                        let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
+                        let clock_rate = *per_source_states[source_idx].clock_rate.lock();
                         if clock_rate == 0 {
                             warn!(
                                 "RTCP SR queued but clock rate unknown for {}, skipping NTP sync",
@@ -459,7 +460,7 @@ pub async fn run_group(
                         // discard the rest (subsequent SRs already fed to NTP sync).
                         // Only the first SR establishes the PTS base — reseeding would
                         // cause PTS discontinuities that the Syncer rejects.
-                        let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
+                        let clock_rate = *per_source_states[source_idx].clock_rate.lock();
                         if let Some(sr_queue) = sr_queues.get_mut(&source_idx) {
                             while let Some(&(sr_rtp, _)) = sr_queue.front() {
                                 if rtp_timestamp >= sr_rtp {

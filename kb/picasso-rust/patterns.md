@@ -20,7 +20,7 @@
 ```toml
 [dev-dependencies]
 deepstream_buffers = { path = "../buffers", features = ["testing"] }
-env_logger = "0.11"
+env_logger = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }

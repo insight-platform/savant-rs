@@ -65,6 +65,9 @@ pub use batching_operator::{
 | `element_properties` | `HashMap<String, String>` | empty |
 | `tracking_id_reset_mode` | `TrackingIdResetMode` | `None` |
 | `max_batch_size` | `u32` | `DEFAULT_MAX_BATCH_SIZE` |
+| `queue_depth` | `u32` | `0` |
+
+**`queue_depth` notes:** When set to `0` (default), no GStreamer queue element is inserted—the pipeline operates synchronously. When set to a value greater than zero, a GStreamer `queue` element with `max-size-buffers=queue_depth` is inserted between `appsrc` and `nvtracker`, decoupling the push thread from the tracker processing thread to absorb latency spikes.
 
 `SIG: fn new(ll_lib_file, ll_config_file) -> Self`
 
@@ -226,3 +229,15 @@ Methods:
 - `unseal(self) -> Vec<(VideoFrameProxy, SharedBuffer)>`
 - `unseal_timeout(self, Duration) -> Result<Vec<...>, Self>`
 - `try_unseal(self) -> Result<Vec<...>, Self>`
+
+---
+
+## Errors
+
+See [`errors.md`](errors.md) for the full `NvTrackerError` enum. Notable batching-operator-specific variants:
+
+| Variant | When |
+|---------|------|
+| `BatchFormationFailed(String)` | Batch formation callback returned an error |
+| `OperatorShutdown` | Operation attempted after the batching operator has been shut down |
+| `BatchMetaFailed { operation, detail }` | Batch metadata construction or access failed during a specific operation |

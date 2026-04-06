@@ -47,11 +47,14 @@ carry `NvDsObjectMeta` entries. The crate attaches them automatically via
 
 ---
 
-## 4. Flexible Config Requires Explicit ROIs
+## 4. Full-Frame Inference When rois = None
 
-`NvInferConfig::new_flexible` has no `input_width`/`input_height`. The
-full-frame fallback cannot compute dimensions. **Must** supply explicit
-`rois` for every slot.
+When `rois = None` is passed to `submit`/`infer_sync`, the pipeline reads
+actual slot dimensions from the `NvBufSurface` and creates synthetic
+full-frame ROIs automatically (`(0, 0, slot_width, slot_height)` per slot).
+There is no separate "flexible" constructor -- `NvInferConfig::new` is the
+only constructor, and it always requires `model_width` and `model_height`
+(used for nvinfer config generation and coordinate scaling).
 
 ---
 

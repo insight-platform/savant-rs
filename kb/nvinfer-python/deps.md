@@ -34,6 +34,7 @@ from savant_rs.deepstream import (
     TransformConfig,                   # transform (scale / letterbox) config for batch ops
     BufferGenerator,                   # single-surface generator
     UniformBatchGenerator,             # multi-surface batch generator
+    VideoFormat,                       # video format enum (RGBA, RGB, NV12, etc.)
     init_cuda,                         # call once before any GPU work
 )
 ```

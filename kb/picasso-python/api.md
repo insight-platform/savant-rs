@@ -41,7 +41,7 @@ SIG: __init__(name: str = "picasso", idle_timeout_secs: int = 30, inflight_queue
 - `name`: get/set, str. Optional instance name for logging and future extensibility. DEF: "picasso"
 - `idle_timeout_secs`: get/set, u64. DEF: 30
 - `inflight_queue_size`: get/set, int. Capacity of the per-worker message queue. Controls how many frames can be buffered between `send_frame` and the worker consuming them. Larger values absorb bursts but increase memory/latency. DEF: 8
-- `pts_reset_policy`: get/set, Optional[PtsResetPolicy]. Policy for handling non-monotonic (decreasing) PTS values. DEF: None (defaults to `PtsResetPolicy.eos_on_decreasing_pts()`)
+- `pts_reset_policy`: get/set, PtsResetPolicy. Policy for handling non-monotonic (decreasing) PTS values. Always returns a value; DEF: `PtsResetPolicy.eos_on_decreasing_pts()`
 - repr: `"GeneralSpec(name=..., idle_timeout_secs=N, inflight_queue_size=N)"`
 
 ---

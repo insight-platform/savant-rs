@@ -1,6 +1,6 @@
 use crate::message::{Message, MessageEnvelope, SeqStore, AUX_SEQ_ID_KEY};
 use crate::primitives::eos::EndOfStream;
-use crate::protobuf::{deserialize, serialize};
+use crate::protobuf::serialize;
 use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, SocketProvider,
     WriterConfig, WriterSocketType, CONFIRMATION_MESSAGE, ZMQ_LINGER,
@@ -47,27 +47,6 @@ pub enum WriterResult {
         retries_spent: i32,
         time_spent: u128,
     },
-}
-
-#[allow(dead_code)]
-#[derive(Default)]
-struct MockResponder;
-
-impl MockSocketResponder for MockResponder {
-    fn fix(&mut self, data: &mut Vec<Vec<u8>>) {
-        if data.len() == 2 {
-            let eos = deserialize(&data[1]);
-            if eos.is_ok() {
-                data.pop();
-                data.push(CONFIRMATION_MESSAGE.to_vec());
-            }
-        } else if data.len() == 1 {
-            panic!("Wrong data format, topic is missing");
-        } else {
-            data.clear();
-            data.push(CONFIRMATION_MESSAGE.to_vec());
-        }
-    }
 }
 
 impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
@@ -315,11 +294,34 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
 
 #[cfg(test)]
 mod tests {
+    use crate::protobuf::deserialize;
+    use crate::transport::zeromq::{MockSocketResponder, CONFIRMATION_MESSAGE};
+
+    #[derive(Default)]
+    struct MockResponder;
+
+    impl MockSocketResponder for MockResponder {
+        fn fix(&mut self, data: &mut Vec<Vec<u8>>) {
+            if data.len() == 2 {
+                let eos = deserialize(&data[1]);
+                if eos.is_ok() {
+                    data.pop();
+                    data.push(CONFIRMATION_MESSAGE.to_vec());
+                }
+            } else if data.len() == 1 {
+                panic!("Wrong data format, topic is missing");
+            } else {
+                data.clear();
+                data.push(CONFIRMATION_MESSAGE.to_vec());
+            }
+        }
+    }
+
     mod tests_with_response {
         use super::super::{Writer, WriterConfig};
+        use super::MockResponder;
         use crate::message::Message;
         use crate::test::gen_frame;
-        use crate::transport::zeromq::writer::MockResponder;
         use crate::transport::zeromq::{MockSocketProvider, WriterResult};
 
         #[test]
@@ -374,9 +376,9 @@ mod tests {
     }
 
     mod tests_without_response {
+        use super::MockResponder;
         use crate::message::Message;
         use crate::test::gen_frame;
-        use crate::transport::zeromq::writer::MockResponder;
         use crate::transport::zeromq::{MockSocketProvider, Writer, WriterConfig, WriterResult};
 
         #[test]

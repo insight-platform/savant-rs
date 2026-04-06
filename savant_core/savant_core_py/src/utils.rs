@@ -101,7 +101,9 @@ pub fn incremental_uuid_v7() -> String {
 ///   The new UUID
 ///
 #[pyfunction]
-pub fn relative_time_uuid_v7(uuid: &str, offset_millis: i64) -> String {
-    let uuid = Uuid::parse_str(uuid).unwrap();
-    savant_core::utils::uuid_v7::relative_time_uuid_v7(uuid, offset_millis).to_string()
+pub fn relative_time_uuid_v7(uuid: &str, offset_millis: i64) -> PyResult<String> {
+    let uuid = Uuid::parse_str(uuid).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    savant_core::utils::uuid_v7::relative_time_uuid_v7(uuid, offset_millis)
+        .map(|u| u.to_string())
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }

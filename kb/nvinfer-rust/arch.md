@@ -13,8 +13,8 @@ nvinfer/src/
 ├── meta_clear_policy.rs  # MetaClearPolicy
 ├── nvinfer_types.rs      # DataType
 ├── batch_meta_builder.rs # attach_batch_meta_with_rois, rbbox_to_rect_params (pub(crate))
-└── batching_operator/    # Higher-level batching layer
-    ├── mod.rs            # Re-exports: NvInferBatchingOperator, OperatorElement, etc.
+├── batching_operator.rs  # Higher-level batching layer (re-exports + submodules)
+└── batching_operator/
     ├── config.rs         # NvInferBatchingOperatorConfig
     ├── operator.rs       # NvInferBatchingOperator: frame accumulation, timer, callback
     ├── output.rs         # OperatorElement, OperatorFrameOutput, OperatorInferenceOutput
@@ -57,8 +57,7 @@ Same as submit, but:
 
 | Scenario | Behaviour |
 |---|---|
-| `rois = None` and fixed input dims | Synthetic full-frame ROIs per slot `(0,0,w,h)` |
-| `rois = None` and flexible dims | Read slot dimensions from NvBufSurface; synthetic ROIs per slot |
+| `rois = None` | Read actual slot dimensions from NvBufSurface; synthetic full-frame ROIs per slot `(0,0,w,h)` |
 | `rois = Some(map)` | One `NvDsObjectMeta` per `Roi`; slot with no entry → full-frame sentinel |
 
 Full-frame sentinel uses `unique_component_id = FULL_FRAME_SENTINEL` (-1);
