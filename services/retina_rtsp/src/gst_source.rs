@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use anyhow::Context;
+use futures::StreamExt;
 use glib::prelude::*;
 use gstreamer::prelude::*;
 use gstreamer::{self as gst, FlowSuccess};
@@ -50,20 +51,38 @@ enum GstEvent {
         rtp_time: u32,
         ntp_time: u64,
     },
-    Error {
-        message: String,
-    },
-    Eos,
 }
 
 struct PerSourceState {
     clock_rate: Arc<StdMutex<u32>>,
 }
 
+struct PipelineGuard {
+    pipeline: gst::Pipeline,
+    group_name: String,
+}
+
+impl Drop for PipelineGuard {
+    fn drop(&mut self) {
+        if let Err(e) = self.pipeline.set_state(gst::State::Null) {
+            error!(
+                "Failed to set pipeline to Null for group '{}': {:?}",
+                self.group_name, e
+            );
+        } else {
+            info!(
+                "GStreamer pipeline stopped for group '{}'",
+                self.group_name
+            );
+        }
+    }
+}
+
 pub async fn run_group(
     conf: Arc<ServiceConfiguration>,
     group_name: String,
     sink: Arc<Mutex<JobWriter>>,
+    eos_on_restart: bool,
 ) -> anyhow::Result<()> {
     let group_conf = &conf.rtsp_sources[&group_name];
     let sources: Vec<_> = group_conf
@@ -291,31 +310,21 @@ pub async fn run_group(
         });
     }
 
-    // Bus watch for errors and EOS
-    let tx_bus = tx.clone();
+    // Bus stream for errors and EOS (async-compatible, no GLib main loop needed)
     let bus = pipeline.bus().unwrap();
-    let _bus_watch = bus
-        .add_watch(move |_, msg| match msg.view() {
-            gst::MessageView::Error(err) => {
-                let msg = format!(
-                    "GStreamer error from {:?}: {} ({:?})",
-                    err.src().map(|s| s.path_string()),
-                    err.error(),
-                    err.debug()
-                );
-                let _ = tx_bus.try_send(GstEvent::Error { message: msg });
-                glib::ControlFlow::Break
-            }
-            gst::MessageView::Eos(_) => {
-                let _ = tx_bus.try_send(GstEvent::Eos);
-                glib::ControlFlow::Break
-            }
-            _ => glib::ControlFlow::Continue,
-        })
-        .expect("Failed to add bus watch");
+    let mut bus_stream =
+        bus.stream_filtered(&[gst::MessageType::Error, gst::MessageType::Eos]);
 
     pipeline.set_state(gst::State::Playing)?;
+    let _pipeline_guard = PipelineGuard {
+        pipeline,
+        group_name: group_name.clone(),
+    };
     info!("GStreamer pipeline started for group '{}'", group_name);
+
+    // Drop the original sender so the channel closes when all callback-held
+    // clones are dropped (otherwise rx.recv() can never return None).
+    drop(tx);
 
     // Processing loop — same downstream logic as retina path
     let rtcp_once = group_conf
@@ -323,8 +332,6 @@ pub async fn run_group(
         .as_ref()
         .map(|c| c.rtcp_once.unwrap_or(false))
         .unwrap_or(false);
-    let eos_on_restart = conf.eos_on_restart.unwrap_or(true);
-
     let mut ntp_sync = if let Some(sync_conf) = &group_conf.rtcp_sr_sync {
         info!(
             "NTP sync enabled for GStreamer group {}, window: {:?}, batch: {:?}",
@@ -346,232 +353,252 @@ pub async fn run_group(
     let mut sr_queues: HashMap<usize, VecDeque<(u32, u64)>> = HashMap::new();
     let mut last_rtp_records: HashMap<String, i64> = HashMap::new();
 
-    while let Some(event) = rx.recv().await {
-        match event {
-            GstEvent::RtcpSr {
-                source_idx,
-                rtp_time,
-                ntp_time,
-            } => {
-                let source_id = &sources[source_idx].source_id;
-
-                info!(
-                    "RTCP SR source_id={} rtp={} ntp=0x{:016X}",
-                    source_id, rtp_time, ntp_time
-                );
-
-                // Always queue SR — clock_rate is not needed for queuing
-                sr_queues
-                    .entry(source_idx)
-                    .or_default()
-                    .push_back((rtp_time, ntp_time));
-
-                let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
-                if clock_rate == 0 {
-                    warn!(
-                        "RTCP SR queued but clock rate unknown for {}, skipping NTP sync",
-                        source_id
-                    );
-                    continue;
-                }
-
-                if let Some(ntp) = &mut ntp_sync {
-                    if ntp.is_ready(source_id) && rtcp_once {
-                        debug!("RTCP once: skipping further SR for {}", source_id);
-                        continue;
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                let event = match event {
+                    Some(e) => e,
+                    None => {
+                        info!("All GStreamer event senders dropped for group '{}', exiting", group_name);
+                        break;
                     }
-                    let rtp_elapsed = rtp_time as i64;
-                    ntp.add_rtp_mark(
-                        source_id,
-                        rtp_elapsed,
+                };
+                match event {
+                    GstEvent::RtcpSr {
+                        source_idx,
+                        rtp_time,
                         ntp_time,
-                        std::num::NonZeroU32::new(clock_rate).unwrap(),
-                    );
+                    } => {
+                        let source_id = &sources[source_idx].source_id;
+
+                        info!(
+                            "RTCP SR source_id={} rtp={} ntp=0x{:016X}",
+                            source_id, rtp_time, ntp_time
+                        );
+
+                        // Always queue SR — clock_rate is not needed for queuing
+                        sr_queues
+                            .entry(source_idx)
+                            .or_default()
+                            .push_back((rtp_time, ntp_time));
+
+                        let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
+                        if clock_rate == 0 {
+                            warn!(
+                                "RTCP SR queued but clock rate unknown for {}, skipping NTP sync",
+                                source_id
+                            );
+                            continue;
+                        }
+
+                        if let Some(ntp) = &mut ntp_sync {
+                            if ntp.is_ready(source_id) && rtcp_once {
+                                debug!("RTCP once: skipping further SR for {}", source_id);
+                                continue;
+                            }
+                            let rtp_elapsed = rtp_time as i64;
+                            ntp.add_rtp_mark(
+                                source_id,
+                                rtp_elapsed,
+                                ntp_time,
+                                std::num::NonZeroU32::new(clock_rate).unwrap(),
+                            );
+                        }
+                    }
+                    GstEvent::VideoFrame {
+                        source_idx,
+                        data,
+                        rtp_timestamp,
+                        is_keyframe,
+                        encoding,
+                        width,
+                        height,
+                        framerate,
+                    } => {
+                        let source_id = &sources[source_idx].source_id;
+
+                        if let Some(ntp) = &ntp_sync {
+                            if !ntp.is_ready(source_id) {
+                                continue;
+                            }
+                        }
+
+                        // Drain applicable SRs: apply first one as mapper seed,
+                        // discard the rest (subsequent SRs already fed to NTP sync).
+                        // Only the first SR establishes the PTS base — reseeding would
+                        // cause PTS discontinuities that the Syncer rejects.
+                        let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
+                        if let Some(sr_queue) = sr_queues.get_mut(&source_idx) {
+                            while let Some(&(sr_rtp, _)) = sr_queue.front() {
+                                if rtp_timestamp >= sr_rtp {
+                                    let (sr_rtp, sr_ntp) = sr_queue.pop_front().unwrap();
+                                    if !rtp_mappers.contains_key(&source_idx) {
+                                        let ntp_duration = ts2epoch_duration(sr_ntp, 0);
+                                        let mapper = RtpPtsMapper::with_seed(
+                                            sr_rtp,
+                                            ntp_duration,
+                                            (1, clock_rate as i64),
+                                            (1, TIME_BASE.1),
+                                        )
+                                        .expect("valid timebase");
+                                        rtp_mappers.insert(source_idx, mapper);
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Fallback: when NTP sync is not configured and no RTCP SR has
+                        // seeded the mapper yet, use the first keyframe's RTP timestamp
+                        // as PTS base (matching the retina backend's rtp_bases approach).
+                        if !rtp_mappers.contains_key(&source_idx)
+                            && ntp_sync.is_none()
+                            && is_keyframe
+                            && clock_rate > 0
+                        {
+                            info!(
+                                "Source {}: seeding RTP mapper from keyframe (no RTCP SR), rtp={}",
+                                source_id, rtp_timestamp
+                            );
+                            let mapper = RtpPtsMapper::with_seed(
+                                rtp_timestamp,
+                                Duration::ZERO,
+                                (1, clock_rate as i64),
+                                (1, TIME_BASE.1),
+                            )
+                            .expect("valid timebase");
+                            rtp_mappers.insert(source_idx, mapper);
+                        }
+
+                        let mapper = match rtp_mappers.get_mut(&source_idx) {
+                            Some(m) => m,
+                            None => {
+                                debug!(
+                                    "No RTP mapper for {} yet (waiting for RTCP SR or keyframe), skipping",
+                                    source_id
+                                );
+                                continue;
+                            }
+                        };
+
+                        let mapping = match mapper.map(rtp_timestamp) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                warn!("RTP mapping failed for {}: {}", source_id, e);
+                                continue;
+                            }
+                        };
+                        let pts = mapping.pts;
+                        let rtp_time = rtp_timestamp as i64;
+
+                        let last_rtp = last_rtp_records
+                            .entry(source_id.clone())
+                            .or_insert(rtp_time);
+                        if rtp_time < *last_rtp {
+                            warn!(
+                                "RTP time {} < last {} for {}, possible wraparound handled by mapper",
+                                rtp_time, last_rtp, source_id
+                            );
+                        }
+                        *last_rtp = rtp_time;
+
+                        if is_keyframe {
+                            debug!(
+                                target: "retina_rtsp::gst::keyframe",
+                                "Source {}: keyframe at RTP {}",
+                                source_id, rtp_timestamp
+                            );
+                            if !active_streams.contains_key(source_id) {
+                                if eos_on_restart {
+                                    info!("Source {}: sending EOS on restart", source_id);
+                                    let _ = sink.lock().await.send_eos(source_id);
+                                }
+                                active_streams.insert(source_id.clone(), ());
+                                info!("Source {}: stream active (GStreamer)", source_id);
+                            }
+                        }
+
+                        if !active_streams.contains_key(source_id) {
+                            debug!("Source {}: not active, waiting for keyframe", source_id);
+                            continue;
+                        }
+
+                        let fps = framerate
+                            .map(|(num, den)| (i64::from(num), i64::from(den.max(1))))
+                            .unwrap_or((30, 1));
+                        let fps = if fps.0 <= 0 { (30_i64, 1_i64) } else { fps };
+
+                        let frame = VideoFrameProxy::new(
+                            source_id,
+                            fps,
+                            width as i64,
+                            height as i64,
+                            VideoFrameContent::External(ExternalFrame::new("zeromq", &None)),
+                            VideoFrameTranscodingMethod::Copy,
+                            VideoCodec::from_name(&encoding),
+                            Some(is_keyframe),
+                            TIME_BASE,
+                            pts,
+                            Some(pts),
+                            None,
+                        )?;
+
+                        if let Some(ntp) = &mut ntp_sync {
+                            ntp.prune_rtp_marks(source_id, rtp_time);
+                            ntp.add_frame(rtp_time, frame, &data);
+                            let frames = ntp.pull_frames();
+                            for (frame, ts, frame_data) in frames {
+                                debug!(
+                                    "Sending NTP-synced frame ts={:?} for {}",
+                                    ts,
+                                    frame.get_source_id()
+                                );
+                                if let Some((frame, data)) = frame_buffer.add_frame(frame, frame_data) {
+                                    let message = frame.to_message();
+                                    let _ = sink.lock().await.send_message(
+                                        &frame.get_source_id(),
+                                        &message,
+                                        &[&data],
+                                    )?;
+                                }
+                            }
+                        } else if let Some((frame, fdata)) = frame_buffer.add_frame(frame, data) {
+                            let message = frame.to_message();
+                            let _ = sink
+                                .lock()
+                                .await
+                                .send_message(source_id, &message, &[&fdata])?;
+                        }
+                    }
                 }
             }
-            GstEvent::VideoFrame {
-                source_idx,
-                data,
-                rtp_timestamp,
-                is_keyframe,
-                encoding,
-                width,
-                height,
-                framerate,
-            } => {
-                let source_id = &sources[source_idx].source_id;
-
-                if let Some(ntp) = &ntp_sync {
-                    if !ntp.is_ready(source_id) {
-                        continue;
-                    }
-                }
-
-                // Drain applicable SRs: apply first one as mapper seed,
-                // discard the rest (subsequent SRs already fed to NTP sync).
-                // Only the first SR establishes the PTS base — reseeding would
-                // cause PTS discontinuities that the Syncer rejects.
-                let clock_rate = *per_source_states[source_idx].clock_rate.lock().unwrap();
-                if let Some(sr_queue) = sr_queues.get_mut(&source_idx) {
-                    while let Some(&(sr_rtp, _)) = sr_queue.front() {
-                        if rtp_timestamp >= sr_rtp {
-                            let (sr_rtp, sr_ntp) = sr_queue.pop_front().unwrap();
-                            if !rtp_mappers.contains_key(&source_idx) {
-                                let ntp_duration = ts2epoch_duration(sr_ntp, 0);
-                                let mapper = RtpPtsMapper::with_seed(
-                                    sr_rtp,
-                                    ntp_duration,
-                                    (1, clock_rate as i64),
-                                    (1, TIME_BASE.1),
-                                )
-                                .expect("valid timebase");
-                                rtp_mappers.insert(source_idx, mapper);
-                            }
-                        } else {
+            msg = bus_stream.next() => {
+                match msg {
+                    Some(msg) => match msg.view() {
+                        gst::MessageView::Error(err) => {
+                            error!(
+                                "GStreamer pipeline error in group '{}': {} ({:?})",
+                                group_name,
+                                err.error(),
+                                err.debug()
+                            );
                             break;
                         }
+                        gst::MessageView::Eos(_) => {
+                            info!("GStreamer pipeline EOS for group '{}'", group_name);
+                            break;
+                        }
+                        _ => {}
                     }
-                }
-
-                // Fallback: when NTP sync is not configured and no RTCP SR has
-                // seeded the mapper yet, use the first keyframe's RTP timestamp
-                // as PTS base (matching the retina backend's rtp_bases approach).
-                if !rtp_mappers.contains_key(&source_idx)
-                    && ntp_sync.is_none()
-                    && is_keyframe
-                    && clock_rate > 0
-                {
-                    info!(
-                        "Source {}: seeding RTP mapper from keyframe (no RTCP SR), rtp={}",
-                        source_id, rtp_timestamp
-                    );
-                    let mapper = RtpPtsMapper::with_seed(
-                        rtp_timestamp,
-                        Duration::ZERO,
-                        (1, clock_rate as i64),
-                        (1, TIME_BASE.1),
-                    )
-                    .expect("valid timebase");
-                    rtp_mappers.insert(source_idx, mapper);
-                }
-
-                let mapper = match rtp_mappers.get_mut(&source_idx) {
-                    Some(m) => m,
                     None => {
-                        debug!(
-                            "No RTP mapper for {} yet (waiting for RTCP SR or keyframe), skipping",
-                            source_id
-                        );
-                        continue;
-                    }
-                };
-
-                let mapping = match mapper.map(rtp_timestamp) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        warn!("RTP mapping failed for {}: {}", source_id, e);
-                        continue;
-                    }
-                };
-                let pts = mapping.pts;
-                let rtp_time = rtp_timestamp as i64;
-
-                let last_rtp = last_rtp_records
-                    .entry(source_id.clone())
-                    .or_insert(rtp_time);
-                if rtp_time < *last_rtp {
-                    warn!(
-                        "RTP time {} < last {} for {}, possible wraparound handled by mapper",
-                        rtp_time, last_rtp, source_id
-                    );
-                }
-                *last_rtp = rtp_time;
-
-                if is_keyframe {
-                    debug!(
-                        target: "retina_rtsp::gst::keyframe",
-                        "Source {}: keyframe at RTP {}",
-                        source_id, rtp_timestamp
-                    );
-                    if !active_streams.contains_key(source_id) {
-                        if eos_on_restart {
-                            info!("Source {}: sending EOS on restart", source_id);
-                            let _ = sink.lock().await.send_eos(source_id);
-                        }
-                        active_streams.insert(source_id.clone(), ());
-                        info!("Source {}: stream active (GStreamer)", source_id);
+                        warn!("GStreamer bus stream ended for group '{}'", group_name);
+                        break;
                     }
                 }
-
-                if !active_streams.contains_key(source_id) {
-                    debug!("Source {}: not active, waiting for keyframe", source_id);
-                    continue;
-                }
-
-                let fps = framerate
-                    .map(|(num, den)| (i64::from(num), i64::from(den.max(1))))
-                    .unwrap_or((30, 1));
-                let fps = if fps.0 <= 0 { (30_i64, 1_i64) } else { fps };
-
-                let frame = VideoFrameProxy::new(
-                    source_id,
-                    fps,
-                    width as i64,
-                    height as i64,
-                    VideoFrameContent::External(ExternalFrame::new("zeromq", &None)),
-                    VideoFrameTranscodingMethod::Copy,
-                    VideoCodec::from_name(&encoding),
-                    Some(is_keyframe),
-                    TIME_BASE,
-                    pts,
-                    Some(pts),
-                    None,
-                )?;
-
-                if let Some(ntp) = &mut ntp_sync {
-                    ntp.prune_rtp_marks(source_id, rtp_time);
-                    ntp.add_frame(rtp_time, frame, &data);
-                    let frames = ntp.pull_frames();
-                    for (frame, ts, frame_data) in frames {
-                        debug!(
-                            "Sending NTP-synced frame ts={:?} for {}",
-                            ts,
-                            frame.get_source_id()
-                        );
-                        if let Some((frame, data)) = frame_buffer.add_frame(frame, frame_data) {
-                            let message = frame.to_message();
-                            let _ = sink.lock().await.send_message(
-                                &frame.get_source_id(),
-                                &message,
-                                &[&data],
-                            )?;
-                        }
-                    }
-                } else if let Some((frame, fdata)) = frame_buffer.add_frame(frame, data) {
-                    let message = frame.to_message();
-                    let _ = sink
-                        .lock()
-                        .await
-                        .send_message(source_id, &message, &[&fdata])?;
-                }
-            }
-            GstEvent::Error { message } => {
-                error!(
-                    "GStreamer pipeline error in group '{}': {}",
-                    group_name, message
-                );
-                break;
-            }
-            GstEvent::Eos => {
-                info!("GStreamer pipeline EOS for group '{}'", group_name);
-                break;
             }
         }
     }
-
-    // Teardown
-    pipeline.set_state(gst::State::Null)?;
-    info!("GStreamer pipeline stopped for group '{}'", group_name);
 
     Ok(())
 }

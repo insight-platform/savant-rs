@@ -14,7 +14,10 @@ ENV PATH="/root/.cargo/bin:$PATH"
 ENV CARGO_TARGET_DIR=/tmp/build
 
 RUN --mount=type=cache,target=/var/cache/apt \
-    apt-get update && apt install -y libunwind-dev
+    apt-get update && apt install -y \
+    libunwind-dev \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev
 
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \
     bash /opt/savant-rs/utils/services/docker-deps.sh
@@ -149,7 +152,15 @@ CMD ["/opt/etc/configuration.json"]
 FROM ubuntu:24.04 AS retina-rtsp
 
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \
-    bash /opt/savant-rs/utils/services/docker-deps.sh
+    bash /opt/savant-rs/utils/services/docker-deps.sh && \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    libgstreamer1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=extract-retina-rtsp /opt /opt
 
