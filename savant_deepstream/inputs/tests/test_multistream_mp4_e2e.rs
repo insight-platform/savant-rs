@@ -9,6 +9,7 @@ use deepstream_inputs::multistream_decoder::{
 };
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer};
 use savant_gstreamer::Codec as GstCodec;
 use serial_test::serial;
@@ -86,16 +87,21 @@ fn submit_segment_packets(
     source_id: &str,
     entry: &AssetEntry,
     packets: &[DemuxedPacket],
-    codec_str: &str,
+    codec: VideoCodec,
     h26x_as_annexb_aus: bool,
 ) -> u32 {
     if matches!(entry.codec.as_str(), "h264" | "hevc") && h26x_as_annexb_aus {
+        let h26x_codec = if entry.codec == "h264" {
+            GstCodec::H264
+        } else {
+            GstCodec::Hevc
+        };
         let mut bytestream = Vec::new();
         for pkt in packets {
             bytestream.extend_from_slice(&pkt.data);
         }
-        let nalus = split_annexb_nalus(&bytestream, &entry.codec);
-        let access_units = group_nalus_to_access_units(&entry.codec, nalus);
+        let nalus = split_annexb_nalus(&bytestream, h26x_codec);
+        let access_units = group_nalus_to_access_units(h26x_codec, nalus);
         assert!(
             access_units.len() >= entry.num_frames as usize,
             "{}: AU count {} < {}",
@@ -112,7 +118,7 @@ fn submit_segment_packets(
             let pts = i as i64 * dur;
             let frame = make_video_frame_ns(
                 source_id,
-                codec_str,
+                codec,
                 entry.width as i64,
                 entry.height as i64,
                 pts,
@@ -139,7 +145,7 @@ fn submit_segment_packets(
             let dur = pkt.duration_ns.map(|v| v as i64);
             let frame = make_video_frame_ns(
                 source_id,
-                codec_str,
+                codec,
                 entry.width as i64,
                 entry.height as i64,
                 ordering_ts,
@@ -164,7 +170,7 @@ fn submit_segment_packets(
             let dur = pkt.duration_ns.map(|v| v as i64);
             let frame = make_video_frame_ns(
                 source_id,
-                codec_str,
+                codec,
                 entry.width as i64,
                 entry.height as i64,
                 ordering_ts,
@@ -193,7 +199,7 @@ fn run_multistream_mp4_single(entry: &AssetEntry) {
     let mp4_str = mp4_path.to_str().unwrap();
 
     let (demuxed_packets, gst_codec) = pull_demuxed(mp4_str, true);
-    let codec_str = codec_to_str(gst_codec);
+    let codec = gst_codec_to_video_codec(gst_codec);
     let h26x_au = matches!(entry.codec.as_str(), "h264" | "hevc");
 
     let source_id = entry.file.clone();
@@ -212,7 +218,7 @@ fn run_multistream_mp4_single(entry: &AssetEntry) {
         &source_id,
         entry,
         &demuxed_packets,
-        codec_str,
+        codec,
         h26x_au,
     );
 
@@ -389,9 +395,9 @@ fn test_same_source_sequential_incompatible_mp4_codecs() {
     for (i, (seg, entry)) in runnable.iter().enumerate() {
         let mp4_str = assets_dir().join(seg.file).to_str().unwrap().to_string();
         let (packets, gst_codec) = pull_demuxed(&mp4_str, seg.demux_parsed);
-        let codec_str = codec_to_str(gst_codec);
+        let codec = gst_codec_to_video_codec(gst_codec);
         let h26x_au = seg.h26x_annexb_aus && matches!(entry.codec.as_str(), "h264" | "hevc");
-        let submitted = submit_segment_packets(&decoder, SID, entry, &packets, codec_str, h26x_au);
+        let submitted = submit_segment_packets(&decoder, SID, entry, &packets, codec, h26x_au);
         assert_eq!(submitted, entry.num_frames, "segment {i} {}", seg.file);
 
         decoder
@@ -445,18 +451,23 @@ fn prepare_mp4_asset(entry: &AssetEntry) -> Option<Vec<PreparedPacket>> {
     }
     demuxer.finish();
     let gst_codec = demuxer.detected_codec()?;
-    let codec_str = codec_to_str(gst_codec);
+    let codec = gst_codec_to_video_codec(gst_codec);
     let source_id = entry.file.clone();
 
     let mut out = Vec::new();
 
     if matches!(entry.codec.as_str(), "h264" | "hevc") {
+        let h26x_codec = if entry.codec == "h264" {
+            GstCodec::H264
+        } else {
+            GstCodec::Hevc
+        };
         let mut bytestream = Vec::new();
         for pkt in &demuxed_packets {
             bytestream.extend_from_slice(&pkt.data);
         }
-        let nalus = split_annexb_nalus(&bytestream, &entry.codec);
-        let access_units = group_nalus_to_access_units(&entry.codec, nalus);
+        let nalus = split_annexb_nalus(&bytestream, h26x_codec);
+        let access_units = group_nalus_to_access_units(h26x_codec, nalus);
         let dur = 33_333_333i64;
         for (i, au) in access_units
             .iter()
@@ -466,7 +477,7 @@ fn prepare_mp4_asset(entry: &AssetEntry) -> Option<Vec<PreparedPacket>> {
             let pts = i as i64 * dur;
             let frame = make_video_frame_ns(
                 &source_id,
-                codec_str,
+                codec,
                 entry.width as i64,
                 entry.height as i64,
                 pts,
@@ -483,7 +494,7 @@ fn prepare_mp4_asset(entry: &AssetEntry) -> Option<Vec<PreparedPacket>> {
             let dur = pkt.duration_ns.map(|v| v as i64);
             let frame = make_video_frame_ns(
                 &source_id,
-                codec_str,
+                codec,
                 entry.width as i64,
                 entry.height as i64,
                 ordering_ts,
@@ -656,7 +667,7 @@ fn test_multistream_foreign_timebase() {
     }
     demuxer.finish();
     let gst_codec = demuxer.detected_codec().expect("codec");
-    let codec_str = codec_to_str(gst_codec);
+    let codec = gst_codec_to_video_codec(gst_codec);
     let source_id = "foreign_tb_jpeg";
 
     let (tx, rx) = mpsc::channel();
@@ -689,7 +700,7 @@ fn test_multistream_foreign_timebase() {
 
         let frame = make_video_frame_scaled(
             source_id,
-            codec_str,
+            codec,
             entry.width as i64,
             entry.height as i64,
             (1, 90_000),

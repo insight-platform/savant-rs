@@ -74,7 +74,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
             .name("pre_enc")
             .build()
             .unwrap_or_else(|_| panic!("Failed to create {}", name));
-        if elem.has_property("disable-passthrough", None) {
+        if elem.has_property("disable-passthrough") {
             elem.set_property("disable-passthrough", true);
         }
         elem

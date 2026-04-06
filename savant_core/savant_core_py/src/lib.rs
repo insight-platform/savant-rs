@@ -20,6 +20,8 @@ pub mod pipeline;
 /// # Basic objects
 ///
 pub mod primitives;
+#[cfg(feature = "gst")]
+pub mod retina_rtsp;
 pub mod telemetry;
 pub mod test;
 /// # Utility functions

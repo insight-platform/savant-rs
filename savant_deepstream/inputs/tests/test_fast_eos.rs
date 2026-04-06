@@ -17,6 +17,7 @@ use savant_core::primitives::frame::{
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
+use savant_gstreamer::Codec;
 use serial_test::serial;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -218,14 +219,13 @@ fn test_fast_eos_h264_ip_all_frames() {
         packets.push(p);
     }
     demuxer.finish();
-    let codec_str = "h264";
 
     let bytestream: Vec<u8> = packets
         .iter()
         .flat_map(|p| p.data.iter().copied())
         .collect();
-    let nalus = split_annexb_nalus(&bytestream, codec_str);
-    let access_units = group_nalus_to_access_units(codec_str, nalus);
+    let nalus = split_annexb_nalus(&bytestream, Codec::H264);
+    let access_units = group_nalus_to_access_units(Codec::H264, nalus);
     let num_frames = entry.num_frames as usize;
     assert!(access_units.len() >= num_frames);
 
@@ -237,7 +237,7 @@ fn test_fast_eos_h264_ip_all_frames() {
         let pts = i as i64 * dur_ns;
         let frame = make_video_frame_ns(
             source_id,
-            codec_str,
+            VideoCodec::H264,
             entry.width as i64,
             entry.height as i64,
             pts,
@@ -290,14 +290,13 @@ fn test_fast_eos_h264_single_idr() {
         packets.push(p);
     }
     demuxer.finish();
-    let codec_str = "h264";
 
     let bytestream: Vec<u8> = packets
         .iter()
         .flat_map(|p| p.data.iter().copied())
         .collect();
-    let nalus = split_annexb_nalus(&bytestream, codec_str);
-    let access_units = group_nalus_to_access_units(codec_str, nalus);
+    let nalus = split_annexb_nalus(&bytestream, Codec::H264);
+    let access_units = group_nalus_to_access_units(Codec::H264, nalus);
     assert!(!access_units.is_empty(), "need at least 1 AU");
 
     let (mut decoder, rx) = make_decoder();
@@ -305,7 +304,7 @@ fn test_fast_eos_h264_single_idr() {
 
     let frame = make_video_frame_ns(
         source_id,
-        codec_str,
+        VideoCodec::H264,
         entry.width as i64,
         entry.height as i64,
         0,
@@ -357,14 +356,13 @@ fn test_fast_eos_h264_repeated_cycles() {
         packets.push(p);
     }
     demuxer.finish();
-    let codec_str = "h264";
 
     let bytestream: Vec<u8> = packets
         .iter()
         .flat_map(|p| p.data.iter().copied())
         .collect();
-    let nalus = split_annexb_nalus(&bytestream, codec_str);
-    let access_units = group_nalus_to_access_units(codec_str, nalus);
+    let nalus = split_annexb_nalus(&bytestream, Codec::H264);
+    let access_units = group_nalus_to_access_units(Codec::H264, nalus);
     let num_frames = entry.num_frames as usize;
     assert!(access_units.len() >= num_frames);
 
@@ -378,7 +376,7 @@ fn test_fast_eos_h264_repeated_cycles() {
             let pts = base_pts + i as i64 * dur_ns;
             let frame = make_video_frame_ns(
                 source_id,
-                codec_str,
+                VideoCodec::H264,
                 entry.width as i64,
                 entry.height as i64,
                 pts,

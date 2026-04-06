@@ -13,7 +13,9 @@ use deepstream_inputs::multistream_decoder::{
     SessionBoundaryEosPolicy, StopReason,
 };
 use savant_core::primitives::eos::EndOfStream;
+use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
+use savant_gstreamer::Codec;
 use serial_test::serial;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -76,7 +78,7 @@ fn count_eos(events: &[DecoderOutput]) -> usize {
 }
 
 /// Demux + split Annex-B AUs for an H.26x asset.
-fn load_h26x_access_units(file_name: &str, codec_tag: &str) -> Vec<Vec<u8>> {
+fn load_h26x_access_units(file_name: &str, codec: Codec) -> Vec<Vec<u8>> {
     let manifest = load_manifest();
     let platform_tag = current_platform_tag();
     let entry = manifest
@@ -104,8 +106,8 @@ fn load_h26x_access_units(file_name: &str, codec_tag: &str) -> Vec<Vec<u8>> {
     for pkt in &packets {
         bytestream.extend_from_slice(&pkt.data);
     }
-    let nalus = split_annexb_nalus(&bytestream, codec_tag);
-    group_nalus_to_access_units(codec_tag, nalus)
+    let nalus = split_annexb_nalus(&bytestream, codec);
+    group_nalus_to_access_units(codec, nalus)
 }
 
 /// Submit Annex-B access units from a named MP4 H.26x asset.
@@ -115,7 +117,7 @@ fn submit_h26x_from_asset(
     decoder: &MultiStreamDecoder,
     source_id: &str,
     file_name: &str,
-    codec_tag: &str,
+    codec: Codec,
     pts_offset_ns: i64,
 ) -> (u32, u32, u32) {
     let manifest = load_manifest();
@@ -124,14 +126,14 @@ fn submit_h26x_from_asset(
         .iter()
         .find(|a| a.file == file_name)
         .unwrap_or_else(|| panic!("{file_name} not in manifest"));
-    let access_units = load_h26x_access_units(file_name, codec_tag);
+    let access_units = load_h26x_access_units(file_name, codec);
     let au_count = access_units.len().min(entry.num_frames as usize);
 
     for (i, au) in access_units.iter().take(au_count).enumerate() {
         let pts = pts_offset_ns + i as i64 * FRAME_DUR_NS;
         let frame = make_video_frame_ns(
             source_id,
-            codec_tag,
+            gst_codec_to_video_codec(codec),
             entry.width as i64,
             entry.height as i64,
             pts,
@@ -151,7 +153,7 @@ fn submit_h26x_from_asset_with_dims(
     decoder: &MultiStreamDecoder,
     source_id: &str,
     file_name: &str,
-    codec_tag: &str,
+    codec: Codec,
     pts_offset_ns: i64,
     width: i64,
     height: i64,
@@ -162,14 +164,14 @@ fn submit_h26x_from_asset_with_dims(
         .iter()
         .find(|a| a.file == file_name)
         .unwrap_or_else(|| panic!("{file_name} not in manifest"));
-    let access_units = load_h26x_access_units(file_name, codec_tag);
+    let access_units = load_h26x_access_units(file_name, codec);
     let au_count = access_units.len().min(entry.num_frames as usize);
 
     for (i, au) in access_units.iter().take(au_count).enumerate() {
         let pts = pts_offset_ns + i as i64 * FRAME_DUR_NS;
         let frame = make_video_frame_ns(
             source_id,
-            codec_tag,
+            gst_codec_to_video_codec(codec),
             width,
             height,
             pts,
@@ -196,7 +198,7 @@ fn submit_h264_then_timestamp_regress(
         .iter()
         .find(|a| a.file == "test_h264_bt709_ip.mp4")
         .expect("test_h264_bt709_ip.mp4 in manifest");
-    let access_units = load_h26x_access_units("test_h264_bt709_ip.mp4", "h264");
+    let access_units = load_h26x_access_units("test_h264_bt709_ip.mp4", Codec::H264);
     assert!(
         access_units.len() > n_monotonic,
         "need more AUs than n_monotonic"
@@ -208,7 +210,7 @@ fn submit_h264_then_timestamp_regress(
         let pts = i as i64 * FRAME_DUR_NS;
         let frame = make_video_frame_ns(
             source_id,
-            "h264",
+            VideoCodec::H264,
             w,
             h,
             pts,
@@ -224,7 +226,7 @@ fn submit_h264_then_timestamp_regress(
     let regress_au = &access_units[n_monotonic];
     let frame = make_video_frame_ns(
         source_id,
-        "h264",
+        VideoCodec::H264,
         w,
         h,
         0,
@@ -255,12 +257,17 @@ fn test_session_reset_drain_codec_change_with_eos() {
     let (mut decoder, rx) = make_decoder_with_policy(SessionBoundaryEosPolicy::default());
 
     let (h264_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", "h264", 0);
+        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", Codec::H264, 0);
     assert!(h264_count > 0, "no H264 frames submitted");
 
     let pts_offset = h264_count as i64 * FRAME_DUR_NS;
-    let (hevc_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_hevc_bt709_ip.mp4", "hevc", pts_offset);
+    let (hevc_count, _, _) = submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_hevc_bt709_ip.mp4",
+        Codec::Hevc,
+        pts_offset,
+    );
     assert!(hevc_count > 0, "no HEVC frames submitted");
 
     // Drain events from the H264 session reset.
@@ -327,11 +334,17 @@ fn test_session_reset_drain_codec_change_without_eos() {
     let (mut decoder, rx) = make_decoder_with_policy(policy);
 
     let (h264_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", "h264", 0);
+        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", Codec::H264, 0);
     assert!(h264_count > 0);
 
     let pts_offset = h264_count as i64 * FRAME_DUR_NS;
-    submit_h26x_from_asset(&decoder, SID, "test_hevc_bt709_ip.mp4", "hevc", pts_offset);
+    submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_hevc_bt709_ip.mp4",
+        Codec::Hevc,
+        pts_offset,
+    );
 
     let events = drain_until_stopped(&rx);
     let decoded = count_decoded(&events);
@@ -395,16 +408,25 @@ fn test_session_reset_resolution_change_with_eos() {
         &decoder,
         sid,
         "test_h264_bt709_ip.mp4",
-        "h264",
+        Codec::H264,
         0,
         w - 1,
         h,
     );
     assert!(n > 0);
 
-    let aus = load_h26x_access_units("test_h264_bt709_ip.mp4", "h264");
+    let aus = load_h26x_access_units("test_h264_bt709_ip.mp4", Codec::H264);
     let pts = n as i64 * FRAME_DUR_NS;
-    let frame = make_video_frame_ns(sid, "h264", w, h, pts, Some(pts), Some(FRAME_DUR_NS), None);
+    let frame = make_video_frame_ns(
+        sid,
+        VideoCodec::H264,
+        w,
+        h,
+        pts,
+        Some(pts),
+        Some(FRAME_DUR_NS),
+        None,
+    );
     decoder
         .submit(frame, Some(aus[0].as_slice()), SUBMIT_TIMEOUT)
         .expect("submit resolution-change frame");
@@ -454,16 +476,25 @@ fn test_session_reset_resolution_change_without_eos() {
         &decoder,
         sid,
         "test_h264_bt709_ip.mp4",
-        "h264",
+        Codec::H264,
         0,
         w - 1,
         h,
     );
     assert!(n > 0);
 
-    let aus = load_h26x_access_units("test_h264_bt709_ip.mp4", "h264");
+    let aus = load_h26x_access_units("test_h264_bt709_ip.mp4", Codec::H264);
     let pts = n as i64 * FRAME_DUR_NS;
-    let frame = make_video_frame_ns(sid, "h264", w, h, pts, Some(pts), Some(FRAME_DUR_NS), None);
+    let frame = make_video_frame_ns(
+        sid,
+        VideoCodec::H264,
+        w,
+        h,
+        pts,
+        Some(pts),
+        Some(FRAME_DUR_NS),
+        None,
+    );
     decoder
         .submit(frame, Some(aus[0].as_slice()), SUBMIT_TIMEOUT)
         .expect("submit resolution-change frame");
@@ -583,13 +614,18 @@ fn test_session_reset_drain_multiple_hops() {
 
     // Hop 1: H264
     let (h264_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", "h264", 0);
+        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", Codec::H264, 0);
     total_submitted += h264_count;
 
     // Hop 2: HEVC (triggers CodecChanged on H264 session)
     let pts_offset = total_submitted as i64 * FRAME_DUR_NS;
-    let (hevc_count, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_hevc_bt709_ip.mp4", "hevc", pts_offset);
+    let (hevc_count, _, _) = submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_hevc_bt709_ip.mp4",
+        Codec::Hevc,
+        pts_offset,
+    );
     total_submitted += hevc_count;
 
     // Drain H264 session.
@@ -600,8 +636,13 @@ fn test_session_reset_drain_multiple_hops() {
 
     // Hop 3: H264 again (triggers CodecChanged on HEVC session)
     let pts_offset2 = total_submitted as i64 * FRAME_DUR_NS;
-    let (h264_count2, _, _) =
-        submit_h26x_from_asset(&decoder, SID, "test_h264_bt709_ip.mp4", "h264", pts_offset2);
+    let (h264_count2, _, _) = submit_h26x_from_asset(
+        &decoder,
+        SID,
+        "test_h264_bt709_ip.mp4",
+        Codec::H264,
+        pts_offset2,
+    );
     total_submitted += h264_count2;
 
     // Drain HEVC session.

@@ -132,7 +132,7 @@ fn main() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let source_ids: Vec<String> = (0..num_src).map(source_id).collect();
     for sid in &source_ids {

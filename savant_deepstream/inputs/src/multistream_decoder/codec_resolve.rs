@@ -62,30 +62,20 @@ pub fn resolve_video_codec(
     }
 }
 
-/// String-based resolver — returns `Err(Some(name))` for names that are
-/// present but not recognised by [`VideoCodec::from_name`].
-#[allow(dead_code)]
-pub fn resolve_codec_string(
-    name: Option<&str>,
-    width: u32,
-    height: u32,
-) -> Result<CodecResolve, Option<String>> {
-    match name {
-        None => Err(None),
-        Some(s) => match VideoCodec::from_name(s) {
-            None => Err(Some(s.to_string())),
-            Some(vc) => resolve_video_codec(Some(vc), width, height),
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn resolve(name: &str, width: u32, height: u32) -> Result<CodecResolve, Option<String>> {
+        match VideoCodec::from_name(name) {
+            None => Err(Some(name.to_string())),
+            Some(vc) => resolve_video_codec(Some(vc), width, height),
+        }
+    }
+
     #[test]
     fn swjpeg_is_cpu_jpeg() {
-        let r = resolve_codec_string(Some("swjpeg"), 0, 0).unwrap();
+        let r = resolve("swjpeg", 0, 0).unwrap();
         match r {
             CodecResolve::Ready(DecoderConfig::Jpeg(j)) => {
                 assert_eq!(j.backend, deepstream_decoders::JpegBackend::Cpu);
@@ -96,7 +86,7 @@ mod tests {
 
     #[test]
     fn jpeg_is_gpu() {
-        let r = resolve_codec_string(Some("jpeg"), 0, 0).unwrap();
+        let r = resolve("jpeg", 0, 0).unwrap();
         match r {
             CodecResolve::Ready(DecoderConfig::Jpeg(j)) => {
                 assert_eq!(j.backend, deepstream_decoders::JpegBackend::Gpu);
@@ -107,7 +97,7 @@ mod tests {
 
     #[test]
     fn h264_needs_detection() {
-        match resolve_codec_string(Some("h264"), 0, 0).unwrap() {
+        match resolve("h264", 0, 0).unwrap() {
             CodecResolve::NeedDetection { codec } => assert_eq!(codec, Codec::H264),
             _ => panic!(),
         }
@@ -115,7 +105,7 @@ mod tests {
 
     #[test]
     fn raw_rgba_ready() {
-        match resolve_codec_string(Some("raw_rgba"), 640, 480).unwrap() {
+        match resolve("raw_rgba", 640, 480).unwrap() {
             CodecResolve::Ready(DecoderConfig::RawRgba(c)) => {
                 assert_eq!(c.width, 640);
                 assert_eq!(c.height, 480);
@@ -126,7 +116,7 @@ mod tests {
 
     #[test]
     fn raw_rgb_ready() {
-        match resolve_codec_string(Some("raw_rgb"), 320, 240).unwrap() {
+        match resolve("raw_rgb", 320, 240).unwrap() {
             CodecResolve::Ready(DecoderConfig::RawRgb(c)) => {
                 assert_eq!(c.width, 320);
                 assert_eq!(c.height, 240);
@@ -137,23 +127,23 @@ mod tests {
 
     #[test]
     fn raw_nv12_unsupported() {
-        let r = resolve_codec_string(Some("raw_nv12"), 640, 480);
-        assert!(r.is_err());
+        assert!(resolve("raw_nv12", 640, 480).is_err());
     }
 
     #[test]
     fn none_codec() {
-        assert!(resolve_codec_string(None, 0, 0).is_err());
+        assert!(resolve_video_codec(None, 0, 0).is_err());
     }
 
     #[test]
     fn empty_codec() {
-        assert!(resolve_codec_string(Some(""), 0, 0).is_err());
+        // empty string is not a valid codec name
+        assert!(VideoCodec::from_name("").is_none());
     }
 
     #[test]
     fn unknown_codec() {
-        let r = resolve_codec_string(Some("webm_opus"), 0, 0);
+        let r = resolve("webm_opus", 0, 0);
         match r {
             Err(Some(s)) => assert_eq!(s, "webm_opus"),
             _ => panic!("expected Err(Some)"),

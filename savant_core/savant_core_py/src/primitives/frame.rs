@@ -10,7 +10,7 @@ use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::bigint::fit_i64;
 use crate::{detach, err_to_pyerr};
-use pyo3::exceptions::{PyRuntimeError, PySystemError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PySystemError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;

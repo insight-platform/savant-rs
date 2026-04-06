@@ -19,6 +19,10 @@
         "-e",
         "AARCH64_IGPU=1"
     ],
+    "remoteEnv": {
+        "DISPLAY": null,
+        "EGL_PLATFORM": "device"
+    },
     "remoteUser": "${localEnv:USER}",
     "customizations": {
         "vscode": {
@@ -27,7 +31,8 @@
                 "ms-python.python",
                 "ms-azuretools.vscode-docker",
                 "rust-lang.rust-analyzer",
-                "tamasfe.even-better-toml"
+                "tamasfe.even-better-toml",
+                "anthropic.claude-code"
             ]
         }
     },

@@ -277,6 +277,35 @@ from savant_rs.gstreamer import Codec, Mp4Muxer
 
 ---
 
+## Module: `savant_rs.retina_rtsp` [feature=gst]
+
+Embeddable RTSP ingestion service with dynamic group management.
+
+```python
+from savant_rs.retina_rtsp import (
+    RetinaRtspService, RtspSourceGroup, RtspSource,
+    RtspBackend, RtspSourceOptions, SyncConfiguration,
+)
+```
+
+| Class | Description |
+|-------|-------------|
+| `RtspBackend` | Enum: `Retina`, `Gstreamer` |
+| `RtspSourceOptions` | SIG: `(username: str, password: str)` — RTSP auth credentials |
+| `RtspSource` | SIG: `(source_id, url, stream_position=None, options=None)` — single RTSP source |
+| `SyncConfiguration` | SIG: `(group_window_duration_ms, batch_duration_ms, network_skew_correction=False, rtcp_once=False)` |
+| `RtspSourceGroup` | SIG: `(sources: List[RtspSource], backend=RtspBackend.Retina, rtcp_sr_sync=None)` |
+| `RetinaRtspService` | SIG: `(config_path: str)` — loads JSON config, opens shared sink socket |
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `run_group(group, name)` | `-> None` | Block (GIL released) until stopped. Call from a thread |
+| `stop_group(name)` | `-> None` | Stop a group, block until finished |
+| `shutdown()` | `-> None` | Stop all groups |
+| `running_groups` | `-> List[str]` | Property: names of running groups |
+
+---
+
 ## Module: `savant_rs.deepstream` [feature=deepstream]
 
 ```python

@@ -114,3 +114,9 @@ impl Syncer {
         }
     }
 }
+
+impl Default for Syncer {
+    fn default() -> Self {
+        Self::new()
+    }
+}

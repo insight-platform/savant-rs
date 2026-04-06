@@ -31,6 +31,7 @@ savant_python/
 │       ├── webserver/           # .pyi stubs + kvs/
 │       ├── metrics/             # .pyi stubs
 │       ├── gstreamer/           # .pyi stubs
+│       ├── retina_rtsp/        # .pyi stubs [feature=gst]
 │       ├── test/                # .pyi stubs
 │       ├── atomic_counter/      # .pyi stubs
 │       └── py/                  # pure-Python packages (api, client, log, utils)
@@ -46,6 +47,10 @@ savant_python (savant_rs wheel)
  └── savant_core_py (PyO3 bindings)
       ├── savant_core (Rust library)
       ├── pyo3
+      ├── [feature=gst]
+      │    ├── savant_gstreamer (GStreamer utilities)
+      │    ├── retina_rtsp (RTSP ingestion service)
+      │    └── savant_services_common (JobWriter, SinkConfiguration)
       └── [feature=deepstream]
            ├── nvinfer (DeepStream nvinfer plugin)
            ├── picasso (frame processing engine)
@@ -60,7 +65,7 @@ savant_python (savant_rs wheel)
 | Feature | Cargo.toml | What it enables |
 |---------|-----------|-----------------|
 | `default` | `[]` | Core modules only (no GPU) |
-| `gst` | `savant_core_py/gst` | GStreamer types (`Codec`, `Mp4Muxer`, `FlowResult`) |
+| `gst` | `savant_core_py/gst` | GStreamer types (`Codec`, `Mp4Muxer`, `FlowResult`) + retina_rtsp service bindings |
 | `deepstream` | `gst` + `savant_core_py/deepstream` | All of `gst` + DeepStream, nvinfer, picasso |
 
 ## Module Registration (`lib.rs`)
@@ -86,6 +91,7 @@ savant_rs (root module)
  │   └── kvs           → savant_core_py::webserver::kvs
  ├── metrics           → savant_core_py::metrics
  ├── gstreamer         → savant_core_py::gstreamer [feature=gst]
+ ├── retina_rtsp       → savant_core_py::retina_rtsp [feature=gst]
  ├── deepstream        → savant_core_py::deepstream [feature=deepstream]
  ├── nvinfer           → savant_core_py::nvinfer [feature=deepstream]
  └── picasso           → savant_core_py::picasso [feature=deepstream]
@@ -132,6 +138,7 @@ Every Python-visible class and function has a corresponding `.pyi` stub:
 | `savant_rs` | `savant_rs.pyi` |
 | `savant_rs.primitives.geometry` | `primitives/geometry/geometry.pyi` |
 | `savant_rs.primitives` | `primitives/video_frame.pyi`, `primitives/video_object.pyi`, etc. |
+| `savant_rs.retina_rtsp` | `retina_rtsp/retina_rtsp.pyi` |
 | `savant_rs.nvinfer` | `nvinfer/nvinfer.pyi` |
 | `savant_rs.picasso` | `picasso/picasso.pyi` |
 | `savant_rs.deepstream` | `deepstream/deepstream.pyi` |
