@@ -399,7 +399,6 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
     m.add_wrapped(wrap_pymodule!(self::pipeline))?;
-    m.add_wrapped(wrap_pymodule!(self::geometry))?;
     m.add_wrapped(wrap_pymodule!(self::draw_spec))?;
     m.add_wrapped(wrap_pymodule!(self::utils))?;
     m.add_wrapped(wrap_pymodule!(self::symbol_mapper))?;
@@ -432,7 +431,10 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
     sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;
 
-    sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
+    sys_modules.set_item(
+        "savant_rs.primitives.geometry",
+        m.getattr("primitives")?.getattr("geometry")?,
+    )?;
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
     sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;

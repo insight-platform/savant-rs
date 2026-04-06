@@ -274,6 +274,7 @@ message Crop {
 }
 
 message VideoFrameTransformation {
+  reserved 4; // removed: historical oneof variant (field number must not be reused)
   oneof transformation {
     InitialSize initial_size = 1;
     LetterBox letter_box = 2;
@@ -295,6 +296,7 @@ message NanosecondsU128 {
 }
 
 message VideoFrame {
+  reserved 5, 13, 20 to 22; // removed: legacy field numbers; do not reuse (wire-compat guard)
   optional int64 previous_frame_seq_id = 1;
   string source_id = 2;
   string uuid = 3;
