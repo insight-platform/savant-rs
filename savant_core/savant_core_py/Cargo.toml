@@ -30,6 +30,8 @@ parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["num-bigint"] }
 savant_core = { workspace = true }
 savant_gstreamer = { workspace = true, optional = true }
+retina_rtsp = { workspace = true, optional = true }
+savant_services_common = { workspace = true, optional = true }
 gstreamer = { workspace = true, optional = true }
 glib = { workspace = true, optional = true }
 deepstream_buffers = { workspace = true, optional = true }
@@ -49,7 +51,7 @@ uuid = { workspace = true }
 
 [features]
 default = []
-gst = ["savant_gstreamer", "gstreamer"]
+gst = ["savant_gstreamer", "gstreamer", "retina_rtsp", "savant_services_common"]
 deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_encoders", "deepstream_inputs", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
 
 [build-dependencies]

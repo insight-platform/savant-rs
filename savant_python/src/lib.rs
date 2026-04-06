@@ -84,6 +84,13 @@ pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pymodule(gil_used = false)]
+pub fn retina_rtsp(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "gst")]
+    savant_core_py::retina_rtsp::register(_m)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
 pub fn deepstream(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "deepstream")]
     savant_core_py::deepstream::register_classes(_m)?;
@@ -406,6 +413,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::metrics))?;
     m.add_wrapped(wrap_pymodule!(self::kvs))?;
     m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
+    m.add_wrapped(wrap_pymodule!(self::retina_rtsp))?;
     m.add_wrapped(wrap_pymodule!(self::deepstream))?;
     m.add_wrapped(wrap_pymodule!(self::nvinfer))?;
     m.add_wrapped(wrap_pymodule!(self::nvtracker))?;
@@ -416,6 +424,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let sys_modules = sys_modules_bind.cast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
+    sys_modules.set_item("savant_rs.retina_rtsp", m.getattr("retina_rtsp")?)?;
     sys_modules.set_item("savant_rs.deepstream", m.getattr("deepstream")?)?;
     sys_modules.set_item("savant_rs.nvinfer", m.getattr("nvinfer")?)?;
     sys_modules.set_item("savant_rs.nvtracker", m.getattr("nvtracker")?)?;

@@ -156,6 +156,7 @@ reqwest = { version = "0.12.7", default-features = false, features = [
     "json",
 ] }
 retina = "=0.4.15"
+retina_rtsp = { path = "services/retina_rtsp" }
 rocksdb = { version = "0.23", default-features = false, features = [
     "bindgen-runtime",
     "lz4",

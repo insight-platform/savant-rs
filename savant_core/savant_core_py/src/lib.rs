@@ -7,6 +7,8 @@ pub mod draw_spec;
 pub mod gst;
 #[cfg(feature = "gst")]
 pub mod gstreamer;
+#[cfg(feature = "gst")]
+pub mod retina_rtsp;
 pub mod logging;
 pub mod match_query;
 pub mod metrics;

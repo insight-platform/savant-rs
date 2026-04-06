@@ -20,7 +20,7 @@ use savant_core::utils::rtp_pts_mapper::RtpPtsMapper;
 use savant_services_common::job_writer::JobWriter;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::configuration::ServiceConfiguration;
+use crate::configuration::RtspSourceGroup;
 use crate::ntp_sync::NtpSync;
 use crate::syncer::Syncer;
 use crate::utils::{ensure_au_delimiter, ts2epoch_duration};
@@ -78,12 +78,11 @@ impl Drop for PipelineGuard {
 }
 
 pub async fn run_group(
-    conf: Arc<ServiceConfiguration>,
+    group_conf: &RtspSourceGroup,
     group_name: String,
     sink: Arc<Mutex<JobWriter>>,
     eos_on_restart: bool,
 ) -> anyhow::Result<()> {
-    let group_conf = &conf.rtsp_sources[&group_name];
     let sources: Vec<_> = group_conf
         .sources
         .iter()
@@ -153,7 +152,11 @@ pub async fn run_group(
                     let buffer = values[1].get::<gst::Buffer>().unwrap();
                     if let Some(events) = parse_rtcp_sr(si, &buffer) {
                         for evt in events {
-                            let _ = tx_sr.try_send(evt);
+                            if let Err(e) = tx_sr.try_send(evt) {
+                                log::warn!(
+                                    "RTCP SR event dropped for source {si}: channel full or closed: {e}"
+                                );
+                            }
                         }
                     }
                     None
@@ -299,7 +302,7 @@ pub async fn run_group(
 
                         let (width, height, framerate) = extract_video_info(&sample);
 
-                        let _ = tx_f.try_send(GstEvent::VideoFrame {
+                        if let Err(e) = tx_f.try_send(GstEvent::VideoFrame {
                             source_idx: si,
                             data,
                             rtp_timestamp,
@@ -308,7 +311,11 @@ pub async fn run_group(
                             width,
                             height,
                             framerate,
-                        });
+                        }) {
+                            log::warn!(
+                                "Video frame event dropped for source {si}: channel full or closed: {e}"
+                            );
+                        }
                         Ok(FlowSuccess::Ok)
                     })
                     .build(),
