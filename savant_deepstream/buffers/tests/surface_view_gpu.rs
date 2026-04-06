@@ -593,21 +593,27 @@ mod tracking {
             batch.finalize().unwrap();
             let shared = batch.shared_buffer();
 
+            // Drop the source generator so its pool-held buffer is freed.
+            // This should trigger 1 deregistration (the source buffer's slot 0).
+            drop(src_gen);
+
             for i in 0..4u32 {
                 let view = SurfaceView::from_buffer(&shared, i).unwrap();
                 assert!(!view.data_ptr().is_null(), "slot {i} data_ptr is null");
             }
 
             let (reg, dereg) = deepstream_buffers::egl_cuda_meta::tracking_counts();
-            assert_eq!(reg, 4, "expected 4 slot registrations, got {reg}");
-            assert_eq!(dereg, 0, "no deregistrations yet while buffer alive");
+            // 1 source + 4 batch slots
+            assert_eq!(reg, 5, "expected 5 slot registrations (1 source + 4 batch), got {reg}");
+            // source pool destroyed → 1 deregistration
+            assert_eq!(dereg, 1, "source buffer should be deregistered after src_gen drop, got {dereg}");
         }
 
         let (reg, dereg) = deepstream_buffers::egl_cuda_meta::tracking_counts();
-        assert_eq!(reg, 4, "registration count should not change after drop");
+        assert_eq!(reg, 5, "registration count should not change after drop");
         assert_eq!(
-            dereg, 4,
-            "all 4 slots should be deregistered on buffer drop"
+            dereg, 5,
+            "all 5 slots (1 source + 4 batch) should be deregistered"
         );
     }
 }
