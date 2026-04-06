@@ -2,10 +2,7 @@ use crate::{
     configuration::{RtspSource, ServiceConfiguration},
     ntp_sync::NtpSync,
     syncer::Syncer,
-    utils::{
-        check_contains_au_delimiter, convert_to_annexb, is_keyframe, H264_AU_DELIMITER,
-        HEVC_AU_DELIMITER,
-    },
+    utils::{convert_to_annexb, ensure_au_delimiter, is_keyframe},
 };
 use anyhow::{bail, Context};
 use futures::StreamExt;
@@ -399,26 +396,9 @@ impl RtspServiceGroup {
                     Cow::Borrowed(video_frame.data())
                 };
 
-                let au_delimiter =
-                    check_contains_au_delimiter(&frame_data, source_id, rtp_time, stream_info);
-
-                let frame_data = if !au_delimiter {
-                    // add au delimiter
-                    let new_data = if matches!(stream_info.encoding.as_str(), "h264") {
-                        let mut new_data = H264_AU_DELIMITER.to_vec();
-                        new_data.extend_from_slice(&frame_data);
-                        Cow::Owned(new_data)
-                    } else if matches!(stream_info.encoding.as_str(), "hevc") {
-                        let mut new_data = HEVC_AU_DELIMITER.to_vec();
-                        new_data.extend_from_slice(&frame_data);
-                        Cow::Owned(new_data)
-                    } else {
-                        frame_data
-                    };
-                    new_data
-                } else {
-                    frame_data
-                };
+                let frame_data = Cow::Owned(
+                    ensure_au_delimiter(frame_data.into_owned(), &stream_info.encoding),
+                );
 
                 let kf = is_keyframe(&frame_data, source_id, rtp_time, stream_info);
                 if kf {

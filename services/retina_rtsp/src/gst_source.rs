@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, Mutex};
 use crate::configuration::ServiceConfiguration;
 use crate::ntp_sync::NtpSync;
 use crate::syncer::Syncer;
-use crate::utils::ts2epoch_duration;
+use crate::utils::{ensure_au_delimiter, ts2epoch_duration};
 
 const TIME_BASE: (i64, i64) = (1, 1_000_000_000);
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
@@ -536,6 +536,11 @@ pub async fn run_group(
                             .map(|(num, den)| (i64::from(num), i64::from(den.max(1))))
                             .unwrap_or((30, 1));
                         let fps = if fps.0 <= 0 { (30_i64, 1_i64) } else { fps };
+
+                        // Ensure AU delimiter NALU is present (matches retina backend behaviour).
+                        // h264parse/h265parse produce Annex B byte-stream but do not
+                        // guarantee an AU delimiter; downstream DeepStream decoders need one.
+                        let data = ensure_au_delimiter(data, &encoding);
 
                         let frame = VideoFrameProxy::new(
                             source_id,

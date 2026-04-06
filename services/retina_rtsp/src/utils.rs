@@ -101,6 +101,42 @@ pub fn check_contains_au_delimiter(
     aud
 }
 
+/// Check whether the first NALU is an AU delimiter and prepend one if missing.
+/// Works with Annex B byte-stream data. `encoding` must be `"h264"` or `"hevc"`.
+pub fn ensure_au_delimiter(data: Vec<u8>, encoding: &str) -> Vec<u8> {
+    let has_aud = has_au_delimiter_nalu(&data, encoding);
+    if has_aud {
+        return data;
+    }
+    let delimiter: &[u8] = match encoding {
+        "h264" => &H264_AU_DELIMITER,
+        "hevc" => &HEVC_AU_DELIMITER,
+        _ => return data,
+    };
+    let mut out = Vec::with_capacity(delimiter.len() + data.len());
+    out.extend_from_slice(delimiter);
+    out.extend_from_slice(&data);
+    out
+}
+
+fn has_au_delimiter_nalu(frame_data: &[u8], encoding: &str) -> bool {
+    let mut cursor = Cursor::new(frame_data);
+    match encoding {
+        "h264" => {
+            if let Ok(nal) = H264Nalu::next(&mut cursor) {
+                return matches!(nal.header.type_, H264AuDelimiter);
+            }
+        }
+        "hevc" => {
+            if let Ok(nal) = H265Nalu::next(&mut cursor) {
+                return matches!(nal.header.type_, HEVCAuDelimiter);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
 pub fn is_keyframe(
     frame_data: &[u8],
     source_id: &str,
