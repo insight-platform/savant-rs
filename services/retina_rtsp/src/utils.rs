@@ -57,50 +57,6 @@ pub fn convert_to_annexb(frame: retina::codec::VideoFrame) -> anyhow::Result<Vec
     Ok(data)
 }
 
-pub fn check_contains_au_delimiter(
-    frame_data: &[u8],
-    source_id: &str,
-    rtp_time: i64,
-    stream_info: &StreamInfo,
-) -> bool {
-    let mut cursor = Cursor::new(frame_data);
-    debug!(
-        target: "retina_rtsp::service::parser",
-        "Stream_id: {}, RTP time: {}, Encoding: {}",
-        source_id, rtp_time, stream_info.encoding
-    );
-    let mut aud = false;
-    if matches!(stream_info.encoding.as_str(), "h264") {
-        if let Ok(nal) = H264Nalu::next(&mut cursor) {
-            debug!(
-                target: "retina_rtsp::service::parser::check_contains_au_delimiter",
-                "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
-                source_id, rtp_time, nal.header, nal.offset
-            );
-            if matches!(nal.header.type_, H264AuDelimiter) {
-                aud = true;
-            }
-        }
-    } else if matches!(stream_info.encoding.as_str(), "hevc") {
-        if let Ok(nal) = H265Nalu::next(&mut cursor) {
-            debug!(
-                target: "retina_rtsp::service::parser::check_contains_au_delimiter",
-                "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
-                source_id, rtp_time, nal.header, nal.offset
-            );
-            if matches!(nal.header.type_, HEVCAuDelimiter) {
-                aud = true;
-            }
-        }
-    }
-    debug!(
-        target: "retina_rtsp::service::parser::check_contains_au_delimiter",
-        "Stream_id: {}, RTP time: {}, AU delimiter: {}",
-        source_id, rtp_time, aud
-    );
-    aud
-}
-
 /// Check whether the first NALU is an AU delimiter and prepend one if missing.
 /// Works with Annex B byte-stream data. `encoding` must be `"h264"` or `"hevc"`.
 pub fn ensure_au_delimiter(data: Vec<u8>, encoding: &str) -> Vec<u8> {
