@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -120,7 +119,8 @@ pub async fn run_group(
 
         pipeline.add_many([&rtspsrc, appsink.upcast_ref()])?;
 
-        let rtp_current = Arc::new(AtomicU32::new(0));
+        // Queue of per-frame RTP timestamps, filled by pad probe, consumed by appsink.
+        let rtp_queue = Arc::new(StdMutex::new((0u32, VecDeque::<u32>::new())));
         let clock_rate_shared = Arc::new(StdMutex::new(0u32));
 
         per_source_states.push(PerSourceState {
@@ -167,7 +167,7 @@ pub async fn run_group(
         let pipeline_weak = pipeline.downgrade();
         let appsink_name = format!("appsink-{}", idx);
         let source_id_for_pad = source.source_id.clone();
-        let rtp_current_for_pad = rtp_current.clone();
+        let rtp_queue_for_pad = rtp_queue.clone();
         let clock_rate_for_pad = clock_rate_shared.clone();
         let tx_frame = tx.clone();
         let pad_source_idx = idx;
@@ -257,13 +257,18 @@ pub async fn run_group(
             pad.link(&depay.static_pad("sink").unwrap()).unwrap();
 
             // Pad probe on the RTP source pad to capture RTP timestamps.
-            // All RTP packets for one frame share the same timestamp, so
-            // storing the latest value is sufficient.
-            let rtp_atomic = rtp_current_for_pad.clone();
+            // Push each unique timestamp into a queue so the appsink callback
+            // always reads the timestamp that belongs to *its* frame.
+            let rtp_q = rtp_queue_for_pad.clone();
             pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
                 if let Some(gst::PadProbeData::Buffer(ref buffer)) = info.data {
                     if let Ok(rtp_buffer) = gst_rtp::RTPBuffer::from_buffer_readable(buffer) {
-                        rtp_atomic.store(rtp_buffer.timestamp(), Ordering::Release);
+                        let ts = rtp_buffer.timestamp();
+                        let mut guard = rtp_q.lock().unwrap();
+                        if guard.0 != ts || guard.1.is_empty() {
+                            guard.0 = ts;
+                            guard.1.push_back(ts);
+                        }
                     }
                 }
                 gst::PadProbeReturn::Ok
@@ -273,7 +278,7 @@ pub async fn run_group(
             let tx_f = tx_frame.clone();
             let si = pad_source_idx;
             let enc = encoding_lower.to_string();
-            let rtp_atomic_appsink = rtp_current_for_pad.clone();
+            let rtp_q_appsink = rtp_queue_for_pad.clone();
 
             let appsink = appsink_el.downcast::<gst_app::AppSink>().unwrap();
             appsink.set_callbacks(
@@ -287,7 +292,10 @@ pub async fn run_group(
                         let map = buffer.map_readable().map_err(|_| gst::FlowError::Error)?;
                         let data = map.as_slice().to_vec();
 
-                        let rtp_timestamp = rtp_atomic_appsink.load(Ordering::Acquire);
+                        let rtp_timestamp = {
+                            let mut guard = rtp_q_appsink.lock().unwrap();
+                            guard.1.pop_front().unwrap_or(guard.0)
+                        };
 
                         let (width, height, framerate) = extract_video_info(&sample);
 
