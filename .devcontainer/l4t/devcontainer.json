@@ -41,5 +41,5 @@
     "forwardPorts": [
         3000
     ],
-    "postCreateCommand": "echo 'Dev container ready!'"
+    "postCreateCommand": "echo 'Dev container ready! Import .envrc to the shell to load the required environment variables.'"
 }
