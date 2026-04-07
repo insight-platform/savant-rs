@@ -9,6 +9,7 @@ RUN apt-get update && apt install -y \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
     gstreamer1.0-libav libgstrtspserver-1.0-dev libges-1.0-dev \
+    libva-dev \
     libpython3-dev
 
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \
@@ -40,6 +41,7 @@ RUN apt-get update && apt install -y \
     libgstreamer1.0-0 \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    libva-dev \
     gstreamer1.0-libav
 
 COPY --from=builder /opt /opt
