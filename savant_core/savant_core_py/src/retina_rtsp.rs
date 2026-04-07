@@ -271,7 +271,6 @@ impl PyRtspSourceGroup {
 #[pyclass(name = "RetinaRtspService", module = "savant_rs.retina_rtsp")]
 pub struct PyRetinaRtspService {
     service: Arc<retina_rtsp::Service>,
-    runtime: Arc<tokio::runtime::Runtime>,
 }
 
 #[pymethods]
@@ -282,18 +281,15 @@ impl PyRetinaRtspService {
             .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         let service = retina_rtsp::Service::new(&conf)
             .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         Ok(Self {
             service: Arc::new(service),
-            runtime: Arc::new(runtime),
         })
     }
 
     /// Run a group.  Blocks (GIL released) until stopped or fatal error.
     fn run_group(&self, py: Python<'_>, group: &PyRtspSourceGroup, name: String) -> PyResult<()> {
         let svc = self.service.clone();
-        let rt = self.runtime.clone();
+        let rt = savant_core::get_or_init_async_runtime();
         let group = group.to_rust();
         py.detach(move || {
             rt.block_on(svc.run_group(&group, name))
@@ -304,7 +300,7 @@ impl PyRetinaRtspService {
     /// Stop a running group.  Blocks (GIL released) until the group exits.
     fn stop_group(&self, py: Python<'_>, name: String) -> PyResult<()> {
         let svc = self.service.clone();
-        let rt = self.runtime.clone();
+        let rt = savant_core::get_or_init_async_runtime();
         py.detach(move || {
             rt.block_on(svc.stop_group(&name));
             Ok(())
@@ -314,7 +310,7 @@ impl PyRetinaRtspService {
     /// Stop all running groups.  Blocks (GIL released).
     fn shutdown(&self, py: Python<'_>) -> PyResult<()> {
         let svc = self.service.clone();
-        let rt = self.runtime.clone();
+        let rt = savant_core::get_or_init_async_runtime();
         py.detach(move || {
             rt.block_on(svc.shutdown());
             Ok(())

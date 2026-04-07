@@ -228,7 +228,7 @@ pub(crate) unsafe fn set_structure_uint(
 ) {
     use glib::prelude::ToValue;
     use glib::translate::ToGlibPtr;
-    let c_name = std::ffi::CString::new(field_name).unwrap();
+    let c_name = std::ffi::CString::new(field_name).expect("field_name must not contain NUL bytes");
     let gvalue = value.to_value();
     gst::ffi::gst_structure_set_value(structure, c_name.as_ptr(), gvalue.to_glib_none().0);
 }

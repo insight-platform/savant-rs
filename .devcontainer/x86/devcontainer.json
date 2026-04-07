@@ -23,8 +23,7 @@
                 "ms-python.python",
                 "ms-azuretools.vscode-docker",
                 "rust-lang.rust-analyzer",
-                "tamasfe.even-better-toml",
-                "anthropic.claude-code"
+                "tamasfe.even-better-toml"
             ]
         }
     },

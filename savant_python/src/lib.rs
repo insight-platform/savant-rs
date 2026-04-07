@@ -396,6 +396,11 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_release_build, m)?)?;
     m.add_function(wrap_pyfunction!(register_handler, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_handler, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_all_handlers_py, m)?)?;
+
+    let atexit_mod = PyModule::import(py, "atexit")?;
+    let cleanup = m.getattr("clear_all_handlers")?;
+    atexit_mod.call_method1("register", (cleanup,))?;
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
     m.add_wrapped(wrap_pymodule!(self::pipeline))?;

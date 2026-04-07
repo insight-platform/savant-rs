@@ -5,6 +5,7 @@ use parking_lot::Mutex;
 use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::output::OperatorInferenceOutput;
 
@@ -39,6 +40,7 @@ pub(super) struct PendingBatch {
     pub model_width: f32,
     pub model_height: f32,
     pub scaling: ModelInputScaling,
+    pub submitted_at: Instant,
 }
 
 /// Pending-batch map: batch-ID → [`PendingBatch`].

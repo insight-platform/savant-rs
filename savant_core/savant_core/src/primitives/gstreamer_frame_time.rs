@@ -10,12 +10,14 @@ pub const GST_TIME_BASE: (i64, i64) = (1, 1_000_000_000);
 /// Map `value` expressed in `time_base = num/den` seconds per unit to nanoseconds.
 ///
 /// GStreamer [`ClockTime`](https://gstreamer.freedesktop.org/documentation/gstreamer/gstclock.html?gi-language=c)
-/// uses an unsigned nanosecond timeline. Negative results clamp to `0`; overflow clamps to `u64::MAX`.
+/// uses an unsigned nanosecond timeline. For a **valid** positive rational time base, a negative `value`
+/// yields a negative intermediate result and clamps to `0`; overflow clamps to `u64::MAX`.
 ///
-/// Returns [`None`] when `den == 0` or `num == 0` (invalid time base).
+/// Returns [`None`] when `num <= 0` or `den <= 0` (invalid time base; negative components must not be
+/// silently folded into `0` nanoseconds).
 pub fn time_base_to_ns(time_base: (i64, i64), value: i64) -> Option<u64> {
     let (num, den) = time_base;
-    if den == 0 || num == 0 {
+    if num <= 0 || den <= 0 {
         return None;
     }
     let v = (value as i128)
@@ -42,18 +44,16 @@ pub struct FrameClockNs {
 }
 
 /// Build GStreamer-scale timestamps from a frame proxy.
+///
+/// If the frame's time base is invalid (`num <= 0` or `den <= 0`), every field that depends on
+/// rational conversion is set as if timestamps were `0` / unset — do not treat raw PTS/DTS/duration
+/// integers as nanoseconds.
 pub fn frame_clock_ns(frame: &VideoFrameProxy) -> FrameClockNs {
     let tb = frame.get_time_base();
     let pts = frame.get_pts();
-    let pts_ns = time_base_to_ns(tb, pts).unwrap_or_else(|| pts.max(0) as u64);
-    let dts_ns = frame
-        .get_dts()
-        .and_then(|dts| time_base_to_ns(tb, dts))
-        .or_else(|| frame.get_dts().map(|dts| dts.max(0) as u64));
-    let duration_ns = frame
-        .get_duration()
-        .and_then(|d| time_base_to_ns(tb, d))
-        .or_else(|| frame.get_duration().map(|d| d.max(0) as u64));
+    let pts_ns = time_base_to_ns(tb, pts).unwrap_or(0);
+    let dts_ns = frame.get_dts().and_then(|dts| time_base_to_ns(tb, dts));
+    let duration_ns = frame.get_duration().and_then(|d| time_base_to_ns(tb, d));
     let submission_order_ns = dts_ns.unwrap_or(pts_ns);
     FrameClockNs {
         dts_ns,
@@ -118,7 +118,7 @@ pub fn normalize_frame_to_gst_ns(frame: &mut VideoFrameProxy) {
 mod tests {
     use super::*;
     use crate::primitives::frame::{
-        VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+        VideoFrame, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
     };
     use crate::primitives::video_codec::VideoCodec;
 
@@ -156,6 +156,25 @@ mod tests {
     fn invalid_tb_fallback_none() {
         assert!(time_base_to_ns((0, 1), 5).is_none());
         assert!(time_base_to_ns((1, 0), 5).is_none());
+        assert!(time_base_to_ns((-1, 90_000), 1).is_none());
+        assert!(time_base_to_ns((1, -90_000), 1).is_none());
+    }
+
+    #[test]
+    fn invalid_time_base_no_raw_pts_as_ns() {
+        // `VideoFrameProxy::new` rejects non-positive time_base; malformed values can still
+        // appear via `from_inner` / deserialization — `frame_clock_ns` must not treat PTS as ns.
+        let f = VideoFrameProxy::from_inner(VideoFrame {
+            time_base: (-1, 90_000),
+            pts: 90_000,
+            dts: Some(90_000),
+            duration: Some(1),
+            ..Default::default()
+        });
+        let clk = frame_clock_ns(&f);
+        assert_eq!(clk.submission_order_ns, 0);
+        assert_eq!(clk.dts_ns, None);
+        assert_eq!(clk.duration_ns, None);
     }
 
     #[test]

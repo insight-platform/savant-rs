@@ -422,7 +422,7 @@ pub fn register_all_handlers() {
 }
 
 pub fn unregister_all_handlers() {
-    REGISTERED_HANDLERS.write().clear();
+    savant_core_py::clear_all_handlers();
 }
 
 /// Generate a unique IPC address for a given test / role combination.

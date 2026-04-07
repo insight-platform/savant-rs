@@ -4,6 +4,7 @@ use parking_lot::Mutex;
 use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::output::TrackerOperatorOutput;
 
@@ -35,6 +36,7 @@ pub(super) type FramePair = (VideoFrameProxy, SharedBuffer);
 pub(super) struct PendingBatch {
     pub frames: Vec<FramePair>,
     pub frame_nums: Vec<u32>,
+    pub submitted_at: Instant,
 }
 
 /// Pending-batch map: batch-ID → [`PendingBatch`].

@@ -4,6 +4,7 @@ use crate::error::{NvTrackerError, Result};
 use deepstream_buffers::VideoFormat;
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 /// Default width passed to the tracker element (`tracker-width`).
 pub const DEFAULT_TRACKER_WIDTH: u32 = 640;
@@ -47,6 +48,11 @@ pub struct NvTrackerConfig {
     /// GStreamer queue element `max-size-buffers`.
     /// 0 = no queue element (synchronous), >0 = insert queue with this depth.
     pub queue_depth: u32,
+    /// Maximum time to wait for a submitted buffer to produce a result.
+    /// Used by both `track_sync` (recv timeout) and the async callback
+    /// watchdog (in-flight deadline). When exceeded, the pipeline enters
+    /// a terminal failed state. Default: 30 s.
+    pub operation_timeout: Duration,
 }
 
 impl NvTrackerConfig {
@@ -64,6 +70,7 @@ impl NvTrackerConfig {
             element_properties: HashMap::new(),
             tracking_id_reset_mode: TrackingIdResetMode::None,
             queue_depth: 0,
+            operation_timeout: Duration::from_secs(30),
         }
     }
 

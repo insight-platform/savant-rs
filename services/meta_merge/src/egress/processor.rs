@@ -9,6 +9,7 @@ use crate::{
 use anyhow::Result;
 use log::{debug, info, warn};
 use pyo3::{
+    exceptions::PyRuntimeError,
     types::{PyAnyMethods, PyBool, PyListMethods, PyNone},
     Python,
 };
@@ -220,7 +221,12 @@ impl EgressProcessor {
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name.as_str())
-                .unwrap_or_else(|| panic!("Python handler '{}' not found", handler_name));
+                .ok_or_else(|| {
+                    PyRuntimeError::new_err(format!(
+                        "Python handler '{}' not found in REGISTERED_HANDLERS",
+                        handler_name
+                    ))
+                })?;
 
             let result = handler.call1(
                 py,
@@ -258,7 +264,12 @@ impl EgressProcessor {
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name.as_str())
-                .unwrap_or_else(|| panic!("Python handler '{}' not found", handler_name));
+                .ok_or_else(|| {
+                    PyRuntimeError::new_err(format!(
+                        "Python handler '{}' not found in REGISTERED_HANDLERS",
+                        handler_name
+                    ))
+                })?;
             handler.call1(py, (item_py.clone_ref(py),))?;
 
             Ok::<(), pyo3::PyErr>(())
@@ -291,7 +302,12 @@ impl EgressProcessor {
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name)
-                .unwrap_or_else(|| panic!("Python handler '{}' not found", handler_name));
+                .ok_or_else(|| {
+                    PyRuntimeError::new_err(format!(
+                        "Python handler '{}' not found in REGISTERED_HANDLERS",
+                        handler_name
+                    ))
+                })?;
 
             let result = handler.call1(py, (item_py.clone_ref(py),))?;
             let result_bound = result.bind(py);
@@ -411,7 +427,12 @@ impl EgressProcessor {
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name.as_str())
-                .unwrap_or_else(|| panic!("Python handler '{}' not found", handler_name));
+                .ok_or_else(|| {
+                    PyRuntimeError::new_err(format!(
+                        "Python handler '{}' not found in REGISTERED_HANDLERS",
+                        handler_name
+                    ))
+                })?;
 
             // Extract state dict
             let state = item.state.clone_ref(py);

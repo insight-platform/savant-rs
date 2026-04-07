@@ -234,7 +234,9 @@ impl EglHeadlessContext {
     ///
     /// Used by Skia and the `gl` crate to load OpenGL function pointers.
     pub fn get_proc_address(&self, name: &str) -> *const std::ffi::c_void {
-        let c_name = CString::new(name).unwrap();
+        let Ok(c_name) = CString::new(name) else {
+            return std::ptr::null();
+        };
         unsafe { eglGetProcAddress(c_name.as_ptr()) }
     }
 }

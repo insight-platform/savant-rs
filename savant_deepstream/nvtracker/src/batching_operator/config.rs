@@ -10,6 +10,9 @@ pub struct NvTrackerBatchingOperatorConfig {
     pub max_batch_wait: Duration,
     /// Configuration forwarded to the inner [`crate::pipeline::NvTracker`] pipeline.
     pub nvtracker: NvTrackerConfig,
+    /// Maximum time a submitted batch can remain in `pending_batches`
+    /// before the operator enters a terminal failed state. Default: 60 s.
+    pub pending_batch_timeout: Duration,
 }
 
 /// Builder for [`NvTrackerBatchingOperatorConfig`].
@@ -17,6 +20,7 @@ pub struct NvTrackerBatchingOperatorConfigBuilder {
     nvtracker: NvTrackerConfig,
     max_batch_size: usize,
     max_batch_wait: Duration,
+    pending_batch_timeout: Duration,
 }
 
 impl NvTrackerBatchingOperatorConfig {
@@ -30,6 +34,7 @@ impl NvTrackerBatchingOperatorConfig {
             nvtracker: nvtracker_config,
             max_batch_size: 1,
             max_batch_wait: Duration::from_millis(50),
+            pending_batch_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -47,12 +52,19 @@ impl NvTrackerBatchingOperatorConfigBuilder {
         self
     }
 
+    /// Set the pending batch timeout.
+    pub fn pending_batch_timeout(mut self, timeout: Duration) -> Self {
+        self.pending_batch_timeout = timeout;
+        self
+    }
+
     /// Finish building and return the config.
     pub fn build(self) -> NvTrackerBatchingOperatorConfig {
         NvTrackerBatchingOperatorConfig {
             max_batch_size: self.max_batch_size,
             max_batch_wait: self.max_batch_wait,
             nvtracker: self.nvtracker,
+            pending_batch_timeout: self.pending_batch_timeout,
         }
     }
 }

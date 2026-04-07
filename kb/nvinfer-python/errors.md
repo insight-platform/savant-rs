@@ -8,7 +8,8 @@
 | `submit()` after `shutdown()` | Engine already stopped |
 | `infer_sync()` after `shutdown()` | Engine already stopped |
 | `shutdown()` twice | Second call raises |
-| `infer_sync()` timeout | 30 s deadline expires without result |
+| `infer_sync()` timeout | `operation_timeout_ms` deadline expires without result; pipeline enters terminal failed state (`PipelineFailed`) and must be recreated |
+| `submit()` / `infer_sync()` after failed state | Pipeline previously entered failed state due to timeout; all calls raise `RuntimeError` with "pipeline failed" |
 | `submit()` with consumed SharedBuffer | SharedBuffer already consumed |
 
 ## RuntimeError from output access

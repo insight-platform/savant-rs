@@ -14,15 +14,15 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
-use log::info;
+use log::{error, info};
 use parking_lot::Mutex;
 use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tempfile::NamedTempFile;
 
 /// Callback type invoked when inference completes (async mode).
@@ -56,6 +56,16 @@ pub struct NvInfer {
     next_pts: AtomicU64,
     /// When and whether to clear object metas.
     policy: MetaClearPolicy,
+    /// Terminal failed flag — set when an operation timeout is exceeded.
+    failed: Arc<AtomicBool>,
+    /// PTS → submission instant for in-flight buffers (both sync and async).
+    in_flight: Arc<Mutex<HashMap<u64, Instant>>>,
+    /// Operation timeout from config.
+    operation_timeout: Duration,
+    /// Watchdog thread handle.
+    _watchdog_thread: Option<std::thread::JoinHandle<()>>,
+    /// Shutdown flag for the watchdog thread.
+    watchdog_shutdown: Arc<AtomicBool>,
 }
 
 impl NvInfer {
@@ -177,7 +187,12 @@ impl NvInfer {
             callback: Mutex::new(Some(callback)),
             sync_tx: Mutex::new(HashMap::new()),
         });
+        let failed = Arc::new(AtomicBool::new(false));
+        let in_flight: Arc<Mutex<HashMap<u64, Instant>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
         let delivery_clone = delivery.clone();
+        let in_flight_cb = in_flight.clone();
         let callbacks = AppSinkCallbacks::builder()
             .new_sample(move |appsink| {
                 let sample = appsink.pull_sample().map_err(|e| {
@@ -185,6 +200,11 @@ impl NvInfer {
                     gst::FlowError::Error
                 })?;
                 let pts_key = sample.buffer().and_then(|b| b.pts()).map(|t| t.nseconds());
+
+                // Clear in-flight entry on successful delivery.
+                if let Some(pts) = pts_key {
+                    in_flight_cb.lock().remove(&pts);
+                }
 
                 let output =
                     extract_batch_output(sample, policy, host_copy_enabled).map_err(|e| {
@@ -214,6 +234,51 @@ impl NvInfer {
             .set_state(gst::State::Playing)
             .map_err(|e| NvInferError::PipelineError(format!("Failed to start pipeline: {}", e)))?;
 
+        let operation_timeout = config.operation_timeout;
+
+        // Spawn watchdog thread for async in-flight deadline.
+        let watchdog_shutdown = Arc::new(AtomicBool::new(false));
+        let wd_in_flight = in_flight.clone();
+        let wd_failed = failed.clone();
+        let wd_shutdown = watchdog_shutdown.clone();
+        let wd_timeout = operation_timeout;
+        let wd_name = format!("{}-watchdog", name_display);
+        let watchdog_thread = std::thread::Builder::new()
+            .name(wd_name)
+            .spawn(move || {
+                let tick = wd_timeout / 2;
+                loop {
+                    std::thread::sleep(tick);
+                    if wd_shutdown.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if wd_failed.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let now = Instant::now();
+                    let expired: Vec<u64> = wd_in_flight
+                        .lock()
+                        .iter()
+                        .filter(|(_, submitted)| now.duration_since(**submitted) > wd_timeout)
+                        .map(|(&pts, _)| pts)
+                        .collect();
+                    if !expired.is_empty() {
+                        for pts in &expired {
+                            wd_in_flight.lock().remove(pts);
+                        }
+                        error!(
+                            "NvInfer: {} buffer(s) exceeded operation_timeout ({:?}), \
+                             pipeline entering failed state",
+                            expired.len(),
+                            wd_timeout
+                        );
+                        wd_failed.store(true, Ordering::Release);
+                        return;
+                    }
+                }
+            })
+            .ok();
+
         info!(
             "NvInfer initialized (name={}, queue_depth={})",
             name_display, config.queue_depth
@@ -228,6 +293,11 @@ impl NvInfer {
             delivery,
             next_pts: AtomicU64::new(0),
             policy,
+            failed,
+            in_flight,
+            operation_timeout,
+            _watchdog_thread: watchdog_thread,
+            watchdog_shutdown,
         })
     }
 
@@ -244,37 +314,15 @@ impl NvInfer {
     /// Any existing object metas on the buffer's batch meta are cleared before
     /// the new ROI objects are written (see [`attach_batch_meta_with_rois`]).
     pub fn submit(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) -> Result<()> {
-        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        let batch = batch.into_buffer().map_err(|_| {
-            NvInferError::PipelineError(
-                "SharedBuffer has outstanding references; cannot take exclusive ownership".into(),
-            )
-        })?;
-        self.push_buffer(batch, rois, pts)
-    }
-
-    /// Synchronous inference with a configurable timeout.
-    ///
-    /// The buffer is **consumed**: if the [`SharedBuffer`] has outstanding
-    /// references, an error is returned.
-    ///
-    /// Parameters are the same as [`submit`](NvInfer::submit).
-    pub fn infer_sync_with_timeout(
-        &self,
-        batch: SharedBuffer,
-        rois: Option<&HashMap<u32, Vec<Roi>>>,
-        timeout: Duration,
-    ) -> Result<BatchInferenceOutput> {
-        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = mpsc::channel();
-        {
-            let mut sync_map = self.delivery.sync_tx.lock();
-            sync_map.insert(pts, tx);
+        if self.failed.load(Ordering::Acquire) {
+            return Err(NvInferError::PipelineFailed);
         }
+        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
+        self.in_flight.lock().insert(pts, Instant::now());
         let batch = match batch.into_buffer() {
             Ok(buf) => buf,
             Err(_) => {
-                self.delivery.sync_tx.lock().remove(&pts);
+                self.in_flight.lock().remove(&pts);
                 return Err(NvInferError::PipelineError(
                     "SharedBuffer has outstanding references; cannot take exclusive ownership"
                         .into(),
@@ -282,28 +330,15 @@ impl NvInfer {
             }
         };
         if let Err(e) = self.push_buffer(batch, rois, pts) {
-            self.delivery.sync_tx.lock().remove(&pts);
+            self.in_flight.lock().remove(&pts);
             return Err(e);
         }
-        match rx.recv_timeout(timeout) {
-            Ok(output) => Ok(output),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.delivery.sync_tx.lock().remove(&pts);
-                Err(NvInferError::PipelineError(format!(
-                    "infer_sync timed out after {}ms",
-                    timeout.as_millis()
-                )))
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                self.delivery.sync_tx.lock().remove(&pts);
-                Err(NvInferError::PipelineError(
-                    "infer_sync channel disconnected".into(),
-                ))
-            }
-        }
+        Ok(())
     }
 
-    /// Synchronous inference – blocks until results arrive (up to 30 s).
+    /// Synchronous inference – blocks until results arrive or `operation_timeout`
+    /// is exceeded. On timeout, the pipeline enters a terminal failed state and
+    /// must be recreated.
     ///
     /// The buffer is **consumed**: if the [`SharedBuffer`] has outstanding
     /// references, an error is returned.
@@ -314,7 +349,55 @@ impl NvInfer {
         batch: SharedBuffer,
         rois: Option<&HashMap<u32, Vec<Roi>>>,
     ) -> Result<BatchInferenceOutput> {
-        self.infer_sync_with_timeout(batch, rois, Duration::from_secs(30))
+        if self.failed.load(Ordering::Acquire) {
+            return Err(NvInferError::PipelineFailed);
+        }
+        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
+        self.in_flight.lock().insert(pts, Instant::now());
+        let (tx, rx) = mpsc::channel();
+        {
+            let mut sync_map = self.delivery.sync_tx.lock();
+            sync_map.insert(pts, tx);
+        }
+        let batch = match batch.into_buffer() {
+            Ok(buf) => buf,
+            Err(_) => {
+                self.in_flight.lock().remove(&pts);
+                self.delivery.sync_tx.lock().remove(&pts);
+                return Err(NvInferError::PipelineError(
+                    "SharedBuffer has outstanding references; cannot take exclusive ownership"
+                        .into(),
+                ));
+            }
+        };
+        if let Err(e) = self.push_buffer(batch, rois, pts) {
+            self.in_flight.lock().remove(&pts);
+            self.delivery.sync_tx.lock().remove(&pts);
+            return Err(e);
+        }
+        match rx.recv_timeout(self.operation_timeout) {
+            Ok(output) => {
+                // in_flight already cleared by appsink callback
+                Ok(output)
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.in_flight.lock().remove(&pts);
+                self.delivery.sync_tx.lock().remove(&pts);
+                error!(
+                    "NvInfer: infer_sync timed out after {:?}, pipeline entering failed state",
+                    self.operation_timeout
+                );
+                self.failed.store(true, Ordering::Release);
+                Err(NvInferError::PipelineFailed)
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.in_flight.lock().remove(&pts);
+                self.delivery.sync_tx.lock().remove(&pts);
+                error!("NvInfer: infer_sync channel disconnected, pipeline entering failed state");
+                self.failed.store(true, Ordering::Release);
+                Err(NvInferError::PipelineFailed)
+            }
+        }
     }
 
     /// Internal: attach ROI metadata, set PTS, push to appsrc.
@@ -418,6 +501,10 @@ impl NvInfer {
 
     /// Graceful shutdown: send EOS, drain, stop pipeline.
     pub fn shutdown(&mut self) -> Result<()> {
+        self.watchdog_shutdown.store(true, Ordering::Release);
+        if let Some(handle) = self._watchdog_thread.take() {
+            let _ = handle.join();
+        }
         let _ = self.appsrc.end_of_stream();
         let bus = self
             .pipeline
@@ -452,6 +539,10 @@ impl NvInfer {
 
 impl Drop for NvInfer {
     fn drop(&mut self) {
+        self.watchdog_shutdown.store(true, Ordering::Release);
+        if let Some(handle) = self._watchdog_thread.take() {
+            let _ = handle.join();
+        }
         let _ = self.appsrc.end_of_stream();
         let _ = self.pipeline.set_state(gst::State::Null);
     }

@@ -67,8 +67,7 @@ Builds `appsrc ! [queue] ! nvinfer ! appsink`. Operates in `process-mode=2`
 |---|---|---|
 | `new` | `(config: NvInferConfig, callback: InferCallback) → Result<Self>` | Spawns pipeline; callback invoked when inference completes (async mode) |
 | `submit` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<()>` | **Consumes** batch. Requires sole ownership (`into_buffer()` succeeds). Async: results delivered to callback. |
-| `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to 30s. Delegates to `infer_sync_with_timeout`. |
-| `infer_sync_with_timeout` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>, timeout: Duration) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to `timeout`. Same ROI semantics as `submit`. |
+| `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to `operation_timeout` (from `NvInferConfig`, default 30s). On timeout, pipeline enters failed state (`PipelineFailed`). |
 | `shutdown` | `(&mut self) → Result<()>` | Graceful shutdown: sends EOS, waits up to 10s for drain, sets pipeline to Null. |
 
 **InferCallback:** `Box<dyn FnMut(BatchInferenceOutput) + Send>`
@@ -91,6 +90,7 @@ pub struct NvInferConfig {
     pub meta_clear_policy: MetaClearPolicy,
     pub disable_output_host_copy: bool,
     pub scaling: ModelInputScaling,
+    pub operation_timeout: Duration,  // default 30s; used by infer_sync and the async watchdog
 }
 ```
 
@@ -107,6 +107,7 @@ pub struct NvInferConfig {
 | `meta_clear_policy` | `(self, policy: MetaClearPolicy) → Self` |
 | `disable_output_host_copy` | `(self, disable: bool) → Self` — skip D2H copy; only GPU pointers valid |
 | `scaling` | `(self, scaling: ModelInputScaling) → Self` — input resize / padding mode |
+| `operation_timeout` | `(self, timeout: Duration) → Self` — timeout for `infer_sync` and async watchdog (default 30s) |
 | `model_input_dimensions` | `(&self) → (u32, u32)` — returns `(model_width, model_height)` |
 
 **Mandatory nvinfer keys** (auto-injected if missing): `process-mode=2`, `output-tensor-meta=1`, `network-type=100`, `gie-unique-id=1`.
@@ -280,6 +281,7 @@ the entire frame (no per-object ROIs). `Rois(vec)` infers on specific regions.
 pub struct NvInferBatchingOperatorConfig {
     pub max_batch_size: usize,
     pub max_batch_wait: Duration,
+    pub pending_batch_timeout: Duration,  // default 60s
     pub nvinfer: NvInferConfig,
 }
 ```
@@ -288,15 +290,17 @@ pub struct NvInferBatchingOperatorConfig {
 |---|---|
 | `max_batch_size` | Maximum batch size; triggers immediate submission when reached |
 | `max_batch_wait` | Maximum time before submitting a partial batch |
+| `pending_batch_timeout` | Maximum time a pending batch (submitted but not yet completed) can remain in-flight before the operator enters failed state (default 60s) |
 | `nvinfer` | Forwarded to the inner `NvInfer` pipeline |
 
 ### `NvInferBatchingOperatorConfig::builder(nvinfer_config)`
 
 Returns a `NvInferBatchingOperatorConfigBuilder`. Defaults: `max_batch_size = 1`,
-`max_batch_wait = 50 ms`.
+`max_batch_wait = 50 ms`, `pending_batch_timeout = 60s`.
 
 Builder methods (all return `Self`): `max_batch_size(usize)`,
-`max_batch_wait(Duration)`, `build() → NvInferBatchingOperatorConfig`.
+`max_batch_wait(Duration)`, `pending_batch_timeout(Duration)`,
+`build() → NvInferBatchingOperatorConfig`.
 
 ---
 
@@ -465,6 +469,8 @@ scaling (Fill mode, scale_x ≠ scale_y), the angle is recomputed.
 ```rust
 pub enum NvInferError {
     PipelineError(String),
+    PipelineFailed(String),
+    OperatorFailed(String),
     ElementCreationFailed(String),
     LinkFailed(String),
     InvalidProperty(String),
@@ -482,6 +488,8 @@ pub enum NvInferError {
 
 | Variant | Trigger |
 |---|---|
+| `PipelineFailed` | Pipeline entered terminal failed state (e.g. timeout exceeded for sync or async operation). Pipeline must be recreated. |
+| `OperatorFailed` | Batching operator entered terminal failed state (e.g. pending batch timeout exceeded). Operator must be recreated. |
 | `TensorTypeMismatch` | `as_f32s()` / `as_i32s()` / `as_i8s()` called on wrong `DataType` |
 | `HostDataUnavailable` | Typed accessor called when host copy disabled, null pointer, or zero bytes |
 | `Buffer` | Wraps `deepstream_buffers::NvBufSurfaceError` via `From` |

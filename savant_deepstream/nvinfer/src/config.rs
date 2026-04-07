@@ -12,6 +12,7 @@ use deepstream_buffers::VideoFormat;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 /// Parse a key into (section, key). Bare keys go to "property".
@@ -66,6 +67,11 @@ pub struct NvInferConfig {
     /// `maintain-aspect-ratio` / `symmetric-padding` in the generated config;
     /// those keys must not appear in `nvinfer_properties`. Default: [`ModelInputScaling::Fill`].
     pub scaling: ModelInputScaling,
+    /// Maximum time to wait for a submitted buffer to produce a result.
+    /// Used by both `infer_sync` (recv timeout) and the async callback
+    /// watchdog (in-flight deadline). When exceeded, the pipeline enters
+    /// a terminal failed state. Default: 30 s.
+    pub operation_timeout: Duration,
 }
 
 impl NvInferConfig {
@@ -105,6 +111,7 @@ impl NvInferConfig {
             meta_clear_policy: MetaClearPolicy::default(),
             disable_output_host_copy: false,
             scaling: ModelInputScaling::default(),
+            operation_timeout: Duration::from_secs(30),
         }
     }
 
@@ -150,6 +157,12 @@ impl NvInferConfig {
     /// Set how input frames are scaled to the model input dimensions.
     pub fn scaling(mut self, scaling: ModelInputScaling) -> Self {
         self.scaling = scaling;
+        self
+    }
+
+    /// Set the operation timeout for sync and async paths.
+    pub fn operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = timeout;
         self
     }
 

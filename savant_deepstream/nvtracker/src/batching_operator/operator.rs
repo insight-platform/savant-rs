@@ -135,6 +135,7 @@ impl NvTrackerBatchingOperator {
 
         let state = Arc::new(Mutex::new(BatchState::new()));
         let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let failed = Arc::new(AtomicBool::new(false));
         let condvar = Arc::new(Condvar::new());
 
         let ctx = Arc::new(SubmitContext {
@@ -146,6 +147,7 @@ impl NvTrackerBatchingOperator {
             source_frame_counters: Arc::new(Mutex::new(HashMap::new())),
             nvtracker: Arc::new(Mutex::new(nvtracker)),
             shutdown_flag: shutdown_flag.clone(),
+            failed: failed.clone(),
         });
 
         let timer_ctx = ctx.clone();
@@ -176,6 +178,9 @@ impl NvTrackerBatchingOperator {
     /// If adding this frame fills the batch to `max_batch_size`, the batch is
     /// submitted immediately.
     pub fn add_frame(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()> {
+        if self.ctx.failed.load(Ordering::Acquire) {
+            return Err(NvTrackerError::OperatorFailed);
+        }
         if self.ctx.shutdown_flag.load(Ordering::Acquire) {
             return Err(NvTrackerError::OperatorShutdown);
         }
@@ -274,6 +279,10 @@ fn filter_misc_for_frame_num(
 
 fn timer_loop(ctx: Arc<SubmitContext>, condvar: Arc<Condvar>) {
     loop {
+        if ctx.failed.load(Ordering::Acquire) {
+            return;
+        }
+
         let deadline = {
             let st = ctx.state.lock();
             if ctx.shutdown_flag.load(Ordering::Acquire) {
@@ -300,6 +309,28 @@ fn timer_loop(ctx: Arc<SubmitContext>, condvar: Arc<Condvar>) {
                     condvar.wait(&mut st);
                 }
             }
+        }
+
+        // Check for expired pending batches.
+        let timeout = ctx.config.pending_batch_timeout;
+        let expired: Vec<u128> = {
+            let pending = ctx.pending_batches.lock();
+            pending
+                .iter()
+                .filter(|(_, b)| b.submitted_at.elapsed() > timeout)
+                .map(|(&id, _)| id)
+                .collect()
+        };
+        if !expired.is_empty() {
+            for id in &expired {
+                ctx.pending_batches.lock().remove(id);
+                error!(
+                    "NvTracker: pending batch {id} timed out after {timeout:?}, \
+                     operator entering failed state"
+                );
+            }
+            ctx.failed.store(true, Ordering::Release);
+            return;
         }
     }
 }

@@ -46,6 +46,12 @@ pub enum NvInferError {
 
     #[error("Buffer error: {0}")]
     Buffer(#[from] deepstream_buffers::NvBufSurfaceError),
+
+    #[error("Pipeline entered failed state (operation timeout exceeded)")]
+    PipelineFailed,
+
+    #[error("Batching operator entered failed state (pending batch timeout exceeded)")]
+    OperatorFailed,
 }
 
 /// Result type for NvInfer operations.

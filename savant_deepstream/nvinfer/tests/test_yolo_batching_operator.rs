@@ -128,6 +128,7 @@ fn test_yolo_batching_operator_mixed_sizes() {
         max_batch_size: 2,
         max_batch_wait: Duration::from_secs(5),
         nvinfer: nvinfer_config,
+        pending_batch_timeout: Duration::from_secs(60),
     };
 
     let converter = Arc::new(YoloDetectionConverter::new(

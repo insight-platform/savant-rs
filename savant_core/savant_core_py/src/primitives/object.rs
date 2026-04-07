@@ -5,7 +5,7 @@ use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
 use crate::utils::bigint::fit_i64;
 use crate::{attach, detach};
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
@@ -52,7 +52,7 @@ impl VideoObject {
         confidence: Option<f32>,
         track_id: Option<num_bigint::BigInt>,
         track_box: Option<RBBox>,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let object = rust::VideoObjectBuilder::default()
             .id(id)
             .namespace(namespace.to_string())
@@ -63,9 +63,9 @@ impl VideoObject {
             .track_id(track_id.map(fit_i64))
             .track_box(track_box.map(|b| b.0))
             .build()
-            .unwrap();
+            .map_err(|e| PyValueError::new_err(format!("Failed to build VideoObject: {e}")))?;
 
-        Self(object)
+        Ok(Self(object))
     }
 
     #[pyo3(name = "to_protobuf")]

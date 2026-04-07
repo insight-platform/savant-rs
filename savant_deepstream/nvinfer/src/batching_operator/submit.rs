@@ -8,6 +8,7 @@ use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::config::NvInferBatchingOperatorConfig;
 use super::types::{
@@ -24,6 +25,7 @@ pub(super) struct SubmitContext {
     pub(super) next_batch_id: Arc<AtomicU64>,
     pub(super) nvinfer: Arc<Mutex<NvInfer>>,
     pub(super) shutdown_flag: Arc<AtomicBool>,
+    pub(super) failed: Arc<AtomicBool>,
 }
 
 impl SubmitContext {
@@ -31,6 +33,9 @@ impl SubmitContext {
     ///
     /// Returns `Ok(())` even when the batch is empty (no-op).
     pub(super) fn submit_batch(&self) -> Result<()> {
+        if self.failed.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorFailed);
+        }
         if self.shutdown_flag.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorShutdown);
         }
@@ -91,6 +96,7 @@ impl SubmitContext {
                 model_width,
                 model_height,
                 scaling,
+                submitted_at: Instant::now(),
             },
         );
 

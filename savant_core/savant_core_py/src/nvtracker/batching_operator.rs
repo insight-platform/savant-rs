@@ -42,16 +42,19 @@ pub struct PyNvTrackerBatchingOperatorConfig {
 #[pymethods]
 impl PyNvTrackerBatchingOperatorConfig {
     #[new]
+    #[pyo3(signature = (max_batch_size, max_batch_wait_ms, nvtracker_config, *, pending_batch_timeout_ms=60000))]
     fn new(
         max_batch_size: usize,
         max_batch_wait_ms: u64,
         nvtracker_config: &PyNvTrackerConfig,
+        pending_batch_timeout_ms: u64,
     ) -> Self {
         Self {
             inner: NvTrackerBatchingOperatorConfig {
                 max_batch_size,
                 max_batch_wait: Duration::from_millis(max_batch_wait_ms),
                 nvtracker: nvtracker_config.inner.clone(),
+                pending_batch_timeout: Duration::from_millis(pending_batch_timeout_ms),
             },
         }
     }
@@ -64,6 +67,12 @@ impl PyNvTrackerBatchingOperatorConfig {
     #[getter]
     fn max_batch_wait_ms(&self) -> u64 {
         self.inner.max_batch_wait.as_millis() as u64
+    }
+
+    /// Pending batch timeout (milliseconds).
+    #[getter]
+    fn pending_batch_timeout_ms(&self) -> u64 {
+        self.inner.pending_batch_timeout.as_millis() as u64
     }
 
     #[getter]

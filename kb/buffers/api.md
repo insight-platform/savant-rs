@@ -464,6 +464,17 @@ Extract `gpuId` from NvBufSurface inside a GStreamer buffer.
 
 ---
 
+## EglHeadlessContext (feature = "skia")
+
+Headless EGL display/context for OpenGL without a window system.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `new` | `() → Result<Self, EglError>` | Device platform + surfaceless context. |
+| `get_proc_address` | `(name: &str) → *const c_void` | Wraps `eglGetProcAddress`. Returns null if `name` contains an interior NUL (invalid C string) or if the function is not present — same as EGL for unknown symbols. |
+
+---
+
 ## SkiaRenderer (feature = "skia")
 
 ```rust

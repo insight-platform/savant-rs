@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y \
     ripgrep \
     fd-find \
     bat \
+    tmux \
     jq \
     && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     && ln -sf /usr/bin/batcat /usr/local/bin/bat \

@@ -202,6 +202,10 @@ class NvInferConfig:
         disable_output_host_copy: When ``True``, skip device-to-host
             copy of output tensors. Default: ``False``.
         scaling: How frames are scaled to model input size.
+        operation_timeout_ms: Maximum time (ms) to wait for a submitted
+            buffer to produce a result. Applies to sync and async paths.
+            On timeout, the pipeline enters a terminal failed state.
+            Default: ``30000``.
     """
 
     def __init__(
@@ -219,6 +223,7 @@ class NvInferConfig:
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
         disable_output_host_copy: bool = False,
         scaling: ModelInputScaling = ModelInputScaling.FILL,
+        operation_timeout_ms: int = 30000,
     ) -> None: ...
 
     @property
@@ -245,6 +250,11 @@ class NvInferConfig:
     @property
     def scaling(self) -> ModelInputScaling:
         """How input frames are scaled to the model input size."""
+        ...
+
+    @property
+    def operation_timeout_ms(self) -> int:
+        """Operation timeout in milliseconds."""
         ...
 
     def __repr__(self) -> str: ...
@@ -437,21 +447,20 @@ class NvInfer:
         self,
         batch: Union[SharedBuffer, int],
         rois: Optional[Dict[int, List[Roi]]] = None,
-        timeout_ms: int = 30000,
     ) -> BatchInferenceOutput:
-        """Synchronous inference -- blocks until results arrive.
+        """Synchronous inference -- blocks until results arrive or
+        ``operation_timeout`` (from ``NvInferConfig``) is exceeded.
 
         Args:
             batch: Batched NvBufSurface buffer.
             rois: Optional per-slot ROI lists.
-            timeout_ms: Maximum wait time in milliseconds (default: 30000).
 
         Returns:
             Inference results.
 
         Raises:
-            RuntimeError: If the engine is shut down, submission fails, or
-                inference times out.
+            RuntimeError: If the engine is shut down, the pipeline entered
+                a failed state, submission fails, or inference times out.
         """
         ...
 
@@ -476,6 +485,9 @@ class NvInferBatchingOperatorConfig:
         max_batch_wait_ms: Maximum time in milliseconds to wait before
             submitting a partial batch.
         nvinfer_config: Configuration forwarded to the inner NvInfer engine.
+        pending_batch_timeout_ms: Maximum time (ms) a submitted batch can
+            remain pending. On timeout, the operator enters a terminal
+            failed state. Default: ``60000``.
     """
 
     def __init__(
@@ -483,11 +495,17 @@ class NvInferBatchingOperatorConfig:
         max_batch_size: int,
         max_batch_wait_ms: int,
         nvinfer_config: NvInferConfig,
+        *,
+        pending_batch_timeout_ms: int = 60000,
     ) -> None: ...
     @property
     def max_batch_size(self) -> int: ...
     @property
     def max_batch_wait_ms(self) -> int: ...
+    @property
+    def pending_batch_timeout_ms(self) -> int:
+        """Pending batch timeout in milliseconds."""
+        ...
     @property
     def nvinfer_config(self) -> NvInferConfig:
         """The embedded NvInfer engine configuration."""

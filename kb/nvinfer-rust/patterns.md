@@ -117,7 +117,7 @@ let callback: InferCallback = Box::new(move |output| {
 let nvinfer = NvInfer::new(config, callback).unwrap();
 nvinfer.submit(shared, None).unwrap();
 
-let output = rx.recv_timeout(Duration::from_secs(30)).unwrap();
+let output = rx.recv_timeout(Duration::from_secs(30)).unwrap(); // application-side timeout; pipeline uses operation_timeout from config
 ```
 
 ---

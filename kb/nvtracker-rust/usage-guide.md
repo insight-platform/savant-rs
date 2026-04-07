@@ -28,6 +28,7 @@ config.tracker_height = 240;
 config.max_batch_size = 4;               // must be >= max frames in any call
 config.tracking_id_reset_mode = TrackingIdResetMode::OnStreamReset;
 config.queue_depth = 0;                  // 0 = synchronous; >0 = insert GStreamer queue
+config.operation_timeout = Duration::from_secs(30); // default; pipeline fails after this
 ```
 
 `max_batch_size` controls the pad probe response to `gst_nvquery_batch_size` / `gst_nvquery_numStreams_size`. Set it to the maximum number of frames you will ever push in a single `track`/`track_sync` call.
@@ -254,8 +255,8 @@ All errors are `NvTrackerError` with structured, self-explaining messages. No pa
 ```rust
 match tracker.track_sync(&frames, ids) {
     Ok(output) => { /* process */ }
-    Err(NvTrackerError::TrackSyncTimeout { timeout_secs, pts_key }) => {
-        log::error!("Timeout after {}s (pts={})", timeout_secs, pts_key);
+    Err(NvTrackerError::PipelineFailed) => {
+        log::error!("Pipeline failed (timeout or fatal error); must recreate the tracker");
     }
     Err(NvTrackerError::ResolutionMismatch { source_id, slot_a, w_a, h_a, slot_b, w_b, h_b }) => {
         log::error!("{}: slot {} is {}x{} but slot {} is {}x{}",

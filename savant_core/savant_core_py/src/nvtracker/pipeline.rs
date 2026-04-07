@@ -146,7 +146,7 @@ impl PyNvTracker {
         })
     }
 
-    /// Synchronous track (blocks up to 30 s).
+    /// Synchronous track (blocks until result or ``operation_timeout``).
     fn track_sync(
         &self,
         py: Python<'_>,

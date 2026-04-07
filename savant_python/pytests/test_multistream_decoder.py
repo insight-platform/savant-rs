@@ -115,7 +115,7 @@ def test_multistream_decoder_raw_rgba_submit_eos_e2e() -> None:
 
     frame = VideoFrame(
         "e2e_raw_rgba",
-        "30/1",
+        (30, 1),
         w,
         h,
         VideoFrameContent.none(),

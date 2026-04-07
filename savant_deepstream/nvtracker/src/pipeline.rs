@@ -25,16 +25,17 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
-use log::info;
+use log::{error, info};
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Instant;
 
 extern "C" {
     fn gst_nvquery_is_batch_size(query: *mut gst::ffi::GstQuery) -> i32;
@@ -91,6 +92,14 @@ pub struct NvTracker {
     last_source_pts: Arc<Mutex<HashMap<u32, u64>>>,
     /// Whether `shutdown()` has already been called.
     is_shut_down: bool,
+    /// Terminal failed flag — set when an operation timeout is exceeded.
+    failed: Arc<AtomicBool>,
+    /// PTS → submission instant for in-flight buffers (both sync and async).
+    in_flight: Arc<Mutex<HashMap<u64, Instant>>>,
+    /// Watchdog thread handle.
+    _watchdog_thread: Option<std::thread::JoinHandle<()>>,
+    /// Shutdown flag for the watchdog thread.
+    watchdog_shutdown: Arc<AtomicBool>,
 }
 
 /// LRU capacity for source_id reverse lookup (compile-time non-zero).
@@ -250,7 +259,12 @@ impl NvTracker {
             callback: Mutex::new(Some(callback)),
             sync_tx: Mutex::new(std::collections::HashMap::new()),
         });
+        let failed = Arc::new(AtomicBool::new(false));
+        let in_flight: Arc<Mutex<HashMap<u64, Instant>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
         let delivery_clone = delivery.clone();
+        let in_flight_cb = in_flight.clone();
         let lru_inner = Arc::new(Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)));
 
         let lru_cb = Arc::clone(&lru_inner);
@@ -266,6 +280,11 @@ impl NvTracker {
                 })?;
                 let buffer: gst::Buffer = unsafe { from_glib_none(buffer_ref.as_ptr()) };
                 let pts_key = buffer.pts().map(|t| t.nseconds());
+
+                // Clear in-flight entry on successful delivery.
+                if let Some(pts) = pts_key {
+                    in_flight_cb.lock().remove(&pts);
+                }
 
                 let resolve = |pad: u32| {
                     lru_cb
@@ -294,6 +313,51 @@ impl NvTracker {
             NvTrackerError::PipelineError(format!("Failed to start pipeline: {}", e))
         })?;
 
+        let operation_timeout = config.operation_timeout;
+
+        // Spawn watchdog thread for async in-flight deadline.
+        let watchdog_shutdown = Arc::new(AtomicBool::new(false));
+        let wd_in_flight = in_flight.clone();
+        let wd_failed = failed.clone();
+        let wd_shutdown = watchdog_shutdown.clone();
+        let wd_timeout = operation_timeout;
+        let wd_name = format!("{}-watchdog", name_display);
+        let watchdog_thread = std::thread::Builder::new()
+            .name(wd_name)
+            .spawn(move || {
+                let tick = wd_timeout / 2;
+                loop {
+                    std::thread::sleep(tick);
+                    if wd_shutdown.load(Ordering::Acquire) {
+                        return;
+                    }
+                    if wd_failed.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let now = Instant::now();
+                    let expired: Vec<u64> = wd_in_flight
+                        .lock()
+                        .iter()
+                        .filter(|(_, submitted)| now.duration_since(**submitted) > wd_timeout)
+                        .map(|(&pts, _)| pts)
+                        .collect();
+                    if !expired.is_empty() {
+                        for pts in &expired {
+                            wd_in_flight.lock().remove(pts);
+                        }
+                        error!(
+                            "NvTracker: {} buffer(s) exceeded operation_timeout ({:?}), \
+                             pipeline entering failed state",
+                            expired.len(),
+                            wd_timeout
+                        );
+                        wd_failed.store(true, Ordering::Release);
+                        return;
+                    }
+                }
+            })
+            .ok();
+
         info!(
             "NvTracker initialized (name={}, queue_depth={})",
             name_display, config.queue_depth
@@ -311,24 +375,48 @@ impl NvTracker {
             last_source_dims: Arc::new(Mutex::new(HashMap::new())),
             last_source_pts: Arc::new(Mutex::new(HashMap::new())),
             is_shut_down: false,
+            failed,
+            in_flight,
+            _watchdog_thread: watchdog_thread,
+            watchdog_shutdown,
         })
     }
 
     /// Push frames through the tracker (async). A [`NonUniformBatch`] is built
     /// internally from the per-frame buffers.
     pub fn track(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
+        if self.failed.load(Ordering::Acquire) {
+            return Err(NvTrackerError::PipelineFailed);
+        }
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
-        self.push_buffer(batch, &slots, &input_pts, pts)
+        self.in_flight.lock().insert(pts, Instant::now());
+        let (batch, slots, input_pts) = match self.prepare_batch(frames, ids) {
+            Ok(v) => v,
+            Err(e) => {
+                self.in_flight.lock().remove(&pts);
+                return Err(e);
+            }
+        };
+        if let Err(e) = self.push_buffer(batch, &slots, &input_pts, pts) {
+            self.in_flight.lock().remove(&pts);
+            return Err(e);
+        }
+        Ok(())
     }
 
-    /// Push frames through the tracker; block until the result is available (up to 30 s).
+    /// Push frames through the tracker; block until the result is available or
+    /// `operation_timeout` is exceeded. On timeout, the pipeline enters a
+    /// terminal failed state and must be recreated.
     pub fn track_sync(
         &self,
         frames: &[TrackedFrame],
         ids: Vec<SavantIdMetaKind>,
     ) -> Result<TrackerOutput> {
+        if self.failed.load(Ordering::Acquire) {
+            return Err(NvTrackerError::PipelineFailed);
+        }
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
+        self.in_flight.lock().insert(pts, Instant::now());
         let (tx, rx) = mpsc::channel();
         {
             self.delivery.sync_tx.lock().insert(pts, tx);
@@ -336,26 +424,37 @@ impl NvTracker {
         let (batch, slots, input_pts) = match self.prepare_batch(frames, ids) {
             Ok(v) => v,
             Err(e) => {
+                self.in_flight.lock().remove(&pts);
                 self.delivery.sync_tx.lock().remove(&pts);
                 return Err(e);
             }
         };
         if let Err(e) = self.push_buffer(batch, &slots, &input_pts, pts) {
+            self.in_flight.lock().remove(&pts);
             self.delivery.sync_tx.lock().remove(&pts);
             return Err(e);
         }
-        match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-            Ok(output) => Ok(output),
+        match rx.recv_timeout(self.config.operation_timeout) {
+            Ok(output) => {
+                // in_flight already cleared by appsink callback
+                Ok(output)
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.in_flight.lock().remove(&pts);
                 self.delivery.sync_tx.lock().remove(&pts);
-                Err(NvTrackerError::TrackSyncTimeout {
-                    timeout_secs: 30,
-                    pts_key: pts,
-                })
+                error!(
+                    "NvTracker: track_sync timed out after {:?}, pipeline entering failed state",
+                    self.config.operation_timeout
+                );
+                self.failed.store(true, Ordering::Release);
+                Err(NvTrackerError::PipelineFailed)
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.in_flight.lock().remove(&pts);
                 self.delivery.sync_tx.lock().remove(&pts);
-                Err(NvTrackerError::TrackSyncDisconnected { pts_key: pts })
+                error!("NvTracker: track_sync channel disconnected, pipeline entering failed state");
+                self.failed.store(true, Ordering::Release);
+                Err(NvTrackerError::PipelineFailed)
             }
         }
     }
@@ -664,6 +763,10 @@ impl NvTracker {
             return Ok(());
         }
         self.is_shut_down = true;
+        self.watchdog_shutdown.store(true, Ordering::Release);
+        if let Some(handle) = self._watchdog_thread.take() {
+            let _ = handle.join();
+        }
         let _ = self.appsrc.end_of_stream();
         let bus = self
             .pipeline

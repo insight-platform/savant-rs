@@ -8,7 +8,7 @@ Typical cases:
 |-----------|--------|
 | Invalid config (missing files, zero dims) | `RuntimeError` on `NvTracker(...)` |
 | `SharedBuffer` still borrowed | `RuntimeError` on `track` / `track_sync` |
-| Sync wait timeout (30 s) | `RuntimeError` |
+| Operation timeout (default 30 s) — pipeline failed | `RuntimeError` (`PipelineFailed`; tracker must be recreated) |
 | Unknown `element_properties` key / bad value | `RuntimeError` (`InvalidProperty`) |
 | Double `shutdown()` | `RuntimeError: NvTracker is already shut down` |
 | Use after `shutdown()` | `RuntimeError: NvTracker is shut down` |

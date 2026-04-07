@@ -40,6 +40,9 @@ type SharedOperatorOutput = Arc<Mutex<Option<OperatorInferenceOutput>>>;
 ///         submitting a partial batch.
 ///     nvinfer_config (NvInferConfig): Configuration forwarded to the inner
 ///         NvInfer engine.
+///     pending_batch_timeout_ms (int): Maximum time (milliseconds) a submitted
+///         batch can remain pending. When exceeded, the operator enters a
+///         terminal failed state. Default: ``60000``.
 #[pyclass(name = "NvInferBatchingOperatorConfig", module = "savant_rs.nvinfer")]
 pub struct PyNvInferBatchingOperatorConfig {
     pub(crate) inner: NvInferBatchingOperatorConfig,
@@ -48,16 +51,19 @@ pub struct PyNvInferBatchingOperatorConfig {
 #[pymethods]
 impl PyNvInferBatchingOperatorConfig {
     #[new]
+    #[pyo3(signature = (max_batch_size, max_batch_wait_ms, nvinfer_config, *, pending_batch_timeout_ms=60000))]
     fn new(
         max_batch_size: usize,
         max_batch_wait_ms: u64,
         nvinfer_config: &PyNvInferConfig,
+        pending_batch_timeout_ms: u64,
     ) -> Self {
         Self {
             inner: NvInferBatchingOperatorConfig {
                 max_batch_size,
                 max_batch_wait: Duration::from_millis(max_batch_wait_ms),
                 nvinfer: nvinfer_config.inner.clone(),
+                pending_batch_timeout: Duration::from_millis(pending_batch_timeout_ms),
             },
         }
     }
@@ -72,6 +78,12 @@ impl PyNvInferBatchingOperatorConfig {
     #[getter]
     fn max_batch_wait_ms(&self) -> u64 {
         self.inner.max_batch_wait.as_millis() as u64
+    }
+
+    /// Pending batch timeout (milliseconds).
+    #[getter]
+    fn pending_batch_timeout_ms(&self) -> u64 {
+        self.inner.pending_batch_timeout.as_millis() as u64
     }
 
     /// The embedded NvInfer engine configuration.

@@ -32,6 +32,10 @@ use std::collections::HashMap;
 ///         Default: ``False``.
 ///     scaling (ModelInputScaling): How frames are scaled to model input size.
 ///         Default: ``ModelInputScaling.FILL``.
+///     operation_timeout_ms (int): Maximum time (in milliseconds) to wait for
+///         a submitted buffer to produce a result. Applies to both sync and
+///         async paths. When exceeded, the pipeline enters a terminal failed
+///         state. Default: ``30000``.
 #[pyclass(
     name = "NvInferConfig",
     module = "savant_rs.nvinfer",
@@ -59,6 +63,7 @@ impl PyNvInferConfig {
         meta_clear_policy = PyMetaClearPolicy::Before,
         disable_output_host_copy = false,
         scaling = PyModelInputScaling::Fill,
+        operation_timeout_ms = 30000,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -74,6 +79,7 @@ impl PyNvInferConfig {
         meta_clear_policy: PyMetaClearPolicy,
         disable_output_host_copy: bool,
         scaling: PyModelInputScaling,
+        operation_timeout_ms: u64,
     ) -> Self {
         let fmt: VideoFormat = input_format.into();
         let mut cfg = NvInferConfig::new(
@@ -87,7 +93,8 @@ impl PyNvInferConfig {
         .queue_depth(queue_depth)
         .meta_clear_policy(meta_clear_policy.into())
         .disable_output_host_copy(disable_output_host_copy)
-        .scaling(scaling.into());
+        .scaling(scaling.into())
+        .operation_timeout(std::time::Duration::from_millis(operation_timeout_ms));
         if !name.is_empty() {
             cfg = cfg.name(name);
         }
@@ -147,6 +154,12 @@ impl PyNvInferConfig {
     #[getter]
     fn scaling(&self) -> PyModelInputScaling {
         self.inner.scaling.into()
+    }
+
+    /// Operation timeout in milliseconds.
+    #[getter]
+    fn operation_timeout_ms(&self) -> u64 {
+        self.inner.operation_timeout.as_millis() as u64
     }
 
     fn __repr__(&self) -> String {

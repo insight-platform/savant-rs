@@ -76,4 +76,4 @@ Each `TrackedFrame` holds one `SharedBuffer`. The tracker consumes them during `
 
 ## Sync timeout
 
-`track_sync` waits up to **30 seconds** then returns `TrackSyncTimeout` (or `TrackSyncDisconnected` if the channel drops).
+`track_sync` waits up to `operation_timeout` (default **30 seconds**, configurable via `NvTrackerConfig::operation_timeout`). When the timeout expires — whether in `track_sync` or detected by the watchdog thread for async buffers — the pipeline enters a terminal failed state and returns `PipelineFailed`. The tracker instance must be recreated after this error.

@@ -67,6 +67,7 @@ class NvTrackerConfig:
         element_properties: Optional[dict[str, str]] = ...,
         tracking_id_reset_mode: TrackingIdResetMode = ...,
         queue_depth: int = ...,
+        operation_timeout_ms: int = ...,
     ) -> None: ...
 
     @property
@@ -77,6 +78,11 @@ class NvTrackerConfig:
 
     @property
     def queue_depth(self) -> int: ...
+
+    @property
+    def operation_timeout_ms(self) -> int:
+        """Operation timeout in milliseconds."""
+        ...
 
 @final
 class TrackedFrame:
@@ -205,6 +211,8 @@ class NvTrackerBatchingOperatorConfig:
         max_batch_size: int,
         max_batch_wait_ms: int,
         nvtracker_config: NvTrackerConfig,
+        *,
+        pending_batch_timeout_ms: int = 60000,
     ) -> None: ...
 
     @property
@@ -212,6 +220,11 @@ class NvTrackerBatchingOperatorConfig:
 
     @property
     def max_batch_wait_ms(self) -> int: ...
+
+    @property
+    def pending_batch_timeout_ms(self) -> int:
+        """Pending batch timeout in milliseconds."""
+        ...
 
     @property
     def nvtracker_config(self) -> NvTrackerConfig: ...

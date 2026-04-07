@@ -24,6 +24,9 @@
         "EGL_PLATFORM": "device"
     },
     "remoteUser": "${localEnv:USER}",
+    "mounts": [
+        "source=home-dir-vol,target=/home/${localEnv:USER},type=volume"
+    ],
     "customizations": {
         "vscode": {
             "settings": {},
@@ -31,8 +34,7 @@
                 "ms-python.python",
                 "ms-azuretools.vscode-docker",
                 "rust-lang.rust-analyzer",
-                "tamasfe.even-better-toml",
-                "anthropic.claude-code"
+                "tamasfe.even-better-toml"
             ]
         }
     },

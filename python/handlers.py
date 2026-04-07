@@ -107,3 +107,7 @@ def init(params: Any):
     log(LogLevel.Info, "router::init", "Router service initialized successfully")
     # True means that the service is initialized successfully and can start processing messages
     return True
+
+
+if __name__ == "__main__":
+    init(None)

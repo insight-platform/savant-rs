@@ -16,6 +16,8 @@ trap 'cleanup 1' INT TERM
 ARCHITECTURE=$(uname -m)
 readonly ARCHITECTURE
 
+. .envrc
+
 MODE="${1:-}"
 readonly MODE
 

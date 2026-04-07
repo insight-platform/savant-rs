@@ -49,9 +49,17 @@ SharedBuffer.into_buffer() → gst::Buffer (sole owner required)
 ```
 Same as submit, but:
   → register PTS in sync_tx map
-  → block on mpsc::channel recv_timeout(30s)
+  → block on mpsc::channel recv_timeout(operation_timeout)
   → return BatchInferenceOutput when appsink delivers
+  → on timeout: pipeline enters terminal failed state (PipelineFailed)
 ```
+
+### Async Watchdog
+
+A watchdog thread monitors in-flight async buffers submitted via `submit()`.
+If any buffer exceeds `operation_timeout` without completing, the pipeline
+enters a terminal failed state (`PipelineFailed`). All subsequent `submit`
+and `infer_sync` calls return `PipelineFailed`.
 
 ## ROI Handling
 

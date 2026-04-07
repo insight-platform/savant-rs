@@ -3,7 +3,13 @@
 ## Module: `savant_rs` (root)
 
 ```python
-from savant_rs import version, is_release_build, register_handler, unregister_handler
+from savant_rs import (
+    version,
+    is_release_build,
+    register_handler,
+    unregister_handler,
+    clear_all_handlers,
+)
 ```
 
 | Function | Signature | Description |
@@ -12,6 +18,7 @@ from savant_rs import version, is_release_build, register_handler, unregister_ha
 | `is_release_build()` | `-> bool` | Returns whether this is a release build |
 | `register_handler(name, handler)` | `-> None` | Register a named handler |
 | `unregister_handler(name)` | `-> None` | Remove a handler |
+| `clear_all_handlers()` | `-> None` | Remove all handlers (also registered on `atexit` at import) |
 
 ---
 

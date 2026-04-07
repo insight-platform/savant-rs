@@ -74,10 +74,21 @@ the config file while the pipeline is running.
 
 ---
 
-## 7. infer_sync Timeout
+## 7. infer_sync Timeout and Failed State
 
-Blocks up to 30 seconds. If the pipeline is slow or stuck, `PipelineError`
-with "infer_sync timed out" is returned.
+`infer_sync` blocks up to `operation_timeout` (from `NvInferConfig`, default 30s).
+If the timeout is exceeded, the pipeline enters a **terminal failed state** and
+returns `NvInferError::PipelineFailed`. All subsequent calls to `submit` or
+`infer_sync` also return `PipelineFailed`. The pipeline must be recreated.
+
+For async mode (`submit`), a watchdog thread monitors in-flight buffers. If any
+buffer exceeds `operation_timeout`, the pipeline enters the same terminal failed
+state and the callback is not invoked for that buffer.
+
+The batching operator has a similar mechanism: if a pending batch (submitted but
+not yet completed) exceeds `pending_batch_timeout` (default 60s), the operator
+enters a terminal failed state (`NvInferError::OperatorFailed`) and must be
+recreated.
 
 ---
 

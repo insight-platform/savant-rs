@@ -46,6 +46,7 @@ fn make_nvtracker_config() -> crate::config::NvTrackerConfig {
         element_properties: StdHashMap::new(),
         tracking_id_reset_mode: TrackingIdResetMode::None,
         queue_depth: 0,
+        operation_timeout: std::time::Duration::from_secs(30),
     }
 }
 
@@ -262,4 +263,51 @@ fn unseal_blocks_then_returns() {
 
     let pairs = handle.join().expect("thread panicked");
     assert_eq!(pairs.len(), 2);
+}
+
+// ── New error variant tests ────────────────────────────────────────
+
+#[test]
+fn error_pipeline_failed_display() {
+    let err = crate::error::NvTrackerError::PipelineFailed;
+    let msg = err.to_string();
+    assert!(
+        msg.contains("failed state"),
+        "expected 'failed state' in: {msg}"
+    );
+}
+
+#[test]
+fn error_operator_failed_display() {
+    let err = crate::error::NvTrackerError::OperatorFailed;
+    let msg = err.to_string();
+    assert!(
+        msg.contains("failed state"),
+        "expected 'failed state' in: {msg}"
+    );
+}
+
+// ── Config defaults for new fields ─────────────────────────────────
+
+#[test]
+fn operator_config_builder_pending_batch_timeout_default() {
+    let config = NvTrackerBatchingOperatorConfig::builder(make_nvtracker_config()).build();
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(60));
+}
+
+#[test]
+fn operator_config_builder_pending_batch_timeout_override() {
+    let config = NvTrackerBatchingOperatorConfig::builder(make_nvtracker_config())
+        .pending_batch_timeout(Duration::from_secs(120))
+        .build();
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(120));
+}
+
+#[test]
+fn nvtracker_config_operation_timeout_default() {
+    let cfg = crate::config::NvTrackerConfig::new(
+        "/tmp/lib.so",
+        "/tmp/cfg.yml",
+    );
+    assert_eq!(cfg.operation_timeout, Duration::from_secs(30));
 }

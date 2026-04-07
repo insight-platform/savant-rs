@@ -144,6 +144,7 @@ impl NvInferBatchingOperator {
 
         let state = Arc::new(Mutex::new(BatchState::new()));
         let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let failed = Arc::new(AtomicBool::new(false));
         let condvar = Arc::new(Condvar::new());
 
         let ctx = Arc::new(SubmitContext {
@@ -154,6 +155,7 @@ impl NvInferBatchingOperator {
             next_batch_id: Arc::new(AtomicU64::new(0)),
             nvinfer: Arc::new(Mutex::new(nvinfer)),
             shutdown_flag: shutdown_flag.clone(),
+            failed: failed.clone(),
         });
 
         let timer_ctx = ctx.clone();
@@ -184,6 +186,9 @@ impl NvInferBatchingOperator {
     /// If adding this frame fills the batch to `max_batch_size`, the batch is
     /// submitted immediately.
     pub fn add_frame(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()> {
+        if self.ctx.failed.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorFailed);
+        }
         if self.ctx.shutdown_flag.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorShutdown);
         }
@@ -249,6 +254,10 @@ fn find_batch_id(output: &BatchInferenceOutput) -> Option<u128> {
 
 fn timer_loop(ctx: Arc<SubmitContext>, condvar: Arc<Condvar>) {
     loop {
+        if ctx.failed.load(Ordering::Acquire) {
+            return;
+        }
+
         let deadline = {
             let st = ctx.state.lock();
             if ctx.shutdown_flag.load(Ordering::Acquire) {
@@ -275,6 +284,28 @@ fn timer_loop(ctx: Arc<SubmitContext>, condvar: Arc<Condvar>) {
                     condvar.wait(&mut st);
                 }
             }
+        }
+
+        // Check for expired pending batches.
+        let timeout = ctx.config.pending_batch_timeout;
+        let expired: Vec<u128> = {
+            let pending = ctx.pending_batches.lock();
+            pending
+                .iter()
+                .filter(|(_, b)| b.submitted_at.elapsed() > timeout)
+                .map(|(&id, _)| id)
+                .collect()
+        };
+        if !expired.is_empty() {
+            for id in &expired {
+                ctx.pending_batches.lock().remove(id);
+                error!(
+                    "NvInfer: pending batch {id} timed out after {timeout:?}, \
+                     operator entering failed state"
+                );
+            }
+            ctx.failed.store(true, Ordering::Release);
+            return;
         }
     }
 }

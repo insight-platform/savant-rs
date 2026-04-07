@@ -14,7 +14,7 @@ Maps tracker misc state: `EMPTY`, `ACTIVE`, `INACTIVE`, `TENTATIVE`, `PROJECTED`
 
 ## `NvTrackerConfig`
 
-`SIG: __init__(ll_lib_file: str, ll_config_file: str, input_format: VideoFormat, *, name: str = "", tracker_width: int = 640, tracker_height: int = 384, max_batch_size: int = 16, gpu_id: int = 0, element_properties: Optional[dict[str, str]] = None, tracking_id_reset_mode: TrackingIdResetMode = NONE, queue_depth: int = 0)`
+`SIG: __init__(ll_lib_file: str, ll_config_file: str, input_format: VideoFormat, *, name: str = "", tracker_width: int = 640, tracker_height: int = 384, max_batch_size: int = 16, gpu_id: int = 0, element_properties: Optional[dict[str, str]] = None, tracking_id_reset_mode: TrackingIdResetMode = NONE, queue_depth: int = 0, operation_timeout_ms: int = 30000)`
 
 **Getters:** `ll_lib_file`, `ll_config_file`, `queue_depth` (other fields are ctor-only in the binding).
 
@@ -67,7 +67,7 @@ Pipeline: `appsrc → nvtracker → appsink` (Playing on `new`). No queue or met
 | Method | Signature | Notes |
 |--------|-----------|-------|
 | `track(frames, ids)` | `frames: List[TrackedFrame]`, `ids: List[Tuple[SavantIdMetaKind, int]]`; releases GIL via `py.detach` | Async; builds `NonUniformBatch` internally |
-| `track_sync(frames, ids)` | `-> TrackerOutput`; same params | Blocks up to 30 s in Rust |
+| `track_sync(frames, ids)` | `-> TrackerOutput`; same params | Blocks up to `operation_timeout` (default 30 s); timeout triggers `PipelineFailed` (must recreate tracker) |
 | `reset_stream(source_id: str)` | Stream reset event; resets frame counter for that source |
 | `shutdown()` | Idempotent; further calls raise `RuntimeError` |
 

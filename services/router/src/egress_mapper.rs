@@ -163,7 +163,12 @@ impl EgressMapper {
                         let handlers_bind = REGISTERED_HANDLERS.read();
                         let handler = handlers_bind
                             .get(source_mapper.as_str())
-                            .unwrap_or_else(|| panic!("Handler {} not found", source_mapper));
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Handler '{}' not found in REGISTERED_HANDLERS",
+                                    source_mapper
+                                )
+                            })?;
                         let res = handler
                             .call1(py, (message_id, sink_name, source_id, labels.to_vec()))?;
                         let new_source_id = res.extract::<String>(py)?;
@@ -191,7 +196,12 @@ impl EgressMapper {
                     let handlers_bind = REGISTERED_HANDLERS.read();
                     let handler = handlers_bind
                         .get(topic_mapper.as_str())
-                        .unwrap_or_else(|| panic!("Handler {} not found", topic_mapper));
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Handler '{}' not found in REGISTERED_HANDLERS",
+                                topic_mapper
+                            )
+                        })?;
                     let res = handler.call1(py, (message_id, sink_name, topic, labels.to_vec()))?;
                     let new_topic = res.extract::<String>(py)?;
                     Ok(new_topic)

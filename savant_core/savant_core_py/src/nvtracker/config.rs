@@ -21,6 +21,10 @@ use std::collections::HashMap;
 ///     element_properties (Optional[Dict[str, str]]): Extra element properties.
 ///     tracking_id_reset_mode (TrackingIdResetMode): ID reset behaviour.
 ///     queue_depth (int): GStreamer queue ``max-size-buffers`` (0 = no queue).
+///     operation_timeout_ms (int): Maximum time (in milliseconds) to wait for
+///         a submitted buffer to produce a result. Applies to both sync and
+///         async paths. When exceeded, the pipeline enters a terminal failed
+///         state. Default: ``30000``.
 #[pyclass(
     name = "NvTrackerConfig",
     module = "savant_rs.nvtracker",
@@ -47,6 +51,7 @@ impl PyNvTrackerConfig {
         element_properties = None,
         tracking_id_reset_mode = PyTrackingIdResetMode::None,
         queue_depth = 0u32,
+        operation_timeout_ms = 30000u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -61,6 +66,7 @@ impl PyNvTrackerConfig {
         element_properties: Option<HashMap<String, String>>,
         tracking_id_reset_mode: PyTrackingIdResetMode,
         queue_depth: u32,
+        operation_timeout_ms: u64,
     ) -> Self {
         let fmt: VideoFormat = input_format.into();
         let mut cfg = NvTrackerConfig::new(ll_lib_file, ll_config_file);
@@ -71,6 +77,7 @@ impl PyNvTrackerConfig {
         cfg.input_format = fmt;
         cfg.tracking_id_reset_mode = tracking_id_reset_mode.into();
         cfg.queue_depth = queue_depth;
+        cfg.operation_timeout = std::time::Duration::from_millis(operation_timeout_ms);
         if !name.is_empty() {
             cfg.name = name;
         }
@@ -93,5 +100,11 @@ impl PyNvTrackerConfig {
     #[getter]
     fn queue_depth(&self) -> u32 {
         self.inner.queue_depth
+    }
+
+    /// Operation timeout in milliseconds.
+    #[getter]
+    fn operation_timeout_ms(&self) -> u64 {
+        self.inner.operation_timeout.as_millis() as u64
     }
 }

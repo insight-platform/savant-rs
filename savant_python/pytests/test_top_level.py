@@ -32,3 +32,13 @@ class TestHandlerRegistration:
     def test_unregister_nonexistent_raises(self):
         with pytest.raises(Exception):
             savant_rs.unregister_handler("nonexistent_element")
+
+    def test_clear_all_handlers(self):
+        class H:
+            pass
+
+        savant_rs.register_handler("clear_test_a", H())
+        savant_rs.register_handler("clear_test_b", H())
+        savant_rs.clear_all_handlers()
+        with pytest.raises(Exception):
+            savant_rs.unregister_handler("clear_test_a")

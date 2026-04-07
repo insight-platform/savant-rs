@@ -6,6 +6,12 @@ pub enum NvInferError {
     #[error("Pipeline error: {0}")]
     PipelineError(String),
 
+    #[error("Pipeline failed: {0}")]
+    PipelineFailed(String),
+
+    #[error("Operator failed: {0}")]
+    OperatorFailed(String),
+
     #[error("Element creation failed: {0}")]
     ElementCreationFailed(String),
 
@@ -39,7 +45,9 @@ pub enum NvInferError {
 
 | Variant | Trigger |
 |---|---|
-| `PipelineError` | `submit`/`infer_sync` when `SharedBuffer::into_buffer()` fails (outstanding refs); appsrc push failure; infer_sync timeout (30s); channel disconnect; timer thread spawn failure |
+| `PipelineError` | `submit`/`infer_sync` when `SharedBuffer::into_buffer()` fails (outstanding refs); appsrc push failure; channel disconnect; timer thread spawn failure |
+| `PipelineFailed` | Pipeline entered terminal failed state: `infer_sync` timeout exceeded, async watchdog detected in-flight buffer exceeding `operation_timeout`. Pipeline must be recreated — all subsequent calls return this error. |
+| `OperatorFailed` | Batching operator entered terminal failed state: pending batch exceeded `pending_batch_timeout`. Operator must be recreated — all subsequent calls return this error. |
 | `ElementCreationFailed` | `gst::ElementFactory::make` fails for appsrc, appsink, nvinfer, queue |
 | `LinkFailed` | `gst::Element::link_many` fails |
 | `InvalidProperty` | GStreamer element property set fails |

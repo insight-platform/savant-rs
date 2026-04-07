@@ -52,6 +52,7 @@ cfg = NvTrackerConfig(
     max_batch_size=4,
     tracking_id_reset_mode=TrackingIdResetMode.ON_STREAM_RESET,
     queue_depth=0,  # 0 = synchronous; >0 = insert GStreamer queue
+    operation_timeout_ms=30000,  # default; pipeline fails after this
 )
 ```
 
@@ -243,8 +244,8 @@ try:
     out = tracker.track_sync(frames, ids)
 except RuntimeError as e:
     msg = str(e)
-    if "timed out" in msg:
-        print(f"Timeout: {msg}")
+    if "pipeline failed" in msg.lower():
+        print(f"Pipeline failed (must recreate tracker): {msg}")
     elif "resolution mismatch" in msg:
         print(f"Resolution error: {msg}")
     elif "outstanding references" in msg:

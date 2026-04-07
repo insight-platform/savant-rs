@@ -139,6 +139,7 @@ class NvInferConfig:
         disable_output_host_copy: bool = False,                  # OPT
         scaling: ModelInputScaling = ModelInputScaling.FILL,      # OPT
         model_color_format: ModelColorFormat = ModelColorFormat.RGB, # OPT
+        operation_timeout_ms: int = 30000,                         # OPT — timeout for infer_sync and async watchdog
     ) -> None: ...
 
     @property
@@ -161,6 +162,8 @@ class NvInferConfig:
     def disable_output_host_copy(self) -> bool: ... # True = skip D2H copy
     @property
     def scaling(self) -> ModelInputScaling: ...
+    @property
+    def operation_timeout_ms(self) -> int: ...  # timeout in ms for infer_sync and async watchdog
 ```
 
 **Forbidden in `nvinfer_properties`:** `maintain-aspect-ratio`, `symmetric-padding`
@@ -309,7 +312,6 @@ class NvInfer:
         self,
         batch: Union[SharedBuffer, int],
         rois: Optional[Dict[int, List[Roi]]] = None,
-        timeout_ms: int = 30000,
     ) -> BatchInferenceOutput: ...
 
     def shutdown(self) -> None: ...
@@ -317,8 +319,10 @@ class NvInfer:
 
 - `submit()` — async, results arrive via callback. The buffer is consumed
   (internally deconstructed from `SharedBuffer` to `gst::Buffer`).
-- `infer_sync()` — blocks up to `timeout_ms` milliseconds (default 30 000),
-  returns result directly. Same buffer consumption semantics.
+- `infer_sync()` — blocks up to `operation_timeout_ms` (from `NvInferConfig`,
+  default 30 000 ms), returns result directly. On timeout, the pipeline enters
+  a terminal failed state (`PipelineFailed`) and must be recreated. Same buffer
+  consumption semantics.
 - `shutdown()` — sends EOS, drains, stops pipeline. Raises if already shut down.
 
 ### Rust API
@@ -357,12 +361,15 @@ class NvInferBatchingOperatorConfig:
         max_batch_size: int,
         max_batch_wait_ms: int,
         nvinfer_config: NvInferConfig,
+        pending_batch_timeout_ms: int = 60000,  # OPT — timeout for pending batches
     ) -> None: ...
 
     @property
     def max_batch_size(self) -> int: ...
     @property
     def max_batch_wait_ms(self) -> int: ...
+    @property
+    def pending_batch_timeout_ms(self) -> int: ...  # timeout in ms for pending batches
     @property
     def nvinfer_config(self) -> NvInferConfig: ...
 ```

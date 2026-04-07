@@ -551,12 +551,9 @@ impl VideoFrameProxy {
 
     pub fn access_objects_with_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
-        let resident_objects = inner.objects.clone();
-        drop(inner);
-
         ids.iter()
             .filter_map(|id| {
-                if resident_objects.contains_key(id) {
+                if inner.objects.contains_key(id) {
                     Some(BorrowedVideoObject(self.into(), *id))
                 } else {
                     None
@@ -712,7 +709,7 @@ impl VideoFrameProxy {
             .track_id(track_id)
             .track_box(track_box)
             .build()
-            .unwrap();
+            .map_err(|e| anyhow!("Failed to build VideoObject: {e}"))?;
         self.add_object(object, IdCollisionResolutionPolicy::Error)
     }
 

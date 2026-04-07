@@ -66,6 +66,9 @@ pub use batching_operator::{
 | `tracking_id_reset_mode` | `TrackingIdResetMode` | `None` |
 | `max_batch_size` | `u32` | `DEFAULT_MAX_BATCH_SIZE` |
 | `queue_depth` | `u32` | `0` |
+| `operation_timeout` | `Duration` | `30s` |
+
+**`operation_timeout` notes:** Controls how long `track_sync` blocks and how long the watchdog thread waits for in-flight async buffers before declaring the pipeline failed. When a timeout triggers (sync or async), the pipeline enters a terminal failed state (`PipelineFailed` error) and must be recreated. A background watchdog thread monitors in-flight async buffers and enforces this timeout.
 
 **`queue_depth` notes:** When set to `0` (default), no GStreamer queue element is inserted—the pipeline operates synchronously. When set to a value greater than zero, a GStreamer `queue` element with `max-size-buffers=queue_depth` is inserted between `appsrc` and `nvtracker`, decoupling the push thread from the tracker processing thread to absorb latency spikes.
 
@@ -108,7 +111,7 @@ Pipeline: `appsrc → nvtracker → appsink` (Playing on `new`).
 |--------|-----------|-------|
 | `new` | `(config: NvTrackerConfig, callback: TrackerCallback) -> Result<Self>` | Validates config, inits GST, installs pad probe for batch-size queries |
 | `track` | `(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()>` | Async; builds `NonUniformBatch` internally from frame buffers |
-| `track_sync` | `(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<TrackerOutput>` | Blocks until output or 30 s timeout |
+| `track_sync` | `(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<TrackerOutput>` | Blocks until output or `operation_timeout` (default 30 s); timeout triggers `PipelineFailed` |
 | `reset_stream` | `(&self, source_id: &str) -> Result<()>` | Sends `GST_NVEVENT_STREAM_RESET` on `appsrc` with pad id `crc32(source_id)`; resets frame counter |
 | `shutdown` | `(&mut self) -> Result<()>` | EOS + drain bus + `Null`; idempotent (safe to call twice) |
 
@@ -171,6 +174,7 @@ Walks batch meta for current objects and batch user meta for shadow / terminated
 |-------|------|-------|
 | `max_batch_size` | `usize` | Submit immediately when reached |
 | `max_batch_wait` | `Duration` | Timer-based flush threshold |
+| `pending_batch_timeout` | `Duration` | Maximum time a submitted batch can remain in-flight before the operator fails (default 60 s) |
 | `nvtracker` | `NvTrackerConfig` | Forwarded to inner tracker pipeline |
 
 `SIG: fn builder(nvtracker_config: NvTrackerConfig) -> NvTrackerBatchingOperatorConfigBuilder`
@@ -179,6 +183,7 @@ Builder methods:
 
 - `max_batch_size(usize) -> Self` (default `1`)
 - `max_batch_wait(Duration) -> Self` (default `50ms`)
+- `pending_batch_timeout(Duration) -> Self` (default `60s`)
 - `build() -> NvTrackerBatchingOperatorConfig`
 
 ### `TrackerBatchFormationResult`
@@ -240,4 +245,6 @@ See [`errors.md`](errors.md) for the full `NvTrackerError` enum. Notable batchin
 |---------|------|
 | `BatchFormationFailed(String)` | Batch formation callback returned an error |
 | `OperatorShutdown` | Operation attempted after the batching operator has been shut down |
+| `OperatorFailed` | The batching operator's inner tracker pipeline has failed |
+| `PipelineFailed` | The tracker pipeline entered a terminal failed state (e.g. timeout); must be recreated |
 | `BatchMetaFailed { operation, detail }` | Batch metadata construction or access failed during a specific operation |

@@ -49,6 +49,7 @@ fn make_nvinfer_config() -> crate::config::NvInferConfig {
         meta_clear_policy: MetaClearPolicy::Before,
         disable_output_host_copy: false,
         scaling: ModelInputScaling::Fill,
+        operation_timeout: Duration::from_secs(30),
     }
 }
 
@@ -146,10 +147,12 @@ fn operator_config_fields() {
         max_batch_size: 8,
         max_batch_wait: Duration::from_millis(100),
         nvinfer,
+        pending_batch_timeout: Duration::from_secs(60),
     };
     assert_eq!(config.max_batch_size, 8);
     assert_eq!(config.max_batch_wait, Duration::from_millis(100));
     assert_eq!(config.nvinfer.gpu_id, 0);
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(60));
 }
 
 #[test]
@@ -160,11 +163,13 @@ fn operator_config_clone() {
         max_batch_size: 4,
         max_batch_wait: Duration::from_millis(50),
         nvinfer,
+        pending_batch_timeout: Duration::from_secs(120),
     };
     let cloned = config.clone();
     assert_eq!(cloned.max_batch_size, config.max_batch_size);
     assert_eq!(cloned.max_batch_wait, config.max_batch_wait);
     assert_eq!(cloned.nvinfer.gpu_id, config.nvinfer.gpu_id);
+    assert_eq!(cloned.pending_batch_timeout, config.pending_batch_timeout);
 }
 
 #[test]
@@ -173,11 +178,13 @@ fn operator_config_debug_format() {
         max_batch_size: 2,
         max_batch_wait: Duration::from_millis(10),
         nvinfer: make_nvinfer_config(),
+        pending_batch_timeout: Duration::from_secs(60),
     };
     let dbg = format!("{config:?}");
     assert!(dbg.contains("max_batch_size"));
     assert!(dbg.contains("max_batch_wait"));
     assert!(dbg.contains("nvinfer"));
+    assert!(dbg.contains("pending_batch_timeout"));
 }
 
 #[test]
@@ -569,4 +576,69 @@ fn unseal_after_output_already_dropped_returns_immediately() {
     drop(output);
     let pairs = sealed.unseal();
     assert_eq!(pairs.len(), 1);
+}
+
+// ── New error variant tests ────────────────────────────────────────
+
+#[test]
+fn error_pipeline_failed_display() {
+    let err = crate::error::NvInferError::PipelineFailed;
+    let msg = err.to_string();
+    assert!(
+        msg.contains("failed state"),
+        "expected 'failed state' in: {msg}"
+    );
+}
+
+#[test]
+fn error_operator_failed_display() {
+    let err = crate::error::NvInferError::OperatorFailed;
+    let msg = err.to_string();
+    assert!(
+        msg.contains("failed state"),
+        "expected 'failed state' in: {msg}"
+    );
+}
+
+// ── Config defaults for new fields ─────────────────────────────────
+
+#[test]
+fn operator_config_builder_pending_batch_timeout_default() {
+    let config = NvInferBatchingOperatorConfig::builder(make_nvinfer_config()).build();
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(60));
+}
+
+#[test]
+fn operator_config_builder_pending_batch_timeout_override() {
+    let config = NvInferBatchingOperatorConfig::builder(make_nvinfer_config())
+        .pending_batch_timeout(Duration::from_secs(120))
+        .build();
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(120));
+}
+
+#[test]
+fn nvinfer_config_operation_timeout_default() {
+    let props = StdHashMap::new();
+    let cfg = crate::config::NvInferConfig::new(
+        props,
+        deepstream_buffers::VideoFormat::RGBA,
+        640,
+        640,
+        crate::model_color_format::ModelColorFormat::RGB,
+    );
+    assert_eq!(cfg.operation_timeout, Duration::from_secs(30));
+}
+
+#[test]
+fn nvinfer_config_operation_timeout_builder() {
+    let props = StdHashMap::new();
+    let cfg = crate::config::NvInferConfig::new(
+        props,
+        deepstream_buffers::VideoFormat::RGBA,
+        640,
+        640,
+        crate::model_color_format::ModelColorFormat::RGB,
+    )
+    .operation_timeout(Duration::from_secs(60));
+    assert_eq!(cfg.operation_timeout, Duration::from_secs(60));
 }

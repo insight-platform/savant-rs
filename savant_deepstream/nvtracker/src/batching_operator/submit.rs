@@ -6,6 +6,7 @@ use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::config::NvTrackerBatchingOperatorConfig;
 use super::types::{
@@ -23,6 +24,7 @@ pub(super) struct SubmitContext {
     pub(super) source_frame_counters: Arc<Mutex<HashMap<String, u32>>>,
     pub(super) nvtracker: Arc<Mutex<NvTracker>>,
     pub(super) shutdown_flag: Arc<AtomicBool>,
+    pub(super) failed: Arc<AtomicBool>,
 }
 
 impl SubmitContext {
@@ -30,6 +32,9 @@ impl SubmitContext {
     ///
     /// Returns `Ok(())` when the batch is empty (no-op).
     pub(super) fn submit_batch(&self) -> Result<()> {
+        if self.failed.load(Ordering::Acquire) {
+            return Err(NvTrackerError::OperatorFailed);
+        }
         if self.shutdown_flag.load(Ordering::Acquire) {
             return Err(NvTrackerError::OperatorShutdown);
         }
@@ -82,6 +87,7 @@ impl SubmitContext {
             PendingBatch {
                 frames: frames.clone(),
                 frame_nums,
+                submitted_at: Instant::now(),
             },
         );
 
