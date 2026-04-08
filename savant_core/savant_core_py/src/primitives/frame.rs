@@ -1261,7 +1261,10 @@ impl VideoFrame {
             ));
         }
 
-        let track_id = track_id.map(fit_i64);
+        let track_id = track_id
+            .map(|t| fit_i64(t))
+            .transpose()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         self.0
             .create_object(
