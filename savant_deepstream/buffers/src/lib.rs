@@ -65,8 +65,11 @@ pub use buffers::*;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::debug;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use lru::LruCache;
+use parking_lot::Mutex;
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 /// Error type for NvBufSurface operations.
 #[derive(Debug, thiserror::Error)]
@@ -239,7 +242,11 @@ pub(crate) unsafe fn set_structure_uint(
 /// If the map exceeds this size, the oldest half of entries (by PTS) are
 /// removed.  This guards against slow memory leaks when an encoder drops
 /// buffers without producing matching output.
-const MAX_BRIDGE_MAP_SIZE: usize = 256;
+const MAX_BRIDGE_MAP_SIZE: usize = 1024;
+
+/// Maximum number of meta entries stored per PTS key.  If exceeded, the oldest
+/// entry is evicted — this indicates the src pad is not draining fast enough.
+pub const MAX_ENTRIES_PER_PTS: usize = 32;
 
 /// Install pad probes on `element` to propagate [`SavantIdMeta`] across
 /// elements that create new output buffers (e.g. hardware video encoders).
@@ -250,14 +257,17 @@ const MAX_BRIDGE_MAP_SIZE: usize = 256;
 /// side-channel storage:
 ///
 /// 1. A **sink-pad** probe intercepts each incoming buffer, reads any
-///    `SavantIdMeta`, and stores the mapping `PTS → Vec<SavantIdMetaKind>`
-///    in a shared `HashMap`.
-/// 2. A **src-pad** probe intercepts each outgoing buffer, looks up the PTS
-///    in the map, and re-attaches the `SavantIdMeta`.
+///    `SavantIdMeta`, and stores the mapping `PTS → Vec<Vec<SavantIdMetaKind>>`
+///    in a shared LRU cache.  Multiple buffers with the same PTS (e.g. in
+///    multi-stream scenarios) are appended, not overwritten.
+/// 2. A **src-pad** probe intercepts each outgoing buffer, pops the first
+///    entry for that PTS from the cache, and re-attaches the `SavantIdMeta`.
 ///
 /// PTS is guaranteed to be preserved by all GStreamer encoder elements.
 /// B-frame reordering is handled naturally because lookups are by value,
-/// not by order.
+/// not by order.  The LRU cache evicts the least-recently-used entries
+/// when the map exceeds [`MAX_BRIDGE_MAP_SIZE`], which is safe regardless
+/// of output ordering.
 ///
 /// # Errors
 ///
@@ -279,7 +289,11 @@ const MAX_BRIDGE_MAP_SIZE: usize = 256;
 /// // sink pad will automatically appear on the encoder's src pad output.
 /// ```
 pub fn bridge_savant_id_meta(element: &gst::Element) -> Result<(), NvBufSurfaceError> {
-    let map: Arc<Mutex<HashMap<u64, Vec<SavantIdMetaKind>>>> = Arc::new(Mutex::new(HashMap::new()));
+    // Multi-value LRU map: each PTS key holds a FIFO queue of meta vectors,
+    // supporting multiple buffers that share the same PTS value.
+    let map: Arc<Mutex<LruCache<u64, VecDeque<Vec<SavantIdMetaKind>>>>> = Arc::new(Mutex::new(
+        LruCache::new(NonZeroUsize::new(MAX_BRIDGE_MAP_SIZE).unwrap()),
+    ));
 
     // ── Sink pad probe: extract meta, store by PTS ──────────────────────
     let sink_map = map.clone();
@@ -292,17 +306,36 @@ pub fn bridge_savant_id_meta(element: &gst::Element) -> Result<(), NvBufSurfaceE
             if let Some(meta) = buffer.meta::<SavantIdMeta>() {
                 if let Some(pts) = buffer.pts() {
                     let ids = meta.ids().to_vec();
-                    let mut map = sink_map.lock().unwrap();
-                    map.insert(pts.nseconds(), ids);
-                    if map.len() > MAX_BRIDGE_MAP_SIZE {
-                        log::warn!(
-                            "bridge_savant_id_meta: PTS map exceeded {} entries, evicting stale entries",
-                            MAX_BRIDGE_MAP_SIZE,
+                    let mut map = sink_map.lock();
+                    if map.len() == map.cap().get() {
+                        log::error!(
+                            "bridge_savant_id_meta: PTS map is at full capacity ({}); \
+                             LRU entry will be evicted — src pad is not consuming entries \
+                             fast enough or the element is dropping buffers",
+                            map.cap(),
                         );
-                        let mut keys: Vec<u64> = map.keys().copied().collect();
-                        keys.sort_unstable();
-                        let cutoff = keys[keys.len() / 2];
-                        map.retain(|&pts, _| pts >= cutoff);
+                    }
+                    if let Some(existing) = map.get(&pts.nseconds()) {
+                        log::warn!(
+                            "bridge_savant_id_meta: PTS collision at {} ns; \
+                             existing entries={}, new meta={:?}",
+                            pts.nseconds(),
+                            existing.len(),
+                            ids,
+                        );
+                    }
+                    let entries = map.get_or_insert_mut(pts.nseconds(), VecDeque::new);
+                    entries.push_back(ids);
+                    if entries.len() > MAX_ENTRIES_PER_PTS {
+                        let evicted = entries.pop_front();
+                        log::error!(
+                            "bridge_savant_id_meta: per-PTS limit ({}) exceeded at {} ns; \
+                             evicted={:?}, added={:?}",
+                            MAX_ENTRIES_PER_PTS,
+                            pts.nseconds(),
+                            evicted,
+                            entries.back(),
+                        );
                     }
                 }
             }
@@ -319,9 +352,19 @@ pub fn bridge_savant_id_meta(element: &gst::Element) -> Result<(), NvBufSurfaceE
     src_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
         if let Some(buffer) = info.buffer_mut() {
             if let Some(pts) = buffer.pts() {
-                if let Some(ids) = src_map.lock().unwrap().remove(&pts.nseconds()) {
-                    let buf_ref = buffer.make_mut();
-                    SavantIdMeta::replace(buf_ref, ids);
+                let mut map = src_map.lock();
+                let should_remove;
+                if let Some(entries) = map.get_mut(&pts.nseconds()) {
+                    if let Some(ids) = entries.pop_front() {
+                        let buf_ref = buffer.make_mut();
+                        SavantIdMeta::replace(buf_ref, ids);
+                    }
+                    should_remove = entries.is_empty();
+                } else {
+                    should_remove = false;
+                }
+                if should_remove {
+                    map.pop(&pts.nseconds());
                 }
             }
         }

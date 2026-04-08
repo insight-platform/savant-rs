@@ -21,6 +21,7 @@ gstreamer-app = { workspace = true }
 glib = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+lru = { workspace = true }
 parking_lot = { workspace = true }
 savant_gstreamer = { workspace = true }
 
@@ -44,6 +45,7 @@ nvidia_gpu_utils = { workspace = true }
 criterion = { workspace = true }
 serial_test = { workspace = true }
 rand = { workspace = true }
+savant_core = { workspace = true }
 
 [[test]]
 name = "surface_view_gpu"
