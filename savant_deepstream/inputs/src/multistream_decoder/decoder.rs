@@ -297,12 +297,6 @@ impl MultiStreamDecoder {
         }
     }
 
-    /// Remove already-finished teardown threads from the pending list (non-blocking).
-    fn reap_finished_teardowns(&self) {
-        let mut v = self.pending_teardowns.lock();
-        v.retain(|h| !h.is_finished());
-    }
-
     fn emit(&self, o: DecoderOutput) {
         (self.on_output)(o);
     }
@@ -629,7 +623,18 @@ impl MultiStreamDecoder {
         let max = self.config.max_detection_buffer;
 
         {
-            let entry = guard.get_mut(&source_id).unwrap();
+            // The entry may have vanished if a concurrent EOS callback from a
+            // previous session ran between the caller's guard release and here.
+            // Retry via do_submit so the frame gets routed correctly.
+            let entry = match guard.get_mut(&source_id) {
+                Some(e) => e,
+                None => {
+                    drop(guard);
+                    // Payload is already owned; pass it as a slice so do_submit
+                    // can use it without re-extracting from frame content.
+                    return self.do_submit(frame, Some(&payload), queue_timeout);
+                }
+            };
             let StreamEntry::Detecting(d) = entry else {
                 return Ok(SubmitResult { queue_depth: 0 });
             };
@@ -663,29 +668,37 @@ impl MultiStreamDecoder {
         }
 
         {
-            let entry = guard.get_mut(&source_id).unwrap();
-            let StreamEntry::Detecting(d) = entry else {
-                return Ok(SubmitResult { queue_depth: 0 });
-            };
-            match &d.resolve {
-                CodecResolve::NeedDetection { .. } => {
-                    d.pending.push((frame, payload));
-                }
-                CodecResolve::Ready(_) => {
-                    d.pending.push((frame, payload));
+            match guard.get_mut(&source_id) {
+                None => return Ok(SubmitResult { queue_depth: 0 }),
+                Some(entry) => {
+                    let StreamEntry::Detecting(d) = entry else {
+                        return Ok(SubmitResult { queue_depth: 0 });
+                    };
+                    match &d.resolve {
+                        CodecResolve::NeedDetection { .. } => {
+                            d.pending.push((frame, payload));
+                        }
+                        CodecResolve::Ready(_) => {
+                            d.pending.push((frame, payload));
+                        }
+                    }
                 }
             }
         }
 
         let fail_pending = {
-            let entry = guard.get_mut(&source_id).unwrap();
-            let StreamEntry::Detecting(d) = entry else {
-                return Ok(SubmitResult { queue_depth: 0 });
-            };
-            if d.pending.len() > max {
-                Some(std::mem::take(&mut d.pending))
-            } else {
-                None
+            match guard.get_mut(&source_id) {
+                None => return Ok(SubmitResult { queue_depth: 0 }),
+                Some(entry) => {
+                    let StreamEntry::Detecting(d) = entry else {
+                        return Ok(SubmitResult { queue_depth: 0 });
+                    };
+                    if d.pending.len() > max {
+                        Some(std::mem::take(&mut d.pending))
+                    } else {
+                        None
+                    }
+                }
             }
         };
 
@@ -791,7 +804,10 @@ impl MultiStreamDecoder {
         payload: Vec<u8>,
         queue_timeout: Option<Duration>,
     ) -> Result<SubmitResult, MultiStreamError> {
-        self.reap_finished_teardowns();
+        // Block until any prior teardown for this (or any) source finishes.
+        // This guarantees hardware decoder resources (NVDEC slots) are released
+        // before we create a new NvDecoder, preventing Jetson pipeline hangs.
+        self.join_pending_teardowns();
         validate_hw_jpeg_dims(&cfg, &frame)?;
         let (pool_w, pool_h, fps_num, fps_den) = stream_pool_params(&frame)?;
         let pool = self.make_pool_for_stream(pool_w, pool_h, fps_num, fps_den)?;
@@ -868,7 +884,21 @@ impl MultiStreamDecoder {
                     });
                     alive.store(false, Ordering::Release);
                     eos_sync_c.notify();
-                    if let Some(ent) = streams_map.lock().remove(&sid_for_map) {
+                    // Guard against removing a newer session that reused this source_id.
+                    // Only remove if the entry in the map still belongs to THIS session
+                    // (identified by pointer equality of the `alive` Arc).
+                    let maybe_ent = {
+                        let mut guard = streams_map.lock();
+                        let is_mine = guard.get(&sid_for_map).is_some_and(|ent| {
+                            matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, &alive))
+                        });
+                        if is_mine {
+                            guard.remove(&sid_for_map)
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(ent) = maybe_ent {
                         let h = std::thread::spawn(move || teardown_stream_entry(ent));
                         teardown_joins.lock().push(h);
                     }
@@ -881,7 +911,19 @@ impl MultiStreamDecoder {
                     });
                     alive.store(false, Ordering::Release);
                     eos_sync_c.notify();
-                    if let Some(ent) = streams_map.lock().remove(&sid_for_map) {
+                    // Same guard as for EOS: only remove our own session entry.
+                    let maybe_ent = {
+                        let mut guard = streams_map.lock();
+                        let is_mine = guard.get(&sid_for_map).is_some_and(|ent| {
+                            matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, &alive))
+                        });
+                        if is_mine {
+                            guard.remove(&sid_for_map)
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(ent) = maybe_ent {
                         let h = std::thread::spawn(move || teardown_stream_entry(ent));
                         teardown_joins.lock().push(h);
                     }

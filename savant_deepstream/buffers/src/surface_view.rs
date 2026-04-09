@@ -169,8 +169,9 @@ fn resolve_cuda_ptr(
 impl SurfaceView {
     /// Wrap a plain GStreamer buffer without NvBufSurface validation.
     ///
-    /// Surface parameters are zeroed. Intended only for testing without a GPU.
-    #[cfg(any(test, feature = "testing"))]
+    /// Surface parameters are zeroed. For stubs, tests, or pipelines without a
+    /// real NvBufSurface; most operations on this view will fail until replaced
+    /// with a buffer from a [`BufferGenerator`](crate::BufferGenerator).
     pub fn wrap(buf: gst::Buffer) -> Self {
         Self {
             buffer: SharedBuffer::from(buf),

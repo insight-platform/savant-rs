@@ -29,7 +29,7 @@ thiserror = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
-deepstream_buffers = { path = "../buffers", features = ["testing"] }
+deepstream_buffers = { path = "../buffers" }
 env_logger = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }

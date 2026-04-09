@@ -35,7 +35,6 @@ bindgen = { workspace = true }
 [features]
 default = []
 skia = ["dep:skia-safe", "dep:gl"]
-testing = []
 
 [dev-dependencies]
 env_logger = { workspace = true }
@@ -46,11 +45,6 @@ criterion = { workspace = true }
 serial_test = { workspace = true }
 rand = { workspace = true }
 savant_core = { workspace = true }
-
-[[test]]
-name = "surface_view_gpu"
-path = "tests/surface_view_gpu.rs"
-required-features = ["testing"]
 
 [[bench]]
 name = "non_uniform_batch"

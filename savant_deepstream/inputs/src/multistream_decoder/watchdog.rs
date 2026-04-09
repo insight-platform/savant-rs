@@ -107,9 +107,25 @@ pub(crate) fn spawn_watchdog(
                     {
                         let mut guard = streams.lock();
                         for sid in to_remove {
-                            debug!("watchdog: removing entry source_id={sid}");
-                            if let Some(entry) = guard.remove(&sid) {
-                                removed.push((sid, entry));
+                            // Re-check under the lock: a new session for the same
+                            // source_id may have been inserted between the scan and
+                            // here (e.g. the EOS callback already removed the stale
+                            // Active entry and the submit path created a fresh one).
+                            // Only remove if the entry still looks dead.
+                            let should_remove = match guard.get(&sid) {
+                                Some(StreamEntry::Active(a)) => {
+                                    !a.alive.load(std::sync::atomic::Ordering::Acquire)
+                                }
+                                Some(StreamEntry::Detecting(d)) => {
+                                    now.duration_since(d.last_seen) >= idle_timeout
+                                }
+                                _ => false,
+                            };
+                            if should_remove {
+                                debug!("watchdog: removing entry source_id={sid}");
+                                if let Some(entry) = guard.remove(&sid) {
+                                    removed.push((sid, entry));
+                                }
                             }
                         }
                     }

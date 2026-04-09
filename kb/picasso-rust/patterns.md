@@ -4,7 +4,7 @@
 
 ### NOGPU Tests (bypass, drop, worker, engine, geometry)
 - Require `gstreamer::init().unwrap()` at start
-- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (test-only, gated by `testing` feature)
+- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (zeroed NvBufSurface params; no GPU)
 - Helper: `make_surface_view()` in `tests/common/mod.rs`
 - Cover: Drop, Bypass codec specs, EOS, shutdown, spec hot-swap, idle eviction, geometry transforms
 
@@ -19,7 +19,7 @@
 ## Cargo.toml Test Dependencies
 ```toml
 [dev-dependencies]
-deepstream_buffers = { path = "../buffers", features = ["testing"] }
+deepstream_buffers = { path = "../buffers" }
 env_logger = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }

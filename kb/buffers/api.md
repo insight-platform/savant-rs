@@ -256,7 +256,7 @@ uses `extract_slot_view` internally.
 | `from_gst_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, E>` | Wraps buffer in `SharedBuffer`, resolves CUDA ptr for slot. |
 | `from_buffer` | `(buf: &SharedBuffer, slot_index: u32) → Result<Self, E>` | **Primary constructor** for batched access. Borrows buf, clones Arc internally. Create one view per slot. |
 | `from_cuda_ptr` | `(data_ptr, pitch, w, h, gpu_id, channels, color_format, keepalive) → Result<Self, E>` | Synthetic descriptor around raw CUDA ptr |
-| `wrap` | `(buf: gst::Buffer) → Self` | `#[cfg(any(test, feature = "testing"))]` only. Wrap plain buffer without NvBufSurface validation (zeroed params). |
+| `wrap` | `(buf: gst::Buffer) → Self` | Wrap plain buffer without NvBufSurface validation (zeroed params). For stubs/tests; real GPU paths need `from_buffer` / `from_gst_buffer`. |
 
 | Accessor | Signature |
 |---|---|
@@ -318,7 +318,7 @@ pub fn read_meta(buf: &BufferRef, slot_index: u32) → Option<EglCudaMapping>
 |---|---|
 | `ensure_meta(buf, slot_index)` | Per-slot lazy registration. Attaches meta on first call; registers only the requested slot. Returns cached mapping if slot already registered. Performs `NvBufSurfaceMapEglImage(surf_ptr, slot_index)` → `cuGraphicsEGLRegisterImage` → `cuGraphicsResourceGetMappedEglFrame`. Sets `GST_META_FLAG_POOLED | GST_META_FLAG_LOCKED` so meta **survives GstBufferPool recycles**. |
 | `read_meta(buf, slot_index)` | Per-slot read; returns `None` if meta absent or slot not registered. |
-| `tracking_counts` | `#[cfg(test)]` only: returns `(registrations, deregistrations)`; counts are per individual slot. |
+| `tracking_counts` | Returns `(registrations, deregistrations)`; counts are per individual slot (aarch64 / `egl_cuda_meta` only). |
 | `meta_free` | Iterates all slots, deregisters each with non-null `resource` via `cuGraphicsUnregisterResource` and `NvBufSurfaceUnMapEglImage(surf_ptr, i)`. |
 
 **Key implementation notes:**

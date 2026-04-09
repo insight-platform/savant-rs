@@ -12,7 +12,6 @@
 use crate::{ffi, transform, NvBufSurfaceError};
 use gstreamer::{glib, MetaAPI};
 use log::debug;
-#[cfg(any(test, feature = "testing"))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const MAX_PLANES: usize = 3;
@@ -32,17 +31,14 @@ const MAX_PLANES: usize = 3;
 /// overhead predictable.
 pub const MAX_BATCH_SLOTS: usize = 64;
 
-// ─── Test-only registration tracking ─────────────────────────────────────────
+// ─── Registration tracking (diagnostics / tests) ─────────────────────────────
 
-#[cfg(any(test, feature = "testing"))]
 static REGISTRATIONS: AtomicUsize = AtomicUsize::new(0);
-#[cfg(any(test, feature = "testing"))]
 static DEREGISTRATIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// Return `(registrations, deregistrations)` since last [`reset_tracking`].
 ///
 /// Counts are per individual slot registration/deregistration.
-#[cfg(any(test, feature = "testing"))]
 pub fn tracking_counts() -> (usize, usize) {
     (
         REGISTRATIONS.load(Ordering::SeqCst),
@@ -51,7 +47,6 @@ pub fn tracking_counts() -> (usize, usize) {
 }
 
 /// Reset both counters to zero.
-#[cfg(any(test, feature = "testing"))]
 pub fn reset_tracking() {
     REGISTRATIONS.store(0, Ordering::SeqCst);
     DEREGISTRATIONS.store(0, Ordering::SeqCst);
@@ -323,7 +318,6 @@ mod imp {
 
                 let _ = ffi::NvBufSurfaceUnMapEglImage(meta.surf_ptr, i as i32);
 
-                #[cfg(any(test, feature = "testing"))]
                 DEREGISTRATIONS.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -533,7 +527,6 @@ mod imp {
             slot_index, slot_params.bufferDesc, plane_count, cuda_ptrs[0], pitches[0]
         );
 
-        #[cfg(any(test, feature = "testing"))]
         REGISTRATIONS.fetch_add(1, Ordering::SeqCst);
 
         Ok(SlotRegistration {

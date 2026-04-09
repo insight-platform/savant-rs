@@ -23,7 +23,8 @@ SP_DIR=$(PROJECT_DIR)/savant_python
         sp-dev sp-install sp-pytest \
         all-dev all-release \
         fmt clippy lint \
-        docker-build-docs serve-docs
+        docker-build-docs serve-docs \
+        deepstream-tests
 
 dev: clean build_savant
 release: clean build_savant_release
@@ -101,6 +102,28 @@ clean:
 core-tests:
 	@echo "Running core lib tests..."
 	cd savant_core/savant_core && cargo build && cargo test -- --test-threads=1 # --show-output --nocapture
+
+# savant_deepstream workspace members (Cargo package names). Each crate is tested in its own
+# `cargo test -p …` so link steps stay small (avoids OOM on RAM-limited Jetson). Any failure
+# aborts the rest and fails the make target. GPU-heavy runs may need, e.g.:
+#   env -u DISPLAY EGL_PLATFORM=device make deepstream-tests
+DEEPSTREAM_TEST_CRATES := \
+	deepstream_buffers \
+	deepstream_decoders \
+	deepstream_encoders \
+	deepstream_inputs \
+	nvidia_gpu_utils \
+	nvinfer \
+	nvtracker \
+	picasso
+
+deepstream-tests:
+	@echo "Running savant_deepstream crate tests (one package per cargo invocation)..."
+	@set -e; cd $(PROJECT_DIR); \
+	for p in $(DEEPSTREAM_TEST_CRATES); do \
+		echo "==> cargo test -p $$p"; \
+		cargo test -p "$$p"; \
+	done
 
 bench:
 	@echo "Running benchmarks..."

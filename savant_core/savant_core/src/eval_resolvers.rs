@@ -460,6 +460,7 @@ mod tests {
         ENV_FUNC, ETCD_FUNC,
     };
     use crate::get_or_init_async_runtime;
+    use anyhow::bail;
     use bollard::container::{
         Config, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
     };
@@ -689,7 +690,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 max_retries -= 1;
                 if max_retries == 0 {
-                    panic!("Failed to connect to Etcd in {max_retries}");
+                    bail!("Failed to connect to Etcd after 10 retries");
                 }
             }
 
