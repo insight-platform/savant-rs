@@ -121,12 +121,8 @@ fn start_pipeline(seal: Arc<ReleaseSeal>, max_buffers: u32) -> Pipeline {
     init_gst();
 
     let pipeline = gst::Pipeline::new();
-    let appsrc_elem = gst::ElementFactory::make("appsrc")
-        .build()
-        .expect("appsrc");
-    let queue = gst::ElementFactory::make("queue")
-        .build()
-        .expect("queue");
+    let appsrc_elem = gst::ElementFactory::make("appsrc").build().expect("appsrc");
+    let queue = gst::ElementFactory::make("queue").build().expect("queue");
     let appsink_elem = gst::ElementFactory::make("appsink")
         .build()
         .expect("appsink");
@@ -139,17 +135,14 @@ fn start_pipeline(seal: Arc<ReleaseSeal>, max_buffers: u32) -> Pipeline {
     let blocked = Arc::new(ReleaseSeal::new());
     let blocked_signal = blocked.clone();
     let seal_probe = seal;
-    queue
-        .static_pad("src")
-        .unwrap()
-        .add_probe(
-            gst::PadProbeType::BLOCK | gst::PadProbeType::BUFFER,
-            move |_pad, _info| {
-                blocked_signal.release();
-                seal_probe.wait();
-                gst::PadProbeReturn::Remove
-            },
-        );
+    queue.static_pad("src").unwrap().add_probe(
+        gst::PadProbeType::BLOCK | gst::PadProbeType::BUFFER,
+        move |_pad, _info| {
+            blocked_signal.release();
+            seal_probe.wait();
+            gst::PadProbeReturn::Remove
+        },
+    );
 
     // ── Bridge (src probe registered AFTER the gate) ────────────────────
     bridge_savant_id_meta(&queue).expect("bridge_savant_id_meta");
@@ -166,7 +159,7 @@ fn start_pipeline(seal: Arc<ReleaseSeal>, max_buffers: u32) -> Pipeline {
         });
 
     // ── Wire up ─────────────────────────────────────────────────────────
-    appsrc_elem.set_property("caps", &raw_caps());
+    appsrc_elem.set_property("caps", raw_caps());
     appsrc_elem.set_property_from_str("format", "time");
     appsrc_elem.set_property_from_str("stream-type", "stream");
     appsrc_elem.set_property("is-live", false);
@@ -201,9 +194,7 @@ fn start_pipeline(seal: Arc<ReleaseSeal>, max_buffers: u32) -> Pipeline {
         .set_state(gst::State::Playing)
         .expect("set Playing");
 
-    let appsrc = appsrc_elem
-        .dynamic_cast::<gstreamer_app::AppSrc>()
-        .unwrap();
+    let appsrc = appsrc_elem.dynamic_cast::<gstreamer_app::AppSrc>().unwrap();
 
     Pipeline {
         appsrc,

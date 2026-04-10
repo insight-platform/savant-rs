@@ -1262,7 +1262,7 @@ impl VideoFrame {
         }
 
         let track_id = track_id
-            .map(|t| fit_i64(t))
+            .map(fit_i64)
             .transpose()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 

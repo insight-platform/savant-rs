@@ -243,6 +243,20 @@ impl PyBatchInferenceOutput {
             has_host_data,
         }
     }
+
+    /// Element count (for Rust callers, e.g. [`super::pipeline::PyNvInferOutput`]).
+    pub(crate) fn batch_num_elements(&self) -> usize {
+        self.num_elements
+    }
+
+    /// Second handle sharing the same underlying batch (same ``Arc``).
+    pub(crate) fn share(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+            num_elements: self.num_elements,
+            has_host_data: self.has_host_data,
+        }
+    }
 }
 
 #[pymethods]

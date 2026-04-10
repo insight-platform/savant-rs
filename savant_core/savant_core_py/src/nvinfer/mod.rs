@@ -25,6 +25,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<output::PyTensorView>()?;
     m.add_class::<output::PyElementOutput>()?;
     m.add_class::<output::PyBatchInferenceOutput>()?;
+    m.add_class::<pipeline::PyNvInferOutput>()?;
     m.add_class::<pipeline::PyNvInfer>()?;
     m.add_class::<batching_operator::PyNvInferBatchingOperatorConfig>()?;
     m.add_class::<batching_operator::PyBatchFormationResult>()?;
@@ -32,6 +33,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<batching_operator::PyOperatorElementOutput>()?;
     m.add_class::<batching_operator::PyOperatorFrameOutput>()?;
     m.add_class::<batching_operator::PySealedDeliveries>()?;
+    m.add_class::<batching_operator::PyOperatorOutput>()?;
     m.add_class::<batching_operator::PyOperatorInferenceOutput>()?;
     m.add_class::<batching_operator::PyNvInferBatchingOperator>()?;
     Ok(())

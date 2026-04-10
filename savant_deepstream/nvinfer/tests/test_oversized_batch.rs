@@ -71,7 +71,7 @@ fn build_age_gender_engine_bs1() -> Option<NvInfer> {
     }
     let props = common::age_gender_properties_bs1();
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer bs1");
+    let engine = NvInfer::new(config).expect("create NvInfer bs1");
     common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 1);
     Some(engine)
 }
@@ -84,7 +84,7 @@ fn build_age_gender_engine_bs1_flexible() -> Option<NvInfer> {
     }
     let props = common::age_gender_properties_bs1();
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer bs1");
+    let engine = NvInfer::new(config).expect("create NvInfer bs1");
     common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 1);
     Some(engine)
 }
@@ -243,9 +243,10 @@ fn test_oversized_uniform_batch() {
     ]
     .into();
 
-    let output = engine
-        .infer_sync(shared, Some(&rois))
-        .expect("infer_sync oversized uniform");
+    engine
+        .submit(shared, Some(&rois))
+        .expect("submit oversized uniform");
+    let output = common::recv_inference(&engine);
 
     validate_oversized_output(&output, &savant_clone, &images, &gt);
 }
@@ -342,9 +343,10 @@ fn test_oversized_nonuniform_batch() {
     ]
     .into();
 
-    let output = engine
-        .infer_sync(shared, Some(&rois))
-        .expect("infer_sync oversized nonuniform");
+    engine
+        .submit(shared, Some(&rois))
+        .expect("submit oversized nonuniform");
+    let output = common::recv_inference(&engine);
 
     validate_oversized_output(&output, &savant_clone, &images, &gt);
 }

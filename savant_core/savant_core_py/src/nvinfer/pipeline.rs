@@ -1,13 +1,19 @@
 //! PyO3 wrapper for the NvInfer inference engine.
+//!
+//! Thin bindings over [`nvinfer::NvInfer`]: submit and pull outputs via
+//! [`recv`](PyNvInfer::recv) / [`recv_timeout`](PyNvInfer::recv_timeout) /
+//! [`try_recv`](PyNvInfer::try_recv), matching the Rust API.
 
 use super::config::PyNvInferConfig;
 use super::output::PyBatchInferenceOutput;
 use super::roi::PyRoi;
 use crate::deepstream::{extract_gst_buffer, PySharedBuffer};
-use nvinfer::{NvInfer, Roi};
+use gstreamer as gst;
+use nvinfer::{NvInfer, NvInferOutput, Roi};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
+use std::time::Duration;
 
 /// Extract a `SharedBuffer` from a Python buffer argument.
 ///
@@ -37,16 +43,141 @@ fn extract_rois(obj: &Bound<'_, PyAny>) -> PyResult<HashMap<u32, Vec<Roi>>> {
     Ok(map)
 }
 
+enum PyNvInferOutputInner {
+    Inference(PyBatchInferenceOutput),
+    /// Opaque summary of a downstream GStreamer event (caps, stream-start, etc.).
+    Event {
+        summary: String,
+    },
+    Eos {
+        source_id: String,
+    },
+    Error {
+        message: String,
+    },
+}
+
+/// One item from [`NvInfer::recv`] / [`NvInfer::recv_timeout`] / [`NvInfer::try_recv`].
+///
+/// Discriminate with ``is_inference``, ``is_event``, ``is_eos``, ``is_error`` and use
+/// ``as_inference()``, ``event_summary``, ``eos_source_id``, ``error_message`` accordingly.
+#[pyclass(name = "NvInferOutput", module = "savant_rs.nvinfer")]
+pub struct PyNvInferOutput {
+    inner: PyNvInferOutputInner,
+}
+
+impl PyNvInferOutput {
+    pub(crate) fn from_rust(output: NvInferOutput) -> Self {
+        let inner = match output {
+            NvInferOutput::Inference(b) => {
+                PyNvInferOutputInner::Inference(PyBatchInferenceOutput::from_rust(b))
+            }
+            NvInferOutput::Event(e) => PyNvInferOutputInner::Event {
+                summary: format_gst_event(&e),
+            },
+            NvInferOutput::Eos { source_id } => PyNvInferOutputInner::Eos { source_id },
+            NvInferOutput::Error(e) => PyNvInferOutputInner::Error {
+                message: e.to_string(),
+            },
+        };
+        Self { inner }
+    }
+}
+
+fn format_gst_event(e: &gst::Event) -> String {
+    format!("{:?}", e)
+}
+
+#[pymethods]
+impl PyNvInferOutput {
+    #[getter]
+    fn is_inference(&self) -> bool {
+        matches!(self.inner, PyNvInferOutputInner::Inference(_))
+    }
+
+    #[getter]
+    fn is_event(&self) -> bool {
+        matches!(self.inner, PyNvInferOutputInner::Event { .. })
+    }
+
+    #[getter]
+    fn is_eos(&self) -> bool {
+        matches!(self.inner, PyNvInferOutputInner::Eos { .. })
+    }
+
+    #[getter]
+    fn is_error(&self) -> bool {
+        matches!(self.inner, PyNvInferOutputInner::Error { .. })
+    }
+
+    /// Return inference payload if this is an inference result, else ``None``.
+    ///
+    /// The returned object shares the same underlying batch as this output's inference
+    /// payload (Arc-backed); tensor views remain valid while either handle lives.
+    fn as_inference(&self) -> Option<PyBatchInferenceOutput> {
+        match &self.inner {
+            PyNvInferOutputInner::Inference(b) => Some(b.share()),
+            _ => None,
+        }
+    }
+
+    /// Summary string for a GStreamer event output, or ``None``.
+    #[getter]
+    fn event_summary(&self) -> Option<String> {
+        match &self.inner {
+            PyNvInferOutputInner::Event { summary } => Some(summary.clone()),
+            _ => None,
+        }
+    }
+
+    /// Source id for logical per-source EOS, or ``None``.
+    #[getter]
+    fn eos_source_id(&self) -> Option<String> {
+        match &self.inner {
+            PyNvInferOutputInner::Eos { source_id } => Some(source_id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Error message for pipeline/framework errors, or ``None``.
+    #[getter]
+    fn error_message(&self) -> Option<String> {
+        match &self.inner {
+            PyNvInferOutputInner::Error { message } => Some(message.clone()),
+            _ => None,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            PyNvInferOutputInner::Inference(b) => {
+                format!(
+                    "NvInferOutput(Inference(num_elements={}))",
+                    b.batch_num_elements()
+                )
+            }
+            PyNvInferOutputInner::Event { summary } => {
+                format!("NvInferOutput(Event({summary:?}))")
+            }
+            PyNvInferOutputInner::Eos { source_id } => {
+                format!("NvInferOutput(Eos(source_id={source_id:?}))")
+            }
+            PyNvInferOutputInner::Error { message } => {
+                format!("NvInferOutput(Error({message:?}))")
+            }
+        }
+    }
+}
+
 /// The NvInfer inference engine.
 ///
 /// Wraps a DeepStream ``nvinfer`` element in an ``appsrc -> [queue] ->
-/// nvinfer -> appsink`` GStreamer pipeline.  Supports both asynchronous
-/// (callback) and synchronous (``infer_sync``) inference.
+/// nvinfer -> appsink`` GStreamer pipeline.  Outputs are **pulled** with
+/// [`recv`](Self::recv), [`recv_timeout`](Self::recv_timeout), or
+/// [`try_recv`](Self::try_recv), matching the Rust [`nvinfer::NvInfer`] API.
 ///
 /// Args:
 ///     config (NvInferConfig): Engine configuration.
-///     callback (Callable[[BatchInferenceOutput], None]): Callback invoked
-///         when asynchronous inference completes.
 #[pyclass(name = "NvInfer", module = "savant_rs.nvinfer")]
 pub struct PyNvInfer {
     inner: Option<NvInfer>,
@@ -55,18 +186,10 @@ pub struct PyNvInfer {
 #[pymethods]
 impl PyNvInfer {
     #[new]
-    fn new(py: Python<'_>, config: &PyNvInferConfig, callback: Py<PyAny>) -> PyResult<Self> {
+    fn new(py: Python<'_>, config: &PyNvInferConfig) -> PyResult<Self> {
         let rust_config = config.inner.clone();
-        let rust_callback: nvinfer::pipeline::InferCallback = Box::new(move |output| {
-            Python::attach(|py| {
-                let py_output = PyBatchInferenceOutput::from_rust(output);
-                if let Err(e) = callback.call1(py, (py_output,)) {
-                    log::error!("NvInfer callback error: {e}");
-                }
-            });
-        });
         let engine = py.detach(|| {
-            NvInfer::new(rust_config, rust_callback)
+            NvInfer::new(rust_config)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
         Ok(Self {
@@ -74,7 +197,7 @@ impl PyNvInfer {
         })
     }
 
-    /// Submit a batched buffer for asynchronous inference.
+    /// Submit a batched buffer for inference.
     ///
     /// The buffer is **consumed**: the ``SharedBuffer``
     /// becomes invalid after this call.
@@ -105,42 +228,116 @@ impl PyNvInfer {
         })
     }
 
-    /// Synchronous inference -- blocks until results arrive or
-    /// ``operation_timeout`` (set in ``NvInferConfig``) is exceeded.
-    ///
-    /// The buffer is **consumed**: the ``SharedBuffer``
-    /// becomes invalid after this call.
-    ///
-    /// Args:
-    ///     batch (Union[SharedBuffer, int]): Batched NvBufSurface buffer.
-    ///     rois (Optional[Dict[int, List[Roi]]]): Per-slot ROI lists.
-    ///
-    /// Returns:
-    ///     BatchInferenceOutput: Inference results.
+    /// Block until the next output item is available.
     ///
     /// Raises:
-    ///     RuntimeError: If the engine has been shut down, the pipeline
-    ///         has entered a failed state, submission fails, or inference
-    ///         times out.
-    #[pyo3(signature = (batch, rois=None))]
-    fn infer_sync(
-        &self,
-        py: Python<'_>,
-        batch: &Bound<'_, PyAny>,
-        rois: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<PyBatchInferenceOutput> {
+    ///     RuntimeError: On channel disconnect ([`nvinfer::NvInferError::ChannelDisconnected`]).
+    fn recv(&self, py: Python<'_>) -> PyResult<PyNvInferOutput> {
         let engine = self
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
-        let shared = take_shared_buffer(batch)?;
-        let rust_rois = rois.map(extract_rois).transpose()?;
-        let output = py.detach(|| {
+        let out = py.detach(|| {
             engine
-                .infer_sync(shared, rust_rois.as_ref())
+                .recv()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
-        Ok(PyBatchInferenceOutput::from_rust(output))
+        Ok(PyNvInferOutput::from_rust(out))
+    }
+
+    /// Block until the next output or ``timeout_ms`` elapses.
+    ///
+    /// Returns:
+    ///     Optional[NvInferOutput]: ``None`` on timeout.
+    ///
+    /// Raises:
+    ///     RuntimeError: On channel disconnect.
+    fn recv_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<Option<PyNvInferOutput>> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
+        let timeout = Duration::from_millis(timeout_ms);
+        let out = py.detach(|| {
+            engine
+                .recv_timeout(timeout)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        Ok(out.map(PyNvInferOutput::from_rust))
+    }
+
+    /// Non-blocking: return the next output if available.
+    ///
+    /// Returns:
+    ///     Optional[NvInferOutput]: ``None`` if no output is ready.
+    ///
+    /// Raises:
+    ///     RuntimeError: On channel disconnect.
+    fn try_recv(&self, py: Python<'_>) -> PyResult<Option<PyNvInferOutput>> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
+        let out = py.detach(|| {
+            engine
+                .try_recv()
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        Ok(out.map(PyNvInferOutput::from_rust))
+    }
+
+    /// Send a logical per-source EOS marker downstream (custom event).
+    fn send_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
+        py.detach(|| {
+            engine
+                .send_eos(source_id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Send a custom downstream GStreamer event (string fields only).
+    ///
+    /// Wraps Rust ``NvInfer::send_event`` with ``gst::event::CustomDownstream``.
+    /// For other event types, use the Rust API.
+    #[pyo3(signature = (structure_name, string_fields=None))]
+    fn send_custom_downstream_event(
+        &self,
+        py: Python<'_>,
+        structure_name: &str,
+        string_fields: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let mut b = gst::Structure::builder(structure_name);
+        if let Some(d) = string_fields {
+            for (k, v) in d.iter() {
+                let key: String = k.extract()?;
+                let val: String = v.extract()?;
+                b = b.field(key.as_str(), val.as_str());
+            }
+        }
+        let structure = b.build();
+        let event = gst::event::CustomDownstream::new(structure);
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
+        py.detach(|| {
+            engine
+                .send_event(event)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Whether the pipeline has entered a terminal failed state.
+    fn is_failed(&self) -> PyResult<bool> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
+        Ok(engine.is_failed())
     }
 
     /// Graceful shutdown: send EOS, drain, stop pipeline.
@@ -148,7 +345,7 @@ impl PyNvInfer {
     /// Raises:
     ///     RuntimeError: If the engine has already been shut down.
     fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
-        let mut engine = self.inner.take().ok_or_else(|| {
+        let engine = self.inner.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvInfer is already shut down")
         })?;
         py.detach(|| {

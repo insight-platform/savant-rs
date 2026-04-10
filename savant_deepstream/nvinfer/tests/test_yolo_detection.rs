@@ -48,7 +48,7 @@ fn build_yolo_engine(scaling: ModelInputScaling) -> Option<NvInfer> {
     let props = yolo11n_properties();
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 640, 640, ModelColorFormat::RGB)
         .scaling(scaling);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer yolo11n");
+    let engine = NvInfer::new(config).expect("create NvInfer yolo11n");
     common::promote_built_engine("yolo11n.onnx", 1);
     Some(engine)
 }
@@ -107,7 +107,8 @@ fn infer_one_image(
     batch.finalize().unwrap();
     let shared = batch.into_shared_buffer();
 
-    let output = engine.infer_sync(shared, None).expect("infer_sync");
+    engine.submit(shared, None).expect("submit");
+    let output = common::recv_inference(engine);
     assert_eq!(
         output.num_elements(),
         1,

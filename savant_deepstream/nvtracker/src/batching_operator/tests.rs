@@ -305,9 +305,6 @@ fn operator_config_builder_pending_batch_timeout_override() {
 
 #[test]
 fn nvtracker_config_operation_timeout_default() {
-    let cfg = crate::config::NvTrackerConfig::new(
-        "/tmp/lib.so",
-        "/tmp/cfg.yml",
-    );
+    let cfg = crate::config::NvTrackerConfig::new("/tmp/lib.so", "/tmp/cfg.yml");
     assert_eq!(cfg.operation_timeout, Duration::from_secs(30));
 }

@@ -7,6 +7,7 @@ import json
 import os
 import random
 import threading
+import time
 from typing import Dict, List, Tuple
 
 import pytest
@@ -174,6 +175,26 @@ def tensor_to_cupy(tv) -> cupy.ndarray:
     return cupy.ndarray(tv.dims.num_elements, dtype=tv.numpy_dtype, memptr=ptr)
 
 
+def recv_batch_inference_output(engine, nvinfer_config, context: str):
+    """Poll :meth:`NvInfer.recv_timeout` until ``BatchInferenceOutput`` or fail."""
+    deadline = time.monotonic() + nvinfer_config.operation_timeout_ms / 1000.0
+    while time.monotonic() < deadline:
+        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+        tick = min(100, remaining_ms)
+        item = engine.recv_timeout(tick)
+        if item is None:
+            continue
+        if item.is_inference:
+            out = item.as_inference()
+            assert out is not None
+            return out
+        if item.is_error:
+            pytest.fail(f"{context} pipeline error: {item.error_message}")
+        if item.is_eos:
+            pytest.fail(f"{context} unexpected EOS: {item.eos_source_id}")
+    pytest.fail(f"{context} operation timeout waiting for inference")
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────
 
 
@@ -255,10 +276,13 @@ def test_age_gender_e2e_real_images():
         model_width=FACE_SZ,
         model_height=FACE_SZ,
     )
-    engine = NvInfer(nvinfer_config, callback=lambda _output: None)
+    engine = NvInfer(nvinfer_config)
 
     try:
-        output = engine.infer_sync(batch=gst_buffer, rois=rois)
+        engine.submit(batch=gst_buffer, rois=rois)
+        output = recv_batch_inference_output(
+            engine, nvinfer_config, "age_gender uniform"
+        )
 
         assert output.num_elements == num_faces, (
             f"expected {num_faces} elements, got {output.num_elements}"
@@ -319,7 +343,7 @@ def test_age_gender_e2e_real_images():
     not _has_assets() or not _has_model(), reason="Model assets missing"
 )
 def test_age_gender_e2e_nonuniform_callback():
-    """Nonuniform batch with async submit + callback API."""
+    """Nonuniform batch with submit + recv polling (pull-based API)."""
     init_cuda(0)
 
     gt_path = os.path.join(ASSETS_DIR, "age_gender", "ground_truth.json")
@@ -376,14 +400,6 @@ def test_age_gender_e2e_nonuniform_callback():
         ]
     }
 
-    # Callback captures the output; event signals completion
-    result_holder: List = []
-    done = threading.Event()
-
-    def on_output(output):
-        result_holder.append(output)
-        done.set()
-
     props = age_gender_properties()
     nvinfer_config = NvInferConfig(
         nvinfer_properties=props,
@@ -391,14 +407,13 @@ def test_age_gender_e2e_nonuniform_callback():
         model_width=FACE_SZ,
         model_height=FACE_SZ,
     )
-    engine = NvInfer(nvinfer_config, callback=on_output)
+    engine = NvInfer(nvinfer_config)
 
     try:
         engine.submit(batch=gst_buffer, rois=rois)
-
-        assert done.wait(timeout=30), "callback not invoked within 30 s"
-        assert len(result_holder) == 1, f"expected 1 callback, got {len(result_holder)}"
-        output = result_holder[0]
+        output = recv_batch_inference_output(
+            engine, nvinfer_config, "age_gender nonuniform"
+        )
 
         assert output.num_elements == num_faces, (
             f"expected {num_faces} elements, got {output.num_elements}"
@@ -494,6 +509,9 @@ def test_sealed_deliveries_guard_behavior():
     the GIL while blocking on the Condvar, the callback thread could not drop
     the OperatorInferenceOutput (which needs GIL for Drop), causing deadlock.
     A successful unseal() return proves GIL is properly released.
+
+    The batching ``result_callback`` receives :class:`OperatorOutput`; this test
+    unwraps the inference variant only.
     """
     init_cuda(0)
 
@@ -507,7 +525,10 @@ def test_sealed_deliveries_guard_behavior():
         rois = [RoiKind.full_frame() for _ in frames]
         return BatchFormationResult(ids=ids, rois=rois)
 
-    def result_callback(output):
+    def result_callback(op):
+        assert op.is_inference, "expected OperatorOutput(Inference(...))"
+        output = op.as_operator_inference_output()
+        assert output is not None
         sealed = output.take_deliveries()
         assert sealed is not None, "first take_deliveries() must return SealedDeliveries"
         assert len(sealed) == 1

@@ -65,11 +65,6 @@ pub use buffers::*;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::debug;
-use lru::LruCache;
-use parking_lot::Mutex;
-use std::collections::VecDeque;
-use std::num::NonZeroUsize;
-use std::sync::Arc;
 
 /// Error type for NvBufSurface operations.
 #[derive(Debug, thiserror::Error)]
@@ -238,15 +233,7 @@ pub(crate) unsafe fn set_structure_uint(
 
 // ─── PTS-keyed meta bridge ───────────────────────────────────────────────────
 
-/// Maximum number of in-flight PTS→meta entries before eviction kicks in.
-/// If the map exceeds this size, the oldest half of entries (by PTS) are
-/// removed.  This guards against slow memory leaks when an encoder drops
-/// buffers without producing matching output.
-const MAX_BRIDGE_MAP_SIZE: usize = 1024;
-
-/// Maximum number of meta entries stored per PTS key.  If exceeded, the oldest
-/// entry is evicted — this indicates the src pad is not draining fast enough.
-pub const MAX_ENTRIES_PER_PTS: usize = 32;
+pub use savant_gstreamer::pipeline::bridge_meta::MAX_ENTRIES_PER_PTS;
 
 /// Install pad probes on `element` to propagate [`SavantIdMeta`] across
 /// elements that create new output buffers (e.g. hardware video encoders).
@@ -265,9 +252,7 @@ pub const MAX_ENTRIES_PER_PTS: usize = 32;
 ///
 /// PTS is guaranteed to be preserved by all GStreamer encoder elements.
 /// B-frame reordering is handled naturally because lookups are by value,
-/// not by order.  The LRU cache evicts the least-recently-used entries
-/// when the map exceeds [`MAX_BRIDGE_MAP_SIZE`], which is safe regardless
-/// of output ordering.
+/// not by order. The shared LRU cache safely evicts old entries when needed.
 ///
 /// # Errors
 ///
@@ -289,89 +274,15 @@ pub const MAX_ENTRIES_PER_PTS: usize = 32;
 /// // sink pad will automatically appear on the encoder's src pad output.
 /// ```
 pub fn bridge_savant_id_meta(element: &gst::Element) -> Result<(), NvBufSurfaceError> {
-    // Multi-value LRU map: each PTS key holds a FIFO queue of meta vectors,
-    // supporting multiple buffers that share the same PTS value.
-    let map: Arc<Mutex<LruCache<u64, VecDeque<Vec<SavantIdMetaKind>>>>> = Arc::new(Mutex::new(
-        LruCache::new(NonZeroUsize::new(MAX_BRIDGE_MAP_SIZE).unwrap()),
-    ));
-
-    // ── Sink pad probe: extract meta, store by PTS ──────────────────────
-    let sink_map = map.clone();
     let sink_pad = element
         .static_pad("sink")
         .ok_or_else(|| NvBufSurfaceError::MissingPad("sink".to_string()))?;
-
-    sink_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
-        if let Some(buffer) = info.buffer() {
-            if let Some(meta) = buffer.meta::<SavantIdMeta>() {
-                if let Some(pts) = buffer.pts() {
-                    let ids = meta.ids().to_vec();
-                    let mut map = sink_map.lock();
-                    if map.len() == map.cap().get() {
-                        log::error!(
-                            "bridge_savant_id_meta: PTS map is at full capacity ({}); \
-                             LRU entry will be evicted — src pad is not consuming entries \
-                             fast enough or the element is dropping buffers",
-                            map.cap(),
-                        );
-                    }
-                    if let Some(existing) = map.get(&pts.nseconds()) {
-                        log::warn!(
-                            "bridge_savant_id_meta: PTS collision at {} ns; \
-                             existing entries={}, new meta={:?}",
-                            pts.nseconds(),
-                            existing.len(),
-                            ids,
-                        );
-                    }
-                    let entries = map.get_or_insert_mut(pts.nseconds(), VecDeque::new);
-                    entries.push_back(ids);
-                    if entries.len() > MAX_ENTRIES_PER_PTS {
-                        let evicted = entries.pop_front();
-                        log::error!(
-                            "bridge_savant_id_meta: per-PTS limit ({}) exceeded at {} ns; \
-                             evicted={:?}, added={:?}",
-                            MAX_ENTRIES_PER_PTS,
-                            pts.nseconds(),
-                            evicted,
-                            entries.back(),
-                        );
-                    }
-                }
-            }
-        }
-        gst::PadProbeReturn::Ok
-    });
-
-    // ── Src pad probe: look up PTS, re-attach meta ──────────────────────
-    let src_map = map;
     let src_pad = element
         .static_pad("src")
         .ok_or_else(|| NvBufSurfaceError::MissingPad("src".to_string()))?;
 
-    src_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
-        if let Some(buffer) = info.buffer_mut() {
-            if let Some(pts) = buffer.pts() {
-                let mut map = src_map.lock();
-                let should_remove;
-                if let Some(entries) = map.get_mut(&pts.nseconds()) {
-                    if let Some(ids) = entries.pop_front() {
-                        let buf_ref = buffer.make_mut();
-                        SavantIdMeta::replace(buf_ref, ids);
-                    }
-                    should_remove = entries.is_empty();
-                } else {
-                    should_remove = false;
-                }
-                if should_remove {
-                    map.pop(&pts.nseconds());
-                }
-            }
-        }
-        gst::PadProbeReturn::Ok
-    });
-
-    Ok(())
+    savant_gstreamer::pipeline::bridge_meta::bridge_savant_id_meta_across(&sink_pad, &src_pad)
+        .map_err(|e| NvBufSurfaceError::InvalidInput(e.to_string()))
 }
 
 #[cfg(test)]

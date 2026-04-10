@@ -75,14 +75,12 @@ impl Ingress {
                         let message = PyMessage::new(*message);
                         Python::attach(|py| {
                             let handlers_bind = REGISTERED_HANDLERS.read();
-                            let handler = handlers_bind
-                                .get(handler.as_str())
-                                .ok_or_else(|| {
-                                    anyhow::anyhow!(
-                                        "Handler '{}' not found in REGISTERED_HANDLERS",
-                                        handler
-                                    )
-                                })?;
+                            let handler = handlers_bind.get(handler.as_str()).ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Handler '{}' not found in REGISTERED_HANDLERS",
+                                    handler
+                                )
+                            })?;
                             let res = handler
                                 .call1(py, (message_id, ingress_stream_name, &topic, message))?;
                             // is none, drop message

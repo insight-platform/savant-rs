@@ -82,7 +82,7 @@ del batch, view, src_buf  # release Arc refs before consumption
 ```
 
 The `gst_buffer` (a `SharedBuffer`) is then passed to
-`engine.submit()` or `engine.infer_sync()`.
+`engine.submit()`.
 
 ### CUDA memory operations (ctypes)
 

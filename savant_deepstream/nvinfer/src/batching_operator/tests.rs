@@ -50,6 +50,9 @@ fn make_nvinfer_config() -> crate::config::NvInferConfig {
         disable_output_host_copy: false,
         scaling: ModelInputScaling::Fill,
         operation_timeout: Duration::from_secs(30),
+        input_channel_capacity: 16,
+        output_channel_capacity: 16,
+        drain_poll_interval: Duration::from_millis(100),
     }
 }
 

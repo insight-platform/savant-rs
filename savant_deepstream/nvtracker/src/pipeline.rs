@@ -260,8 +260,7 @@ impl NvTracker {
             sync_tx: Mutex::new(std::collections::HashMap::new()),
         });
         let failed = Arc::new(AtomicBool::new(false));
-        let in_flight: Arc<Mutex<HashMap<u64, Instant>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let in_flight: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
 
         let delivery_clone = delivery.clone();
         let in_flight_cb = in_flight.clone();
@@ -452,7 +451,9 @@ impl NvTracker {
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 self.in_flight.lock().remove(&pts);
                 self.delivery.sync_tx.lock().remove(&pts);
-                error!("NvTracker: track_sync channel disconnected, pipeline entering failed state");
+                error!(
+                    "NvTracker: track_sync channel disconnected, pipeline entering failed state"
+                );
                 self.failed.store(true, Ordering::Release);
                 Err(NvTrackerError::PipelineFailed)
             }

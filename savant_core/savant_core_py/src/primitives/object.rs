@@ -54,7 +54,7 @@ impl VideoObject {
         track_box: Option<RBBox>,
     ) -> PyResult<Self> {
         let track_id = track_id
-            .map(|t| fit_i64(t))
+            .map(fit_i64)
             .transpose()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let object = rust::VideoObjectBuilder::default()
@@ -525,7 +525,7 @@ impl BorrowedVideoObject {
     #[setter]
     pub fn set_track_id(&mut self, track_id: Option<num_bigint::BigInt>) -> PyResult<()> {
         let tid = track_id
-            .map(|t| fit_i64(t))
+            .map(fit_i64)
             .transpose()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         self.0.set_track_id(tid);

@@ -67,9 +67,35 @@ def test_something():
     ...
 ```
 
-## E2E lifecycle pattern (synchronous)
+## E2E lifecycle pattern (submit + recv)
+
+`NvInfer` matches the Rust API: **no constructor callback** and **no** `infer_sync`.
+Submit a buffer, then poll with `recv()` or `recv_timeout(timeout_ms)` until you get
+`NvInferOutput` with `is_inference` and call `as_inference()` for `BatchInferenceOutput`.
 
 ```python
+def recv_batch_inference_output(engine, config, context: str):
+    import time
+    import pytest
+
+    deadline = time.monotonic() + config.operation_timeout_ms / 1000.0
+    while time.monotonic() < deadline:
+        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+        tick = min(100, remaining_ms)
+        item = engine.recv_timeout(tick)
+        if item is None:
+            continue
+        if item.is_inference:
+            out = item.as_inference()
+            assert out is not None
+            return out
+        if item.is_error:
+            pytest.fail(f"{context} pipeline error: {item.error_message}")
+        if item.is_eos:
+            pytest.fail(f"{context} unexpected EOS: {item.eos_source_id}")
+    pytest.fail(f"{context} operation timeout waiting for inference")
+
+
 def test_e2e():
     init_cuda(0)
 
@@ -79,11 +105,12 @@ def test_e2e():
         model_width=1920,
         model_height=1080,
     )
-    engine = NvInfer(config, callback=lambda output: None)
+    engine = NvInfer(config)
 
     try:
         # ... prepare buffer, ROIs ...
-        output = engine.infer_sync(batch=gst_buffer, rois=rois)
+        engine.submit(batch=gst_buffer, rois=rois)
+        output = recv_batch_inference_output(engine, config, "e2e")
 
         assert output.num_elements == expected_count
 
@@ -97,35 +124,10 @@ def test_e2e():
         engine.shutdown()
 ```
 
-## E2E lifecycle pattern (asynchronous callback)
+## NvInferBatchingOperator callback
 
-```python
-def test_e2e_async():
-    init_cuda(0)
-
-    result_holder: List = []
-    done = threading.Event()
-
-    def on_output(output):
-        result_holder.append(output)
-        done.set()
-
-    config = NvInferConfig(
-        nvinfer_properties=age_gender_properties(),
-        input_format=VideoFormat.RGBA,
-        model_width=1920,
-        model_height=1080,
-    )
-    engine = NvInfer(config, callback=on_output)
-
-    try:
-        engine.submit(batch=gst_buffer, rois=rois)
-        assert done.wait(timeout=30), "callback not invoked within 30 s"
-        output = result_holder[0]
-        # ... validate output ...
-    finally:
-        engine.shutdown()
-```
+`result_callback` receives **`OperatorOutput`**: use `is_inference` /
+`as_operator_inference_output()` for batches, or handle `is_eos` / `is_error`.
 
 ## Helper: age_gender_properties
 

@@ -58,7 +58,7 @@ fn identity_engine_1080p() -> Option<NvInfer> {
     let props = common::identity_112x112_properties();
 
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create identity NvInfer 1080p");
+    let engine = NvInfer::new(config).expect("create identity NvInfer 1080p");
     common::promote_built_engine("identity_3x112x112.onnx", 32);
     Some(engine)
 }
@@ -168,9 +168,10 @@ fn test_roi_crop_pixel_match() {
         place_non_overlapping(&mut rng_diag, FRAME_W, FRAME_H, FACE_SZ, FACE_SZ, num_faces);
 
     let comp = build_composite(&images, 42);
-    let output = engine
-        .infer_sync(comp.shared, Some(&comp.rois))
-        .expect("infer_sync");
+    engine
+        .submit(comp.shared, Some(&comp.rois))
+        .expect("submit");
+    let output = common::recv_inference(&engine);
 
     assert_eq!(
         output.num_elements(),
@@ -275,9 +276,10 @@ fn test_roi_crop_placement_independence() {
         let placements =
             place_non_overlapping(&mut rng, FRAME_W, FRAME_H, FACE_SZ, FACE_SZ, num_faces);
         let comp = build_composite(&images, seed);
-        let output = engine
-            .infer_sync(comp.shared, Some(&comp.rois))
-            .expect("infer_sync");
+        engine
+            .submit(comp.shared, Some(&comp.rois))
+            .expect("submit");
+        let output = common::recv_inference(&engine);
         assert_eq!(output.num_elements(), num_faces);
         let tensors: Vec<Vec<f32>> = output
             .elements()

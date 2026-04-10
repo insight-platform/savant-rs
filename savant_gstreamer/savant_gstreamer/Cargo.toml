@@ -17,13 +17,16 @@ crate-type = ["rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
+crossbeam = { workspace = true }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }
 glib = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
+lru = { workspace = true }
 parking_lot = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+crossbeam = { workspace = true }
 env_logger = "0.11"

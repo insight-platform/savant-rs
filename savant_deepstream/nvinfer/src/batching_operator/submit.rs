@@ -23,7 +23,7 @@ pub(super) struct SubmitContext {
     pub(super) state: Arc<Mutex<BatchState<FramePair>>>,
     pub(super) pending_batches: PendingMap,
     pub(super) next_batch_id: Arc<AtomicU64>,
-    pub(super) nvinfer: Arc<Mutex<NvInfer>>,
+    pub(super) nvinfer: Arc<NvInfer>,
     pub(super) shutdown_flag: Arc<AtomicBool>,
     pub(super) failed: Arc<AtomicBool>,
 }
@@ -101,9 +101,7 @@ impl SubmitContext {
         );
 
         debug!("Operator submitting batch_id={batch_id}");
-        self.nvinfer
-            .lock()
-            .submit(shared_buffer, rois_arg.as_ref())?;
+        self.nvinfer.submit(shared_buffer, rois_arg.as_ref())?;
         Ok(())
     }
 }

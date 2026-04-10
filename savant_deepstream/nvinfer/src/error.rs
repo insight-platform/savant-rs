@@ -52,6 +52,12 @@ pub enum NvInferError {
 
     #[error("Batching operator entered failed state (pending batch timeout exceeded)")]
     OperatorFailed,
+
+    #[error("Framework pipeline error: {0}")]
+    FrameworkError(#[from] savant_gstreamer::pipeline::PipelineError),
+
+    #[error("Channel disconnected")]
+    ChannelDisconnected,
 }
 
 /// Result type for NvInfer operations.

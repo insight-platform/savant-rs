@@ -68,10 +68,19 @@ pub struct NvInferConfig {
     /// those keys must not appear in `nvinfer_properties`. Default: [`ModelInputScaling::Fill`].
     pub scaling: ModelInputScaling,
     /// Maximum time to wait for a submitted buffer to produce a result.
-    /// Used by both `infer_sync` (recv timeout) and the async callback
-    /// watchdog (in-flight deadline). When exceeded, the pipeline enters
-    /// a terminal failed state. Default: 30 s.
+    /// Used by the framework watchdog (in-flight deadline). When exceeded,
+    /// the pipeline enters a terminal failed state. Default: 30 s.
     pub operation_timeout: Duration,
+    /// Capacity of the bounded input channel (framework backpressure).
+    /// When the channel is full, [`NvInfer::submit`] blocks.
+    /// Default: 16.
+    pub input_channel_capacity: usize,
+    /// Capacity of the bounded output channel.
+    /// Default: 16.
+    pub output_channel_capacity: usize,
+    /// How often the framework drain thread polls `appsink.try_pull_sample`.
+    /// Default: 100 ms.
+    pub drain_poll_interval: Duration,
 }
 
 impl NvInferConfig {
@@ -112,6 +121,9 @@ impl NvInferConfig {
             disable_output_host_copy: false,
             scaling: ModelInputScaling::default(),
             operation_timeout: Duration::from_secs(30),
+            input_channel_capacity: 16,
+            output_channel_capacity: 16,
+            drain_poll_interval: Duration::from_millis(100),
         }
     }
 
@@ -160,9 +172,27 @@ impl NvInferConfig {
         self
     }
 
-    /// Set the operation timeout for sync and async paths.
+    /// Set the operation timeout for the watchdog.
     pub fn operation_timeout(mut self, timeout: Duration) -> Self {
         self.operation_timeout = timeout;
+        self
+    }
+
+    /// Set the bounded input channel capacity (framework backpressure).
+    pub fn input_channel_capacity(mut self, capacity: usize) -> Self {
+        self.input_channel_capacity = capacity;
+        self
+    }
+
+    /// Set the bounded output channel capacity.
+    pub fn output_channel_capacity(mut self, capacity: usize) -> Self {
+        self.output_channel_capacity = capacity;
+        self
+    }
+
+    /// Set how often the framework drain thread polls appsink.
+    pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
+        self.drain_poll_interval = interval;
         self
     }
 

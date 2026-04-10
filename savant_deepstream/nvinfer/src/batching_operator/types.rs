@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use super::output::OperatorInferenceOutput;
+use super::output::OperatorOutput;
 
 /// Result returned by the batch formation callback.
 pub struct BatchFormationResult {
@@ -26,7 +26,7 @@ pub type BatchFormationCallback =
     Arc<dyn Fn(&[VideoFrameProxy]) -> BatchFormationResult + Send + Sync>;
 
 /// Callback invoked when inference results for a batch are ready.
-pub type OperatorResultCallback = Box<dyn FnMut(OperatorInferenceOutput) + Send>;
+pub type OperatorResultCallback = Box<dyn FnMut(OperatorOutput) + Send>;
 
 /// Per-frame pair stored in the pending batch.
 pub(super) type FramePair = (VideoFrameProxy, SharedBuffer);

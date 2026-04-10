@@ -134,12 +134,15 @@ class NvInferConfig:
         name: str = "",                                           # OPT
         element_properties: Optional[Dict[str, str]] = None,     # OPT
         gpu_id: int = 0,                                         # OPT
-        queue_depth: int = 0,                                    # OPT
+        queue_depth: int = 0,                                    # OPT — GStreamer queue max-size-buffers
+        input_channel_capacity: int = 16,                       # OPT — framework input channel (backpressure)
+        output_channel_capacity: int = 16,                        # OPT — framework output channel
+        drain_poll_interval_ms: int = 100,                        # OPT — appsink poll interval in framework drain
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE, # OPT
         disable_output_host_copy: bool = False,                  # OPT
         scaling: ModelInputScaling = ModelInputScaling.FILL,      # OPT
         model_color_format: ModelColorFormat = ModelColorFormat.RGB, # OPT
-        operation_timeout_ms: int = 30000,                         # OPT — timeout for infer_sync and async watchdog
+        operation_timeout_ms: int = 30000,                         # OPT — framework watchdog / in-flight deadline
     ) -> None: ...
 
     @property
@@ -148,6 +151,17 @@ class NvInferConfig:
     def gpu_id(self) -> int: ...
     @property
     def queue_depth(self) -> int: ...
+    @property
+    def input_channel_capacity(self) -> int: ...
+    @property
+    def output_channel_capacity(self) -> int: ...
+    @property
+    def drain_poll_interval_ms(self) -> int: ...
+    @property
+    def nvinfer_properties(self) -> Dict[str, str]: ...
+    @property
+    def element_properties(self) -> Dict[str, str]: ...
+    def model_input_dimensions(self) -> tuple[int, int]: ...
     @property
     def input_format(self) -> VideoFormat: ...
     @property
@@ -163,7 +177,7 @@ class NvInferConfig:
     @property
     def scaling(self) -> ModelInputScaling: ...
     @property
-    def operation_timeout_ms(self) -> int: ...  # timeout in ms for infer_sync and async watchdog
+    def operation_timeout_ms(self) -> int: ...  # timeout in ms (Rust pipeline watchdog)
 ```
 
 **Forbidden in `nvinfer_properties`:** `maintain-aspect-ratio`, `symmetric-padding`
@@ -291,43 +305,75 @@ by indexing `savant_ids()` with that slot.
 
 ---
 
+## NvInferOutput
+
+Discriminated item from `NvInfer.recv()` / `recv_timeout()` / `try_recv()`:
+
+```python
+class NvInferOutput:
+    @property
+    def is_inference(self) -> bool: ...
+    @property
+    def is_event(self) -> bool: ...
+    @property
+    def is_eos(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+    def as_inference(self) -> Optional[BatchInferenceOutput]: ...
+    @property
+    def event_summary(self) -> Optional[str]: ...
+    @property
+    def eos_source_id(self) -> Optional[str]: ...
+    @property
+    def error_message(self) -> Optional[str]: ...
+```
+
+Pipeline/framework errors surface as `is_error` with `error_message` (not as
+Python exceptions from `recv`, except `RuntimeError` on channel disconnect).
+
+---
+
 ## NvInfer
+
+Pull-based API matching Rust `nvinfer::NvInfer` (no constructor callback).
 
 ```python
 class NvInfer:
-    def __init__(
-        self,
-        config: NvInferConfig,
-        callback: Callable[[BatchInferenceOutput], None],
-    ) -> None: ...
+    def __init__(self, config: NvInferConfig) -> None: ...
 
     def submit(
         self,
         batch: Union[SharedBuffer, int],
         rois: Optional[Dict[int, List[Roi]]] = None,
-        batch_id: int = ...,
     ) -> None: ...
 
-    def infer_sync(
+    def recv(self) -> NvInferOutput: ...
+    def recv_timeout(self, timeout_ms: int) -> Optional[NvInferOutput]: ...
+    def try_recv(self) -> Optional[NvInferOutput]: ...
+    def send_eos(self, source_id: str) -> None: ...
+    def send_custom_downstream_event(
         self,
-        batch: Union[SharedBuffer, int],
-        rois: Optional[Dict[int, List[Roi]]] = None,
-    ) -> BatchInferenceOutput: ...
-
+        structure_name: str,
+        string_fields: Optional[Dict[str, str]] = None,
+    ) -> None: ...
+    def is_failed(self) -> bool: ...
     def shutdown(self) -> None: ...
 ```
 
-- `submit()` — async, results arrive via callback. The buffer is consumed
-  (internally deconstructed from `SharedBuffer` to `gst::Buffer`).
-- `infer_sync()` — blocks up to `operation_timeout_ms` (from `NvInferConfig`,
-  default 30 000 ms), returns result directly. On timeout, the pipeline enters
-  a terminal failed state (`PipelineFailed`) and must be recreated. Same buffer
-  consumption semantics.
+- `submit()` — pushes a batch; buffer is consumed (`SharedBuffer` → `gst::Buffer`).
+- `recv()` — blocks until the next output item (inference, GStreamer event,
+  logical EOS, or error payload). Raises `RuntimeError` only on channel disconnect.
+- `recv_timeout(timeout_ms)` — same as `recv` but returns `None` on timeout.
+- `try_recv()` — non-blocking; `None` if no item ready.
+- `send_eos(source_id)` — logical per-source EOS (custom downstream event).
+- `send_custom_downstream_event(structure_name, string_fields=None)` — custom
+  downstream event with string fields only (subset of Rust `send_event`).
+- `is_failed()` — terminal failed state from the underlying pipeline.
 - `shutdown()` — sends EOS, drains, stops pipeline. Raises if already shut down.
 
 ### Rust API
 
-In the Rust API, `submit()` and `infer_sync()` accept `SharedBuffer` directly
+In the Rust API, `submit()` accepts `SharedBuffer` directly
 (not `gst::Buffer`). The `into_buffer()` deconstruction happens inside these
 methods. If the `SharedBuffer` has outstanding references, an `NvInferError`
 is returned.
@@ -400,17 +446,38 @@ class NvInferBatchingOperator:
         self,
         config: NvInferBatchingOperatorConfig,
         batch_formation_callback: Callable[[list[VideoFrame]], BatchFormationResult],
-        result_callback: Callable[[OperatorInferenceOutput], None],
+        result_callback: Callable[[OperatorOutput], None],
     ) -> None: ...
 
     def add_frame(self, frame: VideoFrame, buffer: SharedBuffer) -> None: ...
     def flush(self) -> None: ...
+    def send_eos(self, source_id: str) -> None: ...
     def shutdown(self) -> None: ...
 ```
 
 Higher-level batching layer over `NvInfer`.  Accepts individual
 `(VideoFrame, SharedBuffer)` pairs, accumulates them into batches,
-and delivers per-frame results via `result_callback`.
+and delivers each result via `result_callback` as `OperatorOutput`
+(inference batch, per-source EOS, or pipeline error).
+
+---
+
+## OperatorOutput
+
+```python
+class OperatorOutput:
+    @property
+    def is_inference(self) -> bool: ...
+    @property
+    def is_eos(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+    def as_operator_inference_output(self) -> Optional[OperatorInferenceOutput]: ...
+    @property
+    def eos_source_id(self) -> Optional[str]: ...
+    @property
+    def error_message(self) -> Optional[str]: ...
+```
 
 ---
 
