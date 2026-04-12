@@ -1,5 +1,6 @@
 //! Errors for the nvtracker pipeline.
 
+use savant_gstreamer::pipeline::PipelineError;
 use thiserror::Error;
 
 /// Result type alias for nvtracker operations.
@@ -86,6 +87,15 @@ pub enum NvTrackerError {
 
     #[error("DeepStream error: {0}")]
     DeepStream(#[from] deepstream::DeepStreamError),
+
+    #[error("GStreamer pipeline framework error: {0}")]
+    FrameworkError(#[from] PipelineError),
+
+    #[error("pipeline channel disconnected")]
+    ChannelDisconnected,
+
+    #[error("NvTracker is shutting down; no new input accepted")]
+    ShuttingDown,
 }
 
 impl NvTrackerError {

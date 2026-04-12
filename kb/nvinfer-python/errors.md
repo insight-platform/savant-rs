@@ -5,7 +5,8 @@
 | Trigger | When |
 |---|---|
 | `NvInfer.__init__` with invalid config | GStreamer pipeline fails to link / PLAYING |
-| `submit()` / `recv()` / `recv_timeout()` / `try_recv()` / `send_eos()` / `is_failed()` after `shutdown()` | Engine already stopped |
+| `submit()` / `recv()` / `recv_timeout()` / `try_recv()` / `send_eos()` / `is_failed()` after `shutdown()` or `graceful_shutdown()` | Engine already stopped |
+| `submit()` / `send_eos()` / `send_custom_downstream_event()` after `graceful_shutdown()` begins (before inner taken) | `RuntimeError` (`ShuttingDown`) |
 | `shutdown()` twice | Second call raises |
 | `recv()` / `recv_timeout()` / `try_recv()` after channel disconnect | `RuntimeError` (channel disconnected) |
 | `submit()` after failed state | Pipeline previously entered terminal failed state; raises `RuntimeError` with "pipeline failed" |

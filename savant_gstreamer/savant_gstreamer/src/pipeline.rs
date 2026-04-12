@@ -4,6 +4,6 @@ pub mod error;
 pub mod runner;
 pub mod watchdog;
 
-pub use config::PipelineConfig;
+pub use config::{AppsrcPadProbe, PipelineConfig};
 pub use error::PipelineError;
 pub use runner::{GstPipeline, PipelineInput, PipelineOutput};

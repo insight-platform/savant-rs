@@ -23,6 +23,9 @@
 | `BufferNotWritable` | `operation: String` | `get_mut()` returned None |
 | `BufferOwnership` | `operation: String` | `into_buffer()` failed (outstanding refs) |
 | `DeepStream(DeepStreamError)` | inner error | From deepstream crate (`#[from]`) |
+| `FrameworkError(PipelineError)` | inner error | From `savant_gstreamer::pipeline` (`#[from]`) |
+| `ChannelDisconnected` | — | Input/output channel closed (`submit` / `recv` / etc.) |
+| `ShuttingDown` | — | After `graceful_shutdown` begins: `submit`, `send_event`, `send_eos`, `reset_stream` |
 
 Helper: `NvTrackerError::batch_meta(operation, detail)` constructs `BatchMetaFailed` with `Into<String>` arguments.
 

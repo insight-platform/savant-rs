@@ -522,8 +522,15 @@ class NvInfer:
         """Whether the pipeline is in a terminal failed state."""
         ...
 
+    def graceful_shutdown(self, timeout_ms: int) -> List[NvInferOutput]:
+        """Reject new input, drain outputs within ``timeout_ms``, stop pipeline.
+
+        Returns outputs produced before terminal EOS (excludes hard pipeline EOS).
+        """
+        ...
+
     def shutdown(self) -> None:
-        """Graceful shutdown: send EOS, drain, stop pipeline."""
+        """Abrupt shutdown: stop pipeline without draining."""
         ...
 
     def __repr__(self) -> str: ...
@@ -936,6 +943,10 @@ class NvInferBatchingOperator:
 
     def send_eos(self, source_id: str) -> None:
         """Send logical per-source EOS to the inner NvInfer pipeline."""
+        ...
+
+    def graceful_shutdown(self, timeout_ms: int) -> List[OperatorOutput]:
+        """Reject new frames, flush pending batch, drain in-flight results within ``timeout_ms``."""
         ...
 
     def shutdown(self) -> None:

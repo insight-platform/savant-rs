@@ -12,12 +12,13 @@ pub use error::{NvTrackerError, Result};
 pub use output::{
     extract_tracker_output, MiscTrackData, MiscTrackFrame, TrackState, TrackedObject, TrackerOutput,
 };
-pub use pipeline::{default_ll_lib_path, NvTracker, TrackedFrame, TrackerCallback};
+pub use pipeline::{default_ll_lib_path, NvTracker, NvTrackerOutput, TrackedFrame};
 pub use roi::Roi;
 pub use batching_operator::{
     NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig, NvTrackerBatchingOperatorConfigBuilder,
     SealedDeliveries, TrackerBatchFormationCallback, TrackerBatchFormationResult,
     TrackerOperatorFrameOutput, TrackerOperatorOutput, TrackerOperatorResultCallback,
+    TrackerOperatorTrackingOutput,
 };
 ```
 
@@ -67,8 +68,13 @@ pub use batching_operator::{
 | `max_batch_size` | `u32` | `DEFAULT_MAX_BATCH_SIZE` |
 | `queue_depth` | `u32` | `0` |
 | `operation_timeout` | `Duration` | `30s` |
+| `input_channel_capacity` | `usize` | `16` |
+| `output_channel_capacity` | `usize` | `16` |
+| `drain_poll_interval` | `Duration` | `100ms` |
 
-**`operation_timeout` notes:** Controls how long `track_sync` blocks and how long the watchdog thread waits for in-flight async buffers before declaring the pipeline failed. When a timeout triggers (sync or async), the pipeline enters a terminal failed state (`PipelineFailed` error) and must be recreated. A background watchdog thread monitors in-flight async buffers and enforces this timeout.
+**`operation_timeout` notes:** Passed to the `savant_gstreamer::pipeline` framework as the in-flight watchdog deadline. When exceeded, the pipeline enters a terminal failed state (`PipelineFailed`) and must be recreated.
+
+Builder-style setters: `input_channel_capacity`, `output_channel_capacity`, `drain_poll_interval` (each takes `self` by value and returns `Self`).
 
 **`queue_depth` notes:** When set to `0` (default), no GStreamer queue element is inserted—the pipeline operates synchronously. When set to a value greater than zero, a GStreamer `queue` element with `max-size-buffers=queue_depth` is inserted between `appsrc` and `nvtracker`, decoupling the push thread from the tracker processing thread to absorb latency spikes.
 
@@ -101,19 +107,27 @@ Input frame for tracking. Callers build one per source frame; the tracker assemb
 
 ---
 
+## `NvTrackerOutput`
+
+`Tracking(TrackerOutput)` | `Event(gst::Event)` | `Eos { source_id }` | `Error(NvTrackerError)`.
+
 ## `NvTracker`
 
-Pipeline: `appsrc → nvtracker → appsink` (Playing on `new`).
-
-`pub type TrackerCallback = Box<dyn FnMut(TrackerOutput) + Send>;`
+Pipeline: `appsrc → [queue]? → nvtracker → appsink` via `savant_gstreamer::pipeline` (Playing on `new`).
 
 | Method | Signature | Notes |
 |--------|-----------|-------|
-| `new` | `(config: NvTrackerConfig, callback: TrackerCallback) -> Result<Self>` | Validates config, inits GST, installs pad probe for batch-size queries |
-| `track` | `(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()>` | Async; builds `NonUniformBatch` internally from frame buffers |
-| `track_sync` | `(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<TrackerOutput>` | Blocks until output or `operation_timeout` (default 30 s); timeout triggers `PipelineFailed` |
-| `reset_stream` | `(&self, source_id: &str) -> Result<()>` | Sends `GST_NVEVENT_STREAM_RESET` on `appsrc` with pad id `crc32(source_id)`; resets frame counter |
-| `shutdown` | `(&mut self) -> Result<()>` | EOS + drain bus + `Null`; idempotent (safe to call twice) |
+| `new` | `(config: NvTrackerConfig) -> Result<Self>` | Validates config; DeepStream batch-size queries answered via optional `appsrc` pad hook |
+| `submit` | `(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()>` | Builds `NonUniformBatch`; backpressure if input channel full |
+| `recv` | `-> Result<NvTrackerOutput>` | `Err(ChannelDisconnected)` only; framework errors appear as `NvTrackerOutput::Error` |
+| `recv_timeout` | `(timeout: Duration) -> Result<Option<NvTrackerOutput>>` | `Ok(None)` on timeout |
+| `try_recv` | `-> Result<Option<NvTrackerOutput>>` | |
+| `send_eos` | `(&self, source_id: &str) -> Result<()>` | Custom downstream `savant.nvtracker.eos` |
+| `send_event` | `(&self, event: gst::Event) -> Result<()>` | Pushes custom/stream events into the pipeline |
+| `reset_stream` | `(&self, source_id: &str) -> Result<()>` | `GST_NVEVENT_STREAM_RESET` + internal LRU / counters |
+| `is_failed` | `-> bool` | |
+| `graceful_shutdown` | `(&self, timeout: Duration) -> Result<Vec<NvTrackerOutput>>` | Draining flag, EOS, drain until timeout or pipeline EOS, stop pipeline |
+| `shutdown` | `(&self) -> Result<()>` | Abrupt shutdown; also on `Drop` |
 
 `SIG: pub fn default_ll_lib_path() -> String` — typical DeepStream `.so` path.
 
@@ -203,6 +217,7 @@ Builder methods:
 | `add_frame` | `(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()>` | Same input shape as nvinfer batching operator |
 | `flush` | `(&self) -> Result<()>` | Submits current partial batch |
 | `reset_stream` | `(&self, source_id: &str) -> Result<()>` | Forwards to inner tracker |
+| `graceful_shutdown` | `(&mut self, timeout: Duration) -> Result<Vec<TrackerOperatorOutput>>` | Draining, flush, collect in-flight outputs, join threads, `NvTracker::shutdown` |
 | `shutdown` | `(&mut self) -> Result<()>` | Flushes, stops timer thread, shuts down inner tracker |
 
 ### `TrackerOperatorFrameOutput`

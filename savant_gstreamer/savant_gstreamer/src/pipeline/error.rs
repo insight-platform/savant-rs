@@ -20,4 +20,7 @@ pub enum PipelineError {
 
     #[error("Pipeline runtime error: {0}")]
     RuntimeError(String),
+
+    #[error("Pipeline channel disconnected")]
+    ChannelDisconnected,
 }

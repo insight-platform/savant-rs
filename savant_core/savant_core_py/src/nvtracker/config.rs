@@ -21,10 +21,12 @@ use std::collections::HashMap;
 ///     element_properties (Optional[Dict[str, str]]): Extra element properties.
 ///     tracking_id_reset_mode (TrackingIdResetMode): ID reset behaviour.
 ///     queue_depth (int): GStreamer queue ``max-size-buffers`` (0 = no queue).
-///     operation_timeout_ms (int): Maximum time (in milliseconds) to wait for
-///         a submitted buffer to produce a result. Applies to both sync and
-///         async paths. When exceeded, the pipeline enters a terminal failed
-///         state. Default: ``30000``.
+///     operation_timeout_ms (int): Maximum time (in milliseconds) for the
+///         framework in-flight watchdog. When exceeded, the pipeline enters a
+///         terminal failed state. Default: ``30000``.
+///     input_channel_capacity (int): Bounded input channel size. Default: ``16``.
+///     output_channel_capacity (int): Bounded output channel size. Default: ``16``.
+///     drain_poll_interval_ms (int): Drain thread poll interval when idle. Default: ``100``.
 #[pyclass(
     name = "NvTrackerConfig",
     module = "savant_rs.nvtracker",
@@ -52,6 +54,9 @@ impl PyNvTrackerConfig {
         tracking_id_reset_mode = PyTrackingIdResetMode::None,
         queue_depth = 0u32,
         operation_timeout_ms = 30000u64,
+        input_channel_capacity = 16usize,
+        output_channel_capacity = 16usize,
+        drain_poll_interval_ms = 100u64,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -67,6 +72,9 @@ impl PyNvTrackerConfig {
         tracking_id_reset_mode: PyTrackingIdResetMode,
         queue_depth: u32,
         operation_timeout_ms: u64,
+        input_channel_capacity: usize,
+        output_channel_capacity: usize,
+        drain_poll_interval_ms: u64,
     ) -> Self {
         let fmt: VideoFormat = input_format.into();
         let mut cfg = NvTrackerConfig::new(ll_lib_file, ll_config_file);
@@ -78,6 +86,9 @@ impl PyNvTrackerConfig {
         cfg.tracking_id_reset_mode = tracking_id_reset_mode.into();
         cfg.queue_depth = queue_depth;
         cfg.operation_timeout = std::time::Duration::from_millis(operation_timeout_ms);
+        cfg.input_channel_capacity = input_channel_capacity;
+        cfg.output_channel_capacity = output_channel_capacity;
+        cfg.drain_poll_interval = std::time::Duration::from_millis(drain_poll_interval_ms);
         if !name.is_empty() {
             cfg.name = name;
         }
@@ -106,5 +117,61 @@ impl PyNvTrackerConfig {
     #[getter]
     fn operation_timeout_ms(&self) -> u64 {
         self.inner.operation_timeout.as_millis() as u64
+    }
+
+    #[getter]
+    fn input_channel_capacity(&self) -> usize {
+        self.inner.input_channel_capacity
+    }
+
+    #[getter]
+    fn output_channel_capacity(&self) -> usize {
+        self.inner.output_channel_capacity
+    }
+
+    #[getter]
+    fn drain_poll_interval_ms(&self) -> u64 {
+        self.inner.drain_poll_interval.as_millis() as u64
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    #[getter]
+    fn tracker_width(&self) -> u32 {
+        self.inner.tracker_width
+    }
+
+    #[getter]
+    fn tracker_height(&self) -> u32 {
+        self.inner.tracker_height
+    }
+
+    #[getter]
+    fn max_batch_size(&self) -> u32 {
+        self.inner.max_batch_size
+    }
+
+    #[getter]
+    fn gpu_id(&self) -> u32 {
+        self.inner.gpu_id
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "NvTrackerConfig(name={:?}, gpu_id={}, max_batch_size={}, queue_depth={}, \
+             operation_timeout_ms={}, input_channel_capacity={}, output_channel_capacity={}, \
+             drain_poll_interval_ms={})",
+            self.inner.name,
+            self.inner.gpu_id,
+            self.inner.max_batch_size,
+            self.inner.queue_depth,
+            self.operation_timeout_ms(),
+            self.input_channel_capacity(),
+            self.output_channel_capacity(),
+            self.drain_poll_interval_ms(),
+        )
     }
 }

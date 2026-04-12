@@ -68,7 +68,8 @@ Builds `appsrc ! [queue] ! nvinfer ! appsink`. Operates in `process-mode=2`
 | `new` | `(config: NvInferConfig, callback: InferCallback) → Result<Self>` | Spawns pipeline; callback invoked when inference completes (async mode) |
 | `submit` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<()>` | **Consumes** batch. Requires sole ownership (`into_buffer()` succeeds). Async: results delivered to callback. |
 | `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to `operation_timeout` (from `NvInferConfig`, default 30s). On timeout, pipeline enters failed state (`PipelineFailed`). |
-| `shutdown` | `(&mut self) → Result<()>` | Graceful shutdown: sends EOS, waits up to 10s for drain, sets pipeline to Null. |
+| `graceful_shutdown` | `(&self, timeout: Duration) → Result<Vec<NvInferOutput>>` | Sets draining (rejects new `submit`/`send_event`/`send_eos`), sends EOS, drains outputs until pipeline EOS or timeout, stops pipeline. |
+| `shutdown` | `(&self) → Result<()>` | Abrupt shutdown; also invoked from `Drop`. |
 
 **InferCallback:** `Box<dyn FnMut(BatchInferenceOutput) + Send>`
 
@@ -344,6 +345,7 @@ batches and delivers per-frame results via `OperatorResultCallback`.
 | `new` | `(config, batch_formation, result_callback) → Result<Self>` | Spawns inner `NvInfer` + timer thread |
 | `add_frame` | `(&self, frame: VideoFrameProxy, buffer: SharedBuffer) → Result<()>` | Add frame; submits when batch full |
 | `flush` | `(&self) → Result<()>` | Submit current partial batch immediately |
+| `graceful_shutdown` | `(&mut self, timeout: Duration) → Result<Vec<OperatorOutput>>` | Draining flag, flush, buffer callback results until pending clear or timeout, join threads, `NvInfer::shutdown` |
 | `shutdown` | `(&mut self) → Result<()>` | Flush, stop timer, shut down `NvInfer` |
 
 **Drop:** Signals shutdown flag + notifies condvar; joins timer thread.

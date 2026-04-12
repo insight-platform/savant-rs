@@ -12,6 +12,7 @@ use gstreamer as gst;
 use nvinfer::{NvInfer, NvInferOutput, Roi};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use pyo3::Py;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -340,7 +341,32 @@ impl PyNvInfer {
         Ok(engine.is_failed())
     }
 
-    /// Graceful shutdown: send EOS, drain, stop pipeline.
+    /// Graceful shutdown: reject new input, drain outputs within ``timeout_ms``, stop pipeline.
+    ///
+    /// Returns a list of :class:`NvInferOutput` items (excluding terminal pipeline EOS).
+    ///
+    /// Raises:
+    ///     RuntimeError: If the engine has already been shut down.
+    #[pyo3(signature = (timeout_ms))]
+    fn graceful_shutdown(
+        &mut self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Vec<Py<PyNvInferOutput>>> {
+        let engine = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("NvInfer is already shut down")
+        })?;
+        let outs = py.detach(|| {
+            engine
+                .graceful_shutdown(Duration::from_millis(timeout_ms))
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        outs.into_iter()
+            .map(|o| Py::new(py, PyNvInferOutput::from_rust(o)))
+            .collect()
+    }
+
+    /// Abrupt shutdown: stop pipeline without draining.
     ///
     /// Raises:
     ///     RuntimeError: If the engine has already been shut down.

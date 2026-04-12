@@ -17,7 +17,7 @@ pub use batching_operator::{
     NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig,
     NvTrackerBatchingOperatorConfigBuilder, SealedDeliveries, TrackerBatchFormationCallback,
     TrackerBatchFormationResult, TrackerOperatorFrameOutput, TrackerOperatorOutput,
-    TrackerOperatorResultCallback,
+    TrackerOperatorResultCallback, TrackerOperatorTrackingOutput,
 };
 pub use config::{NvTrackerConfig, TrackingIdResetMode};
 pub use deepstream_buffers::SavantIdMetaKind;
@@ -26,5 +26,5 @@ pub use error::{NvTrackerError, Result};
 pub use output::{
     extract_tracker_output, MiscTrackData, MiscTrackFrame, TrackState, TrackedObject, TrackerOutput,
 };
-pub use pipeline::{default_ll_lib_path, NvTracker, TrackedFrame, TrackerCallback};
+pub use pipeline::{default_ll_lib_path, NvTracker, NvTrackerOutput, TrackedFrame};
 pub use roi::Roi;

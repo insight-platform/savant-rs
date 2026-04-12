@@ -1,5 +1,7 @@
 # NvTracker — Python Usage Guide
 
+> **API note:** `NvTracker` uses **`submit` / `recv` / `recv_timeout` / `try_recv`** (same pattern as `NvInfer`). Legacy `track` / `track_sync` / callback constructor were removed — see `kb/nvtracker-python/api.md`.
+
 Comprehensive code samples for all batch patterns. Every example assumes DeepStream 7.1, GPU 0, and the IOU low-level tracker.
 
 ## Prerequisites

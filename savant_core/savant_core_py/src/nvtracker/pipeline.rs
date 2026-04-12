@@ -1,13 +1,21 @@
 //! PyO3 wrapper for NvTracker.
+//!
+//! Thin bindings over [`nvtracker::NvTracker`]: submit and pull outputs via
+//! [`recv`](PyNvTracker::recv) / [`recv_timeout`](PyNvTracker::recv_timeout) /
+//! [`try_recv`](PyNvTracker::try_recv), matching the Rust API.
 
 use super::config::PyNvTrackerConfig;
 use super::output::PyTrackerOutput;
 use crate::deepstream::enums::{to_rust_id_kind, PySavantIdMetaKind};
 use crate::deepstream::PySharedBuffer;
 use crate::nvinfer::roi::PyRoi;
-use nvtracker::{NvTracker, Roi as RustRoi, TrackedFrame};
+use gstreamer as gst;
+use nvtracker::{NvTracker, NvTrackerOutput, Roi as RustRoi, TrackedFrame};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use pyo3::Py;
 use std::collections::HashMap;
+use std::time::Duration;
 
 type PyRoiHandle = Py<PyRoi>;
 
@@ -91,7 +99,123 @@ fn extract_frames(frames: Vec<PyRefMut<'_, PyTrackedFrame>>) -> PyResult<Vec<Tra
     Ok(out)
 }
 
+enum PyNvTrackerOutputInner {
+    Tracking(PyTrackerOutput),
+    Event { summary: String },
+    Eos { source_id: String },
+    Error { message: String },
+}
+
+/// One item from [`PyNvTracker::recv`] / [`PyNvTracker::recv_timeout`] / [`PyNvTracker::try_recv`].
+///
+/// Discriminate with ``is_tracking``, ``is_event``, ``is_eos``, ``is_error`` and use
+/// ``as_tracking()``, ``event_summary``, ``eos_source_id``, ``error_message`` accordingly.
+#[pyclass(name = "NvTrackerOutput", module = "savant_rs.nvtracker")]
+pub struct PyNvTrackerOutput {
+    inner: PyNvTrackerOutputInner,
+}
+
+impl PyNvTrackerOutput {
+    pub(crate) fn from_rust(output: NvTrackerOutput) -> Self {
+        let inner = match output {
+            NvTrackerOutput::Tracking(t) => {
+                PyNvTrackerOutputInner::Tracking(PyTrackerOutput::from_rust(t))
+            }
+            NvTrackerOutput::Event(e) => PyNvTrackerOutputInner::Event {
+                summary: format_gst_event(&e),
+            },
+            NvTrackerOutput::Eos { source_id } => PyNvTrackerOutputInner::Eos { source_id },
+            NvTrackerOutput::Error(e) => PyNvTrackerOutputInner::Error {
+                message: e.to_string(),
+            },
+        };
+        Self { inner }
+    }
+}
+
+fn format_gst_event(e: &gst::Event) -> String {
+    format!("{e:?}")
+}
+
+#[pymethods]
+impl PyNvTrackerOutput {
+    #[getter]
+    fn is_tracking(&self) -> bool {
+        matches!(self.inner, PyNvTrackerOutputInner::Tracking(_))
+    }
+
+    #[getter]
+    fn is_event(&self) -> bool {
+        matches!(self.inner, PyNvTrackerOutputInner::Event { .. })
+    }
+
+    #[getter]
+    fn is_eos(&self) -> bool {
+        matches!(self.inner, PyNvTrackerOutputInner::Eos { .. })
+    }
+
+    #[getter]
+    fn is_error(&self) -> bool {
+        matches!(self.inner, PyNvTrackerOutputInner::Error { .. })
+    }
+
+    /// Return tracking payload if this is a tracking result, else ``None``.
+    fn as_tracking(&self) -> Option<PyTrackerOutput> {
+        match &self.inner {
+            PyNvTrackerOutputInner::Tracking(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn event_summary(&self) -> Option<String> {
+        match &self.inner {
+            PyNvTrackerOutputInner::Event { summary } => Some(summary.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn eos_source_id(&self) -> Option<String> {
+        match &self.inner {
+            PyNvTrackerOutputInner::Eos { source_id } => Some(source_id.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn error_message(&self) -> Option<String> {
+        match &self.inner {
+            PyNvTrackerOutputInner::Error { message } => Some(message.clone()),
+            _ => None,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            PyNvTrackerOutputInner::Tracking(t) => {
+                format!(
+                    "NvTrackerOutput(Tracking(current_tracks={}))",
+                    t.current_tracks.len()
+                )
+            }
+            PyNvTrackerOutputInner::Event { summary } => {
+                format!("NvTrackerOutput(Event({summary:?}))")
+            }
+            PyNvTrackerOutputInner::Eos { source_id } => {
+                format!("NvTrackerOutput(Eos(source_id={source_id:?}))")
+            }
+            PyNvTrackerOutputInner::Error { message } => {
+                format!("NvTrackerOutput(Error({message:?}))")
+            }
+        }
+    }
+}
+
 /// DeepStream multi-object tracker pipeline.
+///
+/// Args:
+///     config (NvTrackerConfig): Tracker configuration.
 #[pyclass(name = "NvTracker", module = "savant_rs.nvtracker")]
 pub struct PyNvTracker {
     inner: Option<NvTracker>,
@@ -100,18 +224,10 @@ pub struct PyNvTracker {
 #[pymethods]
 impl PyNvTracker {
     #[new]
-    fn new(py: Python<'_>, config: &PyNvTrackerConfig, callback: Py<PyAny>) -> PyResult<Self> {
+    fn new(py: Python<'_>, config: &PyNvTrackerConfig) -> PyResult<Self> {
         let rust_config = config.inner.clone();
-        let rust_callback: nvtracker::TrackerCallback = Box::new(move |output| {
-            Python::attach(|py| {
-                let py_out = PyTrackerOutput::from_rust(output);
-                if let Err(e) = callback.call1(py, (py_out,)) {
-                    log::error!("NvTracker callback error: {e}");
-                }
-            });
-        });
         let engine = py.detach(|| {
-            NvTracker::new(rust_config, rust_callback)
+            NvTracker::new(rust_config)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
         Ok(Self {
@@ -119,12 +235,12 @@ impl PyNvTracker {
         })
     }
 
-    /// Asynchronous track.
+    /// Submit frames for tracking.
     ///
     /// Args:
     ///     frames: ``List[TrackedFrame]`` — per-frame source, buffer, and detections.
     ///     ids: ``List[Tuple[SavantIdMetaKind, int]]`` — per-frame Savant IDs.
-    fn track(
+    fn submit(
         &self,
         py: Python<'_>,
         frames: Vec<PyRefMut<'_, PyTrackedFrame>>,
@@ -141,36 +257,99 @@ impl PyNvTracker {
             .collect();
         py.detach(|| {
             engine
-                .track(&rust_frames, rust_ids)
+                .submit(&rust_frames, rust_ids)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
 
-    /// Synchronous track (blocks until result or ``operation_timeout``).
-    fn track_sync(
-        &self,
-        py: Python<'_>,
-        frames: Vec<PyRefMut<'_, PyTrackedFrame>>,
-        ids: Vec<(PySavantIdMetaKind, u128)>,
-    ) -> PyResult<PyTrackerOutput> {
+    fn recv(&self, py: Python<'_>) -> PyResult<PyNvTrackerOutput> {
         let engine = self
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
-        let rust_frames = extract_frames(frames)?;
-        let rust_ids = ids
-            .into_iter()
-            .map(|(kind, id)| to_rust_id_kind(kind, id))
-            .collect();
-        let output = py.detach(|| {
+        let out = py.detach(|| {
             engine
-                .track_sync(&rust_frames, rust_ids)
+                .recv()
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
-        Ok(PyTrackerOutput::from_rust(output))
+        Ok(PyNvTrackerOutput::from_rust(out))
     }
 
-    /// Send stream-reset for ``source_id`` (hashed to pad index).
+    fn recv_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<Option<PyNvTrackerOutput>> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
+        let timeout = Duration::from_millis(timeout_ms);
+        let out = py.detach(|| {
+            engine
+                .recv_timeout(timeout)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        Ok(out.map(PyNvTrackerOutput::from_rust))
+    }
+
+    fn try_recv(&self, py: Python<'_>) -> PyResult<Option<PyNvTrackerOutput>> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
+        let out = py.detach(|| {
+            engine
+                .try_recv()
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        Ok(out.map(PyNvTrackerOutput::from_rust))
+    }
+
+    fn send_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
+        py.detach(|| {
+            engine
+                .send_eos(source_id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    #[pyo3(signature = (structure_name, string_fields=None))]
+    fn send_custom_downstream_event(
+        &self,
+        py: Python<'_>,
+        structure_name: &str,
+        string_fields: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let mut b = gst::Structure::builder(structure_name);
+        if let Some(d) = string_fields {
+            for (k, v) in d.iter() {
+                let key: String = k.extract()?;
+                let val: String = v.extract()?;
+                b = b.field(key.as_str(), val.as_str());
+            }
+        }
+        let structure = b.build();
+        let event = gst::event::CustomDownstream::new(structure);
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
+        py.detach(|| {
+            engine
+                .send_event(event)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    fn is_failed(&self) -> PyResult<bool> {
+        let engine = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
+        Ok(engine.is_failed())
+    }
+
     fn reset_stream(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let engine = self
             .inner
@@ -183,8 +362,27 @@ impl PyNvTracker {
         })
     }
 
+    #[pyo3(signature = (timeout_ms))]
+    fn graceful_shutdown(
+        &mut self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Vec<Py<PyNvTrackerOutput>>> {
+        let engine = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("NvTracker is already shut down")
+        })?;
+        let outs = py.detach(|| {
+            engine
+                .graceful_shutdown(Duration::from_millis(timeout_ms))
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        outs.into_iter()
+            .map(|o| Py::new(py, PyNvTrackerOutput::from_rust(o)))
+            .collect()
+    }
+
     fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
-        let mut engine = self.inner.take().ok_or_else(|| {
+        let engine = self.inner.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvTracker is already shut down")
         })?;
         py.detach(|| {

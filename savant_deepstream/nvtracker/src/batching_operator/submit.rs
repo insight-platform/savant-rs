@@ -22,9 +22,10 @@ pub(super) struct SubmitContext {
     pub(super) pending_batches: PendingMap,
     pub(super) next_batch_id: Arc<AtomicU64>,
     pub(super) source_frame_counters: Arc<Mutex<HashMap<String, u32>>>,
-    pub(super) nvtracker: Arc<Mutex<NvTracker>>,
+    pub(super) nvtracker: Arc<NvTracker>,
     pub(super) shutdown_flag: Arc<AtomicBool>,
     pub(super) failed: Arc<AtomicBool>,
+    pub(super) draining: Arc<AtomicBool>,
 }
 
 impl SubmitContext {
@@ -32,10 +33,21 @@ impl SubmitContext {
     ///
     /// Returns `Ok(())` when the batch is empty (no-op).
     pub(super) fn submit_batch(&self) -> Result<()> {
+        self.submit_batch_impl(true)
+    }
+
+    pub(super) fn submit_batch_for_graceful_flush(&self) -> Result<()> {
+        self.submit_batch_impl(false)
+    }
+
+    fn submit_batch_impl(&self, respect_draining: bool) -> Result<()> {
         if self.failed.load(Ordering::Acquire) {
             return Err(NvTrackerError::OperatorFailed);
         }
         if self.shutdown_flag.load(Ordering::Acquire) {
+            return Err(NvTrackerError::OperatorShutdown);
+        }
+        if respect_draining && self.draining.load(Ordering::Acquire) {
             return Err(NvTrackerError::OperatorShutdown);
         }
 
@@ -91,7 +103,7 @@ impl SubmitContext {
             },
         );
 
-        if let Err(e) = self.nvtracker.lock().track(&tracked_frames, ids) {
+        if let Err(e) = self.nvtracker.submit(&tracked_frames, ids) {
             self.pending_batches.lock().remove(&batch_id);
             let mut counters = self.source_frame_counters.lock();
             for (source, inc) in per_source_increments {

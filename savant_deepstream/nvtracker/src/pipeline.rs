@@ -1,13 +1,12 @@
-//! `NvTracker`: appsrc → nvtracker → appsink.
+//! `NvTracker`: appsrc → nvtracker → appsink via [`savant_gstreamer::pipeline`].
 //!
 //! ## GStreamer properties (manual batched flow)
 //!
 //! - **`appsrc`**: `format=time`, `stream-type=stream`, caps `video/x-raw(memory:NVMM)`.
-//!   Each pushed buffer gets an explicit PTS from an internal monotonic counter (`next_pts`), so
-//!   `track_sync` can correlate request→response even without a wall-clock source.
+//!   Each pushed buffer gets an explicit PTS from an internal monotonic counter (`next_pts`).
 //!   A pad probe on appsrc's src pad answers DeepStream custom queries
 //!   (`gst_nvquery_batch_size` / `gst_nvquery_numStreams_size`) with `config.max_batch_size`.
-//! - **`appsink`**: `sync=false`, `emit-signals=true` — low-latency pull of completed buffers.
+//! - **`appsink`**: `sync=false`, `emit-signals=false` — polled by the framework drain thread.
 //! - **`nvtracker`**: `GstBaseTransform` in-place — operates on the same buffer, so no queue or
 //!   meta bridge is needed.  The `sub-batches` property is **rejected** — each `NvTracker`
 //!   instance is its own isolated tracker; create separate instances for different tracking
@@ -18,24 +17,22 @@ use crate::detection_meta::attach_detection_meta;
 use crate::error::{NvTrackerError, Result};
 use crate::output::{extract_tracker_output, TrackerOutput};
 use crate::roi::Roi;
+use crossbeam::channel::{Receiver, Sender};
 use deepstream_buffers::{NonUniformBatch, SavantIdMetaKind, SharedBuffer, SurfaceView};
 use deepstream_sys;
-use glib::translate::from_glib_none;
 use gstreamer as gst;
 use gstreamer::prelude::*;
-use gstreamer_app as gst_app;
-use gstreamer_app::AppSinkCallbacks;
-use log::{error, info};
+use log::info;
 use lru::LruCache;
 use parking_lot::Mutex;
+use savant_gstreamer::pipeline::{
+    AppsrcPadProbe, GstPipeline, PipelineConfig, PipelineInput, PipelineOutput,
+};
 use std::collections::HashMap;
-use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc;
-use std::sync::Arc;
-use std::time::Instant;
+use std::time::Duration;
 
 extern "C" {
     fn gst_nvquery_is_batch_size(query: *mut gst::ffi::GstQuery) -> i32;
@@ -44,8 +41,23 @@ extern "C" {
     fn gst_nvquery_numStreams_size_set(query: *mut gst::ffi::GstQuery, num_streams_size: u32);
 }
 
-/// Async completion callback.
-pub type TrackerCallback = Box<dyn FnMut(TrackerOutput) + Send>;
+/// Logical EOS event name surfaced through [`NvTracker::recv`].
+const NVTRACKER_SOURCE_EOS_EVENT_NAME: &str = "savant.nvtracker.eos";
+const NVTRACKER_SOURCE_ID_FIELD: &str = "source_id";
+
+/// Discriminated output from [`NvTracker::recv`] / [`NvTracker::recv_timeout`] /
+/// [`NvTracker::try_recv`].
+#[derive(Debug)]
+pub enum NvTrackerOutput {
+    /// Completed tracking for one submitted batch buffer.
+    Tracking(TrackerOutput),
+    /// A downstream GStreamer event (not logical per-source EOS).
+    Event(gst::Event),
+    /// Logical end-of-stream for a specific source (`send_eos`).
+    Eos { source_id: String },
+    /// Pipeline or framework runtime error.
+    Error(NvTrackerError),
+}
 
 /// Slot: source name + detections tagged with `class_id`.
 type ClassifiedSlots = Vec<(String, Vec<(i32, Roi)>)>;
@@ -62,44 +74,22 @@ pub struct TrackedFrame {
     pub rois: HashMap<i32, Vec<Roi>>,
 }
 
-struct SampleDelivery {
-    callback: Mutex<Option<TrackerCallback>>,
-    sync_tx: Mutex<std::collections::HashMap<u64, mpsc::Sender<TrackerOutput>>>,
-}
-
-/// DeepStream nvtracker wrapper.
-///
-/// GStreamer fields are wrapped in [`ManuallyDrop`] because the DeepStream
-/// nvtracker plugin spawns CUDA worker threads that may never terminate during
-/// GObject finalization. After [`shutdown`](Self::shutdown) transitions the
-/// pipeline to `Null`, these wrappers are intentionally **not** dropped so the
-/// process can exit cleanly. The OS reclaims all resources on exit.
+/// DeepStream nvtracker wrapper using the shared GStreamer pipeline framework.
 pub struct NvTracker {
-    pipeline: ManuallyDrop<gst::Pipeline>,
-    appsrc: ManuallyDrop<gst_app::AppSrc>,
-    #[allow(dead_code)]
-    appsink: ManuallyDrop<gst_app::AppSink>,
+    input_tx: Sender<PipelineInput>,
+    output_rx: Receiver<PipelineOutput>,
+    pipeline: Mutex<GstPipeline>,
+    /// Set during [`Self::graceful_shutdown`] and [`Self::shutdown`] to reject new input.
+    draining: AtomicBool,
+    /// Prevents double `GstPipeline::shutdown` (nvtracker `set_state(Null)` is slow
+    /// and must not be called twice).
+    is_shut_down: AtomicBool,
     config: NvTrackerConfig,
-    delivery: Arc<SampleDelivery>,
     next_pts: AtomicU64,
-    /// Reverse lookup: `pad_index` (crc32 of `source_id`) → original string.
-    source_lru: Arc<Mutex<LruCache<u32, String>>>,
-    /// Per `pad_index`, next `frame_num` to assign (monotonic across batches).
-    frame_counters: Arc<Mutex<HashMap<u32, i32>>>,
-    /// Last observed frame resolution `(w, h)` per `pad_index`.
-    last_source_dims: Arc<Mutex<HashMap<u32, (u32, u32)>>>,
-    /// Last observed input frame PTS per `pad_index` (nanoseconds).
-    last_source_pts: Arc<Mutex<HashMap<u32, u64>>>,
-    /// Whether `shutdown()` has already been called.
-    is_shut_down: bool,
-    /// Terminal failed flag — set when an operation timeout is exceeded.
-    failed: Arc<AtomicBool>,
-    /// PTS → submission instant for in-flight buffers (both sync and async).
-    in_flight: Arc<Mutex<HashMap<u64, Instant>>>,
-    /// Watchdog thread handle.
-    _watchdog_thread: Option<std::thread::JoinHandle<()>>,
-    /// Shutdown flag for the watchdog thread.
-    watchdog_shutdown: Arc<AtomicBool>,
+    source_lru: Mutex<LruCache<u32, String>>,
+    frame_counters: Mutex<HashMap<u32, i32>>,
+    last_source_dims: Mutex<HashMap<u32, (u32, u32)>>,
+    last_source_pts: Mutex<HashMap<u32, u64>>,
 }
 
 /// LRU capacity for source_id reverse lookup (compile-time non-zero).
@@ -107,7 +97,7 @@ const SOURCE_LRU_CAPACITY: NonZeroUsize = NonZeroUsize::new(4096).unwrap();
 
 impl NvTracker {
     /// Create and start the pipeline in `Playing`.
-    pub fn new(config: NvTrackerConfig, callback: TrackerCallback) -> Result<Self> {
+    pub fn new(config: NvTrackerConfig) -> Result<Self> {
         config.validate()?;
 
         let name_display = if config.name.is_empty() {
@@ -117,37 +107,6 @@ impl NvTracker {
         };
 
         gst::init().map_err(|e| NvTrackerError::GstInit(e.to_string()))?;
-
-        let pipeline = gst::Pipeline::new();
-
-        let appsrc = gst::ElementFactory::make("appsrc")
-            .name("src")
-            .build()
-            .map_err(|e| NvTrackerError::ElementCreationFailed {
-                element: "appsrc".into(),
-                reason: e.to_string(),
-            })?;
-
-        let appsink = gst::ElementFactory::make("appsink")
-            .name("sink")
-            .build()
-            .map_err(|e| NvTrackerError::ElementCreationFailed {
-                element: "appsink".into(),
-                reason: e.to_string(),
-            })?;
-
-        let appsrc_caps = gst::Caps::builder("video/x-raw")
-            .features(["memory:NVMM"])
-            .field("format", config.input_format.gst_name())
-            .build();
-        let appsrc_elem: &gst::Element = appsrc.upcast_ref();
-        appsrc_elem.set_property("caps", &appsrc_caps);
-        appsrc_elem.set_property_from_str("format", "time");
-        appsrc_elem.set_property_from_str("stream-type", "stream");
-
-        let appsink_elem: &gst::Element = appsink.upcast_ref();
-        appsink_elem.set_property("sync", false);
-        appsink_elem.set_property("emit-signals", true);
 
         let nvtracker = gst::ElementFactory::make("nvtracker")
             .name("nvtracker")
@@ -166,8 +125,6 @@ impl NvTracker {
             "tracking-id-reset-mode",
             config.tracking_id_reset_mode.as_u32(),
         );
-        // Keep past-frame metadata enabled by default so shadow/terminated lists can be emitted
-        // by tracker backends that support them.
         if nvtracker.find_property("enable-past-frame").is_some() {
             Self::set_element_property(&nvtracker, "enable-past-frame", "1")?;
         }
@@ -183,7 +140,8 @@ impl NvTracker {
             Self::set_element_property(&nvtracker, key, value)?;
         }
 
-        let elements: Vec<gst::Element> = if config.queue_depth > 0 {
+        let mut elements: Vec<gst::Element> = Vec::new();
+        if config.queue_depth > 0 {
             let queue = gst::ElementFactory::make("queue")
                 .name("queue")
                 .build()
@@ -194,42 +152,18 @@ impl NvTracker {
             queue.set_property("max-size-buffers", config.queue_depth);
             queue.set_property("max-size-bytes", 0u32);
             queue.set_property("max-size-time", 0u64);
-            vec![
-                appsrc.clone().upcast(),
-                queue,
-                nvtracker.clone().upcast(),
-                appsink.clone().upcast(),
-            ]
-        } else {
-            vec![
-                appsrc.clone().upcast(),
-                nvtracker.clone().upcast(),
-                appsink.clone().upcast(),
-            ]
-        };
-        for elem in &elements {
-            pipeline.add(elem).map_err(|e| {
-                NvTrackerError::PipelineError(format!("Failed to add element: {}", e))
-            })?;
+            elements.push(queue);
         }
-        gst::Element::link_many(elements.iter()).map_err(|_| NvTrackerError::LinkFailed {
-            chain: "appsrc->[queue]->nvtracker->appsink".into(),
-        })?;
+        elements.push(nvtracker.upcast());
 
-        let appsrc_typed: gst_app::AppSrc =
-            appsrc.dynamic_cast::<gst_app::AppSrc>().map_err(|_| {
-                NvTrackerError::ElementCreationFailed {
-                    element: "appsrc".into(),
-                    reason: "dynamic_cast to AppSrc failed".into(),
-                }
-            })?;
+        let appsrc_caps = gst::Caps::builder("video/x-raw")
+            .features(["memory:NVMM"])
+            .field("format", config.input_format.gst_name())
+            .build();
 
-        {
-            let batch_size = config.max_batch_size;
-            let src_pad = appsrc_typed
-                .static_pad("src")
-                .ok_or_else(|| NvTrackerError::PipelineError("appsrc has no src pad".into()))?;
-            src_pad.add_probe(gst::PadProbeType::QUERY_UPSTREAM, move |_pad, info| {
+        let batch_size = config.max_batch_size;
+        let appsrc_probe: Option<AppsrcPadProbe> = Some(Box::new(move |pad| {
+            pad.add_probe(gst::PadProbeType::QUERY_UPSTREAM, move |_pad, info| {
                 if let Some(query) = info.query_mut() {
                     let qptr = query.as_mut_ptr();
                     unsafe {
@@ -245,117 +179,21 @@ impl NvTracker {
                 }
                 gst::PadProbeReturn::Ok
             });
-        }
+        }));
 
-        let appsink_typed: gst_app::AppSink =
-            appsink.dynamic_cast::<gst_app::AppSink>().map_err(|_| {
-                NvTrackerError::ElementCreationFailed {
-                    element: "appsink".into(),
-                    reason: "dynamic_cast to AppSink failed".into(),
-                }
-            })?;
+        let pipeline_config = PipelineConfig {
+            name: name_display.to_string(),
+            appsrc_caps,
+            elements,
+            input_channel_capacity: config.input_channel_capacity,
+            output_channel_capacity: config.output_channel_capacity,
+            operation_timeout: Some(config.operation_timeout),
+            drain_poll_interval: config.drain_poll_interval,
+            appsrc_probe,
+        };
 
-        let delivery = Arc::new(SampleDelivery {
-            callback: Mutex::new(Some(callback)),
-            sync_tx: Mutex::new(std::collections::HashMap::new()),
-        });
-        let failed = Arc::new(AtomicBool::new(false));
-        let in_flight: Arc<Mutex<HashMap<u64, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
-
-        let delivery_clone = delivery.clone();
-        let in_flight_cb = in_flight.clone();
-        let lru_inner = Arc::new(Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)));
-
-        let lru_cb = Arc::clone(&lru_inner);
-        let callbacks = AppSinkCallbacks::builder()
-            .new_sample(move |appsink| {
-                let sample = appsink.pull_sample().map_err(|e| {
-                    log::error!("appsink pull_sample error: {:?}", e);
-                    gst::FlowError::Error
-                })?;
-                let buffer_ref = sample.buffer().ok_or_else(|| {
-                    log::error!("sample has no buffer");
-                    gst::FlowError::Error
-                })?;
-                let buffer: gst::Buffer = unsafe { from_glib_none(buffer_ref.as_ptr()) };
-                let pts_key = buffer.pts().map(|t| t.nseconds());
-
-                // Clear in-flight entry on successful delivery.
-                if let Some(pts) = pts_key {
-                    in_flight_cb.lock().remove(&pts);
-                }
-
-                let resolve = |pad: u32| {
-                    lru_cb
-                        .lock()
-                        .get(&pad)
-                        .cloned()
-                        .unwrap_or_else(|| format!("unknown-{pad:#x}"))
-                };
-                let output = extract_tracker_output(buffer, resolve).map_err(|e| {
-                    log::error!("extract_tracker_output: {}", e);
-                    gst::FlowError::Error
-                })?;
-
-                let sync_sender = pts_key.and_then(|id| delivery_clone.sync_tx.lock().remove(&id));
-                if let Some(tx) = sync_sender {
-                    let _ = tx.send(output);
-                } else if let Some(ref mut cb) = *delivery_clone.callback.lock() {
-                    cb(output);
-                }
-                Ok(gst::FlowSuccess::Ok)
-            })
-            .build();
-        appsink_typed.set_callbacks(callbacks);
-
-        pipeline.set_state(gst::State::Playing).map_err(|e| {
-            NvTrackerError::PipelineError(format!("Failed to start pipeline: {}", e))
-        })?;
-
-        let operation_timeout = config.operation_timeout;
-
-        // Spawn watchdog thread for async in-flight deadline.
-        let watchdog_shutdown = Arc::new(AtomicBool::new(false));
-        let wd_in_flight = in_flight.clone();
-        let wd_failed = failed.clone();
-        let wd_shutdown = watchdog_shutdown.clone();
-        let wd_timeout = operation_timeout;
-        let wd_name = format!("{}-watchdog", name_display);
-        let watchdog_thread = std::thread::Builder::new()
-            .name(wd_name)
-            .spawn(move || {
-                let tick = wd_timeout / 2;
-                loop {
-                    std::thread::sleep(tick);
-                    if wd_shutdown.load(Ordering::Acquire) {
-                        return;
-                    }
-                    if wd_failed.load(Ordering::Acquire) {
-                        return;
-                    }
-                    let now = Instant::now();
-                    let expired: Vec<u64> = wd_in_flight
-                        .lock()
-                        .iter()
-                        .filter(|(_, submitted)| now.duration_since(**submitted) > wd_timeout)
-                        .map(|(&pts, _)| pts)
-                        .collect();
-                    if !expired.is_empty() {
-                        for pts in &expired {
-                            wd_in_flight.lock().remove(pts);
-                        }
-                        error!(
-                            "NvTracker: {} buffer(s) exceeded operation_timeout ({:?}), \
-                             pipeline entering failed state",
-                            expired.len(),
-                            wd_timeout
-                        );
-                        wd_failed.store(true, Ordering::Release);
-                        return;
-                    }
-                }
-            })
-            .ok();
+        let (input_tx, output_rx, gst_pipeline) =
+            GstPipeline::start(pipeline_config).map_err(NvTrackerError::from)?;
 
         info!(
             "NvTracker initialized (name={}, queue_depth={})",
@@ -363,105 +201,161 @@ impl NvTracker {
         );
 
         Ok(Self {
-            pipeline: ManuallyDrop::new(pipeline),
-            appsrc: ManuallyDrop::new(appsrc_typed),
-            appsink: ManuallyDrop::new(appsink_typed),
+            input_tx,
+            output_rx,
+            pipeline: Mutex::new(gst_pipeline),
+            draining: AtomicBool::new(false),
+            is_shut_down: AtomicBool::new(false),
             config,
-            delivery,
             next_pts: AtomicU64::new(0),
-            source_lru: lru_inner,
-            frame_counters: Arc::new(Mutex::new(HashMap::new())),
-            last_source_dims: Arc::new(Mutex::new(HashMap::new())),
-            last_source_pts: Arc::new(Mutex::new(HashMap::new())),
-            is_shut_down: false,
-            failed,
-            in_flight,
-            _watchdog_thread: watchdog_thread,
-            watchdog_shutdown,
+            source_lru: Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)),
+            frame_counters: Mutex::new(HashMap::new()),
+            last_source_dims: Mutex::new(HashMap::new()),
+            last_source_pts: Mutex::new(HashMap::new()),
         })
     }
 
-    /// Push frames through the tracker (async). A [`NonUniformBatch`] is built
-    /// internally from the per-frame buffers.
-    pub fn track(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
-        if self.failed.load(Ordering::Acquire) {
+    /// Submit a batch of frames for tracking.
+    ///
+    /// Blocks if the input channel is full (backpressure).
+    pub fn submit(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(NvTrackerError::ShuttingDown);
+        }
+        if self.is_failed() {
             return Err(NvTrackerError::PipelineFailed);
         }
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        self.in_flight.lock().insert(pts, Instant::now());
-        let (batch, slots, input_pts) = match self.prepare_batch(frames, ids) {
-            Ok(v) => v,
-            Err(e) => {
-                self.in_flight.lock().remove(&pts);
-                return Err(e);
-            }
-        };
-        if let Err(e) = self.push_buffer(batch, &slots, &input_pts, pts) {
-            self.in_flight.lock().remove(&pts);
-            return Err(e);
-        }
+        let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
+        let buffer = self.finalize_batch_buffer(batch, &slots, &input_pts, pts)?;
+        self.input_tx
+            .send(PipelineInput::Buffer(buffer))
+            .map_err(|_| NvTrackerError::ChannelDisconnected)?;
         Ok(())
     }
 
-    /// Push frames through the tracker; block until the result is available or
-    /// `operation_timeout` is exceeded. On timeout, the pipeline enters a
-    /// terminal failed state and must be recreated.
-    pub fn track_sync(
-        &self,
-        frames: &[TrackedFrame],
-        ids: Vec<SavantIdMetaKind>,
-    ) -> Result<TrackerOutput> {
-        if self.failed.load(Ordering::Acquire) {
-            return Err(NvTrackerError::PipelineFailed);
-        }
-        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        self.in_flight.lock().insert(pts, Instant::now());
-        let (tx, rx) = mpsc::channel();
-        {
-            self.delivery.sync_tx.lock().insert(pts, tx);
-        }
-        let (batch, slots, input_pts) = match self.prepare_batch(frames, ids) {
-            Ok(v) => v,
-            Err(e) => {
-                self.in_flight.lock().remove(&pts);
-                self.delivery.sync_tx.lock().remove(&pts);
-                return Err(e);
-            }
-        };
-        if let Err(e) = self.push_buffer(batch, &slots, &input_pts, pts) {
-            self.in_flight.lock().remove(&pts);
-            self.delivery.sync_tx.lock().remove(&pts);
-            return Err(e);
-        }
-        match rx.recv_timeout(self.config.operation_timeout) {
-            Ok(output) => {
-                // in_flight already cleared by appsink callback
-                Ok(output)
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.in_flight.lock().remove(&pts);
-                self.delivery.sync_tx.lock().remove(&pts);
-                error!(
-                    "NvTracker: track_sync timed out after {:?}, pipeline entering failed state",
-                    self.config.operation_timeout
-                );
-                self.failed.store(true, Ordering::Release);
-                Err(NvTrackerError::PipelineFailed)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                self.in_flight.lock().remove(&pts);
-                self.delivery.sync_tx.lock().remove(&pts);
-                error!(
-                    "NvTracker: track_sync channel disconnected, pipeline entering failed state"
-                );
-                self.failed.store(true, Ordering::Release);
-                Err(NvTrackerError::PipelineFailed)
+    /// Block until the next output is available.
+    pub fn recv(&self) -> Result<NvTrackerOutput> {
+        let output = self
+            .output_rx
+            .recv()
+            .map_err(|_| NvTrackerError::ChannelDisconnected)?;
+        self.convert_output(output)
+    }
+
+    /// Block until the next output or timeout. Returns `Ok(None)` on timeout.
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<Option<NvTrackerOutput>> {
+        match self.output_rx.recv_timeout(timeout) {
+            Ok(output) => self.convert_output(output).map(Some),
+            Err(crossbeam::channel::RecvTimeoutError::Timeout) => Ok(None),
+            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => {
+                Err(NvTrackerError::ChannelDisconnected)
             }
         }
     }
 
-    /// Build a [`NonUniformBatch`] from individual frame buffers and derive the
-    /// internal slot representation `(source_id, classified_rois)`.
+    /// Non-blocking receive.
+    pub fn try_recv(&self) -> Result<Option<NvTrackerOutput>> {
+        match self.output_rx.try_recv() {
+            Ok(output) => self.convert_output(output).map(Some),
+            Err(crossbeam::channel::TryRecvError::Empty) => Ok(None),
+            Err(crossbeam::channel::TryRecvError::Disconnected) => {
+                Err(NvTrackerError::ChannelDisconnected)
+            }
+        }
+    }
+
+    /// Send a custom GStreamer event into the pipeline input.
+    pub fn send_event(&self, event: gst::Event) -> Result<()> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(NvTrackerError::ShuttingDown);
+        }
+        self.input_tx
+            .send(PipelineInput::Event(event))
+            .map_err(|_| NvTrackerError::ChannelDisconnected)?;
+        Ok(())
+    }
+
+    /// Send a logical per-source EOS marker downstream (custom downstream event).
+    pub fn send_eos(&self, source_id: &str) -> Result<()> {
+        let structure = gst::Structure::builder(NVTRACKER_SOURCE_EOS_EVENT_NAME)
+            .field(NVTRACKER_SOURCE_ID_FIELD, source_id)
+            .build();
+        let event = gst::event::CustomDownstream::new(structure);
+        self.send_event(event)
+    }
+
+    /// Send `GST_NVEVENT_STREAM_RESET` for the stream identified by `source_id` (crc32 → pad id).
+    pub fn reset_stream(&self, source_id: &str) -> Result<()> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(NvTrackerError::ShuttingDown);
+        }
+        self.reset_stream_with_reason(source_id, "manual")
+    }
+
+    pub fn is_failed(&self) -> bool {
+        self.pipeline.lock().is_failed()
+    }
+
+    /// Graceful shutdown: reject new input, send EOS, drain outputs within `timeout`, stop pipeline.
+    pub fn graceful_shutdown(&self, timeout: Duration) -> Result<Vec<NvTrackerOutput>> {
+        if self.is_shut_down.swap(true, Ordering::AcqRel) {
+            return Err(NvTrackerError::ShuttingDown);
+        }
+        self.draining.store(true, Ordering::Release);
+        let raw = {
+            let mut guard = self.pipeline.lock();
+            guard
+                .graceful_shutdown(timeout, &self.input_tx, &self.output_rx)
+                .map_err(NvTrackerError::from)?
+        };
+        let mut out = Vec::with_capacity(raw.len());
+        for item in raw {
+            out.push(self.convert_output(item)?);
+        }
+        Ok(out)
+    }
+
+    /// Abrupt shutdown (used by [`Drop`]).
+    pub fn shutdown(&self) -> Result<()> {
+        if self.is_shut_down.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        self.draining.store(true, Ordering::Release);
+        self.pipeline
+            .lock()
+            .shutdown()
+            .map_err(NvTrackerError::from)?;
+        Ok(())
+    }
+
+    fn convert_output(&self, output: PipelineOutput) -> Result<NvTrackerOutput> {
+        match output {
+            PipelineOutput::Buffer(buffer) => {
+                let resolve = |pad: u32| {
+                    self.source_lru
+                        .lock()
+                        .get(&pad)
+                        .cloned()
+                        .unwrap_or_else(|| format!("unknown-{pad:#x}"))
+                };
+                let tracker_output = extract_tracker_output(buffer, resolve)?;
+                Ok(NvTrackerOutput::Tracking(tracker_output))
+            }
+            PipelineOutput::Eos => Ok(NvTrackerOutput::Error(NvTrackerError::PipelineError(
+                "unexpected hard GStreamer EOS in NvTracker output".into(),
+            ))),
+            PipelineOutput::Event(event) => {
+                if let Some(source_id) = parse_source_eos_event(&event) {
+                    Ok(NvTrackerOutput::Eos { source_id })
+                } else {
+                    Ok(NvTrackerOutput::Event(event))
+                }
+            }
+            PipelineOutput::Error(e) => Ok(NvTrackerOutput::Error(NvTrackerError::from(e))),
+        }
+    }
+
     fn prepare_batch(
         &self,
         frames: &[TrackedFrame],
@@ -498,7 +392,7 @@ impl NvTracker {
                 operation: "prepare_batch".into(),
             })?;
 
-        let slots: Vec<(String, Vec<(i32, Roi)>)> = frames
+        let slots: ClassifiedSlots = frames
             .iter()
             .map(|f| {
                 let flat: Vec<(i32, Roi)> = f
@@ -514,13 +408,13 @@ impl NvTracker {
         Ok((batch, slots, input_pts))
     }
 
-    fn push_buffer(
+    fn finalize_batch_buffer(
         &self,
         mut batch: gst::Buffer,
         slots: &ClassifiedSlots,
         input_pts: &[Option<u64>],
         pts: u64,
-    ) -> Result<()> {
+    ) -> Result<gst::Buffer> {
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
 
         let slot_dims = if num_filled > 0 {
@@ -633,16 +527,7 @@ impl NvTracker {
             buf_ref.set_pts(gst::ClockTime::from_nseconds(pts));
         }
 
-        self.appsrc
-            .push_buffer(batch)
-            .map_err(|e| NvTrackerError::PipelineError(format!("appsrc push failed: {:?}", e)))?;
-
-        Ok(())
-    }
-
-    /// Send `GST_NVEVENT_STREAM_RESET` for the stream identified by `source_id` (crc32 → pad id).
-    pub fn reset_stream(&self, source_id: &str) -> Result<()> {
-        self.reset_stream_with_reason(source_id, "manual")
+        Ok(batch)
     }
 
     fn reset_stream_with_reason(&self, source_id: &str, reason: &str) -> Result<()> {
@@ -663,11 +548,7 @@ impl NvTracker {
             ));
         }
         let event = unsafe { gst::Event::from_glib_full(ev_ptr as *mut gst::ffi::GstEvent) };
-        if !self.appsrc.send_event(event) {
-            return Err(NvTrackerError::PipelineError(
-                "appsrc send_event(stream_reset) rejected".into(),
-            ));
-        }
+        self.send_event(event)?;
         Ok(())
     }
 
@@ -756,32 +637,6 @@ impl NvTracker {
         Ok(())
     }
 
-    /// Stop the pipeline gracefully: send EOS, wait for it to propagate, then
-    /// transition to `Null`.  The GStreamer element wrappers are intentionally
-    /// **not** freed afterwards (see [`Drop`] impl).
-    pub fn shutdown(&mut self) -> Result<()> {
-        if self.is_shut_down {
-            return Ok(());
-        }
-        self.is_shut_down = true;
-        self.watchdog_shutdown.store(true, Ordering::Release);
-        if let Some(handle) = self._watchdog_thread.take() {
-            let _ = handle.join();
-        }
-        let _ = self.appsrc.end_of_stream();
-        let bus = self
-            .pipeline
-            .bus()
-            .ok_or_else(|| NvTrackerError::PipelineError("Pipeline has no bus".into()))?;
-        let _ = bus.timed_pop_filtered(
-            gst::ClockTime::from_seconds(5),
-            &[gst::MessageType::Eos, gst::MessageType::Error],
-        );
-        let _ = self.pipeline.set_state(gst::State::Null);
-        let _ = self.pipeline.state(gst::ClockTime::from_seconds(5));
-        Ok(())
-    }
-
     fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {
         if element.find_property(key).is_none() {
             return Err(NvTrackerError::InvalidProperty {
@@ -807,6 +662,17 @@ impl Drop for NvTracker {
     fn drop(&mut self) {
         let _ = self.shutdown();
     }
+}
+
+fn parse_source_eos_event(event: &gst::Event) -> Option<String> {
+    if event.type_() != gst::EventType::CustomDownstream {
+        return None;
+    }
+    let structure = event.structure()?;
+    if structure.name() != NVTRACKER_SOURCE_EOS_EVENT_NAME {
+        return None;
+    }
+    structure.get::<String>(NVTRACKER_SOURCE_ID_FIELD).ok()
 }
 
 fn validate_per_source_resolution(
@@ -904,4 +770,101 @@ fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u3
 pub fn default_ll_lib_path() -> String {
     let p = Path::new("/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so");
     p.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_config() -> NvTrackerConfig {
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let lib = dir.join(format!("nvtracker_pipe_lib_{pid}.so"));
+        let yml = dir.join(format!("nvtracker_pipe_cfg_{pid}.yml"));
+        std::fs::write(&lib, b"x").unwrap();
+        std::fs::write(&yml, b"y").unwrap();
+        NvTrackerConfig::new(
+            lib.to_string_lossy().into_owned(),
+            yml.to_string_lossy().into_owned(),
+        )
+    }
+
+    #[test]
+    fn test_recv_timeout_returns_none() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let mut c = minimal_config();
+        c.operation_timeout = Duration::from_secs(60);
+        let tracker = match NvTracker::new(c) {
+            Ok(t) => t,
+            Err(_) => return, // nvtracker element unavailable in CI
+        };
+        assert!(!tracker.is_failed());
+        let r = tracker
+            .recv_timeout(Duration::from_millis(10))
+            .expect("recv_timeout");
+        assert!(r.is_none());
+        let _ = tracker.shutdown();
+    }
+
+    #[test]
+    fn test_try_recv_returns_none() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let mut c = minimal_config();
+        c.operation_timeout = Duration::from_secs(60);
+        let tracker = match NvTracker::new(c) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        let r = tracker.try_recv().expect("try_recv");
+        assert!(r.is_none());
+        let _ = tracker.shutdown();
+    }
+
+    #[test]
+    fn test_is_failed_false_on_healthy() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let mut c = minimal_config();
+        c.operation_timeout = Duration::from_secs(60);
+        let tracker = match NvTracker::new(c) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        assert!(!tracker.is_failed());
+        let _ = tracker.shutdown();
+    }
+
+    /// Requires GPU + DeepStream nvtracker; ignored by default.
+    #[test]
+    #[ignore]
+    fn test_submit_recv_single_frame() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let c = minimal_config();
+        let tracker = NvTracker::new(c).expect("nvtracker new");
+        // Real test would build NVMM frame + detections; placeholder documents hook.
+        let _ = tracker;
+    }
+
+    #[test]
+    #[ignore]
+    fn test_submit_recv_multi_source() {}
+
+    #[test]
+    #[ignore]
+    fn test_send_eos_round_trip() {}
+
+    #[test]
+    #[ignore]
+    fn test_reset_stream_resets_tracking_ids() {}
+
+    #[test]
+    #[ignore]
+    fn test_resolution_change_triggers_auto_reset() {}
+
+    #[test]
+    #[ignore]
+    fn test_pts_regression_triggers_auto_reset() {}
+
+    #[test]
+    #[ignore]
+    fn test_same_resolution_no_reset() {}
 }

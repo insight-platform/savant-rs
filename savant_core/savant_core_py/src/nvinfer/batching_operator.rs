@@ -19,6 +19,7 @@ use nvinfer::{
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3::Py;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -977,6 +978,26 @@ impl PyNvInferBatchingOperator {
             op.send_eos(source_id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
+    }
+
+    #[pyo3(signature = (timeout_ms))]
+    fn graceful_shutdown(
+        &mut self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Vec<Py<PyOperatorOutput>>> {
+        let mut op = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "NvInferBatchingOperator is already shut down",
+            )
+        })?;
+        let outs = py.detach(|| {
+            op.graceful_shutdown(Duration::from_millis(timeout_ms))
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        outs.into_iter()
+            .map(|o| Py::new(py, PyOperatorOutput::from_rust(o)))
+            .collect()
     }
 
     /// Flush pending frames, stop the timer thread, and shut down NvInfer.

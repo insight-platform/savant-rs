@@ -10,7 +10,7 @@ use savant_core::primitives::frame::VideoFrameProxy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::output::{
     OperatorElement, OperatorFrameOutput, OperatorInferenceOutput, OperatorOutput,
@@ -28,6 +28,8 @@ pub struct NvInferBatchingOperator {
     condvar: Arc<Condvar>,
     timer_thread: Option<std::thread::JoinHandle<()>>,
     drain_thread: Option<std::thread::JoinHandle<()>>,
+    /// During [`Self::graceful_shutdown`], operator outputs are collected here instead of the callback.
+    draining_buffer: Arc<Mutex<Option<Vec<OperatorOutput>>>>,
 }
 
 impl NvInferBatchingOperator {
@@ -51,6 +53,8 @@ impl NvInferBatchingOperator {
         let state = Arc::new(Mutex::new(BatchState::new()));
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
+        let draining = Arc::new(AtomicBool::new(false));
+        let draining_buffer: Arc<Mutex<Option<Vec<OperatorOutput>>>> = Arc::new(Mutex::new(None));
         let condvar = Arc::new(Condvar::new());
 
         let ctx = Arc::new(SubmitContext {
@@ -62,12 +66,14 @@ impl NvInferBatchingOperator {
             nvinfer: nvinfer.clone(),
             shutdown_flag: shutdown_flag.clone(),
             failed: failed.clone(),
+            draining: draining.clone(),
         });
 
         let drain_nvinfer = nvinfer;
         let drain_pending = pending_batches;
         let drain_failed = failed.clone();
         let drain_shutdown = shutdown_flag.clone();
+        let drain_dbuf = draining_buffer.clone();
         let drain_thread_name = if ctx.config.nvinfer.name.is_empty() {
             "nvinfer-batching-operator-drain".to_string()
         } else {
@@ -83,6 +89,7 @@ impl NvInferBatchingOperator {
                         drain_pending,
                         drain_failed,
                         drain_shutdown,
+                        drain_dbuf,
                         &mut result_callback,
                     );
                 }
@@ -112,6 +119,7 @@ impl NvInferBatchingOperator {
             condvar,
             timer_thread: Some(timer_thread),
             drain_thread: Some(drain_thread),
+            draining_buffer,
         })
     }
 
@@ -122,6 +130,9 @@ impl NvInferBatchingOperator {
     pub fn add_frame(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()> {
         if self.ctx.failed.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorFailed);
+        }
+        if self.ctx.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorShutdown);
         }
         if self.ctx.shutdown_flag.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorShutdown);
@@ -150,17 +161,66 @@ impl NvInferBatchingOperator {
 
     /// Submit the current partial batch immediately (if non-empty).
     pub fn flush(&self) -> Result<()> {
+        if self.ctx.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorShutdown);
+        }
         self.ctx.submit_batch()
     }
 
     /// Propagate logical per-source EOS to the result callback.
     pub fn send_eos(&self, source_id: &str) -> Result<()> {
+        if self.ctx.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorShutdown);
+        }
         self.ctx.nvinfer.send_eos(source_id)
+    }
+
+    /// Graceful shutdown: reject new frames, flush pending batch, collect in-flight
+    /// operator outputs until `timeout`, then stop threads and [`NvInfer`].
+    pub fn graceful_shutdown(&mut self, timeout: Duration) -> Result<Vec<OperatorOutput>> {
+        self.ctx.draining.store(true, Ordering::Release);
+        self.ctx.submit_batch_for_graceful_flush()?;
+        *self.draining_buffer.lock() = Some(Vec::new());
+
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if self.ctx.failed.load(Ordering::Acquire) {
+                break;
+            }
+            if self.ctx.pending_batches.lock().is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        self.ctx.shutdown_flag.store(true, Ordering::Release);
+        self.condvar.notify_one();
+
+        if let Some(handle) = self.timer_thread.take() {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.drain_thread.take() {
+            let _ = handle.join();
+        }
+
+        let mut out = self.draining_buffer.lock().take().unwrap_or_default();
+
+        let pending_count = self.ctx.pending_batches.lock().len();
+        self.ctx.pending_batches.lock().clear();
+        for _ in 0..pending_count {
+            out.push(OperatorOutput::Error(NvInferError::PipelineError(
+                "graceful_shutdown: pending batch incomplete before timeout".into(),
+            )));
+        }
+
+        self.ctx.nvinfer.shutdown()?;
+        Ok(out)
     }
 
     /// Flush pending frames, stop the timer thread, send EOS, and shut down.
     pub fn shutdown(&mut self) -> Result<()> {
-        let _ = self.flush();
+        self.ctx.draining.store(true, Ordering::Release);
+        let _ = self.ctx.submit_batch_for_graceful_flush();
         self.ctx.shutdown_flag.store(true, Ordering::Release);
         self.condvar.notify_one();
 
@@ -189,19 +249,30 @@ impl Drop for NvInferBatchingOperator {
     }
 }
 
-/// Drain thread: reads from `nvinfer.recv()` and routes results to the callback.
+/// Drain thread: reads from `nvinfer.recv()` and routes results to the callback
+/// or to `draining_buffer` when it is `Some` (graceful shutdown).
 fn drain_loop(
     nvinfer: Arc<NvInfer>,
     pending_batches: PendingMap,
     failed: Arc<AtomicBool>,
     shutdown: Arc<AtomicBool>,
+    draining_buffer: Arc<Mutex<Option<Vec<OperatorOutput>>>>,
     result_callback: &mut OperatorResultCallback,
 ) {
+    let mut emit = |out: OperatorOutput| {
+        let mut g = draining_buffer.lock();
+        if let Some(v) = g.as_mut() {
+            v.push(out);
+        } else {
+            result_callback(out);
+        }
+    };
+
     loop {
         if shutdown.load(Ordering::Acquire) || failed.load(Ordering::Acquire) {
             return;
         }
-        let output = match nvinfer.recv_timeout(std::time::Duration::from_millis(100)) {
+        let output = match nvinfer.recv_timeout(Duration::from_millis(100)) {
             Ok(Some(output)) => output,
             Ok(None) => continue,
             Err(e) => {
@@ -215,25 +286,26 @@ fn drain_loop(
 
         match output {
             NvInferOutput::Inference(batch_output) => {
-                process_inference_output(batch_output, &pending_batches, result_callback);
+                if let Some(op) = process_inference_output(batch_output, &pending_batches) {
+                    emit(op);
+                }
             }
             NvInferOutput::Eos { source_id } => {
-                result_callback(OperatorOutput::Eos { source_id });
+                emit(OperatorOutput::Eos { source_id });
             }
             NvInferOutput::Error(e) => {
-                result_callback(OperatorOutput::Error(e));
+                emit(OperatorOutput::Error(e));
             }
             NvInferOutput::Event(_) => {}
         }
     }
 }
 
-/// Process a single inference output and deliver to the user callback.
+/// Process a single inference output into an [`OperatorOutput`], or `None` if correlation failed.
 fn process_inference_output(
     output: BatchInferenceOutput,
     pending_batches: &PendingMap,
-    result_callback: &mut OperatorResultCallback,
-) {
+) -> Option<OperatorOutput> {
     let batch_id = find_batch_id(&output);
     let (buffer, elements, _clear_on_drop, host_copy_enabled) = output.into_parts();
 
@@ -241,7 +313,7 @@ fn process_inference_output(
         Some(id) => id,
         None => {
             error!("Operator drain: no Batch SavantIdMeta on output buffer");
-            return;
+            return None;
         }
     };
 
@@ -250,7 +322,7 @@ fn process_inference_output(
         Some(p) => p,
         None => {
             warn!("Operator drain: no pending batch for id={batch_id}");
-            return;
+            return None;
         }
     };
 
@@ -319,7 +391,7 @@ fn process_inference_output(
     let operator_output =
         OperatorInferenceOutput::new(frame_outputs, deliveries, host_copy_enabled, buffer);
 
-    result_callback(OperatorOutput::Inference(operator_output));
+    Some(OperatorOutput::Inference(operator_output))
 }
 
 /// Scan the output buffer's [`SavantIdMeta`] for a `Batch(id)` entry.

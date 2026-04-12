@@ -26,6 +26,8 @@ pub(super) struct SubmitContext {
     pub(super) nvinfer: Arc<NvInfer>,
     pub(super) shutdown_flag: Arc<AtomicBool>,
     pub(super) failed: Arc<AtomicBool>,
+    /// When true, [`Self::submit_batch`] rejects; [`Self::submit_batch_for_graceful_flush`] still runs.
+    pub(super) draining: Arc<AtomicBool>,
 }
 
 impl SubmitContext {
@@ -33,10 +35,22 @@ impl SubmitContext {
     ///
     /// Returns `Ok(())` even when the batch is empty (no-op).
     pub(super) fn submit_batch(&self) -> Result<()> {
+        self.submit_batch_impl(true)
+    }
+
+    /// Submit pending frames during [`super::NvInferBatchingOperator::graceful_shutdown`] (ignores draining).
+    pub(super) fn submit_batch_for_graceful_flush(&self) -> Result<()> {
+        self.submit_batch_impl(false)
+    }
+
+    fn submit_batch_impl(&self, respect_draining: bool) -> Result<()> {
         if self.failed.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorFailed);
         }
         if self.shutdown_flag.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorShutdown);
+        }
+        if respect_draining && self.draining.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorShutdown);
         }
 

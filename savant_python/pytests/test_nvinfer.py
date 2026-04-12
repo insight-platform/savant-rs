@@ -20,6 +20,7 @@ try:
         NvInferConfig,
         NvInferBatchingOperator,
         NvInferBatchingOperatorConfig,
+        NvInferOutput,
         BatchFormationResult,
         Roi,
         RoiKind,
@@ -598,3 +599,30 @@ def test_sealed_deliveries_guard_behavior():
         )
     finally:
         operator.shutdown()
+
+
+@pytest.mark.skipif(not _has_identity_onnx(), reason="identity.onnx not found")
+def test_nvinfer_graceful_shutdown_py() -> None:
+    init_cuda(0)
+    W, H = 12, 12
+    nvinfer_config = NvInferConfig(
+        nvinfer_properties=identity_properties(),
+        input_format=VideoFormat.RGBA,
+        model_width=W,
+        model_height=H,
+    )
+    engine = NvInfer(nvinfer_config)
+    src_gen = BufferGenerator(format="RGBA", width=W, height=H, gpu_id=0, pool_size=1)
+    src_buf = src_gen.acquire(id=0)
+    batch = NonUniformBatch(gpu_id=0)
+    src_view = SurfaceView.from_buffer(src_buf)
+    batch.add(src_view)
+    gst_buffer = batch.finalize(ids=[(SavantIdMetaKind.FRAME, 0)])
+    del batch, src_view, src_buf, src_gen
+
+    engine.submit(batch=gst_buffer, rois=None)
+    drained = engine.graceful_shutdown(2_000)
+    assert isinstance(drained, list)
+    assert any(isinstance(x, NvInferOutput) and x.is_inference for x in drained)
+    with pytest.raises(RuntimeError, match="shut down"):
+        engine.graceful_shutdown(1_000)

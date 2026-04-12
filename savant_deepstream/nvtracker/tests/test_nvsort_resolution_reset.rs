@@ -116,7 +116,7 @@ fn try_create_tracker(mode: TrackingIdResetMode) -> Option<NvTracker> {
     c.tracker_width = 640;
     c.tracker_height = 480;
     c.max_batch_size = 4;
-    match NvTracker::new(c, Box::new(|_| {})) {
+    match NvTracker::new(c) {
         Ok(t) => Some(t),
         Err(e) => {
             eprintln!("skip: NvTracker::new failed: {e}");
@@ -129,7 +129,7 @@ fn try_create_tracker(mode: TrackingIdResetMode) -> Option<NvTracker> {
 #[serial]
 fn test_resolution_change_resets_stream_state_nvsort() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
         return;
     };
 
@@ -145,15 +145,15 @@ fn test_resolution_change_resets_stream_state_nvsort() {
     let mut id_a_before = None;
     let mut id_b_before = None;
     for i in 0..12u64 {
-        let out = tracker
-            .track_sync(
-                &[
-                    make_frame("cam-a", vec![roi_a.clone()], 320, 240, Some(100 + i)),
-                    make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(100 + i)),
-                ],
-                frame_ids(2),
-            )
-            .expect("warmup");
+        let out = common::track_sync(
+            &tracker,
+            &[
+                make_frame("cam-a", vec![roi_a.clone()], 320, 240, Some(100 + i)),
+                make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(100 + i)),
+            ],
+            frame_ids(2),
+        )
+        .expect("warmup");
         id_a_before = id_for_source(&out, "cam-a");
         id_b_before = id_for_source(&out, "cam-b");
         if id_a_before.is_some() && id_b_before.is_some() {
@@ -166,15 +166,15 @@ fn test_resolution_change_resets_stream_state_nvsort() {
     let mut cam_a_reset = false;
     let mut cam_b_preserved = false;
     for i in 0..16u64 {
-        let out = tracker
-            .track_sync(
-                &[
-                    make_frame("cam-a", vec![roi_a.clone()], 640, 480, Some(500 + i)),
-                    make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(500 + i)),
-                ],
-                frame_ids(2),
-            )
-            .expect("resolution-change");
+        let out = common::track_sync(
+            &tracker,
+            &[
+                make_frame("cam-a", vec![roi_a.clone()], 640, 480, Some(500 + i)),
+                make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(500 + i)),
+            ],
+            frame_ids(2),
+        )
+        .expect("resolution-change");
         if let Some(id_a_after) = id_for_source(&out, "cam-a") {
             if id_a_after != id_a_before {
                 cam_a_reset = true;
@@ -206,7 +206,7 @@ fn test_resolution_change_resets_stream_state_nvsort() {
 #[serial]
 fn test_nvsort_populates_shadow_and_terminated_lists() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
@@ -221,18 +221,18 @@ fn test_nvsort_populates_shadow_and_terminated_lists() {
 
     let mut id0 = None;
     for i in 0..=(probation_age + 8) {
-        let out = tracker
-            .track_sync(
-                &[make_frame(
-                    "cam-1",
-                    vec![roi.clone()],
-                    320,
-                    240,
-                    Some(i as u64 + 1),
-                )],
-                frame_ids(1),
-            )
-            .expect("warmup track");
+        let out = common::track_sync(
+            &tracker,
+            &[make_frame(
+                "cam-1",
+                vec![roi.clone()],
+                320,
+                240,
+                Some(i as u64 + 1),
+            )],
+            frame_ids(1),
+        )
+        .expect("warmup track");
         id0 = id_for_source(&out, "cam-1");
         if id0.is_some() {
             break;
@@ -247,18 +247,18 @@ fn test_nvsort_populates_shadow_and_terminated_lists() {
     let mut seen_any_terminated = false;
     let max_iters = max_shadow_age + probation_age + 10;
     for i in 0..=max_iters {
-        let out = tracker
-            .track_sync(
-                &[make_frame(
-                    "cam-1",
-                    vec![],
-                    320,
-                    240,
-                    Some(1_000 + i as u64),
-                )],
-                frame_ids(1),
-            )
-            .expect("empty-roi track");
+        let out = common::track_sync(
+            &tracker,
+            &[make_frame(
+                "cam-1",
+                vec![],
+                320,
+                240,
+                Some(1_000 + i as u64),
+            )],
+            frame_ids(1),
+        )
+        .expect("empty-roi track");
 
         let in_current = out.current_tracks.iter().any(|t| t.object_id == id0);
         let in_shadow = out.shadow_tracks.iter().any(|t| t.object_id == id0);
@@ -301,7 +301,7 @@ fn test_nvsort_populates_shadow_and_terminated_lists() {
 #[serial]
 fn test_pts_regression_resets_only_affected_stream_nvsort() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
         return;
     };
 
@@ -317,15 +317,15 @@ fn test_pts_regression_resets_only_affected_stream_nvsort() {
     let mut id_a_before = None;
     let mut id_b_before = None;
     for i in 0..12u64 {
-        let out = tracker
-            .track_sync(
-                &[
-                    make_frame("cam-a", vec![roi_a.clone()], 320, 240, Some(1_000 + i)),
-                    make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(1_000 + i)),
-                ],
-                frame_ids(2),
-            )
-            .expect("warmup");
+        let out = common::track_sync(
+            &tracker,
+            &[
+                make_frame("cam-a", vec![roi_a.clone()], 320, 240, Some(1_000 + i)),
+                make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(1_000 + i)),
+            ],
+            frame_ids(2),
+        )
+        .expect("warmup");
         id_a_before = id_for_source(&out, "cam-a");
         id_b_before = id_for_source(&out, "cam-b");
         if id_a_before.is_some() && id_b_before.is_some() {
@@ -338,15 +338,15 @@ fn test_pts_regression_resets_only_affected_stream_nvsort() {
     let mut cam_a_reset = false;
     let mut cam_b_preserved = false;
     for i in 0..16u64 {
-        let out = tracker
-            .track_sync(
-                &[
-                    make_frame("cam-a", vec![roi_a.clone()], 320, 240, Some(900 + i)),
-                    make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(2_000 + i)),
-                ],
-                frame_ids(2),
-            )
-            .expect("pts-regression");
+        let out = common::track_sync(
+            &tracker,
+            &[
+                make_frame("cam-a", vec![roi_a.clone()], 320, 240, Some(900 + i)),
+                make_frame("cam-b", vec![roi_b.clone()], 320, 240, Some(2_000 + i)),
+            ],
+            frame_ids(2),
+        )
+        .expect("pts-regression");
         if let Some(id_a_after) = id_for_source(&out, "cam-a") {
             if id_a_after != id_a_before {
                 cam_a_reset = true;

@@ -18,7 +18,7 @@ use savant_core::primitives::RBBox;
 use savant_gstreamer::pipeline::{GstPipeline, PipelineConfig, PipelineInput, PipelineOutput};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tempfile::NamedTempFile;
 
@@ -56,6 +56,11 @@ pub struct NvInfer {
     pipeline: Mutex<GstPipeline>,
     #[allow(dead_code)]
     _config_file: NamedTempFile,
+    /// Set during [`Self::graceful_shutdown`] and [`Self::shutdown`] to reject new input.
+    draining: AtomicBool,
+    /// Prevents double `GstPipeline::shutdown` (nvinfer `set_state(Null)` is slow
+    /// and must not be called twice).
+    is_shut_down: AtomicBool,
     /// Monotonic counter used as PTS for internal pipeline correlation.
     next_pts: AtomicU64,
     /// When and whether to clear object metas.
@@ -139,6 +144,7 @@ impl NvInfer {
             output_channel_capacity: config.output_channel_capacity,
             operation_timeout: Some(config.operation_timeout),
             drain_poll_interval: config.drain_poll_interval,
+            appsrc_probe: None,
         };
 
         let (input_tx, output_rx, gst_pipeline) = GstPipeline::start(pipeline_config)?;
@@ -153,6 +159,8 @@ impl NvInfer {
             output_rx,
             pipeline: Mutex::new(gst_pipeline),
             _config_file: config_file,
+            draining: AtomicBool::new(false),
+            is_shut_down: AtomicBool::new(false),
             next_pts: AtomicU64::new(0),
             policy,
             host_copy_enabled,
@@ -171,6 +179,9 @@ impl NvInfer {
     ///
     /// Blocks if the input channel is full (backpressure).
     pub fn submit(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) -> Result<()> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::ShuttingDown);
+        }
         if self.is_failed() {
             return Err(NvInferError::PipelineFailed);
         }
@@ -194,6 +205,9 @@ impl NvInfer {
     /// `nvinfer` unchanged and is surfaced by [`recv`](NvInfer::recv) as
     /// [`NvInferOutput::Eos`].
     pub fn send_eos(&self, source_id: &str) -> Result<()> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::ShuttingDown);
+        }
         let structure = gst::Structure::builder(NVINFER_SOURCE_EOS_EVENT_NAME)
             .field(NVINFER_SOURCE_ID_FIELD, source_id)
             .build();
@@ -203,6 +217,9 @@ impl NvInfer {
 
     /// Send a custom GStreamer event into the pipeline.
     pub fn send_event(&self, event: gst::Event) -> Result<()> {
+        if self.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::ShuttingDown);
+        }
         self.input_tx
             .send(PipelineInput::Event(event))
             .map_err(|_| NvInferError::ChannelDisconnected)?;
@@ -254,8 +271,31 @@ impl NvInfer {
         self.pipeline.lock().is_failed()
     }
 
-    /// Graceful shutdown: sends EOS, drains, stops the pipeline.
+    /// Graceful shutdown: reject new input, send EOS, drain outputs within `timeout`, stop pipeline.
+    ///
+    /// Returns all domain outputs produced before the pipeline EOS (terminal EOS is not included).
+    pub fn graceful_shutdown(&self, timeout: Duration) -> Result<Vec<NvInferOutput>> {
+        if self.is_shut_down.swap(true, Ordering::AcqRel) {
+            return Err(NvInferError::ShuttingDown);
+        }
+        self.draining.store(true, Ordering::Release);
+        let raw = {
+            let mut guard = self.pipeline.lock();
+            guard.graceful_shutdown(timeout, &self.input_tx, &self.output_rx)?
+        };
+        let mut out = Vec::with_capacity(raw.len());
+        for item in raw {
+            out.push(self.convert_output(item)?);
+        }
+        Ok(out)
+    }
+
+    /// Abrupt shutdown: stops threads and pipeline (used by [`Drop`]).
     pub fn shutdown(&self) -> Result<()> {
+        if self.is_shut_down.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        self.draining.store(true, Ordering::Release);
         self.pipeline.lock().shutdown()?;
         Ok(())
     }

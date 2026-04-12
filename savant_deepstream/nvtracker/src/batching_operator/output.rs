@@ -1,3 +1,4 @@
+use crate::error::NvTrackerError;
 use crate::{MiscTrackData, TrackedObject};
 use deepstream_buffers::SharedBuffer;
 use savant_core::primitives::frame::VideoFrameProxy;
@@ -7,8 +8,8 @@ use std::sync::Arc;
 /// Per-frame tracking result.
 ///
 /// The per-frame [`SharedBuffer`] is held internally by the parent
-/// [`TrackerOperatorOutput`] and is only accessible after calling
-/// [`TrackerOperatorOutput::take_deliveries`] and then
+/// [`TrackerOperatorTrackingOutput`] and is only accessible after calling
+/// [`TrackerOperatorTrackingOutput::take_deliveries`] and then
 /// [`SealedDeliveries::unseal`].
 pub struct TrackerOperatorFrameOutput {
     /// The original [`VideoFrameProxy`] submitted for this frame.
@@ -24,7 +25,7 @@ pub struct TrackerOperatorFrameOutput {
 }
 
 /// A batch of `(VideoFrameProxy, SharedBuffer)` pairs sealed until the
-/// associated [`TrackerOperatorOutput`] is dropped.
+/// associated [`TrackerOperatorTrackingOutput`] is dropped.
 pub struct SealedDeliveries {
     deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
     seal: Arc<ReleaseSeal>,
@@ -48,7 +49,7 @@ impl SealedDeliveries {
         self.seal.is_released()
     }
 
-    /// Block until the [`TrackerOperatorOutput`] is dropped, then return all
+    /// Block until the [`TrackerOperatorTrackingOutput`] is dropped, then return all
     /// deliveries as `(frame, buffer)` pairs.
     pub fn unseal(self) -> Vec<(VideoFrameProxy, SharedBuffer)> {
         self.seal.wait();
@@ -90,16 +91,16 @@ impl std::fmt::Debug for SealedDeliveries {
 }
 
 /// Full batch tracking result with sealed buffer delivery.
-pub struct TrackerOperatorOutput {
+pub struct TrackerOperatorTrackingOutput {
     frames: Vec<TrackerOperatorFrameOutput>,
     deliveries: Option<Vec<(VideoFrameProxy, SharedBuffer)>>,
     seal: Arc<ReleaseSeal>,
 }
 
-unsafe impl Send for TrackerOperatorOutput {}
+unsafe impl Send for TrackerOperatorTrackingOutput {}
 
-impl TrackerOperatorOutput {
-    /// Build a new `TrackerOperatorOutput` from its constituent parts.
+impl TrackerOperatorTrackingOutput {
+    /// Build a new tracking output from its constituent parts.
     pub(super) fn new(
         frames: Vec<TrackerOperatorFrameOutput>,
         deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
@@ -127,18 +128,62 @@ impl TrackerOperatorOutput {
     }
 }
 
-impl Drop for TrackerOperatorOutput {
+impl Drop for TrackerOperatorTrackingOutput {
     fn drop(&mut self) {
         self.deliveries.take();
         self.seal.release();
     }
 }
 
-impl std::fmt::Debug for TrackerOperatorOutput {
+impl std::fmt::Debug for TrackerOperatorTrackingOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TrackerOperatorOutput")
+        f.debug_struct("TrackerOperatorTrackingOutput")
             .field("num_frames", &self.frames.len())
             .field("deliveries_taken", &self.deliveries.is_none())
             .finish()
+    }
+}
+
+/// Callback payload from [`super::NvTrackerBatchingOperator`].
+#[derive(Debug)]
+pub enum TrackerOperatorOutput {
+    /// Completed tracking for one submitted batch.
+    Tracking(TrackerOperatorTrackingOutput),
+    /// Logical per-source EOS from the underlying [`crate::pipeline::NvTracker`].
+    Eos { source_id: String },
+    /// Pipeline or operator runtime error.
+    Error(NvTrackerError),
+}
+
+impl TrackerOperatorOutput {
+    /// `true` if this is a [`TrackerOperatorOutput::Tracking`] variant.
+    pub fn is_tracking(&self) -> bool {
+        matches!(self, Self::Tracking(_))
+    }
+
+    /// `true` if this is [`TrackerOperatorOutput::Eos`].
+    pub fn is_eos(&self) -> bool {
+        matches!(self, Self::Eos { .. })
+    }
+
+    /// `true` if this is [`TrackerOperatorOutput::Error`].
+    pub fn is_error(&self) -> bool {
+        matches!(self, Self::Error(_))
+    }
+
+    /// Borrow the tracking payload when [`Self::is_tracking`].
+    pub fn as_tracking(&self) -> Option<&TrackerOperatorTrackingOutput> {
+        match self {
+            Self::Tracking(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    /// Mutably borrow the tracking payload when [`Self::is_tracking`].
+    pub fn as_tracking_mut(&mut self) -> Option<&mut TrackerOperatorTrackingOutput> {
+        match self {
+            Self::Tracking(t) => Some(t),
+            _ => None,
+        }
     }
 }

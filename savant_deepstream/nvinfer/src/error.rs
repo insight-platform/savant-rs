@@ -58,6 +58,9 @@ pub enum NvInferError {
 
     #[error("Channel disconnected")]
     ChannelDisconnected,
+
+    #[error("NvInfer is shutting down; no new input accepted")]
+    ShuttingDown,
 }
 
 /// Result type for NvInfer operations.

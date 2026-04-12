@@ -38,6 +38,7 @@ fn start_pipeline(
         output_channel_capacity,
         operation_timeout,
         drain_poll_interval: Duration::from_millis(10),
+        appsrc_probe: None,
     };
     GstPipeline::start(config).expect("pipeline start must succeed")
 }
@@ -279,6 +280,52 @@ fn shutdown() {
     tx.send(PipelineInput::Buffer(make_buffer(&[1], 1, None)))
         .unwrap();
     pipeline.shutdown().unwrap();
+}
+
+#[test]
+fn graceful_shutdown_returns_all_buffers() {
+    let (tx, rx, mut pipeline) = start_pipeline(vec![build_identity("id")], None, 16, 16);
+    for i in 0..4u64 {
+        tx.send(PipelineInput::Buffer(make_buffer(&[i as u8], i, None)))
+            .unwrap();
+    }
+    let drained = pipeline
+        .graceful_shutdown(Duration::from_secs(5), &tx, &rx)
+        .unwrap();
+    let buffers: Vec<_> = drained
+        .iter()
+        .filter_map(|item| match item {
+            PipelineOutput::Buffer(b) => Some(b.pts().map(|p| p.nseconds())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(buffers.len(), 4);
+    for (i, pts) in buffers.into_iter().enumerate() {
+        assert_eq!(pts, Some(i as u64));
+    }
+}
+
+#[test]
+fn graceful_shutdown_timeout_returns_partial() {
+    let dropper = build_identity("dropper");
+    dropper.set_property("drop-probability", 1.0f32);
+
+    let (tx, rx, mut pipeline) = start_pipeline(vec![dropper], None, 16, 16);
+    tx.send(PipelineInput::Buffer(make_buffer(&[1], 1, None)))
+        .unwrap();
+
+    let drained = pipeline
+        .graceful_shutdown(Duration::from_millis(200), &tx, &rx)
+        .unwrap();
+    let num_buffers = drained
+        .iter()
+        .filter(|item| matches!(item, PipelineOutput::Buffer(_)))
+        .count();
+    assert_eq!(
+        num_buffers, 0,
+        "buffers dropped by identity; expect no buffers before timeout: {:?}",
+        drained
+    );
 }
 
 #[test]
