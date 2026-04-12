@@ -18,7 +18,10 @@ use crate::error::{NvTrackerError, Result};
 use crate::output::{extract_tracker_output, TrackerOutput};
 use crate::roi::Roi;
 use crossbeam::channel::{Receiver, Sender};
-use deepstream_buffers::{NonUniformBatch, SavantIdMetaKind, SharedBuffer, SurfaceView};
+use deepstream_buffers::{
+    read_slot_dimensions, read_surface_header, NonUniformBatch, SavantIdMetaKind, SharedBuffer,
+    SurfaceView,
+};
 use deepstream_sys;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -26,7 +29,8 @@ use log::info;
 use lru::LruCache;
 use parking_lot::Mutex;
 use savant_gstreamer::pipeline::{
-    AppsrcPadProbe, GstPipeline, PipelineConfig, PipelineInput, PipelineOutput,
+    build_source_eos_event, parse_source_eos_event, set_element_property, AppsrcPadProbe,
+    GstPipeline, PipelineConfig, PipelineInput, PipelineOutput,
 };
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -40,10 +44,6 @@ extern "C" {
     fn gst_nvquery_is_numStreams_size(query: *mut gst::ffi::GstQuery) -> i32;
     fn gst_nvquery_numStreams_size_set(query: *mut gst::ffi::GstQuery, num_streams_size: u32);
 }
-
-/// Logical EOS event name surfaced through [`NvTracker::recv`].
-const NVTRACKER_SOURCE_EOS_EVENT_NAME: &str = "savant.nvtracker.eos";
-const NVTRACKER_SOURCE_ID_FIELD: &str = "source_id";
 
 /// Discriminated output from [`NvTracker::recv`] / [`NvTracker::recv_timeout`] /
 /// [`NvTracker::try_recv`].
@@ -126,7 +126,12 @@ impl NvTracker {
             config.tracking_id_reset_mode.as_u32(),
         );
         if nvtracker.find_property("enable-past-frame").is_some() {
-            Self::set_element_property(&nvtracker, "enable-past-frame", "1")?;
+            set_element_property(&nvtracker, "enable-past-frame", "1").map_err(|reason| {
+                NvTrackerError::InvalidProperty {
+                    key: "enable-past-frame".into(),
+                    reason,
+                }
+            })?;
         }
 
         for (key, value) in &config.element_properties {
@@ -137,7 +142,12 @@ impl NvTracker {
                         .into(),
                 ));
             }
-            Self::set_element_property(&nvtracker, key, value)?;
+            set_element_property(&nvtracker, key, value).map_err(|reason| {
+                NvTrackerError::InvalidProperty {
+                    key: key.to_string(),
+                    reason,
+                }
+            })?;
         }
 
         let mut elements: Vec<gst::Element> = Vec::new();
@@ -278,10 +288,7 @@ impl NvTracker {
 
     /// Send a logical per-source EOS marker downstream (custom downstream event).
     pub fn send_eos(&self, source_id: &str) -> Result<()> {
-        let structure = gst::Structure::builder(NVTRACKER_SOURCE_EOS_EVENT_NAME)
-            .field(NVTRACKER_SOURCE_ID_FIELD, source_id)
-            .build();
-        let event = gst::event::CustomDownstream::new(structure);
+        let event = build_source_eos_event(source_id);
         self.send_event(event)
     }
 
@@ -415,10 +422,12 @@ impl NvTracker {
         input_pts: &[Option<u64>],
         pts: u64,
     ) -> Result<gst::Buffer> {
-        let (num_filled, max_batch_size) = read_surface_header(&batch)?;
+        let (num_filled, max_batch_size) = read_surface_header(&batch)
+            .map_err(|e| NvTrackerError::batch_meta("read_surface_header", e.to_string()))?;
 
         let slot_dims = if num_filled > 0 {
-            read_slot_dimensions(&batch, num_filled)?
+            read_slot_dimensions(&batch, num_filled)
+                .map_err(|e| NvTrackerError::batch_meta("read_slot_dimensions", e.to_string()))?
         } else {
             Vec::new()
         };
@@ -636,43 +645,12 @@ impl NvTracker {
 
         Ok(())
     }
-
-    fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {
-        if element.find_property(key).is_none() {
-            return Err(NvTrackerError::InvalidProperty {
-                key: key.to_string(),
-                reason: "property not found on nvtracker element".into(),
-            });
-        }
-        let elem = element.clone();
-        let k = key.to_string();
-        let v = value.to_string();
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            elem.set_property_from_str(&k, &v);
-        }))
-        .map_err(|_| NvTrackerError::InvalidProperty {
-            key: key.to_string(),
-            reason: format!("set_property_from_str failed for value '{value}'"),
-        })?;
-        Ok(())
-    }
 }
 
 impl Drop for NvTracker {
     fn drop(&mut self) {
         let _ = self.shutdown();
     }
-}
-
-fn parse_source_eos_event(event: &gst::Event) -> Option<String> {
-    if event.type_() != gst::EventType::CustomDownstream {
-        return None;
-    }
-    let structure = event.structure()?;
-    if structure.name() != NVTRACKER_SOURCE_EOS_EVENT_NAME {
-        return None;
-    }
-    structure.get::<String>(NVTRACKER_SOURCE_ID_FIELD).ok()
 }
 
 fn validate_per_source_resolution(
@@ -708,62 +686,6 @@ fn validate_per_source_resolution(
         }
     }
     Ok(())
-}
-
-fn read_surface_header(buffer: &gst::Buffer) -> Result<(u32, u32)> {
-    let map = buffer.map_readable().map_err(|e| {
-        NvTrackerError::batch_meta(
-            "read_surface_header",
-            format!("map_readable failed: {:?}", e),
-        )
-    })?;
-    let data = map.as_slice();
-    if data.len() < 12 {
-        return Err(NvTrackerError::batch_meta(
-            "read_surface_header",
-            "buffer too small for NvBufSurface header (need 12 bytes)",
-        ));
-    }
-    let batch_size = u32::from_ne_bytes([data[4], data[5], data[6], data[7]]);
-    let num_filled = u32::from_ne_bytes([data[8], data[9], data[10], data[11]]);
-    Ok((num_filled, batch_size))
-}
-
-fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u32, u32)>> {
-    use deepstream_buffers::ffi;
-
-    let map = buffer.map_readable().map_err(|e| {
-        NvTrackerError::batch_meta(
-            "read_slot_dimensions",
-            format!("map_readable failed: {:?}", e),
-        )
-    })?;
-    let data = map.as_slice();
-
-    let surface_size = std::mem::size_of::<ffi::NvBufSurface>();
-    if data.len() < surface_size {
-        return Err(NvTrackerError::batch_meta(
-            "read_slot_dimensions",
-            format!(
-                "buffer too small for NvBufSurface struct (need {} bytes, have {})",
-                surface_size,
-                data.len()
-            ),
-        ));
-    }
-
-    let surf = unsafe { &*(data.as_ptr() as *const ffi::NvBufSurface) };
-    if surf.surfaceList.is_null() {
-        return Err(NvTrackerError::NullPointer {
-            function: "NvBufSurface.surfaceList".into(),
-        });
-    }
-    let mut dims = Vec::with_capacity(num_filled as usize);
-    for i in 0..num_filled {
-        let params = unsafe { &*surf.surfaceList.add(i as usize) };
-        dims.push((params.width, params.height));
-    }
-    Ok(dims)
 }
 
 /// Default low-level tracker library path on a standard DeepStream install.

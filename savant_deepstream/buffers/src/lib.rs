@@ -34,6 +34,7 @@ pub mod transform;
 pub mod buffers;
 pub mod pipeline;
 pub mod shared_buffer;
+pub mod surface_readers;
 pub mod surface_view;
 
 pub use cuda_stream::CudaStream;
@@ -50,6 +51,7 @@ pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
 
+pub use surface_readers::{read_slot_dimensions, read_surface_header};
 pub use transform::extract_nvbufsurface;
 pub use transform::{
     buffer_gpu_id, ComputeMode, DstPadding, Interpolation, Padding, Rect, TransformConfig,

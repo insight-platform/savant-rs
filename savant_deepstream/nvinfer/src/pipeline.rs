@@ -9,13 +9,16 @@ use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
 use crate::roi::Roi;
 use crossbeam::channel::{Receiver, Sender};
 use deepstream::{BatchMeta, InferDims, InferTensorMeta};
-use deepstream_buffers::SharedBuffer;
+use deepstream_buffers::{read_slot_dimensions, read_surface_header, SharedBuffer};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::info;
 use parking_lot::Mutex;
 use savant_core::primitives::RBBox;
-use savant_gstreamer::pipeline::{GstPipeline, PipelineConfig, PipelineInput, PipelineOutput};
+use savant_gstreamer::pipeline::{
+    build_source_eos_event, parse_source_eos_event, set_element_property, GstPipeline,
+    PipelineConfig, PipelineInput, PipelineOutput,
+};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -34,9 +37,6 @@ pub enum NvInferOutput {
     /// Pipeline or framework runtime error (watchdog, bus error, etc.).
     Error(NvInferError),
 }
-
-const NVINFER_SOURCE_EOS_EVENT_NAME: &str = "savant.nvinfer.eos";
-const NVINFER_SOURCE_ID_FIELD: &str = "source_id";
 
 /// The NvInfer inference engine.
 ///
@@ -115,7 +115,7 @@ impl NvInfer {
         nvinfer.set_property_from_str("config-file-path", &config_path);
 
         for (key, value) in &config.element_properties {
-            Self::set_element_property(&nvinfer, key, value)?;
+            set_element_property(&nvinfer, key, value).map_err(NvInferError::InvalidProperty)?;
         }
 
         let mut elements: Vec<gst::Element> = Vec::new();
@@ -205,13 +205,7 @@ impl NvInfer {
     /// `nvinfer` unchanged and is surfaced by [`recv`](NvInfer::recv) as
     /// [`NvInferOutput::Eos`].
     pub fn send_eos(&self, source_id: &str) -> Result<()> {
-        if self.draining.load(Ordering::Acquire) {
-            return Err(NvInferError::ShuttingDown);
-        }
-        let structure = gst::Structure::builder(NVINFER_SOURCE_EOS_EVENT_NAME)
-            .field(NVINFER_SOURCE_ID_FIELD, source_id)
-            .build();
-        let event = gst::event::CustomDownstream::new(structure);
+        let event = build_source_eos_event(source_id);
         self.send_event(event)
     }
 
@@ -410,79 +404,12 @@ impl NvInfer {
 
         Ok(batch)
     }
-
-    fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {
-        if element.find_property(key).is_none() {
-            return Err(NvInferError::InvalidProperty(format!(
-                "property '{key}' not found"
-            )));
-        }
-        let elem = element.clone();
-        let k = key.to_string();
-        let v = value.to_string();
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            elem.set_property_from_str(&k, &v);
-        }))
-        .map_err(|_| NvInferError::InvalidProperty(format!("failed to set '{key}' = '{value}'")))?;
-        Ok(())
-    }
 }
 
 impl Drop for NvInfer {
     fn drop(&mut self) {
         let _ = self.pipeline.lock().shutdown();
     }
-}
-
-/// Read numFilled and batchSize from the NvBufSurface descriptor in a single map.
-///
-/// NvBufSurface layout (first 12 bytes, native-endian):
-///   offset 0: gpuId      (u32)
-///   offset 4: batchSize  (u32)
-///   offset 8: numFilled  (u32)
-fn read_surface_header(buffer: &gst::Buffer) -> Result<(u32, u32)> {
-    let map = buffer
-        .map_readable()
-        .map_err(|e| NvInferError::BatchMetaFailed(format!("map_readable failed: {:?}", e)))?;
-    let data = map.as_slice();
-    if data.len() < 12 {
-        return Err(NvInferError::BatchMetaFailed(
-            "Buffer too small for NvBufSurface".into(),
-        ));
-    }
-    let batch_size = u32::from_ne_bytes([data[4], data[5], data[6], data[7]]);
-    let num_filled = u32::from_ne_bytes([data[8], data[9], data[10], data[11]]);
-    Ok((num_filled, batch_size))
-}
-
-/// Read per-slot (width, height) from the NvBufSurface surfaceList.
-fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u32, u32)>> {
-    use deepstream_buffers::ffi;
-
-    let map = buffer
-        .map_readable()
-        .map_err(|e| NvInferError::BatchMetaFailed(format!("map_readable failed: {:?}", e)))?;
-    let data = map.as_slice();
-
-    let surface_size = std::mem::size_of::<ffi::NvBufSurface>();
-    if data.len() < surface_size {
-        return Err(NvInferError::BatchMetaFailed(
-            "Buffer too small for NvBufSurface".into(),
-        ));
-    }
-
-    let surf = unsafe { &*(data.as_ptr() as *const ffi::NvBufSurface) };
-    if surf.surfaceList.is_null() {
-        return Err(NvInferError::NullPointer(
-            "NvBufSurface.surfaceList is null".into(),
-        ));
-    }
-    let mut dims = Vec::with_capacity(num_filled as usize);
-    for i in 0..num_filled {
-        let params = unsafe { &*surf.surfaceList.add(i as usize) };
-        dims.push((params.width, params.height));
-    }
-    Ok(dims)
 }
 
 /// Extract inference outputs from a completed buffer.
@@ -577,15 +504,4 @@ fn extract_batch_output(
         policy.clear_after(),
         host_copy_enabled,
     ))
-}
-
-fn parse_source_eos_event(event: &gst::Event) -> Option<String> {
-    if event.type_() != gst::EventType::CustomDownstream {
-        return None;
-    }
-    let structure = event.structure()?;
-    if structure.name() != NVINFER_SOURCE_EOS_EVENT_NAME {
-        return None;
-    }
-    structure.get::<String>(NVINFER_SOURCE_ID_FIELD).ok()
 }
