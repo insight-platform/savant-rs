@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use deepstream_decoders::prelude::*;
+use deepstream_decoders::NvDecoderExt;
 use deepstream_encoders::{EncoderConfig, NvEncoder};
 use serial_test::serial;
 use std::collections::HashSet;
@@ -486,7 +487,7 @@ fn test_send_eos_idempotent() {
 }
 
 /// RawUpload backend does not go through GstPipeline, so PTS ordering is not
-/// enforced at submit time. Callers rely on upstream ordering (e.g. MultiStreamDecoder).
+/// enforced at submit time. Callers rely on upstream ordering (e.g. FlexibleDecoder).
 #[test]
 #[serial]
 fn test_raw_upload_accepts_non_monotonic_pts() {
@@ -714,21 +715,20 @@ fn test_graceful_shutdown_returns_valid_rgba() {
             .unwrap();
     }
     // Do NOT call recv — all decoded frames stay in the output channel.
-    let results = decoder
-        .graceful_shutdown(Duration::from_secs(10))
+    let mut frame_count = 0usize;
+    decoder
+        .graceful_shutdown(Some(Duration::from_secs(10)), |item| {
+            if let NvDecoderOutput::Frame(f) = &item {
+                assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
+                let view = SurfaceView::from_buffer(&f.buffer, 0)
+                    .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
+                assert_eq!(view.width(), w, "surface width mismatch");
+                assert_eq!(view.height(), h, "surface height mismatch");
+                frame_count += 1;
+            }
+        })
         .expect("graceful_shutdown failed");
 
-    let mut frame_count = 0usize;
-    for item in &results {
-        if let NvDecoderOutput::Frame(f) = item {
-            assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
-            let view = SurfaceView::from_buffer(&f.buffer, 0)
-                .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
-            assert_eq!(view.width(), w, "surface width mismatch");
-            assert_eq!(view.height(), h, "surface height mismatch");
-            frame_count += 1;
-        }
-    }
     assert_eq!(
         frame_count,
         enc_frames.len(),
@@ -765,28 +765,27 @@ fn test_graceful_shutdown_h264_valid_rgba() {
             .unwrap();
     }
 
-    let results = decoder
-        .graceful_shutdown(Duration::from_secs(10))
+    let mut frame_count = 0usize;
+    decoder
+        .graceful_shutdown(Some(Duration::from_secs(10)), |item| {
+            if let NvDecoderOutput::Frame(f) = &item {
+                assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
+                let view = SurfaceView::from_buffer(&f.buffer, 0)
+                    .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
+                assert_eq!(view.width(), w, "surface width mismatch");
+                assert_eq!(view.height(), h, "surface height mismatch");
+                frame_count += 1;
+            }
+        })
         .expect("graceful_shutdown failed for H264");
 
-    let mut frame_count = 0usize;
-    for item in &results {
-        if let NvDecoderOutput::Frame(f) = item {
-            assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
-            let view = SurfaceView::from_buffer(&f.buffer, 0)
-                .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
-            assert_eq!(view.width(), w, "surface width mismatch");
-            assert_eq!(view.height(), h, "surface height mismatch");
-            frame_count += 1;
-        }
-    }
     assert!(
         frame_count >= num_frames,
         "graceful_shutdown must return all H264 frames: expected {num_frames}, got {frame_count}"
     );
 }
 
-/// Simulates the MultiStreamDecoder worker pattern: submit H264 packets,
+/// Simulates the FlexibleDecoder worker pattern: submit H264 packets,
 /// poll with `try_recv` between each (like `pull_ready_outputs`), then call
 /// `graceful_shutdown`.  Some frames may have been consumed by `try_recv`
 /// before `graceful_shutdown` runs.
@@ -827,14 +826,14 @@ fn test_graceful_shutdown_h264_after_partial_drain() {
 
     eprintln!("pre-drained {pre_drained} frames before graceful_shutdown");
 
-    let results = decoder
-        .graceful_shutdown(Duration::from_secs(10))
+    let mut shutdown_frames = 0usize;
+    decoder
+        .graceful_shutdown(Some(Duration::from_secs(10)), |item| {
+            if matches!(item, NvDecoderOutput::Frame(_)) {
+                shutdown_frames += 1;
+            }
+        })
         .expect("graceful_shutdown failed after partial drain");
-
-    let shutdown_frames: usize = results
-        .iter()
-        .filter(|r| matches!(r, NvDecoderOutput::Frame(_)))
-        .count();
 
     eprintln!("graceful_shutdown returned {shutdown_frames} frames");
     let total = pre_drained + shutdown_frames;

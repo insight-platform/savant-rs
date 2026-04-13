@@ -3,8 +3,9 @@
 mod common;
 
 use deepstream_buffers::{
-    extract_nvbufsurface, BufferGenerator, NvBufSurfaceMemType, Padding, Rect, SavantIdMeta,
-    SavantIdMetaKind, SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
+    extract_nvbufsurface, BufferGenerator, NvBufSurfaceError, NvBufSurfaceMemType, Padding, Rect,
+    SavantIdMeta, SavantIdMetaKind, SurfaceView, TransformConfig, UniformBatchGenerator,
+    VideoFormat,
 };
 
 fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> BufferGenerator {
@@ -578,4 +579,114 @@ fn test_transform_into_with_roi() {
     src_view
         .transform_into(&dst_view, &config, Some(&roi))
         .unwrap();
+}
+
+// ─── try_acquire / pool exhaustion ─────────────────────────────────────────
+
+#[test]
+fn test_try_acquire_batch_succeeds_when_pool_has_buffers() {
+    common::init();
+    let gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 2, 2);
+    let config = TransformConfig::default();
+    let batch = gen.try_acquire_batch(config, vec![]);
+    assert!(
+        batch.is_ok(),
+        "try_acquire_batch should succeed on a fresh pool"
+    );
+}
+
+#[test]
+fn test_try_acquire_batch_returns_pool_exhausted() {
+    common::init();
+    // pool_size=1: only one batched buffer available
+    let gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 2, 1);
+    let config = TransformConfig::default();
+
+    let _held = gen
+        .acquire_batch(config, vec![])
+        .expect("first acquire should succeed");
+
+    let result = gen.try_acquire_batch(TransformConfig::default(), vec![]);
+    assert!(
+        matches!(result, Err(NvBufSurfaceError::PoolExhausted)),
+        "expected PoolExhausted when all buffers are held, got err: {:?}",
+        result.err(),
+    );
+}
+
+#[test]
+fn test_try_acquire_batch_succeeds_after_release() {
+    common::init();
+    let gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 2, 1);
+    let config = TransformConfig::default();
+
+    let held = gen.acquire_batch(config, vec![]).expect("first acquire");
+    // release the buffer back to the pool
+    drop(held);
+
+    let result = gen.try_acquire_batch(TransformConfig::default(), vec![]);
+    assert!(
+        result.is_ok(),
+        "try_acquire_batch should succeed after buffer is released"
+    );
+}
+
+#[test]
+fn test_try_acquire_single_returns_pool_exhausted() {
+    common::init();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, 640, 640)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("builder should succeed");
+
+    let _held = gen.acquire(None).expect("first acquire should succeed");
+
+    let result = gen.try_acquire(None);
+    assert!(
+        matches!(result, Err(NvBufSurfaceError::PoolExhausted)),
+        "expected PoolExhausted, got: {:?}",
+        result,
+    );
+}
+
+#[test]
+fn test_try_acquire_single_succeeds_after_release() {
+    common::init();
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, 640, 640)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("builder should succeed");
+
+    let held = gen.acquire(None).expect("first acquire");
+    drop(held);
+
+    let result = gen.try_acquire(None);
+    assert!(
+        result.is_ok(),
+        "try_acquire should succeed after buffer is released"
+    );
+}
+
+#[test]
+fn test_pool_exhaustion_multi_buffer_pool() {
+    common::init();
+    let gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 2, 3);
+    let config = TransformConfig::default();
+
+    let _b1 = gen.acquire_batch(config, vec![]).unwrap();
+    let _b2 = gen
+        .acquire_batch(TransformConfig::default(), vec![])
+        .unwrap();
+    let _b3 = gen
+        .acquire_batch(TransformConfig::default(), vec![])
+        .unwrap();
+
+    let result = gen.try_acquire_batch(TransformConfig::default(), vec![]);
+    assert!(
+        matches!(result, Err(NvBufSurfaceError::PoolExhausted)),
+        "pool of 3 should be exhausted after 3 acquires, got err: {:?}",
+        result.err(),
+    );
 }

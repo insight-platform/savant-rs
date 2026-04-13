@@ -6,29 +6,31 @@ use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
 use cros_codecs::codec::h264::parser::NaluType as H264NaluType;
 use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
 use cros_codecs::codec::h265::parser::NaluType as H265NaluType;
-use deepstream_decoders::prelude::*;
+use deepstream_decoders::cuda_init;
+use deepstream_inputs::flexible_decoder::FlexibleDecoderOutput;
+use parking_lot::Mutex;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::video_codec::VideoCodec;
+use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer};
 use savant_gstreamer::Codec;
 use serde::Deserialize;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
-/// Initialize logging, GStreamer, and CUDA on GPU 0.
-///
-/// Integration tests assume that when CUDA initializes successfully, NVDEC
-/// (`nvv4l2decoder`) and hardware JPEG (`nvjpegdec`) are available on the
-/// target platform — no separate element-factory probes are performed.
+// ── Initialisation ──────────────────────────────────────────────────
+
 pub fn init() {
     let _ = env_logger::try_init();
     let _ = gstreamer::init();
     cuda_init(0).expect("CUDA init failed");
 }
 
-/// MP4 / manifest assets live in the `deepstream_decoders` crate.
+// ── Asset manifest ──────────────────────────────────────────────────
+
 pub fn assets_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../decoders/assets")
 }
@@ -71,6 +73,8 @@ pub fn load_manifest() -> Manifest {
     serde_json::from_str(&data).unwrap_or_else(|e| panic!("cannot parse {}: {e}", path.display()))
 }
 
+// ── Platform detection ──────────────────────────────────────────────
+
 pub fn current_platform_tag() -> String {
     nvidia_gpu_utils::gpu_platform_tag(0).unwrap_or_else(|_| "unknown".to_string())
 }
@@ -89,7 +93,12 @@ pub fn asset_supported_on_platform(entry: &AssetEntry, platform_tag: &str) -> bo
         .any(|t| manifest_tag_matches_platform(t, platform_tag))
 }
 
-/// Convert a GStreamer [`Codec`] to the domain [`VideoCodec`].
+// ── Codec mapping ───────────────────────────────────────────────────
+
+pub fn codec_name_to_video_codec(name: &str) -> Option<VideoCodec> {
+    VideoCodec::from_name(name)
+}
+
 pub fn gst_codec_to_video_codec(c: Codec) -> VideoCodec {
     match c {
         Codec::H264 => VideoCodec::H264,
@@ -105,7 +114,9 @@ pub fn gst_codec_to_video_codec(c: Codec) -> VideoCodec {
     }
 }
 
-/// Build a frame with GStreamer nanosecond time base (payload passed separately to `submit`).
+// ── Frame construction ──────────────────────────────────────────────
+
+/// Build a [`VideoFrameProxy`] with nanosecond time base (payload passed separately).
 #[allow(clippy::too_many_arguments)]
 pub fn make_video_frame_ns(
     source_id: &str,
@@ -134,35 +145,7 @@ pub fn make_video_frame_ns(
     .expect("make_video_frame_ns")
 }
 
-/// Same as [`make_video_frame_ns`] but timestamps are in `time_base` units (non-GStreamer).
-#[allow(clippy::too_many_arguments)]
-pub fn make_video_frame_scaled(
-    source_id: &str,
-    codec: VideoCodec,
-    width: i64,
-    height: i64,
-    time_base: (i64, i64),
-    pts: i64,
-    dts: Option<i64>,
-    duration: Option<i64>,
-    keyframe: Option<bool>,
-) -> VideoFrameProxy {
-    VideoFrameProxy::new(
-        source_id,
-        (30, 1),
-        width,
-        height,
-        VideoFrameContent::None,
-        VideoFrameTranscodingMethod::Copy,
-        Some(codec),
-        keyframe,
-        time_base,
-        pts,
-        dts,
-        duration,
-    )
-    .expect("make_video_frame_scaled")
-}
+// ── Annex-B NALU parsing (via cros-codecs) ──────────────────────────
 
 pub fn split_annexb_nalus(data: &[u8], codec: Codec) -> Vec<Vec<u8>> {
     let mut cur = Cursor::new(data);
@@ -181,16 +164,6 @@ pub fn split_annexb_nalus(data: &[u8], codec: Codec) -> Vec<Vec<u8>> {
         other => panic!("split_annexb_nalus: unsupported codec {other:?}"),
     }
     out
-}
-
-pub fn nal_payload_offset(nalu: &[u8]) -> usize {
-    if nalu.len() >= 4 && nalu[..4] == [0, 0, 0, 1] {
-        4
-    } else if nalu.len() >= 3 && nalu[..3] == [0, 0, 1] {
-        3
-    } else {
-        0
-    }
 }
 
 pub fn is_vcl_nalu(codec: Codec, nalu: &[u8]) -> bool {
@@ -314,4 +287,268 @@ pub fn group_nalus_to_access_units(codec: Codec, nalus: Vec<Vec<u8>>) -> Vec<Vec
     out
 }
 
-pub const SUBMIT_TIMEOUT: Duration = Duration::from_secs(60);
+// ── MP4 demux helpers ───────────────────────────────────────────────
+
+/// Uniform access unit produced by demuxing + NALU grouping.
+pub struct AccessUnit {
+    pub data: Vec<u8>,
+    pub pts_ns: u64,
+    pub dts_ns: Option<u64>,
+    pub duration_ns: Option<u64>,
+}
+
+/// Demux an MP4 into Annex-B access units (H.264/HEVC) or raw packets
+/// (JPEG, VP8, AV1, etc.) ready for FlexibleDecoder submission.
+pub fn demux_mp4_to_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
+    let mp4_path = assets_dir().join(&entry.file);
+    let mp4_str = mp4_path.to_str().unwrap();
+
+    let mut demuxer = Mp4Demuxer::new_parsed(mp4_str)
+        .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
+
+    let mut packets = Vec::new();
+    loop {
+        match demuxer.pull_timeout(Duration::from_secs(5)) {
+            Ok(Some(pkt)) => packets.push(pkt),
+            Ok(None) => break,
+            Err(e) => panic!("demuxer pull error for {}: {e}", entry.file),
+        }
+    }
+    demuxer.finish();
+    assert!(
+        !packets.is_empty(),
+        "{}: demuxer produced 0 packets",
+        entry.file
+    );
+
+    match entry.codec.as_str() {
+        "h264" | "hevc" => demuxed_to_annexb_aus(entry, &packets),
+        _ => packets_to_access_units(&packets),
+    }
+}
+
+fn demuxed_to_annexb_aus(entry: &AssetEntry, packets: &[DemuxedPacket]) -> Vec<AccessUnit> {
+    let gst_codec = match entry.codec.as_str() {
+        "h264" => Codec::H264,
+        "hevc" => Codec::Hevc,
+        _ => unreachable!(),
+    };
+    let mut bytestream = Vec::new();
+    for pkt in packets {
+        bytestream.extend_from_slice(&pkt.data);
+    }
+    let nalus = split_annexb_nalus(&bytestream, gst_codec);
+    let aus = group_nalus_to_access_units(gst_codec, nalus);
+
+    let dur = 33_333_333u64;
+    aus.into_iter()
+        .enumerate()
+        .map(|(i, data)| {
+            let pts = i as u64 * dur;
+            AccessUnit {
+                data,
+                pts_ns: pts,
+                dts_ns: Some(pts),
+                duration_ns: Some(dur),
+            }
+        })
+        .collect()
+}
+
+fn packets_to_access_units(packets: &[DemuxedPacket]) -> Vec<AccessUnit> {
+    packets
+        .iter()
+        .map(|pkt| AccessUnit {
+            data: pkt.data.clone(),
+            pts_ns: pkt.pts_ns,
+            dts_ns: pkt.dts_ns,
+            duration_ns: pkt.duration_ns,
+        })
+        .collect()
+}
+
+/// Load a raw Annex-B file and split into access units.
+pub fn load_annexb_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
+    let gst_codec = match entry.codec.as_str() {
+        "h264" => Codec::H264,
+        "hevc" => Codec::Hevc,
+        _ => panic!(
+            "load_annexb_access_units: unsupported codec {}",
+            entry.codec
+        ),
+    };
+    let path = assets_dir().join(&entry.file);
+    let bitstream =
+        std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    let nalus = split_annexb_nalus(&bitstream, gst_codec);
+    let aus = group_nalus_to_access_units(gst_codec, nalus);
+
+    let dur = 33_333_333u64;
+    aus.into_iter()
+        .enumerate()
+        .map(|(i, data)| {
+            let pts = i as u64 * dur;
+            AccessUnit {
+                data,
+                pts_ns: pts,
+                dts_ns: Some(pts),
+                duration_ns: Some(dur),
+            }
+        })
+        .collect()
+}
+
+// ── Output collector ────────────────────────────────────────────────
+
+/// Lightweight summary of a [`FlexibleDecoderOutput`].
+///
+/// GPU buffers (`SharedBuffer`) are dropped immediately in the callback
+/// so the decoder's buffer pool is never exhausted.
+#[derive(Debug, Clone)]
+pub enum CollectedOutput {
+    Frame {
+        frame_id: Option<u128>,
+        pts_ns: u64,
+        codec: Codec,
+    },
+    ParameterChange {
+        old_codec: Codec,
+        old_w: i64,
+        old_h: i64,
+        new_codec: Codec,
+        new_w: i64,
+        new_h: i64,
+    },
+    Skipped {
+        reason: String,
+    },
+    SourceEos {
+        source_id: String,
+    },
+    Error(String),
+}
+
+impl CollectedOutput {
+    fn from_output(out: FlexibleDecoderOutput) -> Self {
+        match out {
+            FlexibleDecoderOutput::Frame { decoded: df, .. } => CollectedOutput::Frame {
+                frame_id: df.frame_id,
+                pts_ns: df.pts_ns,
+                codec: df.codec,
+            },
+            FlexibleDecoderOutput::ParameterChange { old, new } => {
+                CollectedOutput::ParameterChange {
+                    old_codec: old.codec,
+                    old_w: old.width,
+                    old_h: old.height,
+                    new_codec: new.codec,
+                    new_w: new.width,
+                    new_h: new.height,
+                }
+            }
+            FlexibleDecoderOutput::Skipped { reason, .. } => CollectedOutput::Skipped {
+                reason: format!("{reason:?}"),
+            },
+            FlexibleDecoderOutput::SourceEos { source_id } => {
+                CollectedOutput::SourceEos { source_id }
+            }
+            FlexibleDecoderOutput::Error(e) => CollectedOutput::Error(format!("{e}")),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct OutputCollector {
+    pub outputs: Arc<Mutex<Vec<CollectedOutput>>>,
+}
+
+impl OutputCollector {
+    pub fn new() -> Self {
+        Self {
+            outputs: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn callback(&self) -> impl Fn(FlexibleDecoderOutput) + Send + Sync + 'static {
+        let outputs = self.outputs.clone();
+        move |out| outputs.lock().push(CollectedOutput::from_output(out))
+    }
+
+    pub fn drain(&self) -> Vec<CollectedOutput> {
+        std::mem::take(&mut *self.outputs.lock())
+    }
+
+    pub fn frame_count(&self) -> usize {
+        self.outputs
+            .lock()
+            .iter()
+            .filter(|o| matches!(o, CollectedOutput::Frame { .. }))
+            .count()
+    }
+
+    pub fn error_count(&self) -> usize {
+        self.outputs
+            .lock()
+            .iter()
+            .filter(|o| matches!(o, CollectedOutput::Error(_)))
+            .count()
+    }
+
+    pub fn skip_count(&self) -> usize {
+        self.outputs
+            .lock()
+            .iter()
+            .filter(|o| matches!(o, CollectedOutput::Skipped { .. }))
+            .count()
+    }
+
+    pub fn parameter_change_count(&self) -> usize {
+        self.outputs
+            .lock()
+            .iter()
+            .filter(|o| matches!(o, CollectedOutput::ParameterChange { .. }))
+            .count()
+    }
+
+    pub fn wait_for_frames(&self, count: usize, timeout: Duration) {
+        let start = std::time::Instant::now();
+        loop {
+            let fc = self.frame_count();
+            if fc >= count {
+                return;
+            }
+            if start.elapsed() > timeout {
+                let all = self.outputs.lock();
+                panic!(
+                    "timeout waiting for {count} frames (got {fc} after {:?}); collected {} outputs: {:?}",
+                    start.elapsed(),
+                    all.len(),
+                    &*all
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    pub fn wait_for<F>(&self, predicate: F, timeout: Duration)
+    where
+        F: Fn(&CollectedOutput) -> bool,
+    {
+        let start = std::time::Instant::now();
+        loop {
+            if self.outputs.lock().iter().any(&predicate) {
+                return;
+            }
+            if start.elapsed() > timeout {
+                let all = self.outputs.lock();
+                panic!(
+                    "timeout waiting for matching output after {:?}; collected {} outputs: {:?}",
+                    start.elapsed(),
+                    all.len(),
+                    &*all
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}

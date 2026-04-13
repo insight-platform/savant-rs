@@ -338,9 +338,6 @@ from savant_rs.deepstream import (
     get_savant_id_meta, get_nvbufsurface_info,  # meta functions (was: get_buffers_info)
     GpuMatCudaArray, make_gpu_mat, nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat,  # OpenCV CUDA helpers
     SkiaCanvas,                 # convenience Skia wrapper
-    MultiStreamDecoderConfig, MultiStreamDecoder,  # multi-stream decoder
-    SubmitResult, EvictionVerdict, StopReason,      # decoder enums
-    UndecodedReason, DecoderOutput,                 # decoder output types
 )
 ```
 

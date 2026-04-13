@@ -1,6 +1,6 @@
 //! Map `VideoFrame` codec strings to `DecoderConfig` (and H.264/HEVC detection helpers).
 
-#[allow(unused_imports)] // re-export for downstream crates / FFI
+#[allow(unused_imports)]
 pub use deepstream_decoders::{detect_stream_config, is_random_access_point};
 use deepstream_decoders::{
     Av1DecoderConfig, DecoderConfig, JpegDecoderConfig, PngDecoderConfig, RawRgbDecoderConfig,

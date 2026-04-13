@@ -3,7 +3,7 @@ name = "deepstream_inputs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "DeepStream input adapters (multi-stream decoder, etc.)"
+description = "DeepStream input adapters (flexible single-stream decoder, etc.)"
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
@@ -13,7 +13,6 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-crossbeam = { workspace = true }
 deepstream_buffers = { path = "../buffers" }
 deepstream_decoders = { path = "../decoders" }
 log = { workspace = true }
@@ -23,18 +22,14 @@ savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-f
 thiserror = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
 cros-codecs = { workspace = true }
 deepstream_buffers = { path = "../buffers" }
 deepstream_encoders = { path = "../encoders" }
 env_logger = { workspace = true }
 gstreamer = { workspace = true }
+image = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serial_test = { workspace = true }
-
-[[bench]]
-name = "multistream_jpeg_bench"
-harness = false

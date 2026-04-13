@@ -71,7 +71,8 @@ pub enum NvDecoderOutput {
     /// A downstream GStreamer event captured at the pipeline output.
     Event(gst::Event),
     /// Per-source logical EOS (custom downstream event passthrough).
-    /// Does **not** stop the decoder — use [`NvDecoder::send_eos`] for that.
+    /// Does **not** stop the decoder — use [`NvDecoder::graceful_shutdown`]
+    /// for that.
     SourceEos { source_id: String },
     /// End-of-stream: all buffered frames have been delivered.
     Eos,
@@ -315,32 +316,6 @@ impl NvDecoder {
         Ok(())
     }
 
-    /// Signal end-of-stream.
-    ///
-    /// For Pipeline backends, sends actual EOS through the GStreamer pipeline
-    /// to flush any buffered frames (critical for B-frame codecs). The caller
-    /// should continue calling [`recv`](Self::recv) until [`NvDecoderOutput::Eos`]
-    /// is received.
-    ///
-    /// Idempotent: calling after finalization is a no-op.
-    pub fn send_eos(&self) -> Result<(), DecoderError> {
-        if self.finalized.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
-        match &self.backend {
-            DecoderBackendState::Pipeline { input_tx, .. } => {
-                input_tx
-                    .send(PipelineInput::Eos)
-                    .map_err(|_| DecoderError::ChannelDisconnected)?;
-            }
-            DecoderBackendState::RawUpload { output_tx, .. }
-            | DecoderBackendState::ImageDecode { output_tx, .. } => {
-                let _ = output_tx.send(NvDecoderOutput::Eos);
-            }
-        }
-        Ok(())
-    }
-
     /// Inject a custom downstream GStreamer event into the pipeline.
     ///
     /// The event is ordered with buffers already in the pipeline, so it
@@ -431,20 +406,26 @@ impl NvDecoder {
         }
     }
 
-    /// Graceful shutdown: reject new input, send EOS, drain and convert all
-    /// in-flight outputs, then tear down the pipeline.
+    /// Graceful shutdown: reject new input, send EOS, drain and convert
+    /// in-flight outputs one at a time via `on_output`, then tear down the
+    /// pipeline.
     ///
-    /// Each drained NVMM buffer is converted to RGBA using a temporary
-    /// out-of-band pool (sized to the number of drained frames) so that:
-    /// - the shared `self.pool` is not pressured by the batch of drained frames,
-    /// - conversion happens while the pipeline is still alive (NVMM source
-    ///   memory valid).
+    /// Each drained NVMM buffer is converted to RGBA using the shared output
+    /// pool (same pool used by [`recv`](Self::recv) / [`try_recv`](Self::try_recv)),
+    /// so at most one extra RGBA buffer is live at a time.
     ///
-    /// Returns all domain outputs produced before the pipeline EOS.
-    pub fn graceful_shutdown(
+    /// `idle_timeout` is the maximum time to wait **between** consecutive
+    /// outputs without receiving anything new.  `None` means wait
+    /// indefinitely.  A GStreamer EOS or pipeline error always terminates the
+    /// drain immediately regardless of the idle timeout.
+    pub fn graceful_shutdown<F>(
         &self,
-        timeout: Duration,
-    ) -> Result<Vec<NvDecoderOutput>, DecoderError> {
+        idle_timeout: Option<Duration>,
+        mut on_output: F,
+    ) -> Result<(), DecoderError>
+    where
+        F: FnMut(NvDecoderOutput),
+    {
         if self.is_shut_down.swap(true, Ordering::AcqRel) {
             return Err(DecoderError::ShuttingDown);
         }
@@ -459,60 +440,32 @@ impl NvDecoder {
                     .send(PipelineInput::Eos)
                     .map_err(|_| DecoderError::ChannelDisconnected)?;
 
-                // Phase 1: drain raw outputs while the pipeline is alive.
-                let mut raw = Vec::new();
-                let deadline = std::time::Instant::now() + timeout;
                 loop {
-                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                    if remaining.is_zero() {
+                    let raw = match idle_timeout {
+                        Some(d) => match output_rx.recv_timeout(d) {
+                            Ok(v) => v,
+                            Err(channel::RecvTimeoutError::Timeout) => break,
+                            Err(channel::RecvTimeoutError::Disconnected) => break,
+                        },
+                        None => match output_rx.recv() {
+                            Ok(v) => v,
+                            Err(_) => break,
+                        },
+                    };
+                    let is_terminal = matches!(raw, PipelineOutput::Eos | PipelineOutput::Error(_));
+                    if !matches!(raw, PipelineOutput::Eos) {
+                        on_output(self.convert_output(raw)?);
+                    }
+                    if is_terminal {
                         break;
                     }
-                    match output_rx.recv_timeout(remaining) {
-                        Ok(PipelineOutput::Eos) => break,
-                        Ok(PipelineOutput::Error(e)) => {
-                            raw.push(PipelineOutput::Error(e));
-                            break;
-                        }
-                        Ok(other) => raw.push(other),
-                        Err(channel::RecvTimeoutError::Timeout) => break,
-                        Err(channel::RecvTimeoutError::Disconnected) => break,
-                    }
                 }
 
-                // Phase 2: build a temporary pool for NVMM→RGBA conversion.
-                let buf_count = raw
-                    .iter()
-                    .filter(|b| matches!(b, PipelineOutput::Buffer(_)))
-                    .count() as u32;
-                let drain_pool = if buf_count > 0 {
-                    Some(self.make_drain_pool(buf_count)?)
-                } else {
-                    None
-                };
-
-                // Phase 3: convert while the pipeline (and its V4L2 NVMM pool)
-                // is still alive.
-                let pool_guard;
-                let pool_ref: &BufferGenerator = match &drain_pool {
-                    Some(p) => p,
-                    None => {
-                        pool_guard = self.pool.lock();
-                        &pool_guard
-                    }
-                };
-                let mut out = Vec::with_capacity(raw.len());
-                for item in raw {
-                    out.push(self.convert_output_with_pool(item, pool_ref)?);
-                }
-
-                // Phase 4: tear down the pipeline — NVMM source memory freed
-                // here, but all frames have already been copied to drain_pool.
                 pipeline.lock().shutdown()?;
-
-                Ok(out)
+                Ok(())
             }
             DecoderBackendState::RawUpload { .. } | DecoderBackendState::ImageDecode { .. } => {
-                Ok(Vec::new())
+                Ok(())
             }
         }
     }
@@ -589,18 +542,6 @@ impl NvDecoder {
             PipelineOutput::Error(e) => Ok(NvDecoderOutput::Error(DecoderError::FrameworkError(e))),
         }
     }
-
-    /// Create a temporary RGBA buffer pool sized exactly for a drain batch.
-    fn make_drain_pool(&self, count: u32) -> Result<BufferGenerator, DecoderError> {
-        let guard = self.pool.lock();
-        BufferGenerator::builder(guard.format(), guard.width(), guard.height())
-            .gpu_id(guard.gpu_id())
-            .mem_type(NvBufSurfaceMemType::Default)
-            .min_buffers(count)
-            .max_buffers(count)
-            .build()
-            .map_err(|e| DecoderError::BufferError(format!("drain pool creation failed: {e}")))
-    }
 }
 
 impl Drop for NvDecoder {
@@ -616,6 +557,49 @@ impl Drop for NvDecoder {
                 pts.len()
             );
         }
+    }
+}
+
+// ── Low-level EOS (opt-in trait, not in prelude) ────────────────────
+
+/// Low-level EOS for the "submit → send_eos → recv loop" pattern.
+///
+/// This trait is intentionally **not** part of the [`prelude`](crate::prelude)
+/// so that regular consumers use [`NvDecoder::graceful_shutdown`] instead,
+/// avoiding double-EOS ambiguity.  Import the trait explicitly when you need
+/// the manual drain workflow (benchmarks, integration tests).
+pub trait NvDecoderExt {
+    /// Signal end-of-stream.
+    ///
+    /// For Pipeline backends, sends actual GStreamer EOS through the pipeline
+    /// to flush any buffered frames (critical for B-frame codecs). The caller
+    /// should continue calling [`NvDecoder::recv`] until
+    /// [`NvDecoderOutput::Eos`] is received.
+    ///
+    /// Prefer [`NvDecoder::graceful_shutdown`] which sends EOS internally and
+    /// drains via callback in a single call.
+    ///
+    /// Idempotent: calling after finalization is a no-op.
+    fn send_eos(&self) -> Result<(), DecoderError>;
+}
+
+impl NvDecoderExt for NvDecoder {
+    fn send_eos(&self) -> Result<(), DecoderError> {
+        if self.finalized.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        match &self.backend {
+            DecoderBackendState::Pipeline { input_tx, .. } => {
+                input_tx
+                    .send(PipelineInput::Eos)
+                    .map_err(|_| DecoderError::ChannelDisconnected)?;
+            }
+            DecoderBackendState::RawUpload { output_tx, .. }
+            | DecoderBackendState::ImageDecode { output_tx, .. } => {
+                let _ = output_tx.send(NvDecoderOutput::Eos);
+            }
+        }
+        Ok(())
     }
 }
 

@@ -1,30 +1,8 @@
-"""Type aliases for the multi-stream decoder.
+"""Placeholder for DeepStream decoder Python bindings.
 
-At runtime these classes are registered on ``savant_rs.deepstream`` by the
-native extension (there is no ``savant_rs.deepstream.inputs`` submodule).
-Import from ``savant_rs.deepstream`` in application code.
-
-This file exists so tooling can reference a dedicated path if desired.
+``FlexibleDecoder`` (the Rust-side replacement for the removed
+``MultiStreamDecoder``) is not yet exposed to Python.  This stub will be
+populated once the Rust API is stable and PyO3 bindings are implemented.
 """
 
-from __future__ import annotations
-
-from savant_rs.deepstream import (  # noqa: F401
-    DecoderOutput,
-    EvictionVerdict,
-    MultiStreamDecoder,
-    MultiStreamDecoderConfig,
-    StopReason,
-    SubmitResult,
-    UndecodedReason,
-)
-
-__all__ = [
-    "DecoderOutput",
-    "EvictionVerdict",
-    "MultiStreamDecoder",
-    "MultiStreamDecoderConfig",
-    "StopReason",
-    "SubmitResult",
-    "UndecodedReason",
-]
+__all__: list[str] = []

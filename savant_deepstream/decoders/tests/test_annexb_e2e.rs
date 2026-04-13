@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use deepstream_decoders::prelude::*;
+use deepstream_decoders::NvDecoderExt;
 use serial_test::serial;
 use std::time::Duration;
 

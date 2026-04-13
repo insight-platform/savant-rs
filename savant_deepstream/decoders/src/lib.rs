@@ -10,7 +10,7 @@ pub use config::{
     RawRgbDecoderConfig, RawRgbaDecoderConfig, Vp8DecoderConfig, Vp9DecoderConfig,
 };
 pub use error::DecoderError;
-pub use pipeline::{NvDecoder, NvDecoderOutput};
+pub use pipeline::{NvDecoder, NvDecoderOutput, NvDecoderExt};
 pub use stream_detect::{detect_stream_config, is_random_access_point};
 
 pub use deepstream_buffers::{

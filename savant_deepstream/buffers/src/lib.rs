@@ -86,6 +86,9 @@ pub enum NvBufSurfaceError {
     #[error("Failed to acquire buffer from pool: {0}")]
     BufferAcquisitionFailed(String),
 
+    #[error("Buffer pool exhausted (all buffers are in use)")]
+    PoolExhausted,
+
     #[error("Failed to copy buffer contents: {0}")]
     BufferCopyFailed(String),
 

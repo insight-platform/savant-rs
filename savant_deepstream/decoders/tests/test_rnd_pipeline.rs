@@ -5,6 +5,7 @@ mod common;
 
 use common::*;
 use deepstream_decoders::prelude::*;
+use deepstream_decoders::NvDecoderExt;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;

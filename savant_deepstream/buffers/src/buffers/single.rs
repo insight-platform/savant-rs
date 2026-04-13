@@ -192,6 +192,9 @@ impl BufferGenerator {
     /// When the returned buffer is dropped (or unreffed by a pipeline), it is
     /// automatically returned to the pool for reuse.
     ///
+    /// **Blocks** until a buffer becomes available when the pool is exhausted.
+    /// See [`try_acquire`](Self::try_acquire) for a non-blocking alternative.
+    ///
     /// # Arguments
     ///
     /// * `id` - Optional frame identifier. When `Some(id)`, a
@@ -199,6 +202,14 @@ impl BufferGenerator {
     ///   `Frame(id)` is attached to the buffer.
     pub fn acquire(&self, id: Option<u128>) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
         self.0.acquire(id)
+    }
+
+    /// Non-blocking variant of [`acquire`](Self::acquire).
+    ///
+    /// Returns [`NvBufSurfaceError::PoolExhausted`] immediately when all pool
+    /// buffers are currently in use, instead of blocking the caller.
+    pub fn try_acquire(&self, id: Option<u128>) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
+        self.0.try_acquire(id)
     }
 
     /// Transform (scale + letterbox) a source surface into a new destination

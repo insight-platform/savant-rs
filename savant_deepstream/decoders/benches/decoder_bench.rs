@@ -16,13 +16,14 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use deepstream_buffers::NvBufSurfaceMemType;
 use deepstream_decoders::prelude::*;
+use deepstream_decoders::NvDecoderExt;
 use deepstream_encoders::prelude::*;
 use std::sync::Once;
 use std::time::Duration;
 
 static INIT: Once = Once::new();
 
-const BENCH_FRAMES: usize = 100;
+const BENCH_FRAMES: usize = 1000;
 const FRAME_DUR_NS: u64 = 33_333_333; // ~30 fps
 
 // ---------------------------------------------------------------------------
@@ -149,7 +150,7 @@ fn bench_hevc_decode(c: &mut Criterion) {
         return;
     }
 
-    let mut group = c.benchmark_group("hevc_decode_100_frames");
+    let mut group = c.benchmark_group("hevc_decode_1000_frames");
     group.sample_size(10);
     group.throughput(criterion::Throughput::Elements(BENCH_FRAMES as u64));
 
@@ -200,7 +201,7 @@ fn bench_jpeg_decode(c: &mut Criterion) {
         return;
     }
 
-    let mut group = c.benchmark_group("jpeg_decode_100_frames");
+    let mut group = c.benchmark_group("jpeg_decode_1000_frames");
     group.sample_size(10);
     group.throughput(criterion::Throughput::Elements(BENCH_FRAMES as u64));
 
