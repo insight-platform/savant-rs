@@ -45,7 +45,6 @@ fn make_nvtracker_config() -> crate::config::NvTrackerConfig {
         input_format: deepstream_buffers::VideoFormat::RGBA,
         element_properties: StdHashMap::new(),
         tracking_id_reset_mode: TrackingIdResetMode::None,
-        queue_depth: 0,
         operation_timeout: std::time::Duration::from_secs(30),
         input_channel_capacity: 16,
         output_channel_capacity: 16,

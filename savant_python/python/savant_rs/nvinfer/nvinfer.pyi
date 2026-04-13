@@ -199,7 +199,6 @@ class NvInferConfig:
         name: Optional instance name for logging.
         element_properties: Additional GStreamer element properties.
         gpu_id: GPU device ID.
-        queue_depth: GStreamer queue max-size-buffers (0 = no queue).
         input_channel_capacity: Bounded input channel size; when full,
             ``NvInfer.submit`` blocks. Default: ``16``.
         output_channel_capacity: Bounded output channel size. Default: ``16``.
@@ -225,7 +224,6 @@ class NvInferConfig:
         name: str = "",
         element_properties: Optional[Dict[str, str]] = None,
         gpu_id: int = 0,
-        queue_depth: int = 0,
         input_channel_capacity: int = 16,
         output_channel_capacity: int = 16,
         drain_poll_interval_ms: int = 100,
@@ -239,8 +237,6 @@ class NvInferConfig:
     def name(self) -> str: ...
     @property
     def gpu_id(self) -> int: ...
-    @property
-    def queue_depth(self) -> int: ...
     @property
     def input_channel_capacity(self) -> int: ...
     @property
@@ -460,8 +456,8 @@ class NvInferOutput:
 class NvInfer:
     """NvInfer inference engine.
 
-    Wraps a DeepStream ``nvinfer`` element in an ``appsrc -> [queue] ->
-    nvinfer -> appsink`` GStreamer pipeline.  Outputs are **pulled** with
+    Wraps a DeepStream ``nvinfer`` element in an
+    ``appsrc -> nvinfer -> appsink`` GStreamer pipeline. Outputs are **pulled** with
     :meth:`recv`, :meth:`recv_timeout`, or :meth:`try_recv` (matches the Rust API).
 
     Args:

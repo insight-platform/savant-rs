@@ -20,7 +20,6 @@ use std::collections::HashMap;
 ///     gpu_id (int): GPU id.
 ///     element_properties (Optional[Dict[str, str]]): Extra element properties.
 ///     tracking_id_reset_mode (TrackingIdResetMode): ID reset behaviour.
-///     queue_depth (int): GStreamer queue ``max-size-buffers`` (0 = no queue).
 ///     operation_timeout_ms (int): Maximum time (in milliseconds) for the
 ///         framework in-flight watchdog. When exceeded, the pipeline enters a
 ///         terminal failed state. Default: ``30000``.
@@ -52,7 +51,6 @@ impl PyNvTrackerConfig {
         gpu_id = 0u32,
         element_properties = None,
         tracking_id_reset_mode = PyTrackingIdResetMode::None,
-        queue_depth = 0u32,
         operation_timeout_ms = 30000u64,
         input_channel_capacity = 16usize,
         output_channel_capacity = 16usize,
@@ -70,7 +68,6 @@ impl PyNvTrackerConfig {
         gpu_id: u32,
         element_properties: Option<HashMap<String, String>>,
         tracking_id_reset_mode: PyTrackingIdResetMode,
-        queue_depth: u32,
         operation_timeout_ms: u64,
         input_channel_capacity: usize,
         output_channel_capacity: usize,
@@ -84,7 +81,6 @@ impl PyNvTrackerConfig {
         cfg.gpu_id = gpu_id;
         cfg.input_format = fmt;
         cfg.tracking_id_reset_mode = tracking_id_reset_mode.into();
-        cfg.queue_depth = queue_depth;
         cfg.operation_timeout = std::time::Duration::from_millis(operation_timeout_ms);
         cfg.input_channel_capacity = input_channel_capacity;
         cfg.output_channel_capacity = output_channel_capacity;
@@ -106,11 +102,6 @@ impl PyNvTrackerConfig {
     #[getter]
     fn ll_config_file(&self) -> String {
         self.inner.ll_config_file.clone()
-    }
-
-    #[getter]
-    fn queue_depth(&self) -> u32 {
-        self.inner.queue_depth
     }
 
     /// Operation timeout in milliseconds.
@@ -161,13 +152,12 @@ impl PyNvTrackerConfig {
 
     fn __repr__(&self) -> String {
         format!(
-            "NvTrackerConfig(name={:?}, gpu_id={}, max_batch_size={}, queue_depth={}, \
+            "NvTrackerConfig(name={:?}, gpu_id={}, max_batch_size={}, \
              operation_timeout_ms={}, input_channel_capacity={}, output_channel_capacity={}, \
              drain_poll_interval_ms={})",
             self.inner.name,
             self.inner.gpu_id,
             self.inner.max_batch_size,
-            self.inner.queue_depth,
             self.operation_timeout_ms(),
             self.input_channel_capacity(),
             self.output_channel_capacity(),

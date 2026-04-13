@@ -57,9 +57,6 @@ fn drain_events(rx: &mpsc::Receiver<DecoderOutput>) -> Vec<String> {
                 events.push(format!("StreamStopped({reason:?})"));
                 break;
             }
-            Ok(DecoderOutput::PipelineRestarted { reason, .. }) => {
-                events.push(format!("PipelineRestarted({reason})"));
-            }
             Err(_) => panic!("timeout after {RECV_TIMEOUT:?} — events so far: {events:?}"),
         }
     }

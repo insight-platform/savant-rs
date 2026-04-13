@@ -17,7 +17,6 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use deepstream_buffers::NvBufSurfaceMemType;
 use deepstream_decoders::prelude::*;
 use deepstream_encoders::prelude::*;
-use std::sync::mpsc;
 use std::sync::Once;
 use std::time::Duration;
 
@@ -108,12 +107,7 @@ fn encode_jpeg_blob(w: u32, h: u32) -> Vec<u8> {
 
 /// Submit all access units to `decoder`, send EOS, drain until EOS.
 /// Panics if the decoded frame count does not match `expected`.
-fn decode_and_drain(
-    decoder: &mut NvDecoder,
-    rx: &mpsc::Receiver<DecoderEvent>,
-    data: &[Vec<u8>],
-    expected: usize,
-) {
+fn decode_and_drain(decoder: &NvDecoder, data: &[Vec<u8>], expected: usize) {
     for (i, au) in data.iter().enumerate() {
         let pts = i as u64 * FRAME_DUR_NS;
         decoder
@@ -126,14 +120,13 @@ fn decode_and_drain(
 
     let mut count = 0usize;
     loop {
-        match rx.recv_timeout(Duration::from_secs(60)) {
-            Ok(DecoderEvent::Frame(_)) => count += 1,
-            Ok(DecoderEvent::Eos) => break,
-            Ok(DecoderEvent::Error(e)) => panic!("decoder error: {e}"),
-            Ok(DecoderEvent::PipelineRestarted { reason, .. }) => {
-                panic!("unexpected restart: {reason}")
-            }
-            Err(_) => panic!("timeout after {count}/{expected} frames"),
+        match decoder.recv_timeout(Duration::from_secs(60)) {
+            Ok(Some(NvDecoderOutput::Frame(_))) => count += 1,
+            Ok(Some(NvDecoderOutput::Eos)) => break,
+            Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error: {e}"),
+            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(None) => panic!("timeout after {count}/{expected} frames"),
+            Err(e) => panic!("recv error: {e}"),
         }
     }
     assert_eq!(count, expected, "decoded {count} != expected {expected}");
@@ -175,23 +168,18 @@ fn bench_hevc_decode(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     let data = aus.clone();
-                    let (tx, rx) = mpsc::channel();
                     let config =
                         DecoderConfig::Hevc(HevcDecoderConfig::new(HevcStreamFormat::ByteStream));
                     let decoder = NvDecoder::new(
-                        0,
-                        &config,
+                        NvDecoderConfig::new(0, config),
                         bench_rgba_pool(w, h),
                         TransformConfig::default(),
-                        move |ev| {
-                            let _ = tx.send(ev);
-                        },
                     )
                     .expect("NvDecoder creation failed");
-                    (decoder, rx, data)
+                    (decoder, data)
                 },
-                |(mut decoder, rx, data)| {
-                    decode_and_drain(&mut decoder, &rx, &data, BENCH_FRAMES);
+                |(decoder, data)| {
+                    decode_and_drain(&decoder, &data, BENCH_FRAMES);
                 },
                 BatchSize::PerIteration,
             );
@@ -230,22 +218,17 @@ fn bench_jpeg_decode(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     let data = data.clone();
-                    let (tx, rx) = mpsc::channel();
                     let config = DecoderConfig::Jpeg(JpegDecoderConfig::gpu());
                     let decoder = NvDecoder::new(
-                        0,
-                        &config,
+                        NvDecoderConfig::new(0, config),
                         bench_rgba_pool(w, h),
                         TransformConfig::default(),
-                        move |ev| {
-                            let _ = tx.send(ev);
-                        },
                     )
                     .expect("NvDecoder creation failed");
-                    (decoder, rx, data)
+                    (decoder, data)
                 },
-                |(mut decoder, rx, data)| {
-                    decode_and_drain(&mut decoder, &rx, &data, BENCH_FRAMES);
+                |(decoder, data)| {
+                    decode_and_drain(&decoder, &data, BENCH_FRAMES);
                 },
                 BatchSize::PerIteration,
             );

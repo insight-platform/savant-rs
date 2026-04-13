@@ -8,7 +8,7 @@ use crossbeam::channel::Sender;
 use parking_lot::Mutex;
 
 use crate::pipeline::error::PipelineError;
-use crate::pipeline::runner::PipelineOutput;
+use crate::pipeline::runner::{send_or_shutdown_on, PipelineOutput};
 
 pub fn spawn_watchdog(
     thread_name: String,
@@ -18,12 +18,20 @@ pub fn spawn_watchdog(
     failed: Arc<AtomicBool>,
     output_tx: Sender<PipelineOutput>,
 ) -> Option<JoinHandle<()>> {
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
     std::thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
-            let tick = operation_timeout / 2;
+            let check_interval = operation_timeout / 2;
             loop {
-                std::thread::sleep(tick);
+                let deadline = Instant::now() + check_interval;
+                while Instant::now() < deadline {
+                    if shutdown.load(Ordering::Acquire) || failed.load(Ordering::Acquire) {
+                        return;
+                    }
+                    std::thread::sleep(POLL_INTERVAL);
+                }
                 if shutdown.load(Ordering::Acquire) || failed.load(Ordering::Acquire) {
                     return;
                 }
@@ -44,13 +52,15 @@ pub fn spawn_watchdog(
                         }
                     }
                     failed.store(true, Ordering::Release);
-                    let _ = output_tx.send(PipelineOutput::Error(PipelineError::RuntimeError(
-                        format!(
+                    let _ = send_or_shutdown_on(
+                        &output_tx,
+                        &shutdown,
+                        PipelineOutput::Error(PipelineError::RuntimeError(format!(
                             "watchdog timeout: {} in-flight buffer(s) exceeded {:?}",
                             expired.len(),
                             operation_timeout
-                        ),
-                    )));
+                        ))),
+                    );
                     return;
                 }
             }

@@ -41,7 +41,6 @@ fn make_nvinfer_config() -> crate::config::NvInferConfig {
         nvinfer_properties: StdHashMap::new(),
         element_properties: StdHashMap::new(),
         gpu_id: 0,
-        queue_depth: 0,
         input_format: deepstream_buffers::VideoFormat::RGBA,
         model_width: 640,
         model_height: 640,

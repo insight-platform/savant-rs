@@ -66,8 +66,6 @@ def _drain_until_stream_stopped(
         elif o.is_undecoded():
             uf, _data, reason = o.as_undecoded()
             pytest.fail(f"unexpected Undecoded {reason!r} for frame {uf.source_id!r}")
-        elif o.is_pipeline_restarted():
-            pytest.fail(f"unexpected PipelineRestarted: {o!r}")
         else:
             pytest.fail(f"unexpected DecoderOutput: {o!r}")
     assert decoded >= min_decoded, f"expected ≥{min_decoded} Decoded, got {decoded}"

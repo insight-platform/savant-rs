@@ -1,3 +1,5 @@
+use crate::pipeline::config::PtsPolicy;
+
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum PipelineError {
     #[error("GStreamer init failed: {0}")]
@@ -23,4 +25,11 @@ pub enum PipelineError {
 
     #[error("Pipeline channel disconnected")]
     ChannelDisconnected,
+
+    #[error("Timestamp order violation ({policy:?}): current {current_key_ns} <= previous {prev_key_ns}")]
+    TimestampOrderViolation {
+        policy: PtsPolicy,
+        current_key_ns: u64,
+        prev_key_ns: u64,
+    },
 }

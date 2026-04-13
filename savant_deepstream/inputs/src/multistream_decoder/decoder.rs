@@ -14,8 +14,8 @@ use deepstream_buffers::{
     VideoFormat,
 };
 use deepstream_decoders::{
-    detect_stream_config, is_random_access_point, DecoderConfig, DecoderEvent, JpegBackend,
-    NvDecoder,
+    detect_stream_config, is_random_access_point, DecoderConfig, JpegBackend, NvDecoder,
+    NvDecoderConfig, NvDecoderOutput,
 };
 use log::{error, warn};
 use parking_lot::Mutex;
@@ -149,7 +149,7 @@ pub(super) enum EosKind {
     },
 }
 
-/// Signals the feeder that `NvDecoder` delivered [`DecoderEvent::Eos`].
+/// Signals the feeder that the drain thread received [`NvDecoderOutput::Eos`].
 struct EosSync {
     mu: std::sync::Mutex<bool>,
     cv: std::sync::Condvar,
@@ -840,107 +840,24 @@ impl MultiStreamDecoder {
         let sid_for_map = source_id.clone();
 
         let dec_codec = cfg.codec();
-        let decoder = NvDecoder::new(gpu_id, &cfg, pool, transform, {
-            let source_id = source_id.clone();
-            let pending_frames = pending_frames.clone();
-            let on_output = on_output.clone();
-            let alive = alive.clone();
-            let eos_kind = eos_kind.clone();
-            let eos_sync_c = eos_sync.clone();
-            let streams_map = streams_map.clone();
-            let sid_for_map = sid_for_map.clone();
-            let teardown_joins = self.pending_teardowns.clone();
-            move |ev| match ev {
-                DecoderEvent::Frame(df) => {
-                    let fid = df.frame_id.unwrap_or(0);
-                    let buf = df.buffer;
-                    let mut t = pending_frames.lock();
-                    if let Some(mut f) = t.remove(fid) {
-                        apply_decoded_surface_to_frame(&mut f, &buf, pool_w, pool_h);
-                        (on_output)(DecoderOutput::Decoded {
-                            frame: f,
-                            buffer: buf,
-                        });
-                    }
-                }
-                DecoderEvent::Eos => {
-                    let kind = eos_kind.lock().take();
-                    let (do_emit_eos, reason) = match kind {
-                        Some(EosKind::User) | None => (true, StopReason::Eos),
-                        Some(EosKind::Idle) => (true, StopReason::IdleEviction),
-                        Some(EosKind::SessionReset {
-                            stop_reason,
-                            emit_eos,
-                        }) => (emit_eos, stop_reason),
-                    };
-                    if do_emit_eos {
-                        (on_output)(DecoderOutput::Eos {
-                            source_id: source_id.clone(),
-                        });
-                    }
-                    (on_output)(DecoderOutput::StreamStopped {
-                        source_id: source_id.clone(),
-                        reason,
-                    });
-                    alive.store(false, Ordering::Release);
-                    eos_sync_c.notify();
-                    // Guard against removing a newer session that reused this source_id.
-                    // Only remove if the entry in the map still belongs to THIS session
-                    // (identified by pointer equality of the `alive` Arc).
-                    let maybe_ent = {
-                        let mut guard = streams_map.lock();
-                        let is_mine = guard.get(&sid_for_map).is_some_and(|ent| {
-                            matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, &alive))
-                        });
-                        if is_mine {
-                            guard.remove(&sid_for_map)
-                        } else {
-                            None
-                        }
-                    };
-                    if let Some(ent) = maybe_ent {
-                        let h = std::thread::spawn(move || teardown_stream_entry(ent));
-                        teardown_joins.lock().push(h);
-                    }
-                }
-                DecoderEvent::Error(e) => {
-                    error!("decoder error for {source_id}: {e}");
-                    (on_output)(DecoderOutput::StreamStopped {
-                        source_id: source_id.clone(),
-                        reason: StopReason::Error(e.to_string()),
-                    });
-                    alive.store(false, Ordering::Release);
-                    eos_sync_c.notify();
-                    // Same guard as for EOS: only remove our own session entry.
-                    let maybe_ent = {
-                        let mut guard = streams_map.lock();
-                        let is_mine = guard.get(&sid_for_map).is_some_and(|ent| {
-                            matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, &alive))
-                        });
-                        if is_mine {
-                            guard.remove(&sid_for_map)
-                        } else {
-                            None
-                        }
-                    };
-                    if let Some(ent) = maybe_ent {
-                        let h = std::thread::spawn(move || teardown_stream_entry(ent));
-                        teardown_joins.lock().push(h);
-                    }
-                }
-                DecoderEvent::PipelineRestarted {
-                    reason,
-                    lost_frame_count,
-                } => {
-                    (on_output)(DecoderOutput::PipelineRestarted {
-                        source_id: source_id.clone(),
-                        reason,
-                        lost_frame_count,
-                    });
-                }
-            }
-        })
-        .map_err(|e| MultiStreamError::DecoderCreationFailed(e.to_string()))?;
+        let decoder = NvDecoder::new(NvDecoderConfig::new(gpu_id, cfg), pool, transform)
+            .map_err(|e| MultiStreamError::DecoderCreationFailed(e.to_string()))?;
+        let decoder = Arc::new(decoder);
+
+        spawn_drain(
+            source_id.clone(),
+            Arc::clone(&decoder),
+            pending_frames.clone(),
+            on_output.clone(),
+            alive.clone(),
+            eos_kind.clone(),
+            eos_sync.clone(),
+            streams_map.clone(),
+            sid_for_map.clone(),
+            self.pending_teardowns.clone(),
+            pool_w,
+            pool_h,
+        );
 
         (self.on_output)(DecoderOutput::StreamStarted {
             source_id: source_id.clone(),
@@ -1102,11 +1019,143 @@ impl MultiStreamDecoder {
     }
 }
 
+/// Drain thread: pulls [`NvDecoderOutput`] from the decoder and delivers
+/// decoded frames / EOS / errors through `on_output`.
+#[allow(clippy::too_many_arguments)]
+fn spawn_drain(
+    source_id: String,
+    decoder: Arc<NvDecoder>,
+    pending_frames: Arc<Mutex<FrameTracker>>,
+    on_output: Arc<dyn Fn(DecoderOutput) + Send + Sync + 'static>,
+    alive: Arc<AtomicBool>,
+    eos_kind: Arc<Mutex<Option<EosKind>>>,
+    eos_sync: Arc<EosSync>,
+    streams_map: Arc<Mutex<HashMap<String, StreamEntry>>>,
+    sid_for_map: String,
+    teardown_joins: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    pool_w: u32,
+    pool_h: u32,
+) {
+    std::thread::Builder::new()
+        .name(format!("ms-dec-drain-{source_id}"))
+        .spawn(move || loop {
+            let ev = decoder.recv();
+            match ev {
+                Ok(NvDecoderOutput::Frame(df)) => {
+                    let fid = df.frame_id.unwrap_or(0);
+                    let buf = df.buffer;
+                    let mut t = pending_frames.lock();
+                    if let Some(mut f) = t.remove(fid) {
+                        apply_decoded_surface_to_frame(&mut f, &buf, pool_w, pool_h);
+                        (on_output)(DecoderOutput::Decoded {
+                            frame: f,
+                            buffer: buf,
+                        });
+                    }
+                }
+                Ok(NvDecoderOutput::Eos) => {
+                    handle_eos_or_error(
+                        &source_id,
+                        &eos_kind,
+                        &on_output,
+                        &alive,
+                        &eos_sync,
+                        &streams_map,
+                        &sid_for_map,
+                        &teardown_joins,
+                        None,
+                    );
+                    break;
+                }
+                Ok(NvDecoderOutput::Error(e)) => {
+                    error!("decoder error for {source_id}: {e}");
+                    handle_eos_or_error(
+                        &source_id,
+                        &eos_kind,
+                        &on_output,
+                        &alive,
+                        &eos_sync,
+                        &streams_map,
+                        &sid_for_map,
+                        &teardown_joins,
+                        Some(e.to_string()),
+                    );
+                    break;
+                }
+                Ok(NvDecoderOutput::Event(_)) => {}
+                Err(_) => {
+                    alive.store(false, Ordering::Release);
+                    eos_sync.notify();
+                    break;
+                }
+            }
+        })
+        .expect("drain thread");
+}
+
+/// Shared EOS / error handling for the drain thread.
+#[allow(clippy::too_many_arguments)]
+fn handle_eos_or_error(
+    source_id: &str,
+    eos_kind: &Mutex<Option<EosKind>>,
+    on_output: &Arc<dyn Fn(DecoderOutput) + Send + Sync + 'static>,
+    alive: &Arc<AtomicBool>,
+    eos_sync: &EosSync,
+    streams_map: &Arc<Mutex<HashMap<String, StreamEntry>>>,
+    sid_for_map: &str,
+    teardown_joins: &Arc<Mutex<Vec<JoinHandle<()>>>>,
+    error_msg: Option<String>,
+) {
+    if let Some(err) = error_msg {
+        (on_output)(DecoderOutput::StreamStopped {
+            source_id: source_id.to_string(),
+            reason: StopReason::Error(err),
+        });
+    } else {
+        let kind = eos_kind.lock().take();
+        let (do_emit_eos, reason) = match kind {
+            Some(EosKind::User) | None => (true, StopReason::Eos),
+            Some(EosKind::Idle) => (true, StopReason::IdleEviction),
+            Some(EosKind::SessionReset {
+                stop_reason,
+                emit_eos,
+            }) => (emit_eos, stop_reason),
+        };
+        if do_emit_eos {
+            (on_output)(DecoderOutput::Eos {
+                source_id: source_id.to_string(),
+            });
+        }
+        (on_output)(DecoderOutput::StreamStopped {
+            source_id: source_id.to_string(),
+            reason,
+        });
+    }
+    alive.store(false, Ordering::Release);
+    eos_sync.notify();
+    // Guard against removing a newer session that reused this source_id.
+    let maybe_ent = {
+        let mut guard = streams_map.lock();
+        let is_mine = guard.get(sid_for_map).is_some_and(
+            |ent| matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, alive)),
+        );
+        if is_mine {
+            guard.remove(sid_for_map)
+        } else {
+            None
+        }
+    };
+    if let Some(ent) = maybe_ent {
+        let h = std::thread::spawn(move || teardown_stream_entry(ent));
+        teardown_joins.lock().push(h);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn spawn_feeder(
     source_id: String,
     rx: crossbeam::channel::Receiver<QueueItem>,
-    mut decoder: NvDecoder,
+    decoder: Arc<NvDecoder>,
     idle_timeout: Duration,
     on_eviction: Option<EvictionCallback>,
     eos_kind: Arc<Mutex<Option<EosKind>>>,
@@ -1114,7 +1163,7 @@ fn spawn_feeder(
     alive: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
-        .name(format!("multistream-decoder-{source_id}"))
+        .name(format!("ms-dec-feed-{source_id}"))
         .spawn(move || {
             let mut wait = idle_timeout;
             loop {

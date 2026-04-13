@@ -6,7 +6,7 @@ pub mod runner;
 pub mod source_eos;
 pub mod watchdog;
 
-pub use config::{AppsrcPadProbe, PipelineConfig};
+pub use config::{AppsrcPadProbe, PipelineConfig, PtsPolicy};
 pub use element_property::set_element_property;
 pub use error::PipelineError;
 pub use runner::{GstPipeline, PipelineInput, PipelineOutput};

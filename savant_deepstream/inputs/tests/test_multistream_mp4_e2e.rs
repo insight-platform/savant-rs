@@ -45,9 +45,6 @@ fn drain_until_stopped(rx: &mpsc::Receiver<DecoderOutput>, entry_file: &str) -> 
                 assert_eq!(reason, StopReason::Eos, "{entry_file}");
                 break;
             }
-            Ok(DecoderOutput::PipelineRestarted { reason, .. }) => {
-                panic!("{entry_file}: unexpected PipelineRestarted {reason}");
-            }
             Err(_) => panic!("{entry_file}: timeout waiting for decoder output"),
         }
     }
@@ -604,9 +601,6 @@ fn test_multistream_concurrent_streams() {
                 stopped.insert(source_id);
             }
             Ok(DecoderOutput::StreamStarted { .. }) | Ok(DecoderOutput::Eos { .. }) => {}
-            Ok(DecoderOutput::PipelineRestarted { reason, .. }) => {
-                panic!("unexpected PipelineRestarted {reason}");
-            }
             Err(_) => panic!("timeout concurrent drain"),
         }
     }

@@ -25,6 +25,7 @@ thiserror = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 cros-codecs = { workspace = true }
+crossbeam = { workspace = true }
 
 [dev-dependencies]
 cros-codecs = { workspace = true }

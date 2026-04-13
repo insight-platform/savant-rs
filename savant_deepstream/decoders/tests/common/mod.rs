@@ -10,7 +10,6 @@ use deepstream_decoders::prelude::*;
 use serde::Deserialize;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::sync::mpsc;
 use std::time::Duration;
 
 // ── Initialisation / capability probes ──────────────────────────────
@@ -115,21 +114,25 @@ pub fn identity_transform_config() -> TransformConfig {
     TransformConfig::default()
 }
 
+/// Build an [`NvDecoderConfig`] with a short operation timeout suitable for tests.
+pub fn test_decoder_config(gpu_id: u32, decoder: DecoderConfig) -> NvDecoderConfig {
+    NvDecoderConfig::new(gpu_id, decoder).operation_timeout(Duration::from_secs(5))
+}
+
 // ── Decoder event drain ─────────────────────────────────────────────
 
-/// Drain decoder events, calling `on_frame` for each decoded frame.
+/// Drain decoder outputs, calling `on_frame` for each decoded frame.
 /// The frame is dropped when `on_frame` returns, releasing pool buffers
 /// immediately so the internal pool (size 4) is never exhausted.
-pub fn drain_decoder(rx: &mpsc::Receiver<DecoderEvent>, mut on_frame: impl FnMut(DecodedFrame)) {
+pub fn drain_decoder(decoder: &NvDecoder, mut on_frame: impl FnMut(DecodedFrame)) {
     loop {
-        match rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(DecoderEvent::Frame(f)) => on_frame(f),
-            Ok(DecoderEvent::Eos) => break,
-            Ok(DecoderEvent::Error(e)) => panic!("decoder error: {e}"),
-            Ok(DecoderEvent::PipelineRestarted { reason, .. }) => {
-                panic!("unexpected restart: {reason}")
-            }
-            Err(_) => panic!("timeout waiting for decoder events"),
+        match decoder.recv_timeout(Duration::from_secs(30)) {
+            Ok(Some(NvDecoderOutput::Frame(f))) => on_frame(f),
+            Ok(Some(NvDecoderOutput::Eos)) => break,
+            Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error: {e}"),
+            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(None) => panic!("timeout waiting for decoder events"),
+            Err(e) => panic!("recv error: {e}"),
         }
     }
 }

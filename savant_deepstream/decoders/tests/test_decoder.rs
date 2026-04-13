@@ -5,7 +5,6 @@ use deepstream_decoders::prelude::*;
 use deepstream_encoders::{EncoderConfig, NvEncoder};
 use serial_test::serial;
 use std::collections::HashSet;
-use std::sync::mpsc;
 use std::time::Duration;
 
 fn encode_test_frames(codec: Codec, w: u32, h: u32, n: usize) -> Vec<(u128, u64, u64, Vec<u8>)> {
@@ -45,15 +44,10 @@ fn test_e2e_h264_decode_to_rgba() {
     let (w, h) = (320, 240);
     let packets = encode_test_frames(Codec::H264, w, h, 5);
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     for (fid, pts, dur, data) in &packets {
@@ -67,7 +61,7 @@ fn test_e2e_h264_decode_to_rgba() {
     let mut decoded_ids = HashSet::new();
     let mut decoded_pts = HashSet::new();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         decoded_ids.insert(f.frame_id);
         decoded_pts.insert(f.pts_ns);
@@ -96,15 +90,10 @@ fn test_e2e_hevc_decode_to_rgba() {
     let (w, h) = (320, 240);
     let packets = encode_test_frames(Codec::Hevc, w, h, 5);
     let config = DecoderConfig::Hevc(HevcDecoderConfig::new(HevcStreamFormat::ByteStream));
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     for (fid, pts, dur, data) in &packets {
@@ -118,7 +107,7 @@ fn test_e2e_hevc_decode_to_rgba() {
     let mut decoded_ids = HashSet::new();
     let mut decoded_pts = HashSet::new();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         decoded_ids.insert(f.frame_id);
         decoded_pts.insert(f.pts_ns);
@@ -153,15 +142,10 @@ fn test_e2e_jpeg_decode_to_rgba() {
     }
     let enc_frames = encoder.finish(Some(5000)).unwrap();
     let config_dec = DecoderConfig::Jpeg(JpegDecoderConfig::gpu());
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config_dec,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config_dec),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     let mut submitted_ids = HashSet::new();
@@ -178,7 +162,7 @@ fn test_e2e_jpeg_decode_to_rgba() {
     let mut decoded_ids = HashSet::new();
     let mut decoded_pts = HashSet::new();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         decoded_ids.insert(f.frame_id);
         decoded_pts.insert(f.pts_ns);
@@ -216,15 +200,10 @@ fn test_e2e_jpeg_cpu_decode_to_rgba() {
     }
     let enc_frames = encoder.finish(Some(5000)).unwrap();
     let config_dec = DecoderConfig::Jpeg(JpegDecoderConfig::cpu());
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config_dec,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config_dec),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     let mut submitted: Vec<(u128, u64)> = Vec::new();
@@ -237,7 +216,7 @@ fn test_e2e_jpeg_cpu_decode_to_rgba() {
     }
     decoder.send_eos().unwrap();
     let mut decoded: Vec<(Option<u128>, u64)> = Vec::new();
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         decoded.push((f.frame_id, f.pts_ns));
     });
@@ -276,15 +255,10 @@ fn test_e2e_png_decode_to_rgba() {
             .unwrap();
     }
     let enc_frames = encoder.finish(Some(5000)).unwrap();
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::Png(PngDecoderConfig),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::Png(PngDecoderConfig)),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     let mut submitted: Vec<(u128, u64)> = Vec::new();
@@ -297,7 +271,7 @@ fn test_e2e_png_decode_to_rgba() {
     }
     decoder.send_eos().unwrap();
     let mut decoded: Vec<(Option<u128>, u64)> = Vec::new();
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         decoded.push((f.frame_id, f.pts_ns));
     });
@@ -322,15 +296,10 @@ fn test_e2e_raw_rgba_upload_to_rgba() {
     init();
     let (w, h) = (320, 240);
     let pixels = vec![128u8; (w as usize) * (h as usize) * 4];
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     decoder
@@ -338,7 +307,7 @@ fn test_e2e_raw_rgba_upload_to_rgba() {
         .unwrap();
     decoder.send_eos().unwrap();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         assert_eq!(f.frame_id, Some(42), "raw RGBA: frame_id mismatch");
         assert_eq!(f.pts_ns, 1000, "raw RGBA: pts mismatch");
@@ -353,15 +322,10 @@ fn test_e2e_raw_rgb_upload_to_rgba() {
     init();
     let (w, h) = (320, 240);
     let pixels = vec![77u8; (w as usize) * (h as usize) * 3];
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     decoder
@@ -369,7 +333,7 @@ fn test_e2e_raw_rgb_upload_to_rgba() {
         .unwrap();
     decoder.send_eos().unwrap();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         assert_eq!(f.frame_id, Some(99), "raw RGB: frame_id mismatch");
         assert_eq!(f.pts_ns, 2000, "raw RGB: pts mismatch");
@@ -382,15 +346,13 @@ fn test_e2e_raw_rgb_upload_to_rgba() {
 #[serial]
 fn test_dos_garbage_from_start_h264() {
     init();
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(
+            0,
+            DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream)),
+        ),
         make_rgba_pool(320, 240),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     let garbage = vec![0xDE, 0xAD, 0xBE, 0xEF];
@@ -398,12 +360,13 @@ fn test_dos_garbage_from_start_h264() {
         .submit_packet(&garbage, 1, 1, Some(1), Some(33_333_333))
         .unwrap();
 
-    // Garbage may cause an error/restart, EOS, or simply stall the pipeline.
-    // The critical invariant is that no valid frame is produced.
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(DecoderEvent::PipelineRestarted { .. }) | Ok(DecoderEvent::Error(_)) => {}
-        Ok(DecoderEvent::Frame(_)) => panic!("unexpected frame from garbage"),
-        Ok(DecoderEvent::Eos) | Err(_) => {}
+    match decoder.recv_timeout(Duration::from_secs(2)) {
+        Ok(Some(NvDecoderOutput::Error(_))) => {}
+        Ok(Some(NvDecoderOutput::Frame(_))) => panic!("unexpected frame from garbage"),
+        Ok(Some(NvDecoderOutput::Eos))
+        | Ok(Some(NvDecoderOutput::Event(_)))
+        | Ok(None)
+        | Err(_) => {}
     }
 }
 
@@ -416,15 +379,13 @@ fn test_dos_garbage_mid_stream_h264() {
         return;
     }
     let (w, h) = (320, 240);
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(
+            0,
+            DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream)),
+        ),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     let valid_packets = encode_test_frames(Codec::H264, w, h, 3);
@@ -437,36 +398,16 @@ fn test_dos_garbage_mid_stream_h264() {
     decoder
         .submit_packet(&garbage, 999, 999_000_000, Some(999_000_000), None)
         .unwrap();
-    let mut got_restart = false;
+
+    // Drain: expect some valid frames, then an error or EOS/timeout.
+    // No auto-restart exists, so the decoder will not recover.
     loop {
-        match rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(DecoderEvent::PipelineRestarted { .. }) | Ok(DecoderEvent::Error(_)) => {
-                got_restart = true;
-                break;
-            }
-            Ok(DecoderEvent::Frame(_)) => {}
-            Ok(DecoderEvent::Eos) => break,
-            Err(_) => break,
+        match decoder.recv_timeout(Duration::from_secs(2)) {
+            Ok(Some(NvDecoderOutput::Frame(_))) => {}
+            Ok(Some(NvDecoderOutput::Error(_))) | Ok(Some(NvDecoderOutput::Eos)) => break,
+            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(None) | Err(_) => break,
         }
-    }
-    if got_restart && has_nvenc() {
-        let recovery = encode_test_frames(Codec::H264, w, h, 2);
-        for (fid, pts, dur, data) in &recovery {
-            decoder
-                .submit_packet(data, *fid, *pts, Some(*pts), Some(*dur))
-                .unwrap();
-        }
-        decoder.send_eos().unwrap();
-        let mut recovered = 0usize;
-        loop {
-            match rx.recv_timeout(Duration::from_secs(10)) {
-                Ok(DecoderEvent::Frame(_)) => recovered += 1,
-                Ok(DecoderEvent::Eos) => break,
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-        assert!(recovered > 0, "decoder did not recover");
     }
 }
 
@@ -475,40 +416,28 @@ fn test_dos_garbage_mid_stream_h264() {
 fn test_dos_garbage_jpeg_png() {
     init();
     {
-        let (tx, rx) = mpsc::channel();
-        let mut jpeg = NvDecoder::new(
-            0,
-            &DecoderConfig::Jpeg(JpegDecoderConfig::gpu()),
+        let jpeg = NvDecoder::new(
+            test_decoder_config(0, DecoderConfig::Jpeg(JpegDecoderConfig::gpu())),
             make_rgba_pool(64, 48),
             identity_transform_config(),
-            move |ev| {
-                let _ = tx.send(ev);
-            },
         )
         .unwrap();
         jpeg.submit_packet(&[0; 128], 1, 1, Some(1), None).unwrap();
-        match rx.recv_timeout(Duration::from_secs(3)) {
-            Ok(DecoderEvent::Frame(_)) => panic!("unexpected frame from garbage JPEG"),
-            Ok(DecoderEvent::Eos)
-            | Ok(DecoderEvent::Error(_))
-            | Ok(DecoderEvent::PipelineRestarted { .. }) => {}
-            Err(_) => {} // pipeline stalled — acceptable for garbage input
+        match jpeg.recv_timeout(Duration::from_secs(1)) {
+            Ok(Some(NvDecoderOutput::Frame(_))) => panic!("unexpected frame from garbage JPEG"),
+            Ok(Some(NvDecoderOutput::Eos))
+            | Ok(Some(NvDecoderOutput::Error(_)))
+            | Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(None) | Err(_) => {}
         }
     }
     {
-        let (tx, _rx) = mpsc::channel();
-        let mut png = NvDecoder::new(
-            0,
-            &DecoderConfig::Png(PngDecoderConfig),
+        let png = NvDecoder::new(
+            test_decoder_config(0, DecoderConfig::Png(PngDecoderConfig)),
             make_rgba_pool(64, 48),
             identity_transform_config(),
-            move |ev| {
-                let _ = tx.send(ev);
-            },
         )
         .unwrap();
-        // PNG uses the `image` crate; garbage data causes an immediate
-        // error from submit_packet rather than a deferred pipeline event.
         assert!(png.submit_packet(&[0; 128], 1, 1, Some(1), None).is_err());
     }
 }
@@ -520,15 +449,10 @@ fn test_dos_garbage_jpeg_png() {
 fn test_submit_after_eos_returns_already_finalized() {
     init();
     let (w, h) = (320, 240);
-    let (tx, _rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
@@ -548,15 +472,10 @@ fn test_submit_after_eos_returns_already_finalized() {
 fn test_send_eos_idempotent() {
     init();
     let (w, h) = (64, 48);
-    let (tx, _rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
@@ -564,34 +483,78 @@ fn test_send_eos_idempotent() {
     decoder.send_eos().unwrap();
 }
 
+/// RawUpload backend does not go through GstPipeline, so PTS ordering is not
+/// enforced at submit time. Callers rely on upstream ordering (e.g. MultiStreamDecoder).
 #[test]
 #[serial]
-fn test_submit_rejects_non_monotonic_pts() {
+fn test_raw_upload_accepts_non_monotonic_pts() {
     init();
     let (w, h) = (64, 48);
-    let (tx, _rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
     let pixels = vec![0u8; (w as usize) * (h as usize) * 4];
     decoder.submit_packet(&pixels, 1, 100, None, None).unwrap();
-    let result = decoder.submit_packet(&pixels, 2, 50, None, None);
+    decoder
+        .submit_packet(&pixels, 2, 50, None, None)
+        .expect("RawUpload has no PTS ordering constraint");
+    decoder
+        .submit_packet(&pixels, 3, 100, None, None)
+        .expect("RawUpload has no PTS ordering constraint");
+}
+
+/// Pipeline backend enforces PTS ordering via GstPipeline's StrictDecodeOrder
+/// policy. A violation produces an error on the output channel (not from submit).
+#[test]
+#[serial]
+fn test_pipeline_rejects_non_monotonic_pts_async() {
+    init();
+    let (w, h) = (320, 240);
+    let frames = encode_test_frames(Codec::H264, w, h, 3);
+    assert!(!frames.is_empty(), "need at least one encoded frame");
+
+    let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
+        make_rgba_pool(w, h),
+        identity_transform_config(),
+    )
+    .unwrap();
+
+    let (_, pts0, _, ref data0) = frames[0];
+    decoder.submit_packet(data0, 1, pts0, None, None).unwrap();
+
+    // Submit same frame again with a lower PTS to trigger the policy violation.
+    let submit_result = decoder.submit_packet(data0, 2, pts0.saturating_sub(1), None, None);
+    // submit_packet itself succeeds (async validation).
     assert!(
-        matches!(result, Err(DecoderError::PtsReordered { .. })),
-        "expected PtsReordered, got {result:?}"
+        submit_result.is_ok(),
+        "submit should succeed; validation is async"
     );
-    let result_eq = decoder.submit_packet(&pixels, 3, 100, None, None);
+
+    // The violation surfaces as an error on the output channel.
+    let mut got_ts_error = false;
+    for _ in 0..10 {
+        match decoder.recv_timeout(Duration::from_secs(2)) {
+            Ok(Some(NvDecoderOutput::Error(DecoderError::FrameworkError(e)))) => {
+                let msg = e.to_string();
+                if msg.contains("Timestamp order violation") {
+                    got_ts_error = true;
+                    break;
+                }
+            }
+            Ok(Some(NvDecoderOutput::Frame(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            _ => break,
+        }
+    }
     assert!(
-        matches!(result_eq, Err(DecoderError::PtsReordered { .. })),
-        "expected PtsReordered for equal PTS, got {result_eq:?}"
+        got_ts_error,
+        "expected TimestampOrderViolation on the output channel"
     );
 }
 
@@ -600,15 +563,10 @@ fn test_submit_rejects_non_monotonic_pts() {
 fn test_raw_rgba_rejects_wrong_payload_size() {
     init();
     let (w, h) = (64, 48);
-    let (tx, _rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
@@ -625,15 +583,10 @@ fn test_raw_rgba_rejects_wrong_payload_size() {
 fn test_raw_rgb_rejects_rgba_payload_size() {
     init();
     let (w, h) = (64, 48);
-    let (tx, _rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
@@ -650,15 +603,10 @@ fn test_raw_rgb_rejects_rgba_payload_size() {
 fn test_raw_rgb_codec_identity() {
     init();
     let (w, h) = (64, 48);
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::RawRgb(RawRgbDecoderConfig::new(w, h))),
         make_rgba_pool(w, h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
@@ -666,7 +614,7 @@ fn test_raw_rgb_codec_identity() {
     decoder.submit_packet(&pixels, 1, 0, None, None).unwrap();
     decoder.send_eos().unwrap();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(
             f.codec,
             Codec::RawRgb,
@@ -682,15 +630,10 @@ fn test_raw_rgb_codec_identity() {
 #[serial]
 fn test_raw_zero_dimensions_rejected() {
     init();
-    let (tx, _rx) = mpsc::channel();
     let result = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(0, 0)),
+        test_decoder_config(0, DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(0, 0))),
         make_rgba_pool(64, 48),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     );
     assert!(
         matches!(result, Err(DecoderError::InvalidProperty { .. })),
@@ -705,15 +648,13 @@ fn test_resolution_mismatch_raw_rgba() {
     let (raw_w, raw_h) = (320, 240);
     let (pool_w, pool_h) = (640, 480);
     let pixels = vec![128u8; (raw_w as usize) * (raw_h as usize) * 4];
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(raw_w, raw_h)),
+    let decoder = NvDecoder::new(
+        test_decoder_config(
+            0,
+            DecoderConfig::RawRgba(RawRgbaDecoderConfig::new(raw_w, raw_h)),
+        ),
         make_rgba_pool(pool_w, pool_h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     decoder
@@ -721,7 +662,7 @@ fn test_resolution_mismatch_raw_rgba() {
         .unwrap();
     decoder.send_eos().unwrap();
     let mut count = 0usize;
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         assert_eq!(f.frame_id, Some(42), "raw RGBA mismatch: frame_id mismatch");
         assert_eq!(f.pts_ns, 5000, "raw RGBA mismatch: pts mismatch");
@@ -750,15 +691,10 @@ fn test_resolution_mismatch_png() {
             .unwrap();
     }
     let enc_frames = encoder.finish(Some(5000)).unwrap();
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &DecoderConfig::Png(PngDecoderConfig),
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, DecoderConfig::Png(PngDecoderConfig)),
         make_rgba_pool(pool_w, pool_h),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
     let mut submitted: Vec<(u128, u64)> = Vec::new();
@@ -771,7 +707,7 @@ fn test_resolution_mismatch_png() {
     }
     decoder.send_eos().unwrap();
     let mut decoded: Vec<(Option<u128>, u64)> = Vec::new();
-    drain_decoder(&rx, |f| {
+    drain_decoder(&decoder, |f| {
         assert_eq!(f.format, VideoFormat::RGBA);
         decoded.push((f.frame_id, f.pts_ns));
     });

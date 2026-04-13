@@ -17,11 +17,11 @@ use parking_lot::Mutex;
 use savant_core::primitives::RBBox;
 use savant_gstreamer::pipeline::{
     build_source_eos_event, parse_source_eos_event, set_element_property, GstPipeline,
-    PipelineConfig, PipelineInput, PipelineOutput,
+    PipelineConfig, PipelineInput, PipelineOutput, PtsPolicy,
 };
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tempfile::NamedTempFile;
 
@@ -56,11 +56,6 @@ pub struct NvInfer {
     pipeline: Mutex<GstPipeline>,
     #[allow(dead_code)]
     _config_file: NamedTempFile,
-    /// Set during [`Self::graceful_shutdown`] and [`Self::shutdown`] to reject new input.
-    draining: AtomicBool,
-    /// Prevents double `GstPipeline::shutdown` (nvinfer `set_state(Null)` is slow
-    /// and must not be called twice).
-    is_shut_down: AtomicBool,
     /// Monotonic counter used as PTS for internal pipeline correlation.
     next_pts: AtomicU64,
     /// When and whether to clear object metas.
@@ -73,8 +68,7 @@ impl NvInfer {
     /// Create and start a new NvInfer inference engine.
     ///
     /// The `nvinfer` GStreamer element is created internally from the
-    /// configuration. An optional `queue` element is inserted when
-    /// `config.queue_depth > 0`. The pipeline starts in `Playing` state.
+    /// configuration. The pipeline starts in `Playing` state.
     pub fn new(config: NvInferConfig) -> Result<Self> {
         let name_owned;
         let name_display = if config.name.is_empty() {
@@ -118,18 +112,7 @@ impl NvInfer {
             set_element_property(&nvinfer, key, value).map_err(NvInferError::InvalidProperty)?;
         }
 
-        let mut elements: Vec<gst::Element> = Vec::new();
-        if config.queue_depth > 0 {
-            let queue = gst::ElementFactory::make("queue")
-                .name("queue")
-                .build()
-                .map_err(|_| NvInferError::ElementCreationFailed("queue".into()))?;
-            queue.set_property("max-size-buffers", config.queue_depth);
-            queue.set_property("max-size-bytes", 0u32);
-            queue.set_property("max-size-time", 0u64);
-            elements.push(queue);
-        }
-        elements.push(nvinfer.upcast());
+        let elements: Vec<gst::Element> = vec![nvinfer.upcast()];
 
         let appsrc_caps = gst::Caps::builder("video/x-raw")
             .features(["memory:NVMM"])
@@ -145,22 +128,19 @@ impl NvInfer {
             operation_timeout: Some(config.operation_timeout),
             drain_poll_interval: config.drain_poll_interval,
             appsrc_probe: None,
+            pts_policy: Some(PtsPolicy::StrictPts),
+            leak_on_finalize: false,
         };
 
         let (input_tx, output_rx, gst_pipeline) = GstPipeline::start(pipeline_config)?;
 
-        info!(
-            "NvInfer initialized (name={}, queue_depth={})",
-            name_display, config.queue_depth
-        );
+        info!("NvInfer initialized (name={})", name_display);
 
         Ok(Self {
             input_tx,
             output_rx,
             pipeline: Mutex::new(gst_pipeline),
             _config_file: config_file,
-            draining: AtomicBool::new(false),
-            is_shut_down: AtomicBool::new(false),
             next_pts: AtomicU64::new(0),
             policy,
             host_copy_enabled,
@@ -179,11 +159,14 @@ impl NvInfer {
     ///
     /// Blocks if the input channel is full (backpressure).
     pub fn submit(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) -> Result<()> {
-        if self.draining.load(Ordering::Acquire) {
-            return Err(NvInferError::ShuttingDown);
-        }
-        if self.is_failed() {
-            return Err(NvInferError::PipelineFailed);
+        {
+            let p = self.pipeline.lock();
+            if p.is_draining() {
+                return Err(NvInferError::ShuttingDown);
+            }
+            if p.is_failed() {
+                return Err(NvInferError::PipelineFailed);
+            }
         }
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let batch = batch.into_buffer().map_err(|_| {
@@ -211,7 +194,7 @@ impl NvInfer {
 
     /// Send a custom GStreamer event into the pipeline.
     pub fn send_event(&self, event: gst::Event) -> Result<()> {
-        if self.draining.load(Ordering::Acquire) {
+        if self.pipeline.lock().is_draining() {
             return Err(NvInferError::ShuttingDown);
         }
         self.input_tx
@@ -269,10 +252,6 @@ impl NvInfer {
     ///
     /// Returns all domain outputs produced before the pipeline EOS (terminal EOS is not included).
     pub fn graceful_shutdown(&self, timeout: Duration) -> Result<Vec<NvInferOutput>> {
-        if self.is_shut_down.swap(true, Ordering::AcqRel) {
-            return Err(NvInferError::ShuttingDown);
-        }
-        self.draining.store(true, Ordering::Release);
         let raw = {
             let mut guard = self.pipeline.lock();
             guard.graceful_shutdown(timeout, &self.input_tx, &self.output_rx)?
@@ -286,10 +265,6 @@ impl NvInfer {
 
     /// Abrupt shutdown: stops threads and pipeline (used by [`Drop`]).
     pub fn shutdown(&self) -> Result<()> {
-        if self.is_shut_down.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
-        self.draining.store(true, Ordering::Release);
         self.pipeline.lock().shutdown()?;
         Ok(())
     }

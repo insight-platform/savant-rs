@@ -29,12 +29,6 @@ pub enum DecoderOutput {
         source_id: String,
         reason: StopReason,
     },
-    /// Underlying `NvDecoder` pipeline restarted after an error.
-    PipelineRestarted {
-        source_id: String,
-        reason: String,
-        lost_frame_count: usize,
-    },
 }
 
 /// Why a frame was not decoded.

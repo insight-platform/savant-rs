@@ -25,7 +25,6 @@ use std::collections::HashMap;
 ///     element_properties (Optional[Dict[str, str]]): Additional GStreamer
 ///         element properties.
 ///     gpu_id (int): GPU device ID.
-///     queue_depth (int): GStreamer queue max-size-buffers (0 = no queue).
 ///     input_channel_capacity (int): Bounded input channel capacity; when full,
 ///         ``NvInfer.submit`` blocks. Default: ``16``.
 ///     output_channel_capacity (int): Bounded output channel capacity. Default: ``16``.
@@ -63,7 +62,6 @@ impl PyNvInferConfig {
         name = String::new(),
         element_properties = None,
         gpu_id = 0,
-        queue_depth = 0,
         input_channel_capacity = 16usize,
         output_channel_capacity = 16usize,
         drain_poll_interval_ms = 100u64,
@@ -82,7 +80,6 @@ impl PyNvInferConfig {
         name: String,
         element_properties: Option<HashMap<String, String>>,
         gpu_id: u32,
-        queue_depth: u32,
         input_channel_capacity: usize,
         output_channel_capacity: usize,
         drain_poll_interval_ms: u64,
@@ -100,7 +97,6 @@ impl PyNvInferConfig {
             model_color_format.into(),
         )
         .gpu_id(gpu_id)
-        .queue_depth(queue_depth)
         .input_channel_capacity(input_channel_capacity)
         .output_channel_capacity(output_channel_capacity)
         .drain_poll_interval(std::time::Duration::from_millis(drain_poll_interval_ms))
@@ -125,11 +121,6 @@ impl PyNvInferConfig {
     #[getter]
     fn gpu_id(&self) -> u32 {
         self.inner.gpu_id
-    }
-
-    #[getter]
-    fn queue_depth(&self) -> u32 {
-        self.inner.queue_depth
     }
 
     #[getter]
@@ -209,13 +200,12 @@ impl PyNvInferConfig {
 
     fn __repr__(&self) -> String {
         format!(
-            "NvInferConfig(name={:?}, gpu_id={}, queue_depth={}, \
+            "NvInferConfig(name={:?}, gpu_id={}, \
              in_ch={}, out_ch={}, drain_poll_ms={}, input_format={}, \
              model_width={}, model_height={}, model_color_format={}, \
              meta_clear_policy={:?}, disable_output_host_copy={}, scaling={})",
             self.inner.name,
             self.inner.gpu_id,
-            self.inner.queue_depth,
             self.inner.input_channel_capacity,
             self.inner.output_channel_capacity,
             self.inner.drain_poll_interval.as_millis(),

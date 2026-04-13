@@ -45,9 +45,6 @@ pub struct NvTrackerConfig {
     pub input_format: VideoFormat,
     pub element_properties: HashMap<String, String>,
     pub tracking_id_reset_mode: TrackingIdResetMode,
-    /// GStreamer queue element `max-size-buffers`.
-    /// 0 = no queue element (synchronous), >0 = insert queue with this depth.
-    pub queue_depth: u32,
     /// Maximum time to wait for a submitted buffer to produce a result.
     /// Passed to the GStreamer pipeline framework as the in-flight watchdog
     /// deadline. When exceeded, the pipeline enters a terminal failed state.
@@ -75,7 +72,6 @@ impl NvTrackerConfig {
             input_format: VideoFormat::RGBA,
             element_properties: HashMap::new(),
             tracking_id_reset_mode: TrackingIdResetMode::None,
-            queue_depth: 0,
             operation_timeout: Duration::from_secs(30),
             input_channel_capacity: 16,
             output_channel_capacity: 16,

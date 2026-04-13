@@ -42,9 +42,6 @@ pub struct NvInferConfig {
     pub element_properties: HashMap<String, String>,
     /// GPU ID (default: 0).
     pub gpu_id: u32,
-    /// GStreamer queue element max-size-buffers.
-    /// 0 = no queue element (synchronous), >0 = insert queue with this depth.
-    pub queue_depth: u32,
     /// Pixel format for the appsrc caps (e.g. [`VideoFormat::RGBA`]).
     pub input_format: VideoFormat,
     /// Model input tensor width in pixels.  Used by [`CoordinateScaler`] and
@@ -112,7 +109,6 @@ impl NvInferConfig {
             nvinfer_properties,
             element_properties: HashMap::new(),
             gpu_id: 0,
-            queue_depth: 0,
             input_format,
             model_width,
             model_height,
@@ -136,12 +132,6 @@ impl NvInferConfig {
     /// Set GPU ID.
     pub fn gpu_id(mut self, gpu_id: u32) -> Self {
         self.gpu_id = gpu_id;
-        self
-    }
-
-    /// Set queue depth (max-size-buffers). 0 = no queue.
-    pub fn queue_depth(mut self, queue_depth: u32) -> Self {
-        self.queue_depth = queue_depth;
         self
     }
 

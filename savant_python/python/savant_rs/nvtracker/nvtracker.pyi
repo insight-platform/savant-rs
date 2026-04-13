@@ -67,7 +67,6 @@ class NvTrackerConfig:
         gpu_id: int = ...,
         element_properties: Optional[dict[str, str]] = ...,
         tracking_id_reset_mode: TrackingIdResetMode = ...,
-        queue_depth: int = ...,
         operation_timeout_ms: int = ...,
         input_channel_capacity: int = ...,
         output_channel_capacity: int = ...,
@@ -79,9 +78,6 @@ class NvTrackerConfig:
 
     @property
     def ll_config_file(self) -> str: ...
-
-    @property
-    def queue_depth(self) -> int: ...
 
     @property
     def operation_timeout_ms(self) -> int:

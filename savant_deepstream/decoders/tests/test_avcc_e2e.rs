@@ -10,7 +10,6 @@ mod common;
 use common::*;
 use deepstream_decoders::prelude::*;
 use serial_test::serial;
-use std::sync::mpsc;
 use std::time::Duration;
 
 fn run_avcc_e2e(entry: &AssetEntry) {
@@ -53,15 +52,10 @@ fn run_avcc_e2e(entry: &AssetEntry) {
     );
 
     let config = decoder_config_avcc(&entry.codec, conversion.codec_data);
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
         make_rgba_pool(entry.width, entry.height),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap_or_else(|e| panic!("decoder create failed for {} (AVCC): {e}", entry.file));
 
@@ -89,8 +83,8 @@ fn run_avcc_e2e(entry: &AssetEntry) {
 
     let mut decoded_count = 0usize;
     loop {
-        match rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(DecoderEvent::Frame(f)) => {
+        match decoder.recv_timeout(Duration::from_secs(30)) {
+            Ok(Some(NvDecoderOutput::Frame(f))) => {
                 assert_eq!(
                     f.format,
                     VideoFormat::RGBA,
@@ -99,17 +93,16 @@ fn run_avcc_e2e(entry: &AssetEntry) {
                 );
                 decoded_count += 1;
             }
-            Ok(DecoderEvent::Eos) => break,
-            Ok(DecoderEvent::Error(e)) => {
+            Ok(Some(NvDecoderOutput::Eos)) => break,
+            Ok(Some(NvDecoderOutput::Error(e))) => {
                 panic!("decoder error for {} (AVCC): {e}", entry.file)
             }
-            Ok(DecoderEvent::PipelineRestarted { reason, .. }) => {
-                panic!("unexpected restart for {} (AVCC): {reason}", entry.file)
-            }
-            Err(_) => panic!(
+            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(None) => panic!(
                 "timeout waiting for decoder events for {} (AVCC), decoded so far: {}",
                 entry.file, decoded_count
             ),
+            Err(e) => panic!("recv error for {} (AVCC): {e}", entry.file),
         }
     }
 

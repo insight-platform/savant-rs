@@ -422,8 +422,7 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// Random non-uniform batch benchmark (age-gender model, iter_batched,
-// varying queue depths)
+// Random non-uniform batch benchmark (age-gender model, iter_batched)
 // ---------------------------------------------------------------------------
 
 const RANDOM_NONUNIFORM_BATCHES_PER_ITER: u32 = BATCHES_PER_ITER;
@@ -431,7 +430,6 @@ const RANDOM_NONUNIFORM_FRAMES: u32 = 4;
 const RANDOM_SIZE_MIN: u32 = 64;
 const RANDOM_SIZE_MAX_INCL: u32 = 256;
 const RANDOM_SIZE_STEP: u32 = 4;
-const QUEUE_DEPTHS: &[u32] = &[1, 8, 16, 32];
 
 fn make_random_nonuniform_batch(rng: &mut impl Rng) -> deepstream_buffers::SharedBuffer {
     let n = RANDOM_NONUNIFORM_FRAMES;
@@ -482,79 +480,76 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
         .sample_size(10)
         .measurement_time(Duration::from_secs(30));
 
-    for &q in QUEUE_DEPTHS {
-        let done_count = Arc::new(AtomicU32::new(0));
-        let notify = Arc::new((Mutex::new(()), Condvar::new()));
+    let done_count = Arc::new(AtomicU32::new(0));
+    let notify = Arc::new((Mutex::new(()), Condvar::new()));
 
-        let cb_done = Arc::clone(&done_count);
-        let cb_notify = Arc::clone(&notify);
-        let callback = Box::new(move |_output| {
-            cb_done.fetch_add(1, Ordering::Release);
-            let (lock, cvar) = &*cb_notify;
-            let _guard = lock.lock().unwrap();
-            cvar.notify_one();
-        });
+    let cb_done = Arc::clone(&done_count);
+    let cb_notify = Arc::clone(&notify);
+    let callback = Box::new(move |_output| {
+        cb_done.fetch_add(1, Ordering::Release);
+        let (lock, cvar) = &*cb_notify;
+        let _guard = lock.lock().unwrap();
+        cvar.notify_one();
+    });
 
-        let mut props = age_gender_base_properties(&dir);
-        props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
-        props.insert(
-            "model-engine-file".into(),
-            engines_dir()
-                .join(format!(
-                    "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
-                    RANDOM_NONUNIFORM_FRAMES
-                ))
-                .to_string_lossy()
-                .into(),
-        );
+    let mut props = age_gender_base_properties(&dir);
+    props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
+    props.insert(
+        "model-engine-file".into(),
+        engines_dir()
+            .join(format!(
+                "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
+                RANDOM_NONUNIFORM_FRAMES
+            ))
+            .to_string_lossy()
+            .into(),
+    );
 
-        let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB)
-            .queue_depth(q);
-        let engine = NvInfer::new(config, callback).expect("create NvInfer for random bench");
-        promote_built_engine(
-            "age_gender_mobilenet_v2_dynBatch.onnx",
-            RANDOM_NONUNIFORM_FRAMES,
-        );
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
+    let engine = NvInfer::new(config, callback).expect("create NvInfer for random bench");
+    promote_built_engine(
+        "age_gender_mobilenet_v2_dynBatch.onnx",
+        RANDOM_NONUNIFORM_FRAMES,
+    );
 
-        // Warmup with one batch.
-        let mut rng = rand::rng();
-        done_count.store(0, Ordering::Release);
-        let warmup = make_random_nonuniform_batch(&mut rng);
-        engine.submit(warmup, None).expect("warmup submit");
-        {
-            let (lock, cvar) = &*notify;
-            let mut guard = lock.lock().unwrap();
-            while done_count.load(Ordering::Acquire) < 1 {
-                guard = cvar.wait(guard).unwrap();
-            }
+    // Warmup with one batch.
+    let mut rng = rand::rng();
+    done_count.store(0, Ordering::Release);
+    let warmup = make_random_nonuniform_batch(&mut rng);
+    engine.submit(warmup, None).expect("warmup submit");
+    {
+        let (lock, cvar) = &*notify;
+        let mut guard = lock.lock().unwrap();
+        while done_count.load(Ordering::Acquire) < 1 {
+            guard = cvar.wait(guard).unwrap();
         }
-
-        let id = format!("x{}_bs{}_q{}", n, RANDOM_NONUNIFORM_FRAMES, q);
-        group.bench_function(BenchmarkId::new(&id, q), |b| {
-            b.iter_batched(
-                || {
-                    let mut rng = rand::rng();
-                    (0..n)
-                        .map(|_| make_random_nonuniform_batch(&mut rng))
-                        .collect::<Vec<_>>()
-                },
-                |batches| {
-                    done_count.store(0, Ordering::Release);
-
-                    for batch in batches {
-                        engine.submit(batch, None).expect("submit");
-                    }
-
-                    let (lock, cvar) = &*notify;
-                    let mut guard = lock.lock().unwrap();
-                    while done_count.load(Ordering::Acquire) < n {
-                        guard = cvar.wait(guard).unwrap();
-                    }
-                },
-                criterion::BatchSize::LargeInput,
-            )
-        });
     }
+
+    let id = format!("x{}_bs{}", n, RANDOM_NONUNIFORM_FRAMES);
+    group.bench_function(BenchmarkId::new(&id, 0), |b| {
+        b.iter_batched(
+            || {
+                let mut rng = rand::rng();
+                (0..n)
+                    .map(|_| make_random_nonuniform_batch(&mut rng))
+                    .collect::<Vec<_>>()
+            },
+            |batches| {
+                done_count.store(0, Ordering::Release);
+
+                for batch in batches {
+                    engine.submit(batch, None).expect("submit");
+                }
+
+                let (lock, cvar) = &*notify;
+                let mut guard = lock.lock().unwrap();
+                while done_count.load(Ordering::Acquire) < n {
+                    guard = cvar.wait(guard).unwrap();
+                }
+            },
+            criterion::BatchSize::LargeInput,
+        )
+    });
 
     group.finish();
 }

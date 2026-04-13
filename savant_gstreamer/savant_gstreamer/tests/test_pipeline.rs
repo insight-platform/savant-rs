@@ -39,6 +39,8 @@ fn start_pipeline(
         operation_timeout,
         drain_poll_interval: Duration::from_millis(10),
         appsrc_probe: None,
+        pts_policy: None,
+        leak_on_finalize: false,
     };
     GstPipeline::start(config).expect("pipeline start must succeed")
 }

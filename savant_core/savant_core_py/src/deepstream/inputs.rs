@@ -310,10 +310,6 @@ impl PyDecoderOutput {
     fn is_stream_stopped(&self) -> bool {
         matches!(self.inner, DecoderOutput::StreamStopped { .. })
     }
-    fn is_pipeline_restarted(&self) -> bool {
-        matches!(self.inner, DecoderOutput::PipelineRestarted { .. })
-    }
-
     /// Returns ``(VideoFrame, SharedBuffer)``.
     fn as_decoded(&self) -> PyResult<(VideoFrame, PySharedBuffer)> {
         match &self.inner {
@@ -376,17 +372,6 @@ impl PyDecoderOutput {
                 },
             )),
             _ => Err(PyValueError::new_err("not StreamStopped")),
-        }
-    }
-
-    fn as_pipeline_restarted(&self) -> PyResult<(String, String, usize)> {
-        match &self.inner {
-            DecoderOutput::PipelineRestarted {
-                source_id,
-                reason,
-                lost_frame_count,
-            } => Ok((source_id.clone(), reason.clone(), *lost_frame_count)),
-            _ => Err(PyValueError::new_err("not PipelineRestarted")),
         }
     }
 

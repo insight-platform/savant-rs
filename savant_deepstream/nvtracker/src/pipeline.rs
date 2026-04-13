@@ -30,12 +30,12 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use savant_gstreamer::pipeline::{
     build_source_eos_event, parse_source_eos_event, set_element_property, AppsrcPadProbe,
-    GstPipeline, PipelineConfig, PipelineInput, PipelineOutput,
+    GstPipeline, PipelineConfig, PipelineInput, PipelineOutput, PtsPolicy,
 };
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 extern "C" {
@@ -79,11 +79,6 @@ pub struct NvTracker {
     input_tx: Sender<PipelineInput>,
     output_rx: Receiver<PipelineOutput>,
     pipeline: Mutex<GstPipeline>,
-    /// Set during [`Self::graceful_shutdown`] and [`Self::shutdown`] to reject new input.
-    draining: AtomicBool,
-    /// Prevents double `GstPipeline::shutdown` (nvtracker `set_state(Null)` is slow
-    /// and must not be called twice).
-    is_shut_down: AtomicBool,
     config: NvTrackerConfig,
     next_pts: AtomicU64,
     source_lru: Mutex<LruCache<u32, String>>,
@@ -150,21 +145,7 @@ impl NvTracker {
             })?;
         }
 
-        let mut elements: Vec<gst::Element> = Vec::new();
-        if config.queue_depth > 0 {
-            let queue = gst::ElementFactory::make("queue")
-                .name("queue")
-                .build()
-                .map_err(|e| NvTrackerError::ElementCreationFailed {
-                    element: "queue".into(),
-                    reason: e.to_string(),
-                })?;
-            queue.set_property("max-size-buffers", config.queue_depth);
-            queue.set_property("max-size-bytes", 0u32);
-            queue.set_property("max-size-time", 0u64);
-            elements.push(queue);
-        }
-        elements.push(nvtracker.upcast());
+        let elements: Vec<gst::Element> = vec![nvtracker.upcast()];
 
         let appsrc_caps = gst::Caps::builder("video/x-raw")
             .features(["memory:NVMM"])
@@ -200,22 +181,19 @@ impl NvTracker {
             operation_timeout: Some(config.operation_timeout),
             drain_poll_interval: config.drain_poll_interval,
             appsrc_probe,
+            pts_policy: Some(PtsPolicy::StrictPts),
+            leak_on_finalize: true,
         };
 
         let (input_tx, output_rx, gst_pipeline) =
             GstPipeline::start(pipeline_config).map_err(NvTrackerError::from)?;
 
-        info!(
-            "NvTracker initialized (name={}, queue_depth={})",
-            name_display, config.queue_depth
-        );
+        info!("NvTracker initialized (name={})", name_display);
 
         Ok(Self {
             input_tx,
             output_rx,
             pipeline: Mutex::new(gst_pipeline),
-            draining: AtomicBool::new(false),
-            is_shut_down: AtomicBool::new(false),
             config,
             next_pts: AtomicU64::new(0),
             source_lru: Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)),
@@ -229,11 +207,14 @@ impl NvTracker {
     ///
     /// Blocks if the input channel is full (backpressure).
     pub fn submit(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
-        if self.draining.load(Ordering::Acquire) {
-            return Err(NvTrackerError::ShuttingDown);
-        }
-        if self.is_failed() {
-            return Err(NvTrackerError::PipelineFailed);
+        {
+            let p = self.pipeline.lock();
+            if p.is_draining() {
+                return Err(NvTrackerError::ShuttingDown);
+            }
+            if p.is_failed() {
+                return Err(NvTrackerError::PipelineFailed);
+            }
         }
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
@@ -277,7 +258,7 @@ impl NvTracker {
 
     /// Send a custom GStreamer event into the pipeline input.
     pub fn send_event(&self, event: gst::Event) -> Result<()> {
-        if self.draining.load(Ordering::Acquire) {
+        if self.pipeline.lock().is_draining() {
             return Err(NvTrackerError::ShuttingDown);
         }
         self.input_tx
@@ -294,7 +275,7 @@ impl NvTracker {
 
     /// Send `GST_NVEVENT_STREAM_RESET` for the stream identified by `source_id` (crc32 → pad id).
     pub fn reset_stream(&self, source_id: &str) -> Result<()> {
-        if self.draining.load(Ordering::Acquire) {
+        if self.pipeline.lock().is_draining() {
             return Err(NvTrackerError::ShuttingDown);
         }
         self.reset_stream_with_reason(source_id, "manual")
@@ -306,10 +287,7 @@ impl NvTracker {
 
     /// Graceful shutdown: reject new input, send EOS, drain outputs within `timeout`, stop pipeline.
     pub fn graceful_shutdown(&self, timeout: Duration) -> Result<Vec<NvTrackerOutput>> {
-        if self.is_shut_down.swap(true, Ordering::AcqRel) {
-            return Err(NvTrackerError::ShuttingDown);
-        }
-        self.draining.store(true, Ordering::Release);
+        self.remove_all_sources();
         let raw = {
             let mut guard = self.pipeline.lock();
             guard
@@ -325,15 +303,46 @@ impl NvTracker {
 
     /// Abrupt shutdown (used by [`Drop`]).
     pub fn shutdown(&self) -> Result<()> {
-        if self.is_shut_down.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
-        self.draining.store(true, Ordering::Release);
+        self.remove_all_sources();
         self.pipeline
             .lock()
             .shutdown()
             .map_err(NvTrackerError::from)?;
         Ok(())
+    }
+
+    /// Send `GST_NVEVENT_PAD_DELETED` for every source that submitted frames,
+    /// so the nvtracker element can call `removeSource()` and release internal
+    /// per-stream state before `deInit()` / `NvMOT_DeInit`.  Without this, the
+    /// tracker's finalize hangs waiting for unreleased conversion buffers.
+    ///
+    /// Events are sent directly through the appsrc element (bypassing the
+    /// feeder thread) to guarantee delivery even when shutdown is imminent.
+    fn remove_all_sources(&self) {
+        let pads: Vec<u32> = {
+            let mut fc = self.frame_counters.lock();
+            let keys: Vec<u32> = fc.keys().copied().collect();
+            fc.clear();
+            keys
+        };
+        if pads.is_empty() {
+            return;
+        }
+        let guard = self.pipeline.lock();
+        for pad in &pads {
+            let ev_ptr = unsafe { deepstream_sys::gst_nvevent_new_pad_deleted(*pad) };
+            if ev_ptr.is_null() {
+                continue;
+            }
+            let event =
+                unsafe { gst::Event::from_glib_full(ev_ptr as *mut gst::ffi::GstEvent) };
+            guard.send_event_direct(event);
+        }
+        info!(
+            "nvtracker: sent GST_NVEVENT_PAD_DELETED for {} source(s): {:?}",
+            pads.len(),
+            pads
+        );
     }
 
     fn convert_output(&self, output: PipelineOutput) -> Result<NvTrackerOutput> {
