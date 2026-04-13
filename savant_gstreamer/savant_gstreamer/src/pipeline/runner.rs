@@ -534,7 +534,6 @@ struct FinalizerItem {
 /// behaviour.
 const FINALIZER_QUEUE_CAPACITY: usize = 64;
 
-
 /// Process-wide singleton: a bounded channel feeding a single background
 /// thread that performs GObject finalization.
 ///

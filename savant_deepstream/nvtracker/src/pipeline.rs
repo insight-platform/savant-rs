@@ -334,8 +334,7 @@ impl NvTracker {
             if ev_ptr.is_null() {
                 continue;
             }
-            let event =
-                unsafe { gst::Event::from_glib_full(ev_ptr as *mut gst::ffi::GstEvent) };
+            let event = unsafe { gst::Event::from_glib_full(ev_ptr as *mut gst::ffi::GstEvent) };
             guard.send_event_direct(event);
         }
         info!(
