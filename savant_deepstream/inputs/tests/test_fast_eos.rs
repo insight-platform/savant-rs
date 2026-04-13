@@ -7,6 +7,7 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::SurfaceView;
 use deepstream_encoders::prelude::*;
 use deepstream_inputs::multistream_decoder::{
     DecoderOutput, EvictionVerdict, MultiStreamDecoder, MultiStreamDecoderConfig, StopReason,
@@ -393,6 +394,109 @@ fn test_fast_eos_h264_repeated_cycles() {
         let events = drain_events(&rx);
         decoder.wait_for_pending_teardowns();
         assert_full_delivery(&events, num_frames, &format!("H264 cycle {cycle}"));
+    }
+
+    decoder.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Idle eviction
+// ---------------------------------------------------------------------------
+
+/// Collect full [`DecoderOutput`] values (including buffers) until `StreamStopped`.
+fn drain_outputs_full(rx: &mpsc::Receiver<DecoderOutput>) -> Vec<DecoderOutput> {
+    let mut out = Vec::new();
+    loop {
+        match rx.recv_timeout(RECV_TIMEOUT) {
+            Ok(ev @ DecoderOutput::StreamStopped { .. }) => {
+                out.push(ev);
+                break;
+            }
+            Ok(ev) => out.push(ev),
+            Err(_) => panic!("timeout after {RECV_TIMEOUT:?} — events so far: {out:?}"),
+        }
+    }
+    out
+}
+
+/// Submit 3 JPEG frames then stop — the idle timeout should trigger eviction,
+/// gracefully shut down the decoder, and deliver all decoded frames with valid
+/// RGBA buffers.
+#[test]
+#[serial]
+fn test_idle_eviction_jpeg() {
+    init();
+
+    let (w, h) = (1280u32, 720u32);
+    let blob = encode_jpeg_blob(w, h);
+
+    let (tx, rx) = mpsc::channel();
+    let cfg = MultiStreamDecoderConfig::new(0, 8).idle_timeout(Duration::from_millis(200));
+    let mut decoder = MultiStreamDecoder::new(
+        cfg,
+        move |o| {
+            let _ = tx.send(o);
+        },
+        None::<fn(&str) -> EvictionVerdict>,
+    );
+
+    let source_id = "idle_jpeg";
+    for i in 0..3i64 {
+        let frame = make_jpeg_frame(source_id, w as i64, h as i64, i * FRAME_DUR_NS);
+        decoder
+            .submit(frame, Some(&blob), Duration::from_secs(5))
+            .expect("submit");
+    }
+
+    let outputs = drain_outputs_full(&rx);
+    decoder.wait_for_pending_teardowns();
+
+    // Last event must be StreamStopped(IdleEviction).
+    let last = outputs.last().expect("expected at least one output");
+    assert!(
+        matches!(last, DecoderOutput::StreamStopped { reason, .. } if *reason == StopReason::IdleEviction),
+        "last event must be StreamStopped(IdleEviction), got: {last:?}"
+    );
+
+    // Exactly one Eos event.
+    let eos_count = outputs
+        .iter()
+        .filter(|e| matches!(e, DecoderOutput::Eos { .. }))
+        .count();
+    assert_eq!(eos_count, 1, "expected exactly 1 Eos, got {eos_count}");
+
+    // At least 3 Decoded frames, each with a valid RGBA surface.
+    let decoded: Vec<_> = outputs
+        .iter()
+        .filter(|e| matches!(e, DecoderOutput::Decoded { .. }))
+        .collect();
+    assert!(
+        decoded.len() >= 3,
+        "expected >= 3 Decoded, got {}",
+        decoded.len()
+    );
+
+    for (i, item) in decoded.iter().enumerate() {
+        if let DecoderOutput::Decoded { buffer, .. } = item {
+            let view = SurfaceView::from_buffer(buffer, 0)
+                .unwrap_or_else(|e| panic!("Decoded[{i}]: SurfaceView failed: {e}"));
+            assert_eq!(view.width(), w, "Decoded[{i}]: width mismatch");
+            assert_eq!(view.height(), h, "Decoded[{i}]: height mismatch");
+        }
+    }
+
+    // All Decoded events come before Eos.
+    let last_decoded_pos = outputs
+        .iter()
+        .rposition(|e| matches!(e, DecoderOutput::Decoded { .. }));
+    let eos_pos = outputs
+        .iter()
+        .position(|e| matches!(e, DecoderOutput::Eos { .. }));
+    if let (Some(ld), Some(ep)) = (last_decoded_pos, eos_pos) {
+        assert!(
+            ld < ep,
+            "all Decoded must come before Eos; last Decoded at {ld}, Eos at {ep}"
+        );
     }
 
     decoder.shutdown();

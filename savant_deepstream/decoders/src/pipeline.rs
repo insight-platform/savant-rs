@@ -22,7 +22,8 @@ use gstreamer::prelude::*;
 use log::{info, warn};
 use parking_lot::Mutex;
 use savant_gstreamer::pipeline::{
-    GstPipeline, PipelineConfig, PipelineInput, PipelineOutput, PtsPolicy,
+    build_source_eos_event, parse_source_eos_event, GstPipeline, PipelineConfig, PipelineInput,
+    PipelineOutput, PtsPolicy,
 };
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,6 +70,9 @@ pub enum NvDecoderOutput {
     Frame(DecodedFrame),
     /// A downstream GStreamer event captured at the pipeline output.
     Event(gst::Event),
+    /// Per-source logical EOS (custom downstream event passthrough).
+    /// Does **not** stop the decoder — use [`NvDecoder::send_eos`] for that.
+    SourceEos { source_id: String },
     /// End-of-stream: all buffered frames have been delivered.
     Eos,
     /// Pipeline or framework runtime error.
@@ -337,6 +341,36 @@ impl NvDecoder {
         Ok(())
     }
 
+    /// Inject a custom downstream GStreamer event into the pipeline.
+    ///
+    /// The event is ordered with buffers already in the pipeline, so it
+    /// appears in the output stream at the correct position.
+    /// Only supported for GPU pipeline backends.
+    pub fn send_event(&self, event: gst::Event) -> Result<(), DecoderError> {
+        if self.is_shut_down.load(Ordering::Acquire) {
+            return Err(DecoderError::ShuttingDown);
+        }
+        match &self.backend {
+            DecoderBackendState::Pipeline { input_tx, .. } => {
+                input_tx
+                    .send(PipelineInput::Event(event))
+                    .map_err(|_| DecoderError::ChannelDisconnected)?;
+                Ok(())
+            }
+            _ => Err(DecoderError::PipelineError(
+                "events not supported on non-pipeline backends".into(),
+            )),
+        }
+    }
+
+    /// Per-source logical EOS marker (custom downstream event).
+    ///
+    /// Surfaces as [`NvDecoderOutput::SourceEos`] on the output channel,
+    /// ordered with decoded frames. Does **not** stop the decoder.
+    pub fn send_source_eos(&self, source_id: &str) -> Result<(), DecoderError> {
+        self.send_event(build_source_eos_event(source_id))
+    }
+
     /// Block until the next output is available.
     ///
     /// `Err` is reserved for channel disconnect only.
@@ -397,7 +431,14 @@ impl NvDecoder {
         }
     }
 
-    /// Graceful shutdown: reject new input, send EOS, drain outputs within `timeout`.
+    /// Graceful shutdown: reject new input, send EOS, drain and convert all
+    /// in-flight outputs, then tear down the pipeline.
+    ///
+    /// Each drained NVMM buffer is converted to RGBA using a temporary
+    /// out-of-band pool (sized to the number of drained frames) so that:
+    /// - the shared `self.pool` is not pressured by the batch of drained frames,
+    /// - conversion happens while the pipeline is still alive (NVMM source
+    ///   memory valid).
     ///
     /// Returns all domain outputs produced before the pipeline EOS.
     pub fn graceful_shutdown(
@@ -414,13 +455,60 @@ impl NvDecoder {
                 output_rx,
                 pipeline,
             } => {
-                let raw = pipeline
-                    .lock()
-                    .graceful_shutdown(timeout, input_tx, output_rx)?;
+                input_tx
+                    .send(PipelineInput::Eos)
+                    .map_err(|_| DecoderError::ChannelDisconnected)?;
+
+                // Phase 1: drain raw outputs while the pipeline is alive.
+                let mut raw = Vec::new();
+                let deadline = std::time::Instant::now() + timeout;
+                loop {
+                    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    match output_rx.recv_timeout(remaining) {
+                        Ok(PipelineOutput::Eos) => break,
+                        Ok(PipelineOutput::Error(e)) => {
+                            raw.push(PipelineOutput::Error(e));
+                            break;
+                        }
+                        Ok(other) => raw.push(other),
+                        Err(channel::RecvTimeoutError::Timeout) => break,
+                        Err(channel::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+
+                // Phase 2: build a temporary pool for NVMM→RGBA conversion.
+                let buf_count = raw
+                    .iter()
+                    .filter(|b| matches!(b, PipelineOutput::Buffer(_)))
+                    .count() as u32;
+                let drain_pool = if buf_count > 0 {
+                    Some(self.make_drain_pool(buf_count)?)
+                } else {
+                    None
+                };
+
+                // Phase 3: convert while the pipeline (and its V4L2 NVMM pool)
+                // is still alive.
+                let pool_guard;
+                let pool_ref: &BufferGenerator = match &drain_pool {
+                    Some(p) => p,
+                    None => {
+                        pool_guard = self.pool.lock();
+                        &pool_guard
+                    }
+                };
                 let mut out = Vec::with_capacity(raw.len());
                 for item in raw {
-                    out.push(self.convert_output(item)?);
+                    out.push(self.convert_output_with_pool(item, pool_ref)?);
                 }
+
+                // Phase 4: tear down the pipeline — NVMM source memory freed
+                // here, but all frames have already been copied to drain_pool.
+                pipeline.lock().shutdown()?;
+
                 Ok(out)
             }
             DecoderBackendState::RawUpload { .. } | DecoderBackendState::ImageDecode { .. } => {
@@ -441,8 +529,19 @@ impl NvDecoder {
         Ok(())
     }
 
-    /// Convert a raw [`PipelineOutput`] into a domain-specific [`NvDecoderOutput`].
+    /// Convert a raw [`PipelineOutput`] into a domain-specific [`NvDecoderOutput`],
+    /// using the decoder's shared pool for NVMM→RGBA conversion.
     fn convert_output(&self, output: PipelineOutput) -> Result<NvDecoderOutput, DecoderError> {
+        let pool = self.pool.lock();
+        self.convert_output_with_pool(output, &pool)
+    }
+
+    /// Convert a raw [`PipelineOutput`] using an explicit RGBA pool reference.
+    fn convert_output_with_pool(
+        &self,
+        output: PipelineOutput,
+        pool: &BufferGenerator,
+    ) -> Result<NvDecoderOutput, DecoderError> {
         match output {
             PipelineOutput::Buffer(buffer) => {
                 let pts = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
@@ -467,7 +566,7 @@ impl NvDecoder {
                 };
                 drop(meta_guard);
 
-                let shared = nvmm_to_rgba(buffer, &self.pool, &self.transform_config)?;
+                let shared = nvmm_to_rgba(buffer, pool, &self.transform_config)?;
 
                 Ok(NvDecoderOutput::Frame(DecodedFrame {
                     frame_id,
@@ -480,9 +579,27 @@ impl NvDecoder {
                 }))
             }
             PipelineOutput::Eos => Ok(NvDecoderOutput::Eos),
-            PipelineOutput::Event(event) => Ok(NvDecoderOutput::Event(event)),
+            PipelineOutput::Event(event) => {
+                if let Some(source_id) = parse_source_eos_event(&event) {
+                    Ok(NvDecoderOutput::SourceEos { source_id })
+                } else {
+                    Ok(NvDecoderOutput::Event(event))
+                }
+            }
             PipelineOutput::Error(e) => Ok(NvDecoderOutput::Error(DecoderError::FrameworkError(e))),
         }
+    }
+
+    /// Create a temporary RGBA buffer pool sized exactly for a drain batch.
+    fn make_drain_pool(&self, count: u32) -> Result<BufferGenerator, DecoderError> {
+        let guard = self.pool.lock();
+        BufferGenerator::builder(guard.format(), guard.width(), guard.height())
+            .gpu_id(guard.gpu_id())
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(count)
+            .max_buffers(count)
+            .build()
+            .map_err(|e| DecoderError::BufferError(format!("drain pool creation failed: {e}")))
     }
 }
 
@@ -711,12 +828,11 @@ fn is_intra_only(codec: Codec) -> bool {
 /// Transform an NVMM (V4L2 pool) buffer into an RGBA buffer from the output pool.
 fn nvmm_to_rgba(
     buffer: gst::Buffer,
-    pool: &Mutex<BufferGenerator>,
+    pool: &BufferGenerator,
     transform_config: &TransformConfig,
 ) -> Result<SharedBuffer, DecoderError> {
     let src = SharedBuffer::from(buffer);
     let dst = pool
-        .lock()
         .acquire(None)
         .map_err(|e| DecoderError::BufferError(format!("RGBA pool acquire failed: {e}")))?;
     src.transform_into(0, &dst, 0, transform_config, None)

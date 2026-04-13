@@ -365,6 +365,7 @@ fn test_dos_garbage_from_start_h264() {
         Ok(Some(NvDecoderOutput::Frame(_))) => panic!("unexpected frame from garbage"),
         Ok(Some(NvDecoderOutput::Eos))
         | Ok(Some(NvDecoderOutput::Event(_)))
+        | Ok(Some(NvDecoderOutput::SourceEos { .. }))
         | Ok(None)
         | Err(_) => {}
     }
@@ -405,7 +406,7 @@ fn test_dos_garbage_mid_stream_h264() {
         match decoder.recv_timeout(Duration::from_secs(2)) {
             Ok(Some(NvDecoderOutput::Frame(_))) => {}
             Ok(Some(NvDecoderOutput::Error(_))) | Ok(Some(NvDecoderOutput::Eos)) => break,
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) | Err(_) => break,
         }
     }
@@ -427,7 +428,8 @@ fn test_dos_garbage_jpeg_png() {
             Ok(Some(NvDecoderOutput::Frame(_))) => panic!("unexpected frame from garbage JPEG"),
             Ok(Some(NvDecoderOutput::Eos))
             | Ok(Some(NvDecoderOutput::Error(_)))
-            | Ok(Some(NvDecoderOutput::Event(_))) => {}
+            | Ok(Some(NvDecoderOutput::Event(_)))
+            | Ok(Some(NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) | Err(_) => {}
         }
     }
@@ -671,6 +673,175 @@ fn test_resolution_mismatch_raw_rgba() {
     assert_eq!(
         count, 1,
         "expected 1 frame from raw RGBA with pool mismatch"
+    );
+}
+
+/// Verify that `graceful_shutdown` returns RGBA buffers with valid,
+/// accessible NVMM GPU memory.
+///
+/// Submits 3 JPEG frames, then calls `graceful_shutdown` (no prior `recv`).
+/// For each returned frame the test creates a `SurfaceView` to prove the
+/// underlying NVMM memory is still mapped and readable.
+#[test]
+#[serial]
+fn test_graceful_shutdown_returns_valid_rgba() {
+    init();
+    let (w, h) = (320, 240);
+    let config_enc = EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420);
+    let mut encoder = NvEncoder::new(&config_enc).expect("JPEG encoder");
+    let dur = 33_333_333u64;
+    for i in 0..3u128 {
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
+        let buf = shared.into_buffer().unwrap();
+        encoder
+            .submit_frame(buf, i, i as u64 * dur, Some(dur))
+            .unwrap();
+    }
+    let enc_frames = encoder.finish(Some(5000)).unwrap();
+
+    let config_dec = DecoderConfig::Jpeg(JpegDecoderConfig::gpu());
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config_dec),
+        make_rgba_pool(w, h),
+        identity_transform_config(),
+    )
+    .unwrap();
+
+    for f in &enc_frames {
+        let fid = f.frame_id.unwrap_or(0);
+        decoder
+            .submit_packet(&f.data, fid, f.pts_ns, f.dts_ns, f.duration_ns)
+            .unwrap();
+    }
+    // Do NOT call recv — all decoded frames stay in the output channel.
+    let results = decoder
+        .graceful_shutdown(Duration::from_secs(10))
+        .expect("graceful_shutdown failed");
+
+    let mut frame_count = 0usize;
+    for item in &results {
+        if let NvDecoderOutput::Frame(f) = item {
+            assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
+            let view = SurfaceView::from_buffer(&f.buffer, 0)
+                .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
+            assert_eq!(view.width(), w, "surface width mismatch");
+            assert_eq!(view.height(), h, "surface height mismatch");
+            frame_count += 1;
+        }
+    }
+    assert_eq!(
+        frame_count,
+        enc_frames.len(),
+        "graceful_shutdown must return all submitted frames"
+    );
+}
+
+/// Same as [`test_graceful_shutdown_returns_valid_rgba`] but with H264 (multi-frame,
+/// P-frame buffering).  Isolates whether `graceful_shutdown` can flush the
+/// `nvv4l2decoder` pipeline correctly.
+#[test]
+#[serial]
+fn test_graceful_shutdown_h264_valid_rgba() {
+    init();
+    if !has_nvenc() {
+        eprintln!("SKIP: no NVENC on this platform");
+        return;
+    }
+    let (w, h) = (320, 240);
+    let num_frames = 5;
+    let packets = encode_test_frames(Codec::H264, w, h, num_frames);
+
+    let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
+        make_rgba_pool(w, h),
+        identity_transform_config(),
+    )
+    .unwrap();
+
+    for (fid, pts, _dur, data) in &packets {
+        decoder
+            .submit_packet(data, *fid, *pts, Some(*pts), None)
+            .unwrap();
+    }
+
+    let results = decoder
+        .graceful_shutdown(Duration::from_secs(10))
+        .expect("graceful_shutdown failed for H264");
+
+    let mut frame_count = 0usize;
+    for item in &results {
+        if let NvDecoderOutput::Frame(f) = item {
+            assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
+            let view = SurfaceView::from_buffer(&f.buffer, 0)
+                .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
+            assert_eq!(view.width(), w, "surface width mismatch");
+            assert_eq!(view.height(), h, "surface height mismatch");
+            frame_count += 1;
+        }
+    }
+    assert!(
+        frame_count >= num_frames,
+        "graceful_shutdown must return all H264 frames: expected {num_frames}, got {frame_count}"
+    );
+}
+
+/// Simulates the MultiStreamDecoder worker pattern: submit H264 packets,
+/// poll with `try_recv` between each (like `pull_ready_outputs`), then call
+/// `graceful_shutdown`.  Some frames may have been consumed by `try_recv`
+/// before `graceful_shutdown` runs.
+#[test]
+#[serial]
+fn test_graceful_shutdown_h264_after_partial_drain() {
+    init();
+    if !has_nvenc() {
+        eprintln!("SKIP: no NVENC on this platform");
+        return;
+    }
+    let (w, h) = (320, 240);
+    let num_frames = 10;
+    let packets = encode_test_frames(Codec::H264, w, h, num_frames);
+
+    let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
+        make_rgba_pool(w, h),
+        identity_transform_config(),
+    )
+    .unwrap();
+
+    let mut pre_drained = 0usize;
+    for (fid, pts, _dur, data) in &packets {
+        decoder
+            .submit_packet(data, *fid, *pts, Some(*pts), None)
+            .unwrap();
+        // poll like pull_ready_outputs
+        loop {
+            match decoder.try_recv() {
+                Ok(Some(NvDecoderOutput::Frame(_))) => pre_drained += 1,
+                Ok(Some(_)) => {}
+                Ok(None) | Err(_) => break,
+            }
+        }
+    }
+
+    eprintln!("pre-drained {pre_drained} frames before graceful_shutdown");
+
+    let results = decoder
+        .graceful_shutdown(Duration::from_secs(10))
+        .expect("graceful_shutdown failed after partial drain");
+
+    let shutdown_frames: usize = results
+        .iter()
+        .filter(|r| matches!(r, NvDecoderOutput::Frame(_)))
+        .count();
+
+    eprintln!("graceful_shutdown returned {shutdown_frames} frames");
+    let total = pre_drained + shutdown_frames;
+    assert!(
+        total >= num_frames,
+        "total frames (pre-drained {pre_drained} + shutdown {shutdown_frames} = {total}) \
+         must be >= {num_frames}"
     );
 }
 

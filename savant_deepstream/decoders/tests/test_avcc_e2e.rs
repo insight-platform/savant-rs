@@ -97,7 +97,7 @@ fn run_avcc_e2e(entry: &AssetEntry) {
             Ok(Some(NvDecoderOutput::Error(e))) => {
                 panic!("decoder error for {} (AVCC): {e}", entry.file)
             }
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) => panic!(
                 "timeout waiting for decoder events for {} (AVCC), decoded so far: {}",
                 entry.file, decoded_count

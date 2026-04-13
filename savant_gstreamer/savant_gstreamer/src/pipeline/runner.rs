@@ -482,6 +482,7 @@ impl GstPipeline {
         } else {
             let done = enqueue_release(&self.name, self.appsrc.take(), self.pipeline.take());
             wait_for_finalization(&self.name, &done);
+            std::thread::sleep(POST_FINALIZE_SETTLE);
         }
     }
 
@@ -533,6 +534,12 @@ struct FinalizerItem {
 /// instead of hanging the caller — identical to the old `ManuallyDrop`
 /// behaviour.
 const FINALIZER_QUEUE_CAPACITY: usize = 64;
+
+/// Post-finalization settle delay.  NVIDIA's `libnvmmlite_video.so` performs
+/// deferred internal cleanup (V4L2 device release, etc.) after the GObject
+/// `finalize` callback returns.  Without this pause the process can exit while
+/// that background work is still in-flight, causing a SIGSEGV during teardown.
+const POST_FINALIZE_SETTLE: Duration = Duration::from_millis(200);
 
 /// Process-wide singleton: a bounded channel feeding a single background
 /// thread that performs GObject finalization.

@@ -17,7 +17,7 @@ use deepstream_decoders::{
     detect_stream_config, is_random_access_point, DecoderConfig, JpegBackend, NvDecoder,
     NvDecoderConfig, NvDecoderOutput,
 };
-use log::{error, warn};
+use log::{error, info, warn};
 use parking_lot::Mutex;
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::{
@@ -31,6 +31,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 type EvictionCallback = Arc<dyn Fn(&str) -> EvictionVerdict + Send + Sync + 'static>;
+
+/// Worker polls decoder output between queue reads (latency bound).
+const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(5);
+/// Same order of magnitude as the old feeder↔drain `EosSync` wait.
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Set [`VideoFrameProxy`] width/height and [`VideoFrameTransformation::InitialSize`] from the
 /// decoded NVMM surface before handing the frame to the user.
@@ -134,57 +139,6 @@ enum SessionResetReason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubmitResult {
     pub queue_depth: usize,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub(super) enum EosKind {
-    User,
-    Idle,
-    /// Session boundary (codec / resolution / timestamp change).
-    /// Carries the [`StopReason`] and whether the consumer should receive
-    /// [`DecoderOutput::Eos`].
-    SessionReset {
-        stop_reason: StopReason,
-        emit_eos: bool,
-    },
-}
-
-/// Signals the feeder that the drain thread received [`NvDecoderOutput::Eos`].
-struct EosSync {
-    mu: std::sync::Mutex<bool>,
-    cv: std::sync::Condvar,
-}
-
-impl EosSync {
-    fn new() -> Self {
-        Self {
-            mu: std::sync::Mutex::new(false),
-            cv: std::sync::Condvar::new(),
-        }
-    }
-
-    fn notify(&self) {
-        let mut g = self.mu.lock().expect("eos mutex");
-        *g = true;
-        self.cv.notify_all();
-    }
-
-    fn wait(&self, timeout: Duration) {
-        let mut g = self.mu.lock().expect("eos mutex");
-        let start = Instant::now();
-        while !*g {
-            let left = timeout.saturating_sub(start.elapsed());
-            if left.is_zero() {
-                break;
-            }
-            let (_guard, timeout_res) = self.cv.wait_timeout(g, left).expect("eos condvar");
-            g = _guard;
-            if timeout_res.timed_out() && !*g {
-                warn!("eos wait timed out after {timeout:?}");
-                break;
-            }
-        }
-    }
 }
 
 /// Multi-stream decode engine.
@@ -332,12 +286,11 @@ impl MultiStreamDecoder {
 
     /// Drain the old decoder, deliver all in-flight frames, then tear down.
     ///
-    /// Sends `QueueItem::Eos` through the feeder channel so `NvDecoder` processes
-    /// every queued packet, the drain thread pulls all decoded frames (delivered
-    /// via `DecoderOutput::Decoded`), and finally the EOS callback fires
-    /// `StreamStopped` with the correct session-reset reason.
+    /// Sends `QueueItem::Stop` to the worker. The worker calls
+    /// `NvDecoder::graceful_shutdown`, delivers remaining frames, optionally
+    /// emits `DecoderOutput::Eos`, then emits `StreamStopped`.
     ///
-    /// **Blocks** until the feeder thread exits (drain complete).
+    /// **Blocks** until the worker thread exits.
     fn emit_session_reset(
         &self,
         source_id: String,
@@ -360,25 +313,15 @@ impl MultiStreamDecoder {
         };
 
         if let StreamEntry::Active(ref a) = entry {
-            // Tell the NvDecoder EOS callback which StopReason / Eos policy to use.
-            *a.eos_kind.lock() = Some(EosKind::SessionReset {
+            let _ = a.queue_tx.send(QueueItem::Stop {
                 stop_reason: stop.clone(),
                 emit_eos,
             });
 
-            // Trigger a clean drain: feeder processes remaining packets, then
-            // sends EOS to NvDecoder, drain thread pulls every decoded frame,
-            // EOS callback fires StreamStopped.
-            let _ = a.queue_tx.send(QueueItem::Eos);
-
-            // Keep pending_frames alive so we can report leftovers.
             let pending = a.pending_frames.clone();
 
-            // Block until feeder + NvDecoder drain completes.
             teardown_stream_entry(entry);
 
-            // Any frames still in pending_frames were queued behind the drain
-            // EOS or silently dropped by the decoder — report them.
             let remaining = pending.lock().drain();
             for (_fid, frame) in remaining {
                 self.emit(DecoderOutput::Undecoded {
@@ -388,7 +331,6 @@ impl MultiStreamDecoder {
                 });
             }
         } else {
-            // Detecting / Failed entry — no decoder to drain.
             if emit_eos {
                 self.emit(DecoderOutput::Eos {
                     source_id: source_id.clone(),
@@ -804,9 +746,6 @@ impl MultiStreamDecoder {
         payload: Vec<u8>,
         queue_timeout: Option<Duration>,
     ) -> Result<SubmitResult, MultiStreamError> {
-        // Block until any prior teardown for this (or any) source finishes.
-        // This guarantees hardware decoder resources (NVDEC slots) are released
-        // before we create a new NvDecoder, preventing Jetson pipeline hangs.
         self.join_pending_teardowns();
         validate_hw_jpeg_dims(&cfg, &frame)?;
         let (pool_w, pool_h, fps_num, fps_den) = stream_pool_params(&frame)?;
@@ -834,8 +773,6 @@ impl MultiStreamDecoder {
         let on_eviction = self.on_eviction.clone();
         let idle_timeout = self.config.idle_timeout;
         let gpu_id = self.config.gpu_id;
-        let eos_kind = Arc::new(Mutex::new(None::<EosKind>));
-        let eos_sync = Arc::new(EosSync::new());
         let streams_map = self.streams.clone();
         let sid_for_map = source_id.clone();
 
@@ -844,35 +781,25 @@ impl MultiStreamDecoder {
             .map_err(|e| MultiStreamError::DecoderCreationFailed(e.to_string()))?;
         let decoder = Arc::new(decoder);
 
-        spawn_drain(
-            source_id.clone(),
-            Arc::clone(&decoder),
-            pending_frames.clone(),
-            on_output.clone(),
-            alive.clone(),
-            eos_kind.clone(),
-            eos_sync.clone(),
-            streams_map.clone(),
-            sid_for_map.clone(),
-            self.pending_teardowns.clone(),
-            pool_w,
-            pool_h,
-        );
-
         (self.on_output)(DecoderOutput::StreamStarted {
             source_id: source_id.clone(),
             codec: dec_codec,
         });
 
-        let join = spawn_feeder(
+        let join = spawn_worker(
             source_id.clone(),
             rx,
-            decoder,
+            Arc::clone(&decoder),
+            pending_frames.clone(),
+            on_output,
+            alive.clone(),
             idle_timeout,
             on_eviction,
-            eos_kind.clone(),
-            eos_sync,
-            alive.clone(),
+            streams_map,
+            sid_for_map,
+            self.pending_teardowns.clone(),
+            pool_w,
+            pool_h,
         );
         *join_slot.lock() = Some(join);
 
@@ -884,7 +811,6 @@ impl MultiStreamDecoder {
             last_width,
             last_height,
             last_order_key_ns,
-            eos_kind: eos_kind.clone(),
             pending_frames,
         };
         self.streams
@@ -892,7 +818,6 @@ impl MultiStreamDecoder {
             .insert(source_id.clone(), StreamEntry::Active(handle));
 
         let first_fid = frame.get_uuid_u128();
-        // First packet: use submit path
         self.enqueue_active(
             &source_id,
             frame,
@@ -1017,157 +942,216 @@ impl MultiStreamDecoder {
             }
         }
     }
+
+    /// Per-source logical EOS passthrough (ordered with decoded frames).
+    ///
+    /// Sends a custom downstream event through the NvDecoder GStreamer pipeline
+    /// which surfaces as [`DecoderOutput::Eos`] on the output without stopping
+    /// the decoder. Mirrors [`NvInfer::send_event`](deepstream_decoders) /
+    /// [`NvTracker::send_eos`](deepstream_decoders) pattern.
+    pub fn forward_eos(&self, source_id: &str, timeout: Duration) -> Result<(), MultiStreamError> {
+        if self.shutdown_flag.load(Ordering::Acquire) {
+            return Err(MultiStreamError::ChannelDisconnected("shutdown".into()));
+        }
+        let guard = self.streams.lock();
+        let StreamEntry::Active(a) = guard
+            .get(source_id)
+            .ok_or_else(|| MultiStreamError::UnknownStream(source_id.into()))?
+        else {
+            return Err(MultiStreamError::UnknownStream(source_id.into()));
+        };
+        if !a.alive.load(Ordering::Acquire) {
+            return Err(MultiStreamError::ChannelDisconnected(source_id.into()));
+        }
+        let tx = a.queue_tx.clone();
+        let cap = self.config.per_stream_queue_size;
+        drop(guard);
+        let item = QueueItem::ForwardEos {
+            source_id: source_id.to_string(),
+        };
+        tx.send_timeout(item, timeout).map_err(|e| match e {
+            SendTimeoutError::Timeout(_) => MultiStreamError::QueueFull {
+                source_id: source_id.to_string(),
+                queue_size: cap,
+            },
+            SendTimeoutError::Disconnected(_) => {
+                MultiStreamError::ChannelDisconnected(source_id.to_string())
+            }
+        })
+    }
+
+    /// Non-blocking version of [`forward_eos`](Self::forward_eos).
+    pub fn try_forward_eos(&self, source_id: &str) -> Result<(), MultiStreamError> {
+        if self.shutdown_flag.load(Ordering::Acquire) {
+            return Err(MultiStreamError::ChannelDisconnected("shutdown".into()));
+        }
+        let guard = self.streams.lock();
+        let StreamEntry::Active(a) = guard
+            .get(source_id)
+            .ok_or_else(|| MultiStreamError::UnknownStream(source_id.into()))?
+        else {
+            return Err(MultiStreamError::UnknownStream(source_id.into()));
+        };
+        if !a.alive.load(Ordering::Acquire) {
+            return Err(MultiStreamError::ChannelDisconnected(source_id.into()));
+        }
+        let tx = a.queue_tx.clone();
+        let cap = self.config.per_stream_queue_size;
+        drop(guard);
+        let item = QueueItem::ForwardEos {
+            source_id: source_id.to_string(),
+        };
+        tx.try_send(item).map_err(|e| match e {
+            TrySendError::Full(_) => MultiStreamError::QueueFull {
+                source_id: source_id.to_string(),
+                queue_size: cap,
+            },
+            TrySendError::Disconnected(_) => {
+                MultiStreamError::ChannelDisconnected(source_id.to_string())
+            }
+        })
+    }
 }
 
-/// Drain thread: pulls [`NvDecoderOutput`] from the decoder and delivers
-/// decoded frames / EOS / errors through `on_output`.
+/// Pull all ready decoded outputs (non-blocking) and deliver via callback.
+fn pull_ready_outputs(
+    source_id: &str,
+    decoder: &NvDecoder,
+    pending_frames: &Mutex<FrameTracker>,
+    on_output: &dyn Fn(DecoderOutput),
+    pool_w: u32,
+    pool_h: u32,
+) {
+    loop {
+        match decoder.try_recv() {
+            Ok(Some(NvDecoderOutput::Frame(df))) => {
+                deliver_frame(source_id, df, pending_frames, on_output, pool_w, pool_h);
+            }
+            Ok(Some(NvDecoderOutput::SourceEos { source_id: sid })) => {
+                (on_output)(DecoderOutput::Eos { source_id: sid });
+            }
+            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Eos)) => {
+                info!("worker {source_id}: unexpected hard EOS during polling");
+            }
+            Ok(Some(NvDecoderOutput::Error(e))) => {
+                error!("worker {source_id}: decoder error during polling: {e}");
+            }
+            Ok(None) => break,
+            Err(e) => {
+                error!("worker {source_id}: try_recv failed: {e}");
+                break;
+            }
+        }
+    }
+}
+
+fn deliver_frame(
+    source_id: &str,
+    df: deepstream_decoders::DecodedFrame,
+    pending_frames: &Mutex<FrameTracker>,
+    on_output: &dyn Fn(DecoderOutput),
+    pool_w: u32,
+    pool_h: u32,
+) {
+    let fid = df.frame_id.unwrap_or(0);
+    let buf = df.buffer;
+    let mut t = pending_frames.lock();
+    if let Some(mut f) = t.remove(fid) {
+        drop(t);
+        apply_decoded_surface_to_frame(&mut f, &buf, pool_w, pool_h);
+        (on_output)(DecoderOutput::Decoded {
+            frame: f,
+            buffer: buf,
+        });
+    } else {
+        warn!("worker {source_id}: decoded frame id={fid} has no pending VideoFrameProxy");
+    }
+}
+
+/// Gracefully shut down the decoder, deliver remaining frames, and emit
+/// terminal events (`Eos` / `StreamStopped`).
+///
+/// Delegates to [`NvDecoder::graceful_shutdown`] which drains all in-flight
+/// buffers while the GStreamer pipeline is still alive, converts NVMM→RGBA
+/// using a temporary pool, then tears down the pipeline.  After this call
+/// the decoder is fully shut down; `NvDecoder::drop` becomes a no-op.
 #[allow(clippy::too_many_arguments)]
-fn spawn_drain(
+fn shutdown_and_deliver(
+    source_id: &str,
+    decoder: &NvDecoder,
+    pending_frames: &Mutex<FrameTracker>,
+    on_output: &dyn Fn(DecoderOutput),
+    stop_reason: StopReason,
+    emit_eos: bool,
+    pool_w: u32,
+    pool_h: u32,
+) {
+    match decoder.graceful_shutdown(GRACEFUL_SHUTDOWN_TIMEOUT) {
+        Ok(items) => {
+            for item in items {
+                match item {
+                    NvDecoderOutput::Frame(df) => {
+                        deliver_frame(source_id, df, pending_frames, on_output, pool_w, pool_h);
+                    }
+                    NvDecoderOutput::SourceEos { source_id: sid } => {
+                        (on_output)(DecoderOutput::Eos { source_id: sid });
+                    }
+                    NvDecoderOutput::Event(_) | NvDecoderOutput::Eos => {}
+                    NvDecoderOutput::Error(e) => {
+                        error!("worker {source_id}: error during shutdown drain: {e}");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            warn!("worker {source_id}: graceful_shutdown failed: {e}");
+        }
+    }
+    if emit_eos {
+        (on_output)(DecoderOutput::Eos {
+            source_id: source_id.to_string(),
+        });
+    }
+    (on_output)(DecoderOutput::StreamStopped {
+        source_id: source_id.to_string(),
+        reason: stop_reason,
+    });
+}
+
+/// Single per-stream worker: submits packets, polls decoded output, handles
+/// EOS/stop/idle-eviction, and cleans up.
+#[allow(clippy::too_many_arguments)]
+fn spawn_worker(
     source_id: String,
+    rx: crossbeam::channel::Receiver<QueueItem>,
     decoder: Arc<NvDecoder>,
     pending_frames: Arc<Mutex<FrameTracker>>,
     on_output: Arc<dyn Fn(DecoderOutput) + Send + Sync + 'static>,
     alive: Arc<AtomicBool>,
-    eos_kind: Arc<Mutex<Option<EosKind>>>,
-    eos_sync: Arc<EosSync>,
+    idle_timeout: Duration,
+    on_eviction: Option<EvictionCallback>,
     streams_map: Arc<Mutex<HashMap<String, StreamEntry>>>,
     sid_for_map: String,
     teardown_joins: Arc<Mutex<Vec<JoinHandle<()>>>>,
     pool_w: u32,
     pool_h: u32,
-) {
-    std::thread::Builder::new()
-        .name(format!("ms-dec-drain-{source_id}"))
-        .spawn(move || loop {
-            let ev = decoder.recv();
-            match ev {
-                Ok(NvDecoderOutput::Frame(df)) => {
-                    let fid = df.frame_id.unwrap_or(0);
-                    let buf = df.buffer;
-                    let mut t = pending_frames.lock();
-                    if let Some(mut f) = t.remove(fid) {
-                        apply_decoded_surface_to_frame(&mut f, &buf, pool_w, pool_h);
-                        (on_output)(DecoderOutput::Decoded {
-                            frame: f,
-                            buffer: buf,
-                        });
-                    }
-                }
-                Ok(NvDecoderOutput::Eos) => {
-                    handle_eos_or_error(
-                        &source_id,
-                        &eos_kind,
-                        &on_output,
-                        &alive,
-                        &eos_sync,
-                        &streams_map,
-                        &sid_for_map,
-                        &teardown_joins,
-                        None,
-                    );
-                    break;
-                }
-                Ok(NvDecoderOutput::Error(e)) => {
-                    error!("decoder error for {source_id}: {e}");
-                    handle_eos_or_error(
-                        &source_id,
-                        &eos_kind,
-                        &on_output,
-                        &alive,
-                        &eos_sync,
-                        &streams_map,
-                        &sid_for_map,
-                        &teardown_joins,
-                        Some(e.to_string()),
-                    );
-                    break;
-                }
-                Ok(NvDecoderOutput::Event(_)) => {}
-                Err(_) => {
-                    alive.store(false, Ordering::Release);
-                    eos_sync.notify();
-                    break;
-                }
-            }
-        })
-        .expect("drain thread");
-}
-
-/// Shared EOS / error handling for the drain thread.
-#[allow(clippy::too_many_arguments)]
-fn handle_eos_or_error(
-    source_id: &str,
-    eos_kind: &Mutex<Option<EosKind>>,
-    on_output: &Arc<dyn Fn(DecoderOutput) + Send + Sync + 'static>,
-    alive: &Arc<AtomicBool>,
-    eos_sync: &EosSync,
-    streams_map: &Arc<Mutex<HashMap<String, StreamEntry>>>,
-    sid_for_map: &str,
-    teardown_joins: &Arc<Mutex<Vec<JoinHandle<()>>>>,
-    error_msg: Option<String>,
-) {
-    if let Some(err) = error_msg {
-        (on_output)(DecoderOutput::StreamStopped {
-            source_id: source_id.to_string(),
-            reason: StopReason::Error(err),
-        });
-    } else {
-        let kind = eos_kind.lock().take();
-        let (do_emit_eos, reason) = match kind {
-            Some(EosKind::User) | None => (true, StopReason::Eos),
-            Some(EosKind::Idle) => (true, StopReason::IdleEviction),
-            Some(EosKind::SessionReset {
-                stop_reason,
-                emit_eos,
-            }) => (emit_eos, stop_reason),
-        };
-        if do_emit_eos {
-            (on_output)(DecoderOutput::Eos {
-                source_id: source_id.to_string(),
-            });
-        }
-        (on_output)(DecoderOutput::StreamStopped {
-            source_id: source_id.to_string(),
-            reason,
-        });
-    }
-    alive.store(false, Ordering::Release);
-    eos_sync.notify();
-    // Guard against removing a newer session that reused this source_id.
-    let maybe_ent = {
-        let mut guard = streams_map.lock();
-        let is_mine = guard.get(sid_for_map).is_some_and(
-            |ent| matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, alive)),
-        );
-        if is_mine {
-            guard.remove(sid_for_map)
-        } else {
-            None
-        }
-    };
-    if let Some(ent) = maybe_ent {
-        let h = std::thread::spawn(move || teardown_stream_entry(ent));
-        teardown_joins.lock().push(h);
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn spawn_feeder(
-    source_id: String,
-    rx: crossbeam::channel::Receiver<QueueItem>,
-    decoder: Arc<NvDecoder>,
-    idle_timeout: Duration,
-    on_eviction: Option<EvictionCallback>,
-    eos_kind: Arc<Mutex<Option<EosKind>>>,
-    eos_sync: Arc<EosSync>,
-    alive: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
-        .name(format!("ms-dec-feed-{source_id}"))
+        .name(format!("ms-dec-worker-{source_id}"))
         .spawn(move || {
             let mut wait = idle_timeout;
             loop {
-                match rx.recv_timeout(wait) {
+                pull_ready_outputs(
+                    &source_id,
+                    &decoder,
+                    &pending_frames,
+                    on_output.as_ref(),
+                    pool_w,
+                    pool_h,
+                );
+
+                match rx.recv_timeout(WORKER_POLL_INTERVAL.min(wait)) {
                     Ok(QueueItem::Packet {
                         data,
                         frame_id,
@@ -1183,52 +1167,89 @@ fn spawn_feeder(
                         }
                     }
                     Ok(QueueItem::Eos) => {
-                        {
-                            let mut k = eos_kind.lock();
-                            if k.is_none() {
-                                *k = Some(EosKind::User);
-                            }
-                        }
-                        if let Err(e) = decoder.send_eos() {
-                            error!("send_eos {source_id}: {e}");
-                        }
-                        eos_sync.wait(Duration::from_secs(120));
-                        alive.store(false, Ordering::Release);
+                        shutdown_and_deliver(
+                            &source_id,
+                            &decoder,
+                            &pending_frames,
+                            on_output.as_ref(),
+                            StopReason::Eos,
+                            true,
+                            pool_w,
+                            pool_h,
+                        );
                         break;
                     }
+                    Ok(QueueItem::Stop {
+                        stop_reason,
+                        emit_eos,
+                    }) => {
+                        shutdown_and_deliver(
+                            &source_id,
+                            &decoder,
+                            &pending_frames,
+                            on_output.as_ref(),
+                            stop_reason,
+                            emit_eos,
+                            pool_w,
+                            pool_h,
+                        );
+                        break;
+                    }
+                    Ok(QueueItem::ForwardEos { source_id: sid }) => {
+                        if let Err(e) = decoder.send_source_eos(&sid) {
+                            error!("worker {source_id}: send_source_eos({sid}): {e}");
+                        }
+                    }
                     Err(RecvTimeoutError::Timeout) => {
-                        let verdict = on_eviction
-                            .as_ref()
-                            .map(|f| f(source_id.as_str()))
-                            .unwrap_or(EvictionVerdict::Approve);
-                        match verdict {
-                            EvictionVerdict::Approve => {
-                                {
-                                    let mut k = eos_kind.lock();
-                                    if k.is_none() {
-                                        *k = Some(EosKind::Idle);
-                                    }
+                        wait = wait.saturating_sub(WORKER_POLL_INTERVAL);
+                        if wait.is_zero() {
+                            let verdict = on_eviction
+                                .as_ref()
+                                .map(|f| f(source_id.as_str()))
+                                .unwrap_or(EvictionVerdict::Approve);
+                            match verdict {
+                                EvictionVerdict::Approve => {
+                                    shutdown_and_deliver(
+                                        &source_id,
+                                        &decoder,
+                                        &pending_frames,
+                                        on_output.as_ref(),
+                                        StopReason::IdleEviction,
+                                        true,
+                                        pool_w,
+                                        pool_h,
+                                    );
+                                    break;
                                 }
-                                if let Err(e) = decoder.send_eos() {
-                                    error!("idle send_eos {source_id}: {e}");
+                                EvictionVerdict::Extend(d) => {
+                                    wait = d;
                                 }
-                                eos_sync.wait(Duration::from_secs(120));
-                                alive.store(false, Ordering::Release);
-                                break;
-                            }
-                            EvictionVerdict::Extend(d) => {
-                                wait = d;
                             }
                         }
                     }
                     Err(RecvTimeoutError::Disconnected) => {
-                        alive.store(false, Ordering::Release);
                         break;
                     }
                 }
             }
+            alive.store(false, Ordering::Release);
+            let maybe_ent = {
+                let mut guard = streams_map.lock();
+                let is_mine = guard.get(&sid_for_map).is_some_and(
+                    |ent| matches!(ent, StreamEntry::Active(a) if Arc::ptr_eq(&a.alive, &alive)),
+                );
+                if is_mine {
+                    guard.remove(&sid_for_map)
+                } else {
+                    None
+                }
+            };
+            if let Some(ent) = maybe_ent {
+                let h = std::thread::spawn(move || teardown_stream_entry(ent));
+                teardown_joins.lock().push(h);
+            }
         })
-        .expect("feeder")
+        .expect("worker thread")
 }
 
 #[cfg(test)]

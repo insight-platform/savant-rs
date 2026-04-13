@@ -312,7 +312,7 @@ fn rnd_nvdecoder_annexb_h264() {
                 break;
             }
             Ok(Some(NvDecoderOutput::Error(e))) => panic!("[NvDecoder] error: {e}"),
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) => panic!("[NvDecoder] timeout after 10s, got {frames} frames"),
             Err(e) => panic!("[NvDecoder] recv error: {e}"),
         }

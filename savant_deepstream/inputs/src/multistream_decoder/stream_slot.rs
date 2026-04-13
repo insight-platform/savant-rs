@@ -1,5 +1,6 @@
 //! Per-stream state shared between the decoder engine and watchdog.
 
+use super::error::StopReason;
 use super::frame_tracker::FrameTracker;
 use crossbeam::channel::Sender;
 use parking_lot::Mutex;
@@ -9,7 +10,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-/// Queued work for a feeder thread.
+/// Queued work for the per-stream worker thread.
 #[derive(Debug)]
 pub(crate) enum QueueItem {
     Packet {
@@ -19,7 +20,18 @@ pub(crate) enum QueueItem {
         dts_ns: Option<u64>,
         duration_ns: Option<u64>,
     },
+    /// User-initiated EOS: drain remaining frames and stop.
     Eos,
+    /// Internal stop (session reset, idle eviction): optionally emit
+    /// [`DecoderOutput::Eos`](super::error::DecoderOutput::Eos) before
+    /// [`DecoderOutput::StreamStopped`](super::error::DecoderOutput::StreamStopped).
+    Stop {
+        stop_reason: StopReason,
+        emit_eos: bool,
+    },
+    /// Per-source logical EOS passthrough — sent through the GStreamer pipeline
+    /// so it is ordered with decoded frames.
+    ForwardEos { source_id: String },
 }
 
 /// H.264/HEVC (and similar) waiting for first RAP.
@@ -30,7 +42,7 @@ pub(crate) struct DetectingState {
     pub last_seen: Instant,
 }
 
-/// Running worker with bounded queue to feeder thread.
+/// Running worker with bounded queue.
 pub(crate) struct ActiveHandle {
     pub queue_tx: Sender<QueueItem>,
     pub alive: Arc<AtomicBool>,
@@ -42,9 +54,6 @@ pub(crate) struct ActiveHandle {
     /// Last `submission_order_ns` passed to `NvDecoder::submit_packet` (strictly increasing per session).
     pub last_order_key_ns: Arc<Mutex<Option<u64>>>,
     pub pending_frames: Arc<Mutex<FrameTracker>>,
-    /// Shared with the feeder thread and the NvDecoder EOS callback so that
-    /// the session-reset path can inject the correct [`StopReason`](super::error::StopReason).
-    pub eos_kind: Arc<Mutex<Option<super::decoder::EosKind>>>,
 }
 
 pub(crate) enum StreamEntry {
@@ -57,7 +66,7 @@ pub(crate) enum StreamEntry {
     },
 }
 
-/// Join feeder thread and drop queue sender.
+/// Join worker thread and drop queue sender.
 pub(crate) fn teardown_stream_entry(entry: StreamEntry) {
     if let StreamEntry::Active(a) = entry {
         drop(a.queue_tx);

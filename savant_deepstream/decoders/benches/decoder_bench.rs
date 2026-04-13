@@ -124,7 +124,7 @@ fn decode_and_drain(decoder: &NvDecoder, data: &[Vec<u8>], expected: usize) {
             Ok(Some(NvDecoderOutput::Frame(_))) => count += 1,
             Ok(Some(NvDecoderOutput::Eos)) => break,
             Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error: {e}"),
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) => panic!("timeout after {count}/{expected} frames"),
             Err(e) => panic!("recv error: {e}"),
         }

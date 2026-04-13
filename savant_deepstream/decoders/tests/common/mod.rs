@@ -130,7 +130,7 @@ pub fn drain_decoder(decoder: &NvDecoder, mut on_frame: impl FnMut(DecodedFrame)
             Ok(Some(NvDecoderOutput::Frame(f))) => on_frame(f),
             Ok(Some(NvDecoderOutput::Eos)) => break,
             Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error: {e}"),
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) => panic!("timeout waiting for decoder events"),
             Err(e) => panic!("recv error: {e}"),
         }

@@ -62,7 +62,7 @@ fn run_annexb_e2e(entry: &AssetEntry) {
             }
             Ok(Some(NvDecoderOutput::Eos)) => break,
             Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error for {}: {e}", entry.file),
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) => panic!("timeout waiting for decoder events for {}", entry.file),
             Err(e) => panic!("recv error for {}: {e}", entry.file),
         }
@@ -108,7 +108,7 @@ fn test_minimal_nvdecoder_annexb() {
             Ok(Some(NvDecoderOutput::Frame(_))) => decoded_count += 1,
             Ok(Some(NvDecoderOutput::Eos)) => break,
             Ok(Some(NvDecoderOutput::Error(e))) => panic!("error: {e}"),
-            Ok(Some(NvDecoderOutput::Event(_))) => {}
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
             Ok(None) => panic!("TIMEOUT after {decoded_count} frames"),
             Err(e) => panic!("recv error: {e}"),
         }
