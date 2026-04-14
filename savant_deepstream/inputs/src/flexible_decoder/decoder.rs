@@ -24,6 +24,7 @@ use super::output::{FlexibleDecoderOutput, SkipReason};
 use super::state::{
     new_frame_map, ActivatedDecoder, DecoderState, FrameMap, StateGuard, SubmitContext,
 };
+use savant_core::utils::release_seal::ReleaseSeal;
 
 /// Worker polls NvDecoder output at this interval.
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -558,6 +559,7 @@ fn convert_output(fm: &FrameMap, out: NvDecoderOutput) -> FlexibleDecoderOutput 
                 FlexibleDecoderOutput::Frame {
                     frame: proxy,
                     decoded: df,
+                    seal: Arc::new(ReleaseSeal::new()),
                 }
             } else {
                 FlexibleDecoderOutput::OrphanFrame { decoded: df }
@@ -591,6 +593,7 @@ fn worker_loop(
                     on_output(FlexibleDecoderOutput::Frame {
                         frame: proxy,
                         decoded: df,
+                        seal: Arc::new(ReleaseSeal::new()),
                     });
                 } else {
                     on_output(FlexibleDecoderOutput::OrphanFrame { decoded: df });

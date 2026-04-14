@@ -10,7 +10,7 @@ pub use config::{
     RawRgbDecoderConfig, RawRgbaDecoderConfig, Vp8DecoderConfig, Vp9DecoderConfig,
 };
 pub use error::DecoderError;
-pub use pipeline::{NvDecoder, NvDecoderOutput, NvDecoderExt};
+pub use pipeline::{NvDecoder, NvDecoderExt, NvDecoderOutput};
 pub use stream_detect::{detect_stream_config, is_random_access_point};
 
 pub use deepstream_buffers::{
@@ -24,7 +24,9 @@ pub struct DecodedFrame {
     pub pts_ns: u64,
     pub dts_ns: Option<u64>,
     pub duration_ns: Option<u64>,
-    pub buffer: SharedBuffer,
+    /// Decoded RGBA buffer.  Wrapped in `Option` so downstream can `.take()`
+    /// the buffer for delivery without consuming the entire frame.
+    pub buffer: Option<SharedBuffer>,
     pub codec: Codec,
     pub format: VideoFormat,
 }

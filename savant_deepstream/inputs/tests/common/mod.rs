@@ -434,9 +434,11 @@ pub enum CollectedOutput {
 }
 
 impl CollectedOutput {
-    fn from_output(out: FlexibleDecoderOutput) -> Self {
+    fn from_output(out: &FlexibleDecoderOutput) -> Self {
         match out {
-            FlexibleDecoderOutput::Frame { frame, decoded: df } => {
+            FlexibleDecoderOutput::Frame {
+                frame, decoded: df, ..
+            } => {
                 let proxy_uuid = frame.get_uuid_u128();
                 assert_eq!(
                     Some(proxy_uuid),
@@ -466,9 +468,9 @@ impl CollectedOutput {
             FlexibleDecoderOutput::OrphanFrame { decoded: df } => CollectedOutput::OrphanFrame {
                 frame_id: df.frame_id,
             },
-            FlexibleDecoderOutput::SourceEos { source_id } => {
-                CollectedOutput::SourceEos { source_id }
-            }
+            FlexibleDecoderOutput::SourceEos { source_id } => CollectedOutput::SourceEos {
+                source_id: source_id.clone(),
+            },
             FlexibleDecoderOutput::Event(_) => CollectedOutput::Event,
             FlexibleDecoderOutput::Error(e) => CollectedOutput::Error(format!("{e}")),
         }
@@ -489,7 +491,7 @@ impl OutputCollector {
 
     pub fn callback(&self) -> impl Fn(FlexibleDecoderOutput) + Send + Sync + 'static {
         let outputs = self.outputs.clone();
-        move |out| outputs.lock().push(CollectedOutput::from_output(out))
+        move |out| outputs.lock().push(CollectedOutput::from_output(&out))
     }
 
     pub fn drain(&self) -> Vec<CollectedOutput> {

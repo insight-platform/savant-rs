@@ -38,8 +38,8 @@ let mut decoder = NvDecoder::new(
 
 1. Encode reference packets (`deepstream_encoders`) if needed.
 2. Submit packets with `(frame_id, pts_ns, dts_ns, duration_ns)`.
-3. Call `send_eos()`.
-4. Drain events from channel until `Eos`.
+3. Call `graceful_shutdown(...)` or `shutdown()` depending on the scenario.
+4. Drain outputs from `recv`/`recv_timeout` until `Eos`.
 5. Validate at least:
    - output `DecodedFrame.format == RGBA`
    - `frame_id` propagation
@@ -50,8 +50,8 @@ let mut decoder = NvDecoder::new(
 1. Submit valid packets (optional)
 2. Submit garbage packet bytes
 3. Observe one of:
-   - `DecoderEvent::Error(...)`
-   - `DecoderEvent::PipelineRestarted { .. }`
+   - `NvDecoderOutput::Error(...)`
+   - terminal `PipelineFailed` behavior via recv outputs
    - no frames + timeout/stall
 4. For PNG/JPEG CPU (`image` crate path), malformed bytes are expected to fail
    immediately from `submit_packet(...) -> Err(BufferError(...))`.

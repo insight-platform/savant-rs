@@ -135,7 +135,7 @@ impl OutputCollector {
         let mut output_uuids: Vec<u128> = outputs
             .iter()
             .filter_map(|o| match o {
-                FlexibleDecoderOutput::Frame { frame, decoded } => {
+                FlexibleDecoderOutput::Frame { frame, decoded, .. } => {
                     assert_eq!(
                         Some(frame.get_uuid_u128()),
                         decoded.frame_id,
@@ -620,7 +620,7 @@ fn test_frame_output_carries_video_frame_proxy() {
     let mut returned_uuids: Vec<u128> = outputs
         .iter()
         .filter_map(|o| match o {
-            FlexibleDecoderOutput::Frame { frame, decoded } => {
+            FlexibleDecoderOutput::Frame { frame, decoded, .. } => {
                 assert_eq!(frame.get_source_id(), "cam-1");
                 assert_eq!(frame.get_uuid_u128(), decoded.frame_id.unwrap());
                 Some(frame.get_uuid_u128())
@@ -893,7 +893,7 @@ fn test_garbage_jpeg_then_valid_jpeg() {
     let frame_uuids: Vec<u128> = outputs
         .iter()
         .filter_map(|o| match o {
-            FlexibleDecoderOutput::Frame { frame, decoded } => {
+            FlexibleDecoderOutput::Frame { frame, decoded, .. } => {
                 assert_eq!(
                     Some(frame.get_uuid_u128()),
                     decoded.frame_id,
@@ -985,7 +985,7 @@ fn test_garbage_png_then_valid_png() {
     let frame_uuids: Vec<u128> = outputs
         .iter()
         .filter_map(|o| match o {
-            FlexibleDecoderOutput::Frame { frame, decoded } => {
+            FlexibleDecoderOutput::Frame { frame, decoded, .. } => {
                 assert_eq!(
                     Some(frame.get_uuid_u128()),
                     decoded.frame_id,
@@ -1001,4 +1001,77 @@ fn test_garbage_png_then_valid_png() {
         vec![valid_uuid],
         "only the valid PNG must produce a Frame output with the correct UUID"
     );
+}
+
+/// Verify `take_delivery()` extracts the sealed `(VideoFrameProxy, SharedBuffer)`
+/// pair from a `Frame` output and returns `None` for non-frame variants.
+///
+/// The seal blocks `unseal()` until the parent `FlexibleDecoderOutput` is dropped.
+#[test]
+#[serial]
+fn test_take_delivery() {
+    init();
+    let collector = OutputCollector::new();
+    let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
+
+    let jpeg_data = make_jpeg(320, 240);
+    let frame = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Jpeg),
+        VideoFrameContent::None,
+        0,
+    );
+    let submitted_uuid = frame.get_uuid_u128();
+    dec.submit(&frame, Some(&jpeg_data)).unwrap();
+
+    collector.wait_for_frames(1, Duration::from_secs(10));
+
+    let outputs = collector.drain();
+    let mut frame_outputs = Vec::new();
+    let mut other_outputs = Vec::new();
+    for o in outputs {
+        if matches!(o, FlexibleDecoderOutput::Frame { .. }) {
+            frame_outputs.push(o);
+        } else {
+            other_outputs.push(o);
+        }
+    }
+
+    assert_eq!(frame_outputs.len(), 1, "exactly one Frame expected");
+
+    let mut frame_out = frame_outputs.into_iter().next().unwrap();
+
+    // take_delivery returns a sealed delivery (buffer is taken from decoded).
+    let sealed = frame_out
+        .take_delivery()
+        .expect("take_delivery must return Some for Frame");
+
+    // Seal is not yet released — the output is still alive.
+    assert!(!sealed.is_released());
+
+    // Second call returns None — buffer already taken.
+    assert!(
+        frame_out.take_delivery().is_none(),
+        "second take_delivery must return None (buffer already taken)"
+    );
+
+    // Drop the output → releases the seal.
+    drop(frame_out);
+    assert!(sealed.is_released());
+
+    // Unseal and verify.
+    let (proxy, buffer) = sealed.unseal().expect("delivery must be present");
+    assert_eq!(proxy.get_uuid_u128(), submitted_uuid);
+    let guard = buffer.lock();
+    assert!(guard.as_ref().size() > 0, "SharedBuffer must hold data");
+    drop(guard);
+
+    for mut o in other_outputs {
+        assert!(
+            o.take_delivery().is_none(),
+            "take_delivery must return None for non-Frame variants"
+        );
+    }
 }

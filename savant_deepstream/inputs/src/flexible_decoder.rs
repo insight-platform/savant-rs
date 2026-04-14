@@ -21,4 +21,4 @@ mod state;
 pub use config::FlexibleDecoderConfig;
 pub use decoder::FlexibleDecoder;
 pub use error::FlexibleDecoderError;
-pub use output::{DecoderParameters, FlexibleDecoderOutput, SkipReason};
+pub use output::{DecoderParameters, FlexibleDecoderOutput, SealedDelivery, SkipReason};

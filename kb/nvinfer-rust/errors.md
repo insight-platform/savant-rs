@@ -3,41 +3,24 @@
 ```rust
 #[derive(Debug, thiserror::Error)]
 pub enum NvInferError {
-    #[error("Pipeline error: {0}")]
     PipelineError(String),
-
-    #[error("Pipeline failed: {0}")]
-    PipelineFailed(String),
-
-    #[error("Operator failed: {0}")]
-    OperatorFailed(String),
-
-    #[error("Element creation failed: {0}")]
     ElementCreationFailed(String),
-
-    #[error("Link failed: {0}")]
     LinkFailed(String),
-
-    #[error("Invalid property: {0}")]
     InvalidProperty(String),
-
-    #[error("Invalid nvinfer config: {0}")]
     InvalidConfig(String),
-
-    #[error("Batch meta attachment failed: {0}")]
     BatchMetaFailed(String),
-
-    #[error("Null pointer: {0}")]
     NullPointer(String),
-
-    #[error("GStreamer initialization failed: {0}")]
     GstInit(String),
-
-    #[error("Batch formation failed: {0}")]
     BatchFormationFailed(String),
-
-    #[error("Operator is shut down")]
     OperatorShutdown,
+    TensorTypeMismatch { expected: &'static str, actual: &'static str },
+    HostDataUnavailable,
+    Buffer(#[from] deepstream_buffers::NvBufSurfaceError),
+    PipelineFailed,
+    OperatorFailed,
+    FrameworkError(#[from] savant_gstreamer::pipeline::PipelineError),
+    ChannelDisconnected,
+    ShuttingDown,
 }
 ```
 
@@ -45,8 +28,8 @@ pub enum NvInferError {
 
 | Variant | Trigger |
 |---|---|
-| `PipelineError` | `submit`/`infer_sync` when `SharedBuffer::into_buffer()` fails (outstanding refs); appsrc push failure; channel disconnect; timer thread spawn failure |
-| `PipelineFailed` | Pipeline entered terminal failed state: `infer_sync` timeout exceeded, async watchdog detected in-flight buffer exceeding `operation_timeout`. Pipeline must be recreated — all subsequent calls return this error. |
+| `PipelineError` | Submission/runtime pipeline errors, including shared-buffer ownership failures |
+| `PipelineFailed` | Pipeline entered terminal failed state (operation timeout exceeded) |
 | `OperatorFailed` | Batching operator entered terminal failed state: pending batch exceeded `pending_batch_timeout`. Operator must be recreated — all subsequent calls return this error. |
 | `ElementCreationFailed` | `gst::ElementFactory::make` fails for appsrc, appsink, nvinfer, queue |
 | `LinkFailed` | `gst::Element::link_many` fails |
@@ -57,6 +40,12 @@ pub enum NvInferError {
 | `GstInit` | `gst::init()` fails |
 | `BatchFormationFailed` | `SurfaceView::from_buffer`, `NonUniformBatch::add`, or `NonUniformBatch::finalize` fails during batch formation |
 | `OperatorShutdown` | `add_frame`, `flush`, or `submit_batch` called after operator shutdown |
+| `TensorTypeMismatch` | Typed tensor accessor called with wrong expected type |
+| `HostDataUnavailable` | Host tensor data is unavailable (disabled host copy / null host pointer) |
+| `Buffer` | Wrapped `deepstream_buffers::NvBufSurfaceError` |
+| `FrameworkError` | Error bubbled from `savant_gstreamer::pipeline` |
+| `ChannelDisconnected` | Channel disconnected between producer/consumer sides |
+| `ShuttingDown` | Submission attempted while graceful shutdown is active |
 
 ## Testing Error Paths
 
@@ -71,7 +60,13 @@ assert!(result.is_err()); // PipelineError
 ```rust
 let mut props = HashMap::new();
 props.insert("process-mode".into(), "1".into());
-let config = NvInferConfig::new(props, "RGBA", 640, 480);
+let config = NvInferConfig::new(
+    props,
+    VideoFormat::RGBA,
+    640,
+    480,
+    ModelColorFormat::RGB,
+);
 let result = config.validate_and_materialize();
 assert!(matches!(result, Err(NvInferError::InvalidConfig(_))));
 ```

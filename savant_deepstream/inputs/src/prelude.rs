@@ -2,5 +2,5 @@
 
 pub use crate::flexible_decoder::{
     DecoderParameters, FlexibleDecoder, FlexibleDecoderConfig, FlexibleDecoderError,
-    FlexibleDecoderOutput, SkipReason,
+    FlexibleDecoderOutput, SealedDelivery, SkipReason,
 };

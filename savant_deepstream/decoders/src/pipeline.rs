@@ -526,7 +526,7 @@ impl NvDecoder {
                     pts_ns: original_pts,
                     dts_ns,
                     duration_ns,
-                    buffer: shared,
+                    buffer: Some(shared),
                     codec: self.codec,
                     format: VideoFormat::RGBA,
                 }))
@@ -870,7 +870,7 @@ fn raw_upload_frame(
         pts_ns,
         dts_ns,
         duration_ns,
-        buffer: shared,
+        buffer: Some(shared),
         codec,
         format: VideoFormat::RGBA,
     })
@@ -961,7 +961,7 @@ fn image_decode_and_upload(
         pts_ns,
         dts_ns,
         duration_ns,
-        buffer: dst,
+        buffer: Some(dst),
         codec,
         format: VideoFormat::RGBA,
     })

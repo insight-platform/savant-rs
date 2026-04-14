@@ -14,6 +14,14 @@ pub struct ReleaseSeal {
     condvar: Condvar,
 }
 
+impl std::fmt::Debug for ReleaseSeal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReleaseSeal")
+            .field("released", &*self.released.lock())
+            .finish()
+    }
+}
+
 impl ReleaseSeal {
     /// Creates a seal in the non-released state.
     pub fn new() -> Self {

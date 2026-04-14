@@ -28,7 +28,7 @@ No queue element — `nvtracker` is a `GstBaseTransform` operating in-place on t
 ## Pipeline flow
 
 1. Caller supplies a **batched NVMM** `SharedBuffer` (same family as nvinfer batching): `NonUniformBatch` / surface batch with `num_filled` in the NvBufSurface header.
-2. `track` / `track_sync`:
+2. `submit`:
    - Takes exclusive ownership of the buffer (no outstanding views).
    - For each slot: `pad_index = crc32fast::hash(source_id.as_bytes())`, stored in LRU (capacity **4096**) for reverse lookup on output.
    - `attach_detection_meta` writes frames + untracked objects; sets `bInferDone = 1` on each `NvDsFrameMeta`.
@@ -45,7 +45,7 @@ The pipeline installs a pad probe on `appsrc`'s src pad that responds to DeepStr
 
 ## Mixed batch model
 
-A single batched buffer pushed to `track` supports **mixed** content:
+A single batched buffer pushed via `submit` supports **mixed** content:
 
 - **Multi-source:** slots from different cameras (different `source_id`).
 - **Multi-frame per source:** multiple temporal frames from the same camera in one batch.

@@ -720,7 +720,8 @@ fn test_graceful_shutdown_returns_valid_rgba() {
         .graceful_shutdown(Some(Duration::from_secs(10)), |item| {
             if let NvDecoderOutput::Frame(f) = &item {
                 assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
-                let view = SurfaceView::from_buffer(&f.buffer, 0)
+                let buf = f.buffer.as_ref().expect("buffer must be present");
+                let view = SurfaceView::from_buffer(buf, 0)
                     .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
                 assert_eq!(view.width(), w, "surface width mismatch");
                 assert_eq!(view.height(), h, "surface height mismatch");
@@ -770,7 +771,8 @@ fn test_graceful_shutdown_h264_valid_rgba() {
         .graceful_shutdown(Some(Duration::from_secs(10)), |item| {
             if let NvDecoderOutput::Frame(f) = &item {
                 assert_eq!(f.format, VideoFormat::RGBA, "expected RGBA output");
-                let view = SurfaceView::from_buffer(&f.buffer, 0)
+                let buf = f.buffer.as_ref().expect("buffer must be present");
+                let view = SurfaceView::from_buffer(buf, 0)
                     .expect("SurfaceView::from_buffer must succeed on a valid RGBA buffer");
                 assert_eq!(view.width(), w, "surface width mismatch");
                 assert_eq!(view.height(), h, "surface height mismatch");

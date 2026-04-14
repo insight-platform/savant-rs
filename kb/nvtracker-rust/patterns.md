@@ -72,8 +72,8 @@ Frame order in the `&[TrackedFrame]` slice determines the surface slot order in 
 
 ## `SharedBuffer` ownership
 
-Each `TrackedFrame` holds one `SharedBuffer`. The tracker consumes them during `prepare_batch`. Drop all external `SurfaceView` / batch handles before `track`/`track_sync` so `into_buffer()` succeeds. Otherwise: `BufferOwnership` error.
+Each `TrackedFrame` holds one `SharedBuffer`. The tracker consumes them during `prepare_batch`. Drop all external `SurfaceView` / batch handles before `submit` so `into_buffer()` succeeds. Otherwise: `BufferOwnership` error.
 
 ## Sync timeout
 
-`track_sync` waits up to `operation_timeout` (default **30 seconds**, configurable via `NvTrackerConfig::operation_timeout`). When the timeout expires — whether in `track_sync` or detected by the watchdog thread for async buffers — the pipeline enters a terminal failed state and returns `PipelineFailed`. The tracker instance must be recreated after this error.
+Use `recv_timeout` with `operation_timeout` (default **30 seconds**, configurable via `NvTrackerConfig::operation_timeout`) as your wait envelope. When the framework timeout is exceeded for in-flight processing, the pipeline enters terminal failed state and returns `PipelineFailed`. The tracker instance must be recreated after this error.

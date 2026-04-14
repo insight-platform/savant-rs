@@ -19,7 +19,7 @@
 
 ## 4) Output Is Always RGBA to Callers
 
-- Decoder callbacks deliver `DecodedFrame.format == RGBA` for all supported codecs.
+- Decoder `recv*` outputs deliver `DecodedFrame.format == RGBA` for all supported codecs.
 - Conversion/scaling into RGBA is done via upload + transform into the provided pool.
 
 ## 5) Pool Pressure
