@@ -422,9 +422,13 @@ pub enum CollectedOutput {
     Skipped {
         reason: String,
     },
+    OrphanFrame {
+        frame_id: Option<u128>,
+    },
     SourceEos {
         source_id: String,
     },
+    Event,
     Error(String),
 }
 
@@ -449,9 +453,13 @@ impl CollectedOutput {
             FlexibleDecoderOutput::Skipped { reason, .. } => CollectedOutput::Skipped {
                 reason: format!("{reason:?}"),
             },
+            FlexibleDecoderOutput::OrphanFrame { decoded: df } => CollectedOutput::OrphanFrame {
+                frame_id: df.frame_id,
+            },
             FlexibleDecoderOutput::SourceEos { source_id } => {
                 CollectedOutput::SourceEos { source_id }
             }
+            FlexibleDecoderOutput::Event(_) => CollectedOutput::Event,
             FlexibleDecoderOutput::Error(e) => CollectedOutput::Error(format!("{e}")),
         }
     }

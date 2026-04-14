@@ -15,6 +15,7 @@ rust-version.workspace = true
 [dependencies]
 deepstream_buffers = { path = "../buffers" }
 deepstream_decoders = { path = "../decoders" }
+gstreamer = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 savant_core = { workspace = true }

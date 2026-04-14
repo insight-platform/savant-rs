@@ -2,7 +2,11 @@
 
 use std::time::Duration;
 
-use super::output::{DEFAULT_DETECT_BUFFER_LIMIT, DEFAULT_IDLE_TIMEOUT_SECS};
+/// Default idle timeout (max gap between outputs during graceful drain).
+const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Default max buffered frames during H.264/HEVC detection.
+const DEFAULT_DETECT_BUFFER_LIMIT: usize = 30;
 
 /// Configuration for a [`super::FlexibleDecoder`].
 ///
@@ -35,7 +39,7 @@ impl FlexibleDecoderConfig {
             source_id: source_id.into(),
             gpu_id,
             pool_size,
-            idle_timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS),
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
             detect_buffer_limit: DEFAULT_DETECT_BUFFER_LIMIT,
         }
     }

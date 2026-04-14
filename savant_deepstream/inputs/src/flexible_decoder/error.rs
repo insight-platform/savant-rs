@@ -7,6 +7,8 @@ use deepstream_decoders::DecoderError;
 pub enum FlexibleDecoderError {
     #[error("decoder is shut down")]
     ShutDown,
+    #[error("worker thread exited unexpectedly")]
+    WorkerDied,
     #[error("decoder error: {0}")]
     Decoder(#[from] DecoderError),
 }

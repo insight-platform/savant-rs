@@ -1,7 +1,5 @@
 //! Map `VideoFrame` codec strings to `DecoderConfig` (and H.264/HEVC detection helpers).
 
-#[allow(unused_imports)]
-pub use deepstream_decoders::{detect_stream_config, is_random_access_point};
 use deepstream_decoders::{
     Av1DecoderConfig, DecoderConfig, JpegDecoderConfig, PngDecoderConfig, RawRgbDecoderConfig,
     RawRgbaDecoderConfig, Vp8DecoderConfig, Vp9DecoderConfig,
@@ -9,12 +7,63 @@ use deepstream_decoders::{
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::Codec;
 
-/// Result of resolving a codec name before bitstream inspection.
+/// Encapsulates the two-phase detection logic for codecs whose
+/// [`DecoderConfig`] depends on bitstream parameters (SPS/PPS).
+///
+/// Consumers call [`is_random_access_point`](Self::is_random_access_point) to
+/// check whether a packet can seed the detector, then
+/// [`detect_config`](Self::detect_config) to extract the actual config.
+#[derive(Debug, Clone, Copy)]
+pub struct DetectionStrategy {
+    codec: Codec,
+}
+
+impl DetectionStrategy {
+    /// Strategy for H.264 (AVC) bitstreams.
+    pub fn h264() -> Self {
+        Self { codec: Codec::H264 }
+    }
+
+    /// Strategy for H.265 (HEVC) bitstreams.
+    pub fn hevc() -> Self {
+        Self { codec: Codec::Hevc }
+    }
+
+    /// The underlying GStreamer codec tag.
+    pub fn codec(&self) -> Codec {
+        self.codec
+    }
+
+    /// Returns `true` when the access unit is a valid random-access point from
+    /// which a decoder can start producing pictures (e.g. contains
+    /// SPS + PPS + IDR for H.264).
+    pub fn is_random_access_point(&self, data: &[u8]) -> bool {
+        deepstream_decoders::is_random_access_point(self.codec, data)
+    }
+
+    /// Inspect the keyframe's NALUs and return a complete [`DecoderConfig`], or
+    /// `None` if detection fails (e.g. missing parameter sets).
+    pub fn detect_config(&self, data: &[u8]) -> Option<DecoderConfig> {
+        deepstream_decoders::detect_stream_config(self.codec, data)
+    }
+}
+
+/// Result of resolving a [`VideoCodec`] to a decoder configuration.
+///
+/// Most codecs produce [`Ready`](Self::Ready) with a complete [`DecoderConfig`]
+/// immediately. H.264 and HEVC require a two-phase flow because the
+/// `DecoderConfig` depends on bitstream parameters (profile, level, chroma
+/// format) extracted from the first keyframe's SPS/PPS — see
+/// [`DetectionStrategy`] for that path.
+///
+/// [`NvDecoder`]: deepstream_decoders::NvDecoder
 #[derive(Debug, Clone)]
 pub enum CodecResolve {
-    /// Need RAP + `detect_stream_config` on first decodable AU.
-    NeedDetection { codec: Codec },
-    /// Ready to build `NvDecoder` immediately.
+    /// Bitstream inspection required. Call the enclosed
+    /// [`DetectionStrategy`] methods to determine the keyframe and
+    /// extract the [`DecoderConfig`].
+    NeedDetection(DetectionStrategy),
+    /// Config is fully known — decoder can be created immediately.
     Ready(DecoderConfig),
 }
 
@@ -34,8 +83,8 @@ pub fn resolve_video_codec(
         Some(c) => c,
     };
     match c {
-        VideoCodec::H264 => Ok(CodecResolve::NeedDetection { codec: Codec::H264 }),
-        VideoCodec::Hevc => Ok(CodecResolve::NeedDetection { codec: Codec::Hevc }),
+        VideoCodec::H264 => Ok(CodecResolve::NeedDetection(DetectionStrategy::h264())),
+        VideoCodec::Hevc => Ok(CodecResolve::NeedDetection(DetectionStrategy::hevc())),
         VideoCodec::Jpeg => Ok(CodecResolve::Ready(DecoderConfig::Jpeg(
             JpegDecoderConfig::gpu(),
         ))),
@@ -98,7 +147,15 @@ mod tests {
     #[test]
     fn h264_needs_detection() {
         match resolve("h264", 0, 0).unwrap() {
-            CodecResolve::NeedDetection { codec } => assert_eq!(codec, Codec::H264),
+            CodecResolve::NeedDetection(strategy) => assert_eq!(strategy.codec(), Codec::H264),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn hevc_needs_detection() {
+        match resolve("hevc", 0, 0).unwrap() {
+            CodecResolve::NeedDetection(strategy) => assert_eq!(strategy.codec(), Codec::Hevc),
             _ => panic!(),
         }
     }

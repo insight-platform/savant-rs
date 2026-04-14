@@ -11,12 +11,13 @@
 mod config;
 mod decoder;
 mod error;
+mod handle_active;
+mod handle_detecting;
+mod handle_idle;
 mod output;
+mod state;
 
 pub use config::FlexibleDecoderConfig;
 pub use decoder::FlexibleDecoder;
 pub use error::FlexibleDecoderError;
-pub use output::{
-    DecoderParameters, FlexibleDecoderOutput, SkipReason, DEFAULT_DETECT_BUFFER_LIMIT,
-    DEFAULT_IDLE_TIMEOUT_SECS,
-};
+pub use output::{DecoderParameters, FlexibleDecoderOutput, SkipReason};
