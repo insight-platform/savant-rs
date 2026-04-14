@@ -12,8 +12,11 @@
 mod common;
 
 use common::*;
-use deepstream_inputs::flexible_decoder::{FlexibleDecoder, FlexibleDecoderConfig};
+use deepstream_inputs::flexible_decoder::{
+    FlexibleDecoder, FlexibleDecoderConfig, FlexibleDecoderOutput, SealedDelivery,
+};
 use serial_test::serial;
+use std::sync::Arc;
 use std::time::Duration;
 
 const SOURCE_ID: &str = "real-codec-test";
@@ -913,5 +916,124 @@ fn test_h264_wrong_frame_dimensions() {
     eprintln!(
         "  OK test_h264_wrong_frame_dimensions: {} frames with 640x480 metadata for 320x240 bitstream",
         submitted.len()
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Sealed delivery — cross-thread unseal
+// ═══════════════════════════════════════════════════════════════════
+
+/// Decode a real H.264 MP4 and exercise the full `SealedDelivery` lifecycle
+/// across threads:
+///
+/// 1. The callback calls `take_delivery()` on every `Frame` output and
+///    sends the `SealedDelivery` to a consumer thread via a channel.
+/// 2. The callback returns, dropping the `FlexibleDecoderOutput` which
+///    releases the seal.
+/// 3. The consumer thread calls `unseal()` (blocks until the seal is
+///    released) and verifies the `SharedBuffer` is valid.
+#[test]
+#[serial]
+fn test_sealed_delivery_cross_thread_unseal() {
+    init();
+    let manifest = load_manifest();
+    let Some(entry) = find_entry(&manifest, "test_h264_bt709_ip.mp4") else {
+        return;
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel::<SealedDelivery>();
+    let frame_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let fc = frame_count.clone();
+    let error_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let ec = error_count.clone();
+
+    let callback = move |mut out: FlexibleDecoderOutput| {
+        match &out {
+            FlexibleDecoderOutput::Frame { .. } => {
+                if let Some(sealed) = out.take_delivery() {
+                    assert!(
+                        !sealed.is_released(),
+                        "seal must NOT be released while the output is alive"
+                    );
+                    tx.send(sealed).expect("consumer thread gone");
+                }
+                fc.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            FlexibleDecoderOutput::Error(_) => {
+                ec.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            _ => {}
+        }
+        // `out` drops here → seal released
+    };
+
+    let mut dec = FlexibleDecoder::new(default_config(), callback);
+    let aus = demux_mp4_to_access_units(entry);
+    let num = aus.len().min(entry.num_frames as usize);
+    let submitted = submit_access_units(&dec, &aus, entry, num, 0);
+    assert!(!submitted.is_empty(), "no frames submitted");
+
+    // Consumer thread: unseal each delivery and verify the buffer.
+    let expected_count = submitted.len();
+    let consumer = std::thread::spawn(move || {
+        let mut received = 0usize;
+        while received < expected_count {
+            let sealed = rx
+                .recv_timeout(Duration::from_secs(30))
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "consumer: timed out waiting for delivery {}/{}: {e}",
+                        received + 1,
+                        expected_count
+                    )
+                });
+            let (proxy, buffer) = sealed
+                .unseal()
+                .expect("SealedDelivery must contain a delivery");
+            assert!(proxy.get_uuid_u128() != 0, "proxy UUID must be non-zero");
+            let guard = buffer.lock();
+            assert!(
+                guard.as_ref().size() > 0,
+                "SharedBuffer must hold data (frame {})",
+                received
+            );
+            drop(guard);
+            received += 1;
+        }
+        received
+    });
+
+    // Wait for all frames to arrive on the decoder side.
+    let start = std::time::Instant::now();
+    loop {
+        let fc = frame_count.load(std::sync::atomic::Ordering::Relaxed);
+        if fc >= expected_count {
+            break;
+        }
+        if start.elapsed() > TIMEOUT {
+            panic!(
+                "timeout waiting for {expected_count} frames (got {fc} after {:?})",
+                start.elapsed()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        error_count.load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "unexpected decoder errors"
+    );
+
+    let unsealed_count = consumer.join().expect("consumer thread panicked");
+    assert_eq!(
+        unsealed_count, expected_count,
+        "consumer must unseal exactly as many deliveries as frames submitted"
+    );
+
+    dec.graceful_shutdown().unwrap();
+    eprintln!(
+        "  OK test_sealed_delivery_cross_thread_unseal: {} frames decoded, sealed, and unsealed",
+        expected_count
     );
 }

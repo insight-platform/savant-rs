@@ -17,24 +17,22 @@ use pyo3::prelude::*;
 /// - ``SurfaceView.from_cuda_array(obj)`` — from any object exposing
 ///   ``__cuda_array_interface__`` (CuPy array, PyTorch CUDA tensor, etc.).
 #[pyclass(name = "SurfaceView", module = "savant_rs.deepstream")]
-pub struct PySurfaceView {
-    inner: Option<deepstream_buffers::SurfaceView>,
-}
+pub struct PySurfaceView(Option<deepstream_buffers::SurfaceView>);
 
 impl PySurfaceView {
     pub fn new(view: deepstream_buffers::SurfaceView) -> Self {
-        Self { inner: Some(view) }
+        Self(Some(view))
     }
 
     /// Consume the inner SurfaceView (e.g. for passing to Picasso).
     pub fn take(&mut self) -> PyResult<deepstream_buffers::SurfaceView> {
-        self.inner.take().ok_or_else(|| {
+        self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SurfaceView has been consumed")
         })
     }
 
     pub(crate) fn inner_ref(&self) -> PyResult<&deepstream_buffers::SurfaceView> {
-        self.inner.as_ref().ok_or_else(|| {
+        self.0.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SurfaceView has been consumed")
         })
     }
@@ -187,8 +185,8 @@ impl PySurfaceView {
     ) -> PyResult<Self> {
         let mut py_view = Self::from_cuda_iface(py, obj, gpu_id)?;
         if cuda_stream != 0 {
-            let view = py_view.inner.take().unwrap();
-            py_view.inner = Some(view.with_cuda_stream(unsafe {
+            let view = py_view.0.take().unwrap();
+            py_view.0 = Some(view.with_cuda_stream(unsafe {
                 deepstream_buffers::CudaStream::from_raw(cuda_stream as *mut std::ffi::c_void)
             }));
         }
@@ -373,7 +371,7 @@ impl PySurfaceView {
     }
 
     fn __repr__(&self) -> String {
-        match &self.inner {
+        match &self.0 {
             Some(v) => format!(
                 "SurfaceView({}x{}, ch={}, gpu={})",
                 v.width(),
@@ -386,6 +384,6 @@ impl PySurfaceView {
     }
 
     fn __bool__(&self) -> bool {
-        self.inner.is_some()
+        self.0.is_some()
     }
 }
