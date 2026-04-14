@@ -1,5 +1,6 @@
 use log::warn;
 use savant_gstreamer::Codec;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum H264StreamFormat {
@@ -484,6 +485,57 @@ impl DecoderConfig {
             Self::RawRgba(_) => Codec::RawRgba,
             Self::RawRgb(_) => Codec::RawRgb,
         }
+    }
+}
+
+/// Configuration for the channel-based `NvDecoder` wrapper API.
+#[derive(Debug, Clone)]
+pub struct NvDecoderConfig {
+    pub name: String,
+    pub gpu_id: u32,
+    pub decoder: DecoderConfig,
+    pub input_channel_capacity: usize,
+    pub output_channel_capacity: usize,
+    pub operation_timeout: Duration,
+    pub drain_poll_interval: Duration,
+}
+
+impl NvDecoderConfig {
+    pub fn new(gpu_id: u32, decoder: DecoderConfig) -> Self {
+        Self {
+            name: String::new(),
+            gpu_id,
+            decoder,
+            input_channel_capacity: 16,
+            output_channel_capacity: 16,
+            operation_timeout: Duration::from_secs(30),
+            drain_poll_interval: Duration::from_millis(100),
+        }
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    pub fn input_channel_capacity(mut self, capacity: usize) -> Self {
+        self.input_channel_capacity = capacity;
+        self
+    }
+
+    pub fn output_channel_capacity(mut self, capacity: usize) -> Self {
+        self.output_channel_capacity = capacity;
+        self
+    }
+
+    pub fn operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = timeout;
+        self
+    }
+
+    pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
+        self.drain_poll_interval = interval;
+        self
     }
 }
 

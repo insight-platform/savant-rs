@@ -1,0 +1,37 @@
+[package]
+name = "deepstream_inputs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "DeepStream input adapters (flexible single-stream decoder, etc.)"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+deepstream_buffers = { path = "../buffers" }
+deepstream_decoders = { path = "../decoders" }
+gstreamer = { workspace = true }
+jfifdump = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+savant_core = { workspace = true }
+savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-features = false }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+cros-codecs = { workspace = true }
+deepstream_buffers = { path = "../buffers" }
+deepstream_encoders = { path = "../encoders" }
+env_logger = { workspace = true }
+gstreamer = { workspace = true }
+image = { workspace = true }
+nvidia_gpu_utils = { workspace = true }
+savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }

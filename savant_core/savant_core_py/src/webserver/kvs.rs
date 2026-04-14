@@ -25,8 +25,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 #[pyfunction]
 #[pyo3(signature = (attributes, ttl=None))]
 pub fn set_attributes(attributes: Vec<Attribute>, ttl: Option<u64>) {
-    let attributes =
-        unsafe { std::mem::transmute::<Vec<Attribute>, Vec<rust::Attribute>>(attributes) };
+    let attributes: Vec<rust::Attribute> = attributes.into_iter().map(|a| a.0).collect();
     sync_kvs::set_attributes(&attributes, ttl);
 }
 
@@ -49,8 +48,10 @@ pub fn set_attributes(attributes: Vec<Attribute>, ttl: Option<u64>) {
 #[pyo3(signature = (ns=None, name=None, no_gil=false))]
 pub fn search_attributes(ns: Option<String>, name: Option<String>, no_gil: bool) -> Vec<Attribute> {
     detach!(no_gil, || {
-        let attributes = sync_kvs::search_attributes(&ns, &name);
-        unsafe { std::mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attributes) }
+        sync_kvs::search_attributes(&ns, &name)
+            .into_iter()
+            .map(Attribute)
+            .collect()
     })
 }
 
@@ -156,8 +157,7 @@ pub fn del_attribute(ns: &str, name: &str) -> Option<Attribute> {
 ///
 #[pyfunction]
 pub fn serialize_attributes(attributes: Vec<Attribute>) -> PyResult<Py<PyAny>> {
-    let attributes =
-        unsafe { std::mem::transmute::<Vec<Attribute>, Vec<rust::Attribute>>(attributes) };
+    let attributes: Vec<rust::Attribute> = attributes.into_iter().map(|a| a.0).collect();
     let attr_set = AttributeSet::from(attributes);
     let res = attr_set
         .to_pb()
@@ -194,7 +194,7 @@ pub fn deserialize_attributes(serialized: &Bound<'_, PyBytes>) -> PyResult<Vec<A
     let bytes = serialized.as_bytes();
     let attributes =
         AttributeSet::deserialize(bytes).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(unsafe { std::mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attributes) })
+    Ok(attributes.into_iter().map(Attribute).collect())
 }
 
 #[pyclass]

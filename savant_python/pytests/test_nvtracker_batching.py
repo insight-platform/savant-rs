@@ -68,7 +68,7 @@ def _require_tracker_assets() -> None:
 def _make_frame(source: str, width: int = 320, height: int = 240) -> VideoFrame:
     return VideoFrame(
         source_id=source,
-        framerate="30/1",
+        fps=(30, 1),
         width=width,
         height=height,
         content=VideoFrameContent.none(),
@@ -132,6 +132,7 @@ def test_single_source_batching_and_sealed_deliveries() -> None:
         return TrackerBatchFormationResult(ids=[], rois=rois)
 
     def result_callback(output):
+        assert output.is_tracking
         frames = output.frames
         assert len(frames) == 1
         fo = frames[0]
@@ -181,6 +182,7 @@ def test_multi_source_batching() -> None:
         return TrackerBatchFormationResult(ids=[], rois=rois)
 
     def result_callback(output):
+        assert output.is_tracking
         sources_holder.append([fo.frame.source_id for fo in output.frames])
         callback_done.set()
 
@@ -213,7 +215,8 @@ def test_flush_partial_batch() -> None:
         rois = [{0: [Roi(1, RBBox.ltwh(60.0, 60.0, 90.0, 90.0))]} for _ in frames]
         return TrackerBatchFormationResult(ids=[], rois=rois)
 
-    def result_callback(_output):
+    def result_callback(output):
+        assert output.is_tracking
         callback_done.set()
 
     op = NvTrackerBatchingOperator(
@@ -236,3 +239,43 @@ def test_flush_partial_batch() -> None:
 def test_existing_nvtracker_still_importable() -> None:
     # Smoke check to ensure adding batching API does not break existing class exposure.
     _ = NvTracker
+
+
+def test_batching_send_eos_py() -> None:
+    _require_tracker_assets()
+    _ensure_gpu()
+
+    tracking_done = threading.Event()
+    eos_done = threading.Event()
+
+    def batch_formation(frames):
+        rois = [{0: [Roi(1, RBBox.ltwh(40.0, 40.0, 80.0, 60.0))]} for _ in frames]
+        return TrackerBatchFormationResult(ids=[], rois=rois)
+
+    def result_callback(output):
+        if output.is_eos:
+            assert output.eos_source_id == "eos-cam"
+            eos_done.set()
+            return
+        if output.is_tracking:
+            tracking_done.set()
+            return
+        if output.is_error:
+            pytest.fail(output.error_message)
+
+    op = NvTrackerBatchingOperator(
+        config=NvTrackerBatchingOperatorConfig(
+            max_batch_size=1,
+            max_batch_wait_ms=5000,
+            nvtracker_config=_make_tracker_config(max_batch_size=4),
+        ),
+        batch_formation_callback=batch_formation,
+        result_callback=result_callback,
+    )
+    try:
+        op.add_frame(_make_frame("eos-cam"), _make_buffer())
+        assert tracking_done.wait(timeout=30)
+        op.send_eos("eos-cam")
+        assert eos_done.wait(timeout=30)
+    finally:
+        op.shutdown()

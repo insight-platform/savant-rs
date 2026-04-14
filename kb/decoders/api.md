@@ -3,65 +3,63 @@
 Crate: `deepstream_decoders`  
 Prelude: `use deepstream_decoders::prelude::*;`
 
-## Core Types
+## Core types
 
-- `DecoderConfig` (per-codec enum)
-- `NvDecoder` (event/callback-driven decoder)
-- `DecodedFrame` (decoded buffer + metadata)
-- `DecoderEvent` (Frame/Eos/Error/PipelineRestarted)
-- `DecoderError` (typed error enum)
+- `DecoderConfig` and per-codec config structs
+- `NvDecoderConfig` (framework/pipeline runtime settings)
+- `NvDecoder` (channel-based decoder)
+- `NvDecoderOutput` (pull-based outputs)
+- `DecodedFrame` (decoded RGBA frame + metadata)
+- `DecoderError`
 
-## Stream Format Enums
+## Decoder configuration
 
-- `H264StreamFormat`: `ByteStream`, `Avc`, `Avc3`
-- `HevcStreamFormat`: `ByteStream`, `Hvc1`, `Hev1`
-- `JpegBackend`: `Gpu`, `Cpu`
-
-## DecoderConfig Variants
+`DecoderConfig` variants:
 
 - `H264(H264DecoderConfig)`
 - `Hevc(HevcDecoderConfig)`
 - `Vp8(Vp8DecoderConfig)`
 - `Vp9(Vp9DecoderConfig)`
 - `Av1(Av1DecoderConfig)`
-- `Jpeg(JpegDecoderConfig)` (`Gpu` default, or `Cpu`)
+- `Jpeg(JpegDecoderConfig)`
 - `Png(PngDecoderConfig)`
 - `RawRgba(RawRgbaDecoderConfig)`
 - `RawRgb(RawRgbDecoderConfig)`
 
-SIG: `DecoderConfig::codec(&self) -> Codec`
+Helpers:
+
+- `DecoderConfig::codec(&self) -> Codec`
+- `NvDecoderConfig::new(gpu_id: u32, decoder: DecoderConfig) -> Self`
+- `NvDecoderConfig` builder methods: `name`, `input_channel_capacity`, `output_channel_capacity`, `operation_timeout`, `drain_poll_interval`
 
 ## NvDecoder
 
-SIG:
-`new<F>(gpu_id: u32, config: &DecoderConfig, pool: BufferGenerator, transform_config: TransformConfig, on_event: F) -> Result<Self, DecoderError> where F: FnMut(DecoderEvent) + Send + 'static`
+Primary constructor:
 
-SIG:
-`codec(&self) -> Codec`
+`NvDecoder::new(config: NvDecoderConfig, pool: BufferGenerator, transform_config: TransformConfig) -> Result<Self, DecoderError>`
 
-SIG:
-`submit_packet(&mut self, data: &[u8], frame_id: u128, pts_ns: u64, dts_ns: Option<u64>, duration_ns: Option<u64>) -> Result<(), DecoderError>`
+Primary methods:
 
-SIG:
-`send_eos(&mut self) -> Result<(), DecoderError>`
+- `codec(&self) -> Codec`
+- `is_failed(&self) -> bool`
+- `submit_packet(&self, data: &[u8], frame_id: u128, pts_ns: u64, dts_ns: Option<u64>, duration_ns: Option<u64>) -> Result<(), DecoderError>`
+- `send_event(&self, event: gst::Event) -> Result<(), DecoderError>`
+- `send_source_eos(&self, source_id: &str) -> Result<(), DecoderError>`
+- `recv(&self) -> Result<NvDecoderOutput, DecoderError>`
+- `recv_timeout(&self, timeout: Duration) -> Result<Option<NvDecoderOutput>, DecoderError>`
+- `try_recv(&self) -> Result<Option<NvDecoderOutput>, DecoderError>`
+- `graceful_shutdown(&self, idle_timeout: Option<Duration>, on_output: F) -> Result<(), DecoderError>`
+- `shutdown(&self) -> Result<(), DecoderError>`
 
-### Input Contract
-
-- `pts_ns` must be strictly monotonic across `submit_packet` calls.
-- Non-monotonic or equal `pts_ns` returns `DecoderError::PtsReordered`.
-- After `send_eos`, subsequent `submit_packet` returns `DecoderError::AlreadyFinalized`.
-
-## DecoderEvent
+## NvDecoderOutput
 
 ```rust
-pub enum DecoderEvent {
+pub enum NvDecoderOutput {
     Frame(DecodedFrame),
+    Event(gst::Event),
+    SourceEos { source_id: String },
     Eos,
     Error(DecoderError),
-    PipelineRestarted {
-        reason: String,
-        lost_frame_count: usize,
-    },
 }
 ```
 
@@ -73,14 +71,20 @@ pub struct DecodedFrame {
     pub pts_ns: u64,
     pub dts_ns: Option<u64>,
     pub duration_ns: Option<u64>,
-    pub buffer: SharedBuffer,
+    pub buffer: Option<SharedBuffer>,
     pub codec: Codec,
-    pub format: VideoFormat, // always RGBA for decoder output
+    pub format: VideoFormat,
 }
 ```
 
-## Output Semantics
+`format` is RGBA for decoder outputs delivered to callers.  
+`buffer` is optional so downstream stages can take ownership without consuming
+the whole `DecodedFrame` container.
 
-- Decoder output delivered to callbacks is RGBA for all supported codecs.
-- The caller-provided `pool` controls output dimensions and memory behavior.
-- `transform_config` controls GPU scaling/conversion behavior when needed.
+## Stream detection helpers
+
+- `detect_stream_config(codec: Codec, data: &[u8]) -> Option<DecoderConfig>`
+- `is_random_access_point(codec: Codec, data: &[u8]) -> bool`
+
+`detect_stream_config` supports H264/HEVC access-unit inspection (Annex-B vs length-prefixed AVCC/HVCC).  
+`is_random_access_point` is stricter than keyframe-only checks (requires in-band parameter sets for H264/HEVC in the same AU).

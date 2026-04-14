@@ -129,12 +129,12 @@ fn make_frame_with_objects(source_id: &str, frame_idx: i64, num_objects: usize) 
     let pts = (frame_idx as u64 * FRAME_DURATION_NS) as i64;
     let frame = VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         WIDTH as i64,
         HEIGHT as i64,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         pts,
@@ -184,7 +184,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         ..Default::default()
     };
 
-    let mut engine = PicassoEngine::new(
+    let engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
             ..Default::default()

@@ -1,4 +1,5 @@
 use crate::batch_meta_builder::clear_all_frame_objects;
+use crate::error::NvInferError;
 use crate::model_input_scaling::ModelInputScaling;
 use crate::output::ElementOutput;
 use deepstream_buffers::SharedBuffer;
@@ -11,6 +12,26 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use super::scaler::CoordinateScaler;
+
+/// Output delivered by [`crate::batching_operator::OperatorResultCallback`].
+pub enum OperatorOutput {
+    /// Per-batch inference output.
+    Inference(OperatorInferenceOutput),
+    /// Logical per-source EOS propagated from `NvInfer`.
+    Eos { source_id: String },
+    /// Pipeline or framework runtime error from the underlying `NvInfer`.
+    Error(NvInferError),
+}
+
+impl std::fmt::Debug for OperatorOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Inference(output) => f.debug_tuple("Inference").field(output).finish(),
+            Self::Eos { source_id } => f.debug_struct("Eos").field("source_id", source_id).finish(),
+            Self::Error(err) => f.debug_tuple("Error").field(err).finish(),
+        }
+    }
+}
 
 /// Per-element inference output with lazy coordinate scaling.
 ///

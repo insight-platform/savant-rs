@@ -5,7 +5,6 @@ use crate::primitives::{Intersection, Segment};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use savant_core::primitives::rust;
-use std::mem;
 
 #[pyclass(from_py_object)]
 #[derive(Debug, PartialEq, Clone)]
@@ -20,14 +19,17 @@ impl PolygonalArea {
 #[pymethods]
 impl PolygonalArea {
     pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
-        let points = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(points) };
+        let points: Vec<rust::Point> = points.into_iter().map(|p| p.0).collect();
         self.0.contains_many_points(&points)
     }
 
     pub fn crossed_by_segments(&mut self, segments: Vec<Segment>) -> Vec<Intersection> {
-        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<rust::Segment>>(segments) };
-        let intersections = self.0.crossed_by_segments(&segments);
-        unsafe { mem::transmute::<Vec<rust::Intersection>, Vec<Intersection>>(intersections) }
+        let segments: Vec<rust::Segment> = segments.into_iter().map(|s| s.0).collect();
+        self.0
+            .crossed_by_segments(&segments)
+            .into_iter()
+            .map(Intersection)
+            .collect()
     }
 
     pub fn is_self_intersecting(&mut self) -> bool {
@@ -58,8 +60,8 @@ impl PolygonalArea {
     #[pyo3(name = "points_positions")]
     #[pyo3(signature = (polys, points, no_gil=false))]
     fn points_positions_gil(polys: Vec<Self>, points: Vec<Point>, no_gil: bool) -> Vec<Vec<bool>> {
-        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<rust::PolygonalArea>>(polys) };
-        let points = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(points) };
+        let mut polys: Vec<rust::PolygonalArea> = polys.into_iter().map(|p| p.0).collect();
+        let points: Vec<rust::Point> = points.into_iter().map(|p| p.0).collect();
         detach!(no_gil, || {
             rust::PolygonalArea::points_positions(&mut polys, &points)
         })
@@ -73,14 +75,15 @@ impl PolygonalArea {
         segments: Vec<Segment>,
         no_gil: bool,
     ) -> Vec<Vec<Intersection>> {
-        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<rust::PolygonalArea>>(polys) };
-        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<rust::Segment>>(segments) };
+        let mut polys: Vec<rust::PolygonalArea> = polys.into_iter().map(|p| p.0).collect();
+        let segments: Vec<rust::Segment> = segments.into_iter().map(|s| s.0).collect();
         let intersections = detach!(no_gil, || {
             rust::PolygonalArea::segments_intersections(&mut polys, &segments)
         });
-        unsafe {
-            mem::transmute::<Vec<Vec<rust::Intersection>>, Vec<Vec<Intersection>>>(intersections)
-        }
+        intersections
+            .into_iter()
+            .map(|row| row.into_iter().map(Intersection).collect())
+            .collect()
     }
 
     /// Creates a new polygonal area from vertices and optional tags.
@@ -105,7 +108,7 @@ impl PolygonalArea {
     #[new]
     #[pyo3(signature = (vertices, tags=None))]
     pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> PyResult<Self> {
-        let vertices = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(vertices) };
+        let vertices: Vec<rust::Point> = vertices.into_iter().map(|p| p.0).collect();
         Ok(Self(err_to_pyerr!(
             rust::PolygonalArea::new(vertices, tags),
             PyValueError

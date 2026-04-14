@@ -377,6 +377,9 @@ impl NvEncoder {
                 .name("parse")
                 .build()
                 .map_err(|_| EncoderError::ElementCreationFailed(parse_name.into()))?;
+            if matches!(config.codec, Codec::H264 | Codec::Hevc) {
+                parse.set_property("config-interval", -1i32);
+            }
 
             // On Jetson, nvjpegenc requires surfaces pinned/registered by
             // nvvideoconvert; NvDS pool surfaces from appsrc lack this

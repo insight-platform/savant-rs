@@ -60,7 +60,7 @@ fn identity_engine_fullhd() -> Option<NvInfer> {
         1080,
         nvinfer::ModelColorFormat::RGB,
     );
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create identity FullHD NvInfer");
+    let engine = NvInfer::new(config).expect("create identity FullHD NvInfer");
     common::promote_built_engine("identity_fullhd.onnx", 2);
     Some(engine)
 }
@@ -243,7 +243,8 @@ fn test_fullframe_identity_roundtrip() {
     let canvas = build_random_canvas(42);
 
     let (shared, rois) = canvas_to_batch_with_fullframe_roi(&canvas);
-    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
+    engine.submit(shared, Some(&rois)).expect("submit");
+    let output = common::recv_inference(&engine);
 
     assert_eq!(output.num_elements(), 1, "expected one full-frame output");
     let elem = &output.elements()[0];

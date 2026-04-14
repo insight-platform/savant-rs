@@ -49,7 +49,11 @@ typedef struct CAPI_ObjectIds {
 /**
  * # Safety
  *
- * The function is intended for invocation from C/C++, so it is unsafe by design.
+ * - `external_version` must be a non-null pointer to a valid NUL-terminated C string that
+ *   remains readable for the duration of this call.
+ * - The string must be valid UTF-8.
+ *
+ * Returns `false` if the pointer is null or the string is not valid UTF-8.
  */
 bool check_version(const char *external_version);
 

@@ -5,6 +5,7 @@ mod common;
 
 use common::*;
 use deepstream_decoders::prelude::*;
+use deepstream_decoders::NvDecoderExt;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
@@ -16,10 +17,6 @@ use serial_test::serial;
 #[serial]
 fn rnd_filesrc_h264_annexb() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let pipeline_str = format!(
@@ -77,10 +74,6 @@ fn rnd_filesrc_h264_annexb() {
 #[serial]
 fn rnd_appsrc_whole_file_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
@@ -169,15 +162,11 @@ fn rnd_appsrc_whole_file_h264() {
 #[serial]
 fn rnd_appsrc_individual_aus_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
 
-    let nalus = split_annexb_nalus(&data);
+    let nalus = split_annexb_nalus(&data, "h264");
     eprintln!("[per-AU] total NALUs: {}", nalus.len());
     for (i, n) in nalus.iter().enumerate() {
         let off = nal_payload_offset(n);
@@ -284,40 +273,20 @@ fn rnd_appsrc_individual_aus_h264() {
 #[serial]
 fn rnd_nvdecoder_annexb_h264() {
     init();
-    if !has_nvdec() {
-        eprintln!("skip: no nvv4l2decoder");
-        return;
-    }
 
     let platform_tag = current_platform_tag();
     eprintln!("[NvDecoder] platform tag: {platform_tag}");
 
     let path = assets_dir().join("test_h264_annexb_ip.h264");
     let data = std::fs::read(&path).unwrap();
-    let nalus = split_annexb_nalus(&data);
+    let nalus = split_annexb_nalus(&data, "h264");
     let aus = group_nalus_to_access_units("h264", nalus);
 
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
-    let (tx, rx) = std::sync::mpsc::channel();
-    let file_name = "test_h264_annexb_ip.h264".to_string();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
         make_rgba_pool(320, 240),
         identity_transform_config(),
-        move |ev| {
-            match &ev {
-                DecoderEvent::Frame(f) => {
-                    eprintln!("  [NvDecoder] Frame: id={:?} pts={}", f.frame_id, f.pts_ns);
-                }
-                DecoderEvent::Eos => eprintln!("  [NvDecoder] EOS"),
-                DecoderEvent::Error(e) => eprintln!("  [NvDecoder] ERROR: {e}"),
-                DecoderEvent::PipelineRestarted { reason, .. } => {
-                    eprintln!("  [NvDecoder] RESTART: {reason}")
-                }
-            }
-            let _ = tx.send(ev);
-        },
     )
     .unwrap();
 
@@ -334,14 +303,19 @@ fn rnd_nvdecoder_annexb_h264() {
 
     let mut frames = 0u32;
     loop {
-        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
-            Ok(DecoderEvent::Frame(_)) => frames += 1,
-            Ok(DecoderEvent::Eos) => break,
-            Ok(DecoderEvent::Error(e)) => panic!("[NvDecoder] error: {e}"),
-            Ok(DecoderEvent::PipelineRestarted { reason, .. }) => {
-                panic!("[NvDecoder] unexpected restart: {reason}")
+        match decoder.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(Some(NvDecoderOutput::Frame(f))) => {
+                eprintln!("  [NvDecoder] Frame: id={:?} pts={}", f.frame_id, f.pts_ns);
+                frames += 1;
             }
-            Err(_) => panic!("[NvDecoder] timeout after 10s, got {frames} frames from {file_name}"),
+            Ok(Some(NvDecoderOutput::Eos)) => {
+                eprintln!("  [NvDecoder] EOS");
+                break;
+            }
+            Ok(Some(NvDecoderOutput::Error(e))) => panic!("[NvDecoder] error: {e}"),
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
+            Ok(None) => panic!("[NvDecoder] timeout after 10s, got {frames} frames"),
+            Err(e) => panic!("[NvDecoder] recv error: {e}"),
         }
     }
     eprintln!("[NvDecoder] total decoded frames: {frames}");

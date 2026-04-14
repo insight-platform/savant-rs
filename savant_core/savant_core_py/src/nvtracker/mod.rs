@@ -24,6 +24,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<batching_operator::PyTrackerOperatorOutput>()?;
     m.add_class::<batching_operator::PyNvTrackerBatchingOperator>()?;
     m.add_class::<pipeline::PyTrackedFrame>()?;
+    m.add_class::<pipeline::PyNvTrackerOutput>()?;
     m.add_class::<pipeline::PyNvTracker>()?;
     Ok(())
 }

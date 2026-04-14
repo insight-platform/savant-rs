@@ -13,11 +13,28 @@ use crate::protobuf::{deserialize, serialize};
 use lru::LruCache;
 
 pub struct SeqStore {
-    counters: LruCache<(String, String), u64>,
+    /// LRU keys: `system_id` + `'\0'` + `source` (one [`String`] per pair).
+    counters: LruCache<String, u64>,
 }
 
 pub const AUX_SEQ_ID_KEY: &str = "2c364c5fbe4de1c230e7df0b7d64ee1d";
 pub const MAX_SEQ_STORE_SIZE: usize = 512;
+
+/// Builds the [`SeqStore`] LRU key: one allocation, `Borrow<str>`-friendly for [`LruCache`] lookups.
+/// `system_id` and `source` must not contain `'\0'` (normal Savant IDs satisfy this).
+#[inline]
+fn seq_store_key(system_id: &str, source: &str) -> String {
+    let mut key = String::with_capacity(
+        system_id
+            .len()
+            .saturating_add(1)
+            .saturating_add(source.len()),
+    );
+    key.push_str(system_id);
+    key.push('\0');
+    key.push_str(source);
+    key
+}
 
 impl Default for SeqStore {
     fn default() -> Self {
@@ -33,17 +50,15 @@ impl SeqStore {
     }
 
     pub fn generate_message_seq_id(&mut self, system_id: &str, source: &str) -> u64 {
-        let v = self
-            .counters
-            .get_or_insert_mut((system_id.to_string(), source.to_string()), || 0);
+        let key = seq_store_key(system_id, source);
+        let v = self.counters.get_or_insert_mut(key, || 0);
         *v += 1;
         *v
     }
 
     fn validate_seq_i_raw(&mut self, system_id: &str, source: &str, seq_id: u64) -> bool {
-        let v = self
-            .counters
-            .get_or_insert_mut((system_id.to_string(), source.to_string()), || 0);
+        let key = seq_store_key(system_id, source);
+        let v = self.counters.get_or_insert_mut(key, || 0);
         if seq_id <= *v {
             log::trace!(target: "savant_rs::message::validate_seq_iq", 
                 "SeqId reset for system={} source=[{}] expected seq_id = {}, received seq_id = {}", 
@@ -71,15 +86,13 @@ impl SeqStore {
     }
 
     pub fn reset_seq_id(&mut self, system_id: &str, source: &str) {
-        self.counters
-            .pop(&(system_id.to_string(), source.to_string()));
+        let key = seq_store_key(system_id, source);
+        self.counters.pop(&key);
     }
 
     pub fn get_seq_id(&mut self, system_id: &str, source: &str) -> u64 {
-        *(self
-            .counters
-            .get(&(system_id.to_string(), source.to_string()))
-            .unwrap_or(&0))
+        let key = seq_store_key(system_id, source);
+        *self.counters.get(&key).unwrap_or(&0)
     }
 
     pub fn validate_seq_id(&mut self, m: &Message) -> bool {

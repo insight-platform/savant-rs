@@ -19,7 +19,14 @@
         "-e",
         "AARCH64_IGPU=1"
     ],
+    "remoteEnv": {
+        "DISPLAY": null,
+        "EGL_PLATFORM": "device"
+    },
     "remoteUser": "${localEnv:USER}",
+    "mounts": [
+        "source=home-dir-vol,target=/home/${localEnv:USER},type=volume"
+    ],
     "customizations": {
         "vscode": {
             "settings": {},
@@ -34,5 +41,5 @@
     "forwardPorts": [
         3000
     ],
-    "postCreateCommand": "echo 'Dev container ready!'"
+    "postCreateCommand": "echo 'Dev container ready! Import .envrc to the shell to load the required environment variables.'"
 }

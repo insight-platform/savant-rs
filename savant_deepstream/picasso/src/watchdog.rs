@@ -72,8 +72,16 @@ pub(crate) fn spawn_watchdog(
                 if !to_remove.is_empty() {
                     let mut workers_guard = workers.lock();
                     for source_id in &to_remove {
-                        debug!("watchdog: removing dead worker for source={source_id}");
-                        workers_guard.remove(source_id);
+                        // Re-check under the removal lock: a dead worker may have
+                        // been removed and replaced with a new live worker for the
+                        // same source_id between the scan and removal phases.
+                        let still_dead = workers_guard
+                            .get(source_id)
+                            .is_some_and(|worker| !worker.is_alive());
+                        if still_dead {
+                            debug!("watchdog: removing dead worker for source={source_id}");
+                            workers_guard.remove(source_id);
+                        }
                     }
                 }
             }

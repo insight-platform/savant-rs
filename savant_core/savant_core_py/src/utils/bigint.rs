@@ -1,36 +1,31 @@
-use lazy_static::lazy_static;
 use num_bigint::BigInt;
 
-lazy_static! {
-    // Initialize these values only once at runtime
-    static ref MAX_I64: BigInt = BigInt::from(i64::MAX);
-    static ref MIN_I64: BigInt = BigInt::from(i64::MIN);
-    static ref MAX_U64: BigInt = BigInt::from(u64::MAX);
-    static ref MIN_U64: BigInt = BigInt::from(u64::MIN);
+/// Returned when a [`BigInt`] cannot be represented as [`i64`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FitI64Error {
+    pub value: BigInt,
 }
 
-pub fn fit_i64(v: BigInt) -> i64 {
-    // Use the static references instead of creating new instances
-    let v = if v > *MAX_I64 {
-        let res = v.clone() % &*MAX_I64;
-        log::warn!(
-            "v is greater than i64::MAX, cropping to fit the i64 range, original: {}, result: {}",
-            &v,
-            &res
-        );
-        res
-    } else if v < *MIN_I64 {
-        let res = v.clone() % &*MIN_I64;
-        log::warn!(
-            "v is less than i64::MIN, cropping to fit the i64 range, original: {}, result: {}",
-            &v,
-            &res
-        );
-        res
-    } else {
-        v
-    };
-    i64::try_from(v).expect("v must be in the range of i64")
+impl std::fmt::Display for FitI64Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "value {} does not fit in i64 range (valid range: {}..={})",
+            self.value,
+            i64::MIN,
+            i64::MAX
+        )
+    }
+}
+
+impl std::error::Error for FitI64Error {}
+
+/// Convert `v` to `i64` if it lies in [`i64::MIN`, `i64::MAX`].
+pub fn fit_i64(v: BigInt) -> Result<i64, FitI64Error> {
+    match i64::try_from(&v) {
+        Ok(i) => Ok(i),
+        Err(_) => Err(FitI64Error { value: v }),
+    }
 }
 
 #[cfg(test)]
@@ -38,10 +33,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fit_i64() {
-        assert_eq!(fit_i64(BigInt::from(i64::MAX)), i64::MAX);
-        assert_eq!(fit_i64(BigInt::from(i64::MIN)), i64::MIN);
-        assert_eq!(fit_i64(BigInt::from(i64::MAX) + 1), 1);
-        assert_eq!(fit_i64(BigInt::from(i64::MIN) - 1), -1);
+    fn test_fit_i64_in_range() {
+        assert_eq!(fit_i64(BigInt::from(i64::MAX)).unwrap(), i64::MAX);
+        assert_eq!(fit_i64(BigInt::from(i64::MIN)).unwrap(), i64::MIN);
+        assert_eq!(fit_i64(BigInt::from(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_fit_i64_out_of_range() {
+        assert!(fit_i64(BigInt::from(i64::MAX) + 1).is_err());
+        assert!(fit_i64(BigInt::from(i64::MIN) - 1).is_err());
     }
 }

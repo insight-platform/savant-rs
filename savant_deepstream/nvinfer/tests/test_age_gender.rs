@@ -88,11 +88,11 @@ fn test_multi_output_layer_names() {
 
     let props = common::age_gender_properties();
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let callback = Box::new(|_| {});
-    let engine = NvInfer::new(config, callback).expect("create NvInfer");
+    let engine = NvInfer::new(config).expect("create NvInfer");
 
     let shared = make_age_gender_batch(1);
-    let output = engine.infer_sync(shared, None).expect("infer_sync");
+    engine.submit(shared, None).expect("submit");
+    let output = common::recv_inference(&engine);
 
     assert_eq!(output.num_elements(), 1);
     let elem = &output.elements()[0];
@@ -122,7 +122,7 @@ fn age_gender_engine_1080p() -> Option<NvInfer> {
     let props = common::age_gender_properties();
 
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create age_gender NvInfer 1080p");
+    let engine = NvInfer::new(config).expect("create age_gender NvInfer 1080p");
     common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 16);
     Some(engine)
 }
@@ -236,7 +236,8 @@ fn test_age_gender_e2e_real_images() {
     let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();
 
     // ---- Run inference ----------------------------------------------------
-    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
+    engine.submit(shared, Some(&rois)).expect("submit");
+    let output = common::recv_inference(&engine);
     assert_eq!(
         output.num_elements(),
         num_faces,
@@ -375,7 +376,8 @@ fn test_age_gender_placement_independence() {
             .collect();
         let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();
 
-        let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
+        engine.submit(shared, Some(&rois)).expect("submit");
+        let output = common::recv_inference(&engine);
 
         output
             .elements()

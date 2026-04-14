@@ -54,7 +54,7 @@ pub struct MiscTrackData {
     pub frames: Vec<MiscTrackFrame>,
 }
 
-/// Output of one `track` / `track_sync` call.
+/// Output of one successful [`crate::pipeline::NvTracker::submit`] → [`crate::pipeline::NvTracker::recv`] cycle.
 #[derive(Debug)]
 pub struct TrackerOutput {
     pub buffer: SharedBuffer,

@@ -12,6 +12,7 @@ from savant_rs.primitives import (
     AttributeValue,
     IdCollisionResolutionPolicy,
     VideoFrame,
+    VideoFrameCodec,
     VideoFrameContent,
     VideoFrameTransformation,
     VideoObject,
@@ -45,11 +46,11 @@ print(type(r) is dict)
 
 frame = VideoFrame(
     source_id="Test",
-    framerate="30/1",
+    fps=(30, 1),
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
-    codec="jpeg",
+    codec=VideoFrameCodec.Jpeg,
     keyframe=True,
     pts=0,
     dts=None,

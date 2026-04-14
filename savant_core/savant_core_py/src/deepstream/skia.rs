@@ -6,9 +6,7 @@ use pyo3::prelude::*;
 
 /// GPU-accelerated Skia rendering context backed by CUDA-GL interop.
 #[pyclass(name = "SkiaContext", module = "savant_rs.deepstream", unsendable)]
-pub struct PySkiaContext {
-    inner: deepstream_buffers::SkiaRenderer,
-}
+pub struct PySkiaContext(deepstream_buffers::SkiaRenderer);
 
 #[pymethods]
 impl PySkiaContext {
@@ -17,7 +15,7 @@ impl PySkiaContext {
     fn new(width: u32, height: u32, gpu_id: u32) -> PyResult<Self> {
         let inner = deepstream_buffers::SkiaRenderer::new(width, height, gpu_id)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok(Self { inner })
+        Ok(Self(inner))
     }
 
     // /// Create from an existing NvBufSurface buffer or ``SurfaceView``.
@@ -59,17 +57,17 @@ impl PySkiaContext {
 
     #[getter]
     fn fbo_id(&self) -> u32 {
-        self.inner.fbo_id()
+        self.0.fbo_id()
     }
 
     #[getter]
     fn width(&self) -> u32 {
-        self.inner.width()
+        self.0.width()
     }
 
     #[getter]
     fn height(&self) -> u32 {
-        self.inner.height()
+        self.0.height()
     }
 
     #[pyo3(signature = (buf, config=None))]
@@ -80,7 +78,7 @@ impl PySkiaContext {
     ) -> PyResult<()> {
         let rust_config = config.map(|c| c.to_rust());
         with_mut_buffer_ref(buf, |buf_ref| {
-            self.inner
+            self.0
                 .render_to_nvbuf(buf_ref, rust_config.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })

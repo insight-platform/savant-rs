@@ -13,6 +13,7 @@ from savant_rs.primitives import (
     Attribute,
     AttributeValue,
     VideoFrame,
+    VideoFrameCodec,
     VideoFrameContent,
     VideoFrameTranscodingMethod,
     VideoFrameTransformation,
@@ -34,12 +35,12 @@ if __name__ == "__main__":
 
     frame = VideoFrame(
         source_id="test",
-        framerate="30/1",
+        fps=(30, 1),
         width=1400,
         height=720,
         content=VideoFrameContent.internal(bytes("this is it", "utf-8")),
         transcoding_method=VideoFrameTranscodingMethod.Encoded,
-        codec="h264",
+        codec=VideoFrameCodec.H264,
         keyframe=True,
         time_base=(1, 1000000),
         pts=10000,

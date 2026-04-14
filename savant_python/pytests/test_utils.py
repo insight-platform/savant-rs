@@ -97,6 +97,15 @@ class TestUuidFunctions:
         assert isinstance(rel, str)
         assert rel != base
 
+    def test_relative_time_uuid_v7_invalid_string(self):
+        with pytest.raises(ValueError, match="invalid"):
+            relative_time_uuid_v7("not-a-uuid", 0)
+
+    def test_relative_time_uuid_v7_non_timestamp_uuid(self):
+        v4 = "550e8400-e29b-41d4-a716-446655440000"
+        with pytest.raises(ValueError, match="no embedded timestamp"):
+            relative_time_uuid_v7(v4, 0)
+
 
 # ── ByteBuffer ────────────────────────────────────────────────────────────
 

@@ -1,11 +1,8 @@
 use crate::{
-    configuration::{RtspSource, ServiceConfiguration},
+    configuration::{RtspSource, RtspSourceGroup},
     ntp_sync::NtpSync,
     syncer::Syncer,
-    utils::{
-        check_contains_au_delimiter, convert_to_annexb, is_keyframe, H264_AU_DELIMITER,
-        HEVC_AU_DELIMITER,
-    },
+    utils::{convert_to_annexb, ensure_au_delimiter, is_keyframe, wait_for_shutdown_flag},
 };
 use anyhow::{bail, Context};
 use futures::StreamExt;
@@ -20,11 +17,18 @@ use retina::{
 };
 use savant_core::primitives::{
     frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
-    rust::ExternalFrame,
+    rust::{ExternalFrame, VideoCodec},
 };
 use savant_services_common::job_writer::JobWriter;
 
-use std::{borrow::Cow, num::NonZeroU32, sync::Arc, time::SystemTime};
+use std::{
+    borrow::Cow,
+    num::NonZeroU32,
+    sync::atomic::{AtomicBool, Ordering},
+    sync::Arc,
+    time::Duration,
+    time::SystemTime,
+};
 use tokio::{select, sync::Mutex, task::JoinSet};
 use url::Url;
 
@@ -48,7 +52,8 @@ pub struct VideoStream {
 
 pub struct RtspServiceGroup {
     group_name: String,
-    conf: Arc<ServiceConfiguration>,
+    group_conf: RtspSourceGroup,
+    reconnect_interval: Duration,
     active_streams: HashMap<String, ()>,
     rtp_bases: HashMap<String, (i64, SystemTime)>,
     last_rtp_records: HashMap<String, i64>,
@@ -61,8 +66,8 @@ pub struct RtspServiceGroup {
 impl RtspServiceGroup {
     pub async fn init_source(
         source: &RtspSource,
-        conf: Arc<ServiceConfiguration>,
-        group_name: String,
+        group_conf: &RtspSourceGroup,
+        group_name: &str,
         session_group: Arc<SessionGroup>,
     ) -> anyhow::Result<VideoStream> {
         let mut stream_infos = HashMap::new();
@@ -195,7 +200,7 @@ impl RtspServiceGroup {
             .play(
                 retina::client::PlayOptions::default()
                     .enforce_timestamps_with_max_jump_secs(NonZeroU32::new(MAX_JUMP_SECS).unwrap())
-                    .initial_timestamp(if conf.rtsp_sources[&group_name].rtcp_sr_sync.is_some() {
+                    .initial_timestamp(if group_conf.rtcp_sr_sync.is_some() {
                         InitialTimestampPolicy::Require
                     } else {
                         InitialTimestampPolicy::Default
@@ -210,45 +215,52 @@ impl RtspServiceGroup {
         })
     }
 
-    pub async fn new(conf: Arc<ServiceConfiguration>, group_name: String) -> anyhow::Result<Self> {
-        // log streams
+    pub async fn new(
+        group_conf: RtspSourceGroup,
+        group_name: String,
+        eos_on_restart: bool,
+        reconnect_interval: Duration,
+    ) -> anyhow::Result<Self> {
+        let rtcp_once = group_conf
+            .rtcp_sr_sync
+            .as_ref()
+            .map(|c| c.rtcp_once.unwrap_or(false))
+            .unwrap_or(false);
+
+        let ntp_sync = if let Some(sync_conf) = &group_conf.rtcp_sr_sync {
+            info!(
+                "NTP sync enabled for group {}, window duration: {:?}, batch duration: {:?}",
+                group_name, sync_conf.group_window_duration, sync_conf.batch_duration
+            );
+            warn!("A stream in group {} will become active when the first RTCP Sender Report will be received.", group_name);
+            let skew_correction = sync_conf.network_skew_correction.unwrap_or(false);
+            if skew_correction {
+                warn!(
+                    "Network skew correction is enabled. It relies on the actual network latency to correct unprecise NTP timestamps."
+                );
+            }
+            Some(NtpSync::new(
+                group_name.clone(),
+                sync_conf.group_window_duration,
+                sync_conf.batch_duration,
+                sync_conf.network_skew_correction.unwrap_or(false),
+            ))
+        } else {
+            info!("NTP sync disabled for group {}", group_name);
+            None
+        };
+
         Ok(Self {
-            group_name: group_name.clone(),
-            conf: conf.clone(),
-            eos_on_restart: conf.eos_on_restart.unwrap_or(true),
-            rtcp_once: conf.rtsp_sources[&group_name]
-                .rtcp_sr_sync
-                .as_ref()
-                .map(|c| c.rtcp_once.unwrap_or(false))
-                .unwrap_or(false),
+            group_name,
+            group_conf,
+            reconnect_interval,
+            eos_on_restart,
+            rtcp_once,
+            ntp_sync,
             frame_buffer: Syncer::new(),
             rtp_bases: HashMap::new(),
             last_rtp_records: HashMap::new(),
             active_streams: HashMap::new(),
-            ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sr_sync {
-                info!(
-                    "NTP sync enabled for group {}, window duration: {:?}, batch duration: {:?}",
-                    group_name.clone(),
-                    window_duration.group_window_duration,
-                    window_duration.batch_duration
-                );
-                warn!("A stream in group {} will become active when the first RTCP Sender Report will be received.", group_name);
-                let skew_correction = window_duration.network_skew_correction.unwrap_or(false);
-                if skew_correction {
-                    warn!(
-                        "Network skew correction is enabled. It relies on the actual network latency to correct unprecise NTP timestamps."
-                    );
-                }
-                Some(NtpSync::new(
-                    group_name,
-                    window_duration.group_window_duration,
-                    window_duration.batch_duration,
-                    window_duration.network_skew_correction.unwrap_or(false),
-                ))
-            } else {
-                info!("NTP sync disabled for group {}", group_name);
-                None
-            },
         })
     }
 
@@ -256,65 +268,93 @@ impl RtspServiceGroup {
         &mut self,
         sink: Arc<Mutex<JobWriter>>,
         session_group: Arc<SessionGroup>,
+        shutdown: Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(MAX_CHANNEL_CAPACITY);
         let mut tasks = JoinSet::new();
-        for source in &self.conf.rtsp_sources[&self.group_name].sources {
+        for source in &self.group_conf.sources {
             let tx = tx.clone();
             let source_id = source.source_id.clone();
-            let conf = self.conf.clone();
+            let group_conf = self.group_conf.clone();
             let group_name = self.group_name.clone();
             let source = source.clone();
             let session_group = session_group.clone();
+            let reconnect_interval = self.reconnect_interval;
+            let shutdown_task = shutdown.clone();
 
             tasks.spawn(async move {
                 loop {
-                    let stream = Self::init_source(
-                        &source,
-                        conf.clone(),
-                        group_name.clone(),
-                        session_group.clone(),
-                    ).await;
+                    if shutdown_task.load(Ordering::SeqCst) {
+                        break;
+                    }
+
+                    let stream =
+                        Self::init_source(&source, &group_conf, &group_name, session_group.clone())
+                            .await;
 
                     if let Err(e) = stream {
-                        error!("Failed to initialize stream for source {}, error: {:?}", source_id, e);
-                        tokio::time::sleep(conf.reconnect_interval.unwrap()).await;
+                        error!(
+                            "Failed to initialize stream for source {}, error: {:?}",
+                            source_id, e
+                        );
+                        select! {
+                            _ = tokio::time::sleep(reconnect_interval) => {}
+                            _ = wait_for_shutdown_flag(&shutdown_task) => {
+                                break;
+                            }
+                        }
                         continue;
                     }
 
                     let mut stream = stream.unwrap();
                     let mut restarted = true;
-                    while let Some(res) = stream.session.next().await {
-                        match res {
-                            Ok(item) => {
-                            tx
-                                .send((restarted, item, stream.stream_info.clone()))
-                                .await
-                                .unwrap_or_else(|e| {
-                                    let message = format!(
-                                        "Failed to send item to channel for RTSP source {}, error: {:?}",
-                                        source_id, e
-                                    );
-                                    panic!("{}", message);
-                                });
-                                restarted = false;
-                            },
-                            Err(e) => {
-                                error!(
-                                    "Stream {} ended unexpectedly with error: {:?}",
-                                    source_id, e
-                                );
-                                break;
+                    loop {
+                        select! {
+                            biased;
+                            _ = wait_for_shutdown_flag(&shutdown_task) => {
+                                return;
+                            }
+                            res = stream.session.next() => {
+                                let Some(res) = res else {
+                                    error!("Stream {} ended unexpectedly", source_id);
+                                    break;
+                                };
+                                match res {
+                                    Ok(item) => {
+                                        if tx
+                                            .send((restarted, item, stream.stream_info.clone()))
+                                            .await
+                                            .is_err()
+                                        {
+                                            return;
+                                        }
+                                        restarted = false;
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Stream {} ended unexpectedly with error: {:?}",
+                                            source_id, e
+                                        );
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }
-                    error!("Stream {} ended unexpectedly", source_id);
                 }
             });
         }
 
         loop {
             select! {
+                _ = wait_for_shutdown_flag(&shutdown) => {
+                    info!(
+                        "Retina group '{}' shutdown requested; stopping play loop",
+                        self.group_name
+                    );
+                    tasks.abort_all();
+                    break;
+                }
                 err = tasks.join_next() => {
                     if let Some(Err(e)) = err {
                         error!("Task ended with error: {:?}", e);
@@ -388,10 +428,10 @@ impl RtspServiceGroup {
                     size,
                 );
 
-                let frame_rate = stream_info
+                let fps = stream_info
                     .frame_rate
-                    .map(|(num, den)| format!("{}/{}", den / num, 1))
-                    .unwrap_or("30/1".to_string());
+                    .map(|(num, den)| (i64::from(den / num), 1_i64))
+                    .unwrap_or((30, 1));
 
                 let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
                     Cow::Owned(convert_to_annexb(video_frame)?)
@@ -399,23 +439,11 @@ impl RtspServiceGroup {
                     Cow::Borrowed(video_frame.data())
                 };
 
-                let au_delimiter =
-                    check_contains_au_delimiter(&frame_data, source_id, rtp_time, stream_info);
-
-                let frame_data = if !au_delimiter {
-                    // add au delimiter
-                    let new_data = if matches!(stream_info.encoding.as_str(), "h264") {
-                        let mut new_data = H264_AU_DELIMITER.to_vec();
-                        new_data.extend_from_slice(&frame_data);
-                        Cow::Owned(new_data)
-                    } else if matches!(stream_info.encoding.as_str(), "hevc") {
-                        let mut new_data = HEVC_AU_DELIMITER.to_vec();
-                        new_data.extend_from_slice(&frame_data);
-                        Cow::Owned(new_data)
-                    } else {
-                        frame_data
-                    };
-                    new_data
+                let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
+                    Cow::Owned(ensure_au_delimiter(
+                        frame_data.into_owned(),
+                        &stream_info.encoding,
+                    ))
                 } else {
                     frame_data
                 };
@@ -462,12 +490,12 @@ impl RtspServiceGroup {
 
                 let frame = VideoFrameProxy::new(
                     source_id,
-                    &frame_rate,
+                    fps,
                     stream_info.pixel_dimensions.0 as i64,
                     stream_info.pixel_dimensions.1 as i64,
                     VideoFrameContent::External(ExternalFrame::new("zeromq", &None)),
                     VideoFrameTranscodingMethod::Copy,
-                    &Some(&stream_info.encoding),
+                    VideoCodec::from_name(stream_info.encoding.as_str()),
                     Some(kf),
                     TIME_BASE,
                     pts,
@@ -551,7 +579,7 @@ impl RtspServiceGroup {
                             return Ok(());
                         }
 
-                        s.add_rtp_mark(source_id, t.elapsed(), sr.ntp_timestamp(), t.clock_rate())
+                        s.add_rtp_mark(source_id, t.elapsed(), sr.ntp_timestamp().0, t.clock_rate())
                     }
                 }
             }
@@ -562,12 +590,21 @@ impl RtspServiceGroup {
 }
 
 pub async fn run_group(
-    conf: Arc<ServiceConfiguration>,
+    group_conf: &RtspSourceGroup,
     group_name: String,
     session_group: Arc<SessionGroup>,
     sink: Arc<Mutex<JobWriter>>,
+    eos_on_restart: bool,
+    reconnect_interval: Duration,
+    shutdown: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
-    let mut service_group = RtspServiceGroup::new(conf.clone(), group_name.clone()).await?;
-    service_group.play(sink, session_group).await?;
+    let mut service_group = RtspServiceGroup::new(
+        group_conf.clone(),
+        group_name,
+        eos_on_restart,
+        reconnect_interval,
+    )
+    .await?;
+    service_group.play(sink, session_group, shutdown).await?;
     Ok(())
 }

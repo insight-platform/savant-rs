@@ -1,5 +1,9 @@
 # NvBufSurface Rust KB — Agent Guidelines
 
+> **Disclaimer:** This KB is maintained manually and may lag behind the source
+> code. When in doubt, verify signatures and types against the actual Rust source
+> in `savant_deepstream/buffers/src/`.
+
 ## Purpose
 Self-contained reference for agents to write Rust code/tests for the
 `deepstream_buffers` crate without reading source files.

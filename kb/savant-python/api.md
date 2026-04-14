@@ -3,7 +3,13 @@
 ## Module: `savant_rs` (root)
 
 ```python
-from savant_rs import version, is_release_build, register_handler, unregister_handler
+from savant_rs import (
+    version,
+    is_release_build,
+    register_handler,
+    unregister_handler,
+    clear_all_handlers,
+)
 ```
 
 | Function | Signature | Description |
@@ -12,6 +18,7 @@ from savant_rs import version, is_release_build, register_handler, unregister_ha
 | `is_release_build()` | `-> bool` | Returns whether this is a release build |
 | `register_handler(name, handler)` | `-> None` | Register a named handler |
 | `unregister_handler(name)` | `-> None` | Remove a handler |
+| `clear_all_handlers()` | `-> None` | Remove all handlers (also registered on `atexit` at import) |
 
 ---
 
@@ -44,8 +51,18 @@ Core data types for video frames and objects.
 ## Module: `savant_rs.primitives.geometry`
 
 ```python
-from savant_rs.primitives.geometry import RBBox, BBox, Point, Segment, PolygonalArea, Intersection, IntersectionKind
+from savant_rs.primitives.geometry import (
+    RBBox, BBox, Point, Segment, PolygonalArea, Intersection, IntersectionKind,
+    solely_owned_areas, associate_bboxes,
+)
 ```
+
+### Free Functions
+
+| Function | Description |
+|----------|-------------|
+| `solely_owned_areas(polys, bboxes)` | Compute areas solely owned by each polygon for given bboxes |
+| `associate_bboxes(polys, bboxes)` | Associate bounding boxes with polygonal areas |
 
 ### BBox
 Axis-aligned bounding box (no rotation). See `geometry.pyi` for full API.
@@ -164,7 +181,6 @@ Also available as `savant_rs.pipeline2` (alias registered in `sys.modules`).
 from savant_rs.pipeline import (
     VideoPipeline, VideoPipelineConfiguration,
     VideoPipelineStagePayloadType, StageFunction,
-    handle_psf, load_stage_function_plugin,
     StageLatencyMeasurements, StageLatencyStat,
     StageProcessingStat, FrameProcessingStatRecord,
     FrameProcessingStatRecordType,
@@ -213,7 +229,7 @@ from savant_rs.zmq import (
     ReaderConfig, ReaderConfigBuilder, ReaderSocketType,
     BlockingWriter, NonBlockingWriter,
     BlockingReader, NonBlockingReader,
-    TopicPrefixSpec,
+    TopicPrefixSpec, WriteOperationResult,
 )
 ```
 
@@ -277,6 +293,35 @@ from savant_rs.gstreamer import Codec, Mp4Muxer
 
 ---
 
+## Module: `savant_rs.retina_rtsp` [feature=gst]
+
+Embeddable RTSP ingestion service with dynamic group management.
+
+```python
+from savant_rs.retina_rtsp import (
+    RetinaRtspService, RtspSourceGroup, RtspSource,
+    RtspBackend, RtspSourceOptions, SyncConfiguration,
+)
+```
+
+| Class | Description |
+|-------|-------------|
+| `RtspBackend` | Enum: `Retina`, `Gstreamer` |
+| `RtspSourceOptions` | SIG: `(username: str, password: str)` — RTSP auth credentials |
+| `RtspSource` | SIG: `(source_id, url, stream_position=None, options=None)` — single RTSP source |
+| `SyncConfiguration` | SIG: `(group_window_duration_ms, batch_duration_ms, network_skew_correction=False, rtcp_once=False)` |
+| `RtspSourceGroup` | SIG: `(sources: List[RtspSource], backend=RtspBackend.Retina, rtcp_sr_sync=None)` |
+| `RetinaRtspService` | SIG: `(config_path: str)` — loads JSON config, opens shared sink socket |
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `run_group(group, name)` | `-> None` | Block (GIL released) until stopped. Call from a thread |
+| `stop_group(name)` | `-> None` | Stop a group, block until finished |
+| `shutdown()` | `-> None` | Stop all groups |
+| `running_groups` | `-> List[str]` | Property: names of running groups |
+
+---
+
 ## Module: `savant_rs.deepstream` [feature=deepstream]
 
 ```python
@@ -333,3 +378,19 @@ from savant_rs.picasso import (
 ```
 
 See `kb/picasso-python/` for detailed API reference.
+
+---
+
+## Module: `savant_rs.nvtracker` [feature=deepstream]
+
+```python
+from savant_rs.nvtracker import (
+    NvTracker, NvTrackerConfig, TrackingIdResetMode, TrackState,
+    TrackedFrame, TrackedObject, MiscTrackFrame, MiscTrackData,
+    TrackerOutput, NvTrackerBatchingOperatorConfig,
+    TrackerBatchFormationResult, TrackerOperatorFrameOutput,
+    SealedDeliveries, TrackerOperatorOutput, NvTrackerBatchingOperator,
+)
+```
+
+See `kb/nvtracker-python/` for detailed API reference.

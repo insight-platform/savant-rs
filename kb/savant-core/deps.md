@@ -80,7 +80,6 @@
 | `lru` | LRU cache (eval_cache, SeqStore) |
 | `moka` | Concurrent cache |
 | `nix` | Unix signals |
-| `libloading` | Dynamic library loading (pipeline stage function plugins) |
 | `savant_protobuf` | Generated protobuf types (workspace sibling) |
 | `savant_etcd` | etcd client wrapper (workspace sibling) |
 | `etcd-client` | etcd gRPC client |

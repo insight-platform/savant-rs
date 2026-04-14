@@ -45,12 +45,12 @@ fn source_id(idx: usize) -> String {
 fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     let f = VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         WIDTH as i64,
         HEIGHT as i64,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,
@@ -132,7 +132,7 @@ fn main() {
         idle_timeout_secs: 300,
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(general, callbacks);
+    let engine = PicassoEngine::new(general, callbacks);
 
     let source_ids: Vec<String> = (0..num_src).map(source_id).collect();
     for sid in &source_ids {

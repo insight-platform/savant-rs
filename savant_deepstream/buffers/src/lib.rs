@@ -34,6 +34,7 @@ pub mod transform;
 pub mod buffers;
 pub mod pipeline;
 pub mod shared_buffer;
+pub mod surface_readers;
 pub mod surface_view;
 
 pub use cuda_stream::CudaStream;
@@ -50,6 +51,7 @@ pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
 
+pub use surface_readers::{read_slot_dimensions, read_surface_header};
 pub use transform::extract_nvbufsurface;
 pub use transform::{
     buffer_gpu_id, ComputeMode, DstPadding, Interpolation, Padding, Rect, TransformConfig,
@@ -65,8 +67,6 @@ pub use buffers::*;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::debug;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 /// Error type for NvBufSurface operations.
 #[derive(Debug, thiserror::Error)]
@@ -85,6 +85,9 @@ pub enum NvBufSurfaceError {
 
     #[error("Failed to acquire buffer from pool: {0}")]
     BufferAcquisitionFailed(String),
+
+    #[error("Buffer pool exhausted (all buffers are in use)")]
+    PoolExhausted,
 
     #[error("Failed to copy buffer contents: {0}")]
     BufferCopyFailed(String),
@@ -228,18 +231,14 @@ pub(crate) unsafe fn set_structure_uint(
 ) {
     use glib::prelude::ToValue;
     use glib::translate::ToGlibPtr;
-    let c_name = std::ffi::CString::new(field_name).unwrap();
+    let c_name = std::ffi::CString::new(field_name).expect("field_name must not contain NUL bytes");
     let gvalue = value.to_value();
     gst::ffi::gst_structure_set_value(structure, c_name.as_ptr(), gvalue.to_glib_none().0);
 }
 
 // ─── PTS-keyed meta bridge ───────────────────────────────────────────────────
 
-/// Maximum number of in-flight PTS→meta entries before eviction kicks in.
-/// If the map exceeds this size, the oldest half of entries (by PTS) are
-/// removed.  This guards against slow memory leaks when an encoder drops
-/// buffers without producing matching output.
-const MAX_BRIDGE_MAP_SIZE: usize = 256;
+pub use savant_gstreamer::pipeline::bridge_meta::MAX_ENTRIES_PER_PTS;
 
 /// Install pad probes on `element` to propagate [`SavantIdMeta`] across
 /// elements that create new output buffers (e.g. hardware video encoders).
@@ -250,14 +249,15 @@ const MAX_BRIDGE_MAP_SIZE: usize = 256;
 /// side-channel storage:
 ///
 /// 1. A **sink-pad** probe intercepts each incoming buffer, reads any
-///    `SavantIdMeta`, and stores the mapping `PTS → Vec<SavantIdMetaKind>`
-///    in a shared `HashMap`.
-/// 2. A **src-pad** probe intercepts each outgoing buffer, looks up the PTS
-///    in the map, and re-attaches the `SavantIdMeta`.
+///    `SavantIdMeta`, and stores the mapping `PTS → Vec<Vec<SavantIdMetaKind>>`
+///    in a shared LRU cache.  Multiple buffers with the same PTS (e.g. in
+///    multi-stream scenarios) are appended, not overwritten.
+/// 2. A **src-pad** probe intercepts each outgoing buffer, pops the first
+///    entry for that PTS from the cache, and re-attaches the `SavantIdMeta`.
 ///
 /// PTS is guaranteed to be preserved by all GStreamer encoder elements.
 /// B-frame reordering is handled naturally because lookups are by value,
-/// not by order.
+/// not by order. The shared LRU cache safely evicts old entries when needed.
 ///
 /// # Errors
 ///
@@ -279,56 +279,15 @@ const MAX_BRIDGE_MAP_SIZE: usize = 256;
 /// // sink pad will automatically appear on the encoder's src pad output.
 /// ```
 pub fn bridge_savant_id_meta(element: &gst::Element) -> Result<(), NvBufSurfaceError> {
-    let map: Arc<Mutex<HashMap<u64, Vec<SavantIdMetaKind>>>> = Arc::new(Mutex::new(HashMap::new()));
-
-    // ── Sink pad probe: extract meta, store by PTS ──────────────────────
-    let sink_map = map.clone();
     let sink_pad = element
         .static_pad("sink")
         .ok_or_else(|| NvBufSurfaceError::MissingPad("sink".to_string()))?;
-
-    sink_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
-        if let Some(buffer) = info.buffer() {
-            if let Some(meta) = buffer.meta::<SavantIdMeta>() {
-                if let Some(pts) = buffer.pts() {
-                    let ids = meta.ids().to_vec();
-                    let mut map = sink_map.lock().unwrap();
-                    map.insert(pts.nseconds(), ids);
-                    if map.len() > MAX_BRIDGE_MAP_SIZE {
-                        log::warn!(
-                            "bridge_savant_id_meta: PTS map exceeded {} entries, evicting stale entries",
-                            MAX_BRIDGE_MAP_SIZE,
-                        );
-                        let mut keys: Vec<u64> = map.keys().copied().collect();
-                        keys.sort_unstable();
-                        let cutoff = keys[keys.len() / 2];
-                        map.retain(|&pts, _| pts >= cutoff);
-                    }
-                }
-            }
-        }
-        gst::PadProbeReturn::Ok
-    });
-
-    // ── Src pad probe: look up PTS, re-attach meta ──────────────────────
-    let src_map = map;
     let src_pad = element
         .static_pad("src")
         .ok_or_else(|| NvBufSurfaceError::MissingPad("src".to_string()))?;
 
-    src_pad.add_probe(gst::PadProbeType::BUFFER, move |_pad, info| {
-        if let Some(buffer) = info.buffer_mut() {
-            if let Some(pts) = buffer.pts() {
-                if let Some(ids) = src_map.lock().unwrap().remove(&pts.nseconds()) {
-                    let buf_ref = buffer.make_mut();
-                    SavantIdMeta::replace(buf_ref, ids);
-                }
-            }
-        }
-        gst::PadProbeReturn::Ok
-    });
-
-    Ok(())
+    savant_gstreamer::pipeline::bridge_meta::bridge_savant_id_meta_across(&sink_pad, &src_pad)
+        .map_err(|e| NvBufSurfaceError::InvalidInput(e.to_string()))
 }
 
 #[cfg(test)]

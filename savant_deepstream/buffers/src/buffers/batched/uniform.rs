@@ -13,6 +13,12 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::debug;
 
+/// Params that make `gst_buffer_pool_acquire_buffer` return immediately
+/// with `GST_FLOW_EOS` when no buffers are available instead of blocking.
+fn dontwait_params() -> gst::BufferPoolAcquireParams {
+    gst::BufferPoolAcquireParams::with_flags(gst::BufferPoolAcquireFlags::DONTWAIT)
+}
+
 /// Generates GStreamer buffers with **batched** NvBufSurface memory.
 ///
 /// Produces buffers whose `surfaceList` is an array of `max_batch_size`
@@ -285,24 +291,32 @@ impl UniformBatchGenerator {
         })
     }
 
-    /// Acquire a [`SurfaceBatch`] from the pool, ready for slot filling.
+    /// Acquire a raw GstBuffer from the pool.
     ///
-    /// The returned wrapper owns the underlying GstBuffer and stores the
-    /// given [`TransformConfig`] and `ids` for use at
-    /// [`finalize`](SurfaceBatch::finalize) time.
-    ///
-    /// The NvBufSurface in the returned buffer has `batchSize=max_batch_size`
-    /// and `numFilled=0`.
-    pub fn acquire_batch(
+    /// When `blocking` is `true` (used by [`acquire_batch`](Self::acquire_batch)
+    /// and [`acquire`](Self::acquire)), the call waits until a buffer becomes
+    /// available.  When `false` (used by the `try_*` variants), it returns
+    /// [`NvBufSurfaceError::PoolExhausted`] immediately if no buffer is free.
+    fn acquire_raw(&self, blocking: bool) -> Result<gst::Buffer, NvBufSurfaceError> {
+        let params = dontwait_params();
+        let acquire_params = if blocking { None } else { Some(&params) };
+
+        self.pool.acquire_buffer(acquire_params).map_err(|e| {
+            if !blocking && e == gst::FlowError::Eos {
+                NvBufSurfaceError::PoolExhausted
+            } else {
+                NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e))
+            }
+        })
+    }
+
+    /// Wrap a raw buffer into a [`SurfaceBatch`], resetting `numFilled` to 0.
+    fn wrap_batch(
         &self,
+        mut buffer: gst::Buffer,
         config: TransformConfig,
         ids: Vec<SavantIdMetaKind>,
     ) -> Result<SurfaceBatch, NvBufSurfaceError> {
-        let mut buffer = self
-            .pool
-            .acquire_buffer(None)
-            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
-
         {
             let buf_ref = buffer.make_mut();
             let mut map = buf_ref.map_writable().map_err(|e| {
@@ -327,20 +341,12 @@ impl UniformBatchGenerator {
         })
     }
 
-    /// Internal: acquire a buffer with `numFilled = batchSize`.
-    ///
-    /// Used by [`BufferGenerator`](crate::BufferGenerator) (which wraps this
-    /// type with `max_batch_size = 1`). External callers should use
-    /// [`acquire_batch`](Self::acquire_batch) instead.
-    pub(crate) fn acquire(
+    /// Wrap a raw buffer into a [`SharedBuffer`], setting `numFilled = batchSize`.
+    fn wrap_single(
         &self,
+        mut buffer: gst::Buffer,
         id: Option<u128>,
     ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
-        let mut buffer = self
-            .pool
-            .acquire_buffer(None)
-            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
-
         {
             let buf_ref = buffer.make_mut();
             let mut map = buf_ref.map_writable().map_err(|e| {
@@ -357,6 +363,67 @@ impl UniformBatchGenerator {
         }
 
         Ok(shared)
+    }
+
+    /// Acquire a [`SurfaceBatch`] from the pool, ready for slot filling.
+    ///
+    /// The returned wrapper owns the underlying GstBuffer and stores the
+    /// given [`TransformConfig`] and `ids` for use at
+    /// [`finalize`](SurfaceBatch::finalize) time.
+    ///
+    /// The NvBufSurface in the returned buffer has `batchSize=max_batch_size`
+    /// and `numFilled=0`.
+    ///
+    /// **Blocks** until a buffer becomes available when the pool is exhausted.
+    /// See [`try_acquire_batch`](Self::try_acquire_batch) for a non-blocking
+    /// alternative.
+    pub fn acquire_batch(
+        &self,
+        config: TransformConfig,
+        ids: Vec<SavantIdMetaKind>,
+    ) -> Result<SurfaceBatch, NvBufSurfaceError> {
+        let buffer = self.acquire_raw(true)?;
+        self.wrap_batch(buffer, config, ids)
+    }
+
+    /// Non-blocking variant of [`acquire_batch`](Self::acquire_batch).
+    ///
+    /// Returns [`NvBufSurfaceError::PoolExhausted`] immediately when all pool
+    /// buffers are currently in use, instead of blocking the caller.
+    pub fn try_acquire_batch(
+        &self,
+        config: TransformConfig,
+        ids: Vec<SavantIdMetaKind>,
+    ) -> Result<SurfaceBatch, NvBufSurfaceError> {
+        let buffer = self.acquire_raw(false)?;
+        self.wrap_batch(buffer, config, ids)
+    }
+
+    /// Internal: acquire a buffer with `numFilled = batchSize`.
+    ///
+    /// Used by [`BufferGenerator`](crate::BufferGenerator) (which wraps this
+    /// type with `max_batch_size = 1`). External callers should use
+    /// [`acquire_batch`](Self::acquire_batch) instead.
+    ///
+    /// **Blocks** until a buffer becomes available.
+    pub(crate) fn acquire(
+        &self,
+        id: Option<u128>,
+    ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
+        let buffer = self.acquire_raw(true)?;
+        self.wrap_single(buffer, id)
+    }
+
+    /// Non-blocking variant of [`acquire`](Self::acquire).
+    ///
+    /// Returns [`NvBufSurfaceError::PoolExhausted`] immediately when all pool
+    /// buffers are currently in use.
+    pub(crate) fn try_acquire(
+        &self,
+        id: Option<u128>,
+    ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
+        let buffer = self.acquire_raw(false)?;
+        self.wrap_single(buffer, id)
     }
 
     /// Get the maximum batch size.

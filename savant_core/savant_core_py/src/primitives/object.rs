@@ -5,7 +5,7 @@ use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
 use crate::utils::bigint::fit_i64;
 use crate::{attach, detach};
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
@@ -52,7 +52,11 @@ impl VideoObject {
         confidence: Option<f32>,
         track_id: Option<num_bigint::BigInt>,
         track_box: Option<RBBox>,
-    ) -> Self {
+    ) -> PyResult<Self> {
+        let track_id = track_id
+            .map(fit_i64)
+            .transpose()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let object = rust::VideoObjectBuilder::default()
             .id(id)
             .namespace(namespace.to_string())
@@ -60,12 +64,12 @@ impl VideoObject {
             .detection_box(detection_box.0)
             .attributes(attributes.into_iter().map(|a| a.0).collect())
             .confidence(confidence)
-            .track_id(track_id.map(fit_i64))
+            .track_id(track_id)
             .track_box(track_box.map(|b| b.0))
             .build()
-            .unwrap();
+            .map_err(|e| PyValueError::new_err(format!("Failed to build VideoObject: {e}")))?;
 
-        Self(object)
+        Ok(Self(object))
     }
 
     #[pyo3(name = "to_protobuf")]
@@ -519,8 +523,13 @@ impl BorrowedVideoObject {
     }
 
     #[setter]
-    pub fn set_track_id(&mut self, track_id: Option<num_bigint::BigInt>) {
-        self.0.set_track_id(track_id.map(fit_i64));
+    pub fn set_track_id(&mut self, track_id: Option<num_bigint::BigInt>) -> PyResult<()> {
+        let tid = track_id
+            .map(fit_i64)
+            .transpose()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        self.0.set_track_id(tid);
+        Ok(())
     }
 
     #[getter]
@@ -533,8 +542,12 @@ impl BorrowedVideoObject {
         self.0.set_track_box(bbox.0);
     }
 
-    pub fn set_track_info(&mut self, track_id: num_bigint::BigInt, bbox: RBBox) {
-        self.0.set_track_info(fit_i64(track_id), bbox.0);
+    pub fn set_track_info(&mut self, track_id: num_bigint::BigInt, bbox: RBBox) -> PyResult<()> {
+        self.0.set_track_info(
+            fit_i64(track_id).map_err(|e| PyValueError::new_err(e.to_string()))?,
+            bbox.0,
+        );
+        Ok(())
     }
 
     pub fn clear_track_info(&mut self) {

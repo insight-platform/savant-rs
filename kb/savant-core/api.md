@@ -72,12 +72,12 @@ Identity:
 ### `VideoFrameProxy` (Arc<RwLock<Box<VideoFrame>>>)
 
 Construction:
-- `new(source_id, framerate, width, height, content, transcoding_method, codec, keyframe, time_base: (i64, i64), pts, dts, duration) -> Result<Self>`
+- `new(source_id, fps: (i64, i64), width, height, content, transcoding_method, codec, keyframe, time_base: (i64, i64), pts, dts, duration) -> Result<Self>`
 - `smart_copy() -> Self` — deep independent copy
 
 Properties (get/set):
 - `source_id`, `uuid`, `pts`, `dts`, `duration`, `width`, `height`
-- `framerate`, `codec`, `keyframe`, `time_base: (i32, i32)`
+- `fps: (i64, i64)`, `codec`, `keyframe`, `time_base: (i64, i64)`
 - `transcoding_method`, `content`, `creation_timestamp_ns`
 
 Transformations:
@@ -151,6 +151,9 @@ Operations: `transform_geometry(ops)`, `detached_copy() -> VideoObject`
 ### `IdCollisionResolutionPolicy`
 `GenerateNewId | Overwrite | Error`
 
+### `VideoObjectTree`
+Type alias: `ObjectTree<VideoObject>`. A recursive tree where each node holds a `VideoObject` and a `Vec<VideoObjectTree>` of children. Used by `export_complete_object_trees()` / `import_object_trees()`.
+
 ---
 
 ## `primitives::attribute` — Attributes
@@ -167,6 +170,14 @@ Intersection | TemporaryValue(AnyObject)`
 
 ### `AttributeSet`
 Ordered collection of `Attribute` with O(1) lookup by `(namespace, name)`.
+
+### `WithAttributes` trait
+Provides uniform access to the attributes collection on any type that carries attributes (e.g. `VideoObject`, `VideoFrame`). Requires `Send`.
+
+Methods:
+- `with_attributes_ref<F, R>(&self, f: F) -> R` where `F: FnOnce(&Vec<Attribute>) -> R` — read-only access
+- `with_attributes_mut<F, R>(&mut self, f: F) -> R` where `F: FnOnce(&mut Vec<Attribute>) -> R` — mutable access
+- `take_attributes(&mut self) -> Vec<Attribute>` — drain and return all attributes (default impl swaps with empty `Vec`)
 
 ---
 
@@ -287,9 +298,6 @@ Additional constructors:
 `Frame(VideoFrameProxy, Vec<VideoFrameUpdate>, Context, Option<String>, SystemTime)` |
 `Batch(VideoFrameBatch, Vec<(i64, VideoFrameUpdate)>, HashMap<i64, Context>, Option<String>, Vec<SystemTime>)`
 
-### `PluginParams`
-`{ params: HashMap<String, AttributeValue> }`
-
 ### `PipelineStageFunction` trait
 `set_pipeline`, `get_pipeline`, `call(id, stage, order: PipelineStageFunctionOrder, payload: &mut PipelinePayload)`
 
@@ -390,3 +398,135 @@ Re-exported from `nonblocking_writer`.
 ### Type aliases
 - `SharedCounterFamily = Arc<Mutex<Counter>>`
 - `SharedGaugeFamily = Arc<Mutex<Gauge>>`
+
+---
+
+## `converters` — Detection Model Output Converters
+
+Postprocessing utilities for converting raw inference tensor output into structured detection results.
+
+### `NmsKind`
+How NMS is applied after confidence filtering.
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `None` | `top_k: usize` | No suppression — keep top-k detections by confidence |
+| `ClassAgnostic` | `iou_threshold: f32, top_k: usize` | All classes compete — a high-confidence box can suppress a nearby lower-confidence box of any class |
+| `ClassAware` | `iou_threshold: f32, top_k: usize` | NMS runs independently per class — boxes of different classes never suppress each other |
+
+### `YoloFormat`
+YOLO output tensor layout.
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `V8` | `num_classes: usize` | Single tensor `(num_classes+4) x N` — YOLOv8/v11. Rows: `[xc, yc, w, h, cls_0_score, ..., cls_K_score]`. Requires logical transpose. |
+| `V5` | `num_classes: usize` | Single tensor `N x (num_classes+5)` — YOLOv5/v7. Columns: `[xc, yc, w, h, obj_conf, cls_0, ..., cls_K]`. Confidence = `obj_conf * max(cls_scores)`. |
+| `V4` | `model_width: f32, model_height: f32` | Two tensors — YOLOv4. Tensor 0: boxes `N x 4` (LTRB in 0..1). Tensor 1: scores `N x K`. |
+| `V3Raw` | — | Three tensors. Tensor 0: boxes `N x 4` (xc, yc, w, h). Tensor 1: scores `N x K`. Tensor 2: class_ids `N`. |
+| `V4PostNms` | `model_width: f32, model_height: f32` | Four post-NMS tensors. Tensor 0: `[1]` num_dets. Tensor 1: `N x 4` boxes (LTRB 0..1). Tensor 2: `N` scores. Tensor 3: `N` class IDs. |
+
+### `ConverterError`
+
+| Variant | Fields | Description |
+|---------|--------|-------------|
+| `UnexpectedTensorCount` | `expected: &'static str, got: usize` | Wrong number of input tensors for the configured format |
+| `ShapeMismatch` | `tensor_index: usize, expected: String, got: Vec<usize>` | Tensor shape does not match expected layout |
+| `EmptyTensor` | — | Input tensor has zero elements |
+| `NmsInputError` | `String` | NMS input validation failed (length mismatch between boxes/confidences/class_ids) |
+| `InvalidClassIndex` | `tensor_index, detection_index, raw: f32, num_score_columns: Option<usize>` | Class id from the model is not usable |
+| `InvalidDetectionCount` | `raw: f32` | Scalar detection count tensor is not a finite non-negative value |
+
+Implements `Display` and `std::error::Error`.
+
+### Key Functions
+
+- `nms_class_agnostic(boxes: &[[f32; 4]], confidences: &[f32], iou_threshold: f32, top_k: usize) -> Result<Vec<usize>>` — greedy NMS over all classes; boxes in `[xc, yc, w, h]` form
+- `nms_class_aware(boxes: &[[f32; 4]], confidences: &[f32], class_ids: &[usize], iou_threshold: f32, top_k: usize) -> Result<Vec<usize>>` — greedy NMS applied independently per class, results merged and truncated to `top_k`
+- `iou_xcycwh(a: &[f32; 4], b: &[f32; 4]) -> f32` — IoU for two boxes given as `[xc, yc, w, h]`
+
+### `YoloDetectionConverter`
+
+Decodes raw YOLO inference tensors into per-class bounding boxes.
+
+Fields:
+- `format: YoloFormat` — tensor layout
+- `confidence_threshold: f32` — minimum confidence when no per-class override applies
+- `per_class_conf_threshold: HashMap<usize, f32>` — per-class confidence overrides
+- `class_filter: Option<HashSet<usize>>` — when set, only keep detections whose class id is in this set
+- `nms: NmsKind` — NMS strategy applied after filtering
+
+Methods:
+- `new(format, confidence_threshold, per_class_conf_threshold, class_filter, nms) -> Self`
+- `decode(&self, tensors: &[(&[f32], &[usize])]) -> Result<HashMap<usize, Vec<(f32, RBBox)>>, ConverterError>` — decode tensors into a map from class_id to `(confidence, RBBox)` pairs
+
+---
+
+## `primitives::gstreamer_frame_time` — GStreamer Clock Conversion
+
+Convert `VideoFrameProxy` timestamps to GStreamer clock scale (unsigned nanoseconds).
+
+### Constants
+
+- `GST_TIME_BASE: (i64, i64) = (1, 1_000_000_000)` — GStreamer clock: one nanosecond per unit
+
+### `FrameClockNs`
+Timestamps in GStreamer nanosecond clock scale for one compressed packet.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dts_ns` | `Option<u64>` | Decode timestamp in nanoseconds |
+| `duration_ns` | `Option<u64>` | Duration in nanoseconds |
+| `submission_order_ns` | `u64` | Ordering key: DTS when set, else PTS. Must be strictly increasing for ordered hardware decode pipelines. |
+
+### Functions
+
+- `time_base_to_ns(time_base: (i64, i64), value: i64) -> Option<u64>` — map `value` in `time_base = num/den` seconds per unit to nanoseconds. Returns `None` when `den == 0` or `num == 0`. Negative results clamp to `0`; overflow clamps to `u64::MAX`.
+- `frame_clock_ns(frame: &VideoFrameProxy) -> FrameClockNs` — build GStreamer-scale timestamps from a frame proxy
+- `normalize_frame_to_gst_ns(frame: &mut VideoFrameProxy)` — rewrite `pts`/`dts`/`duration`/`time_base` to GStreamer nanosecond scale. No-op if already `GST_TIME_BASE`. Logs warning and leaves frame unchanged on invalid time_base.
+
+---
+
+## `primitives::video_codec` — Video Codec Identifier
+
+### `VideoCodec`
+Encoded or raw pixel format carried on a `VideoFrame`.
+
+Derives: `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`, `Serialize`, `Deserialize`
+
+| Variant | Canonical name | Notes |
+|---------|---------------|-------|
+| `H264` | `h264` | Also matches `avc` in `from_name` |
+| `Hevc` | `hevc` | Also matches `h265` in `from_name` |
+| `Jpeg` | `jpeg` | Hardware JPEG (default in manifests) |
+| `SwJpeg` | `swjpeg` | Software JPEG decode (not `sw_jpeg`) |
+| `Av1` | `av1` | |
+| `Png` | `png` | |
+| `Vp8` | `vp8` | |
+| `Vp9` | `vp9` | |
+| `RawRgba` | `raw_rgba` | |
+| `RawRgb` | `raw_rgb` | |
+| `RawNv12` | `raw_nv12` | |
+
+Methods:
+- `from_name(name: &str) -> Option<Self>` — case-insensitive parse; accepts canonical names and aliases (`avc`, `h265`)
+- `name(self) -> &'static str` — canonical wire/JSON name
+- `Display` impl — delegates to `name()`
+- `FromStr` impl — delegates to `from_name()`; error type is `String`
+
+---
+
+## `utils::release_seal` — One-Shot Release Primitive
+
+### `ReleaseSeal`
+Condvar-gated flag flipped once by `release()`. Thread-safe; share via `Arc`.
+
+Backed by `parking_lot::Condvar` + `parking_lot::Mutex<bool>`.
+
+Methods:
+- `new() -> Self` — creates a seal in the non-released state
+- `release(&self)` — marks the seal as released and wakes all waiters
+- `wait(&self)` — blocks until `release()` has been called
+- `wait_timeout(&self, timeout: Duration) -> bool` — blocks until released or timeout elapses; returns `true` if released, `false` on timeout
+- `is_released(&self) -> bool` — non-blocking check
+
+Implements `Default` (delegates to `new()`).

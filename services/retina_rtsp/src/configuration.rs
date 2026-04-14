@@ -29,10 +29,20 @@ pub struct SyncConfiguration {
     pub rtcp_once: Option<bool>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RtspBackend {
+    #[default]
+    Retina,
+    Gstreamer,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RtspSourceGroup {
     pub sources: Vec<RtspSource>,
     pub rtcp_sr_sync: Option<SyncConfiguration>,
+    #[serde(default)]
+    pub backend: RtspBackend,
 }
 
 #[config]

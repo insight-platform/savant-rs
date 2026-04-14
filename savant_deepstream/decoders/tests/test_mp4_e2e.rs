@@ -2,9 +2,9 @@ mod common;
 
 use common::*;
 use deepstream_decoders::prelude::*;
+use deepstream_decoders::NvDecoderExt;
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
 use serial_test::serial;
-use std::sync::mpsc;
 use std::time::Duration;
 
 fn run_mp4_e2e(entry: &AssetEntry) {
@@ -17,15 +17,10 @@ fn run_mp4_e2e(entry: &AssetEntry) {
     let mut demuxer = Mp4Demuxer::new_parsed(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
 
-    let (tx, rx) = mpsc::channel();
-    let mut decoder = NvDecoder::new(
-        0,
-        &config,
+    let decoder = NvDecoder::new(
+        test_decoder_config(0, config),
         make_rgba_pool(entry.width, entry.height),
         identity_transform_config(),
-        move |ev| {
-            let _ = tx.send(ev);
-        },
     )
     .unwrap_or_else(|e| panic!("decoder create failed for {}: {e}", entry.file));
 
@@ -51,7 +46,7 @@ fn run_mp4_e2e(entry: &AssetEntry) {
         for pkt in &demuxed_packets {
             bytestream.extend_from_slice(&pkt.data);
         }
-        let nalus = split_annexb_nalus(&bytestream);
+        let nalus = split_annexb_nalus(&bytestream, &entry.codec);
         let access_units = group_nalus_to_access_units(&entry.codec, nalus);
         assert!(
             access_units.len() >= entry.num_frames as usize,
@@ -107,8 +102,8 @@ fn run_mp4_e2e(entry: &AssetEntry) {
 
     let mut decoded_count = 0usize;
     loop {
-        match rx.recv_timeout(Duration::from_secs(30)) {
-            Ok(DecoderEvent::Frame(f)) => {
+        match decoder.recv_timeout(Duration::from_secs(30)) {
+            Ok(Some(NvDecoderOutput::Frame(f))) => {
                 assert_eq!(
                     f.format,
                     VideoFormat::RGBA,
@@ -117,12 +112,11 @@ fn run_mp4_e2e(entry: &AssetEntry) {
                 );
                 decoded_count += 1;
             }
-            Ok(DecoderEvent::Eos) => break,
-            Ok(DecoderEvent::Error(e)) => panic!("decoder error for {}: {e}", entry.file),
-            Ok(DecoderEvent::PipelineRestarted { reason, .. }) => {
-                panic!("unexpected restart for {}: {reason}", entry.file)
-            }
-            Err(_) => panic!("timeout waiting for decoder events for {}", entry.file),
+            Ok(Some(NvDecoderOutput::Eos)) => break,
+            Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error for {}: {e}", entry.file),
+            Ok(Some(NvDecoderOutput::Event(_) | NvDecoderOutput::SourceEos { .. })) => {}
+            Ok(None) => panic!("timeout waiting for decoder events for {}", entry.file),
+            Err(e) => panic!("recv error for {}: {e}", entry.file),
         }
     }
 
@@ -159,7 +153,6 @@ fn test_mp4_e2e_all_assets() {
 
     let mut tested = 0;
     let mut skipped_platform = 0;
-    let mut skipped_hw = 0;
 
     for entry in &manifest.assets {
         if entry.container.as_deref() != Some("mp4") {
@@ -171,36 +164,18 @@ fn test_mp4_e2e_all_assets() {
             continue;
         }
 
-        let needs_nvdec = matches!(
-            entry.codec.as_str(),
-            "h264" | "hevc" | "vp8" | "vp9" | "av1"
-        );
-        if needs_nvdec && !has_nvdec() {
-            eprintln!("  SKIP (no nvv4l2decoder) {}", entry.file);
-            skipped_hw += 1;
-            continue;
-        }
-
-        if entry.codec == "jpeg" && !has_nvjpegdec() {
-            eprintln!("  SKIP (no nvjpegdec) {}", entry.file);
-            skipped_hw += 1;
-            continue;
-        }
-
         run_mp4_e2e(entry);
         tested += 1;
     }
 
-    eprintln!(
-        "\nSummary: tested={tested}, skipped_platform={skipped_platform}, skipped_hw={skipped_hw}"
-    );
+    eprintln!("\nSummary: tested={tested}, skipped_platform={skipped_platform}");
     let mp4_count = manifest
         .assets
         .iter()
         .filter(|e| e.container.as_deref() == Some("mp4"))
         .count();
     assert!(
-        tested > 0 || skipped_platform + skipped_hw == mp4_count,
+        tested > 0 || skipped_platform == mp4_count,
         "No MP4 assets were tested and not all were expected to be skipped"
     );
 }

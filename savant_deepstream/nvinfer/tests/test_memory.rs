@@ -74,7 +74,7 @@ fn identity_engine() -> Option<NvInfer> {
     }
     let props = common::identity_properties();
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer");
+    let engine = NvInfer::new(config).expect("create NvInfer");
     common::promote_built_engine("identity.onnx", 16);
     Some(engine)
 }
@@ -85,7 +85,7 @@ fn identity_engine() -> Option<NvInfer> {
 #[serial]
 fn stress_no_gpu_leak() {
     common::init();
-    let mut engine = match identity_engine() {
+    let engine = match identity_engine() {
         Some(e) => e,
         None => return,
     };
@@ -93,7 +93,8 @@ fn stress_no_gpu_leak() {
     // Warm up: a few iterations to let TensorRT/CUDA settle allocations.
     for _ in 0..5 {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let _ = engine.infer_sync(shared, None);
+        engine.submit(shared, None).expect("warmup submit");
+        let _ = common::recv_inference(&engine);
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -105,8 +106,8 @@ fn stress_no_gpu_leak() {
 
     for _ in 0..STRESS_ITERATIONS {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let output = engine.infer_sync(shared, None).expect("infer_sync");
-        // Consume output to prove tensors are readable, then drop.
+        engine.submit(shared, None).expect("submit");
+        let output = common::recv_inference(&engine);
         assert!(!output.elements().is_empty());
         drop(output);
     }
@@ -161,7 +162,7 @@ fn stress_no_gpu_leak() {
 #[serial]
 fn stress_no_leak_with_rois() {
     common::init();
-    let mut engine = match identity_engine() {
+    let engine = match identity_engine() {
         Some(e) => e,
         None => return,
     };
@@ -192,7 +193,8 @@ fn stress_no_leak_with_rois() {
     // Warm up.
     for _ in 0..5 {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let _ = engine.infer_sync(shared, Some(&rois));
+        engine.submit(shared, Some(&rois)).expect("warmup submit");
+        let _ = common::recv_inference(&engine);
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -204,9 +206,8 @@ fn stress_no_leak_with_rois() {
 
     for _ in 0..STRESS_ITERATIONS {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let output = engine
-            .infer_sync(shared, Some(&rois))
-            .expect("infer_sync with ROIs");
+        engine.submit(shared, Some(&rois)).expect("submit");
+        let output = common::recv_inference(&engine);
         assert!(!output.elements().is_empty());
         drop(output);
     }
@@ -311,7 +312,7 @@ fn identity_engine_flexible() -> Option<NvInfer> {
     }
     let props = common::identity_properties();
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)");
+    let engine = NvInfer::new(config).expect("create NvInfer (flexible)");
     common::promote_built_engine("identity.onnx", 16);
     Some(engine)
 }
@@ -320,7 +321,7 @@ fn identity_engine_flexible() -> Option<NvInfer> {
 /// user ids stay on the output buffer (`savant_ids()`), not on `ElementOutput`.
 ///
 /// Also checks `SavantIdMeta` propagation through nvinfer (`bridge_savant_id_meta`):
-/// ids on the batch passed to `infer_sync` match `output.buffer().savant_ids()`.
+/// ids on the batch passed to `submit` match `output.buffer().savant_ids()`.
 #[test]
 #[serial]
 fn test_nonuniform_slot_numbers() {
@@ -332,9 +333,10 @@ fn test_nonuniform_slot_numbers() {
 
     let (shared, rois) = make_nonuniform_batch_with_rois();
     let savant_in = shared.savant_ids();
-    let output = engine
-        .infer_sync(shared, Some(&rois))
-        .expect("infer_sync nonuniform");
+    engine
+        .submit(shared, Some(&rois))
+        .expect("submit nonuniform");
+    let output = common::recv_inference(&engine);
     assert_eq!(
         output.buffer().savant_ids(),
         savant_in,
@@ -364,7 +366,7 @@ fn test_nonuniform_slot_numbers() {
 #[serial]
 fn stress_no_leak_nonuniform() {
     common::init();
-    let mut engine = match identity_engine_flexible() {
+    let engine = match identity_engine_flexible() {
         Some(e) => e,
         None => return,
     };
@@ -372,7 +374,8 @@ fn stress_no_leak_nonuniform() {
     // Warm up.
     for _ in 0..5 {
         let (shared, rois) = make_nonuniform_batch_with_rois();
-        let _ = engine.infer_sync(shared, Some(&rois));
+        engine.submit(shared, Some(&rois)).expect("warmup submit");
+        let _ = common::recv_inference(&engine);
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -384,9 +387,8 @@ fn stress_no_leak_nonuniform() {
 
     for _ in 0..STRESS_ITERATIONS {
         let (shared, rois) = make_nonuniform_batch_with_rois();
-        let output = engine
-            .infer_sync(shared, Some(&rois))
-            .expect("infer_sync nonuniform");
+        engine.submit(shared, Some(&rois)).expect("submit");
+        let output = common::recv_inference(&engine);
         assert!(!output.elements().is_empty());
         drop(output);
     }

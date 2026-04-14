@@ -9,7 +9,6 @@ use savant_core::primitives::attribute_value::AttributeValueVariant;
 use savant_core::primitives::rust;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::mem;
 use std::sync::Arc;
 
 #[pyclass(from_py_object)]
@@ -496,9 +495,7 @@ impl AttributeValue {
     pub fn points(points: Vec<Point>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            value: AttributeValueVariant::PointVector(unsafe {
-                mem::transmute::<Vec<Point>, Vec<rust::Point>>(points)
-            }),
+            value: AttributeValueVariant::PointVector(points.into_iter().map(|p| p.0).collect()),
         })
     }
 
@@ -544,9 +541,9 @@ impl AttributeValue {
     pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            value: AttributeValueVariant::PolygonVector(unsafe {
-                mem::transmute::<Vec<PolygonalArea>, Vec<rust::PolygonalArea>>(polygons)
-            }),
+            value: AttributeValueVariant::PolygonVector(
+                polygons.into_iter().map(|p| p.0).collect(),
+            ),
         })
     }
 
@@ -793,7 +790,7 @@ impl AttributeValue {
     pub fn as_points(&self) -> Option<Vec<Point>> {
         match &self.0.value {
             AttributeValueVariant::PointVector(points) => {
-                Some(unsafe { mem::transmute::<Vec<rust::Point>, Vec<Point>>(points.clone()) })
+                Some(points.clone().into_iter().map(Point).collect())
             }
             _ => None,
         }
@@ -822,9 +819,9 @@ impl AttributeValue {
     ///
     pub fn as_polygons(&self) -> Option<Vec<PolygonalArea>> {
         match &self.0.value {
-            AttributeValueVariant::PolygonVector(polygons) => Some(unsafe {
-                mem::transmute::<Vec<rust::PolygonalArea>, Vec<PolygonalArea>>(polygons.clone())
-            }),
+            AttributeValueVariant::PolygonVector(polygons) => {
+                Some(polygons.clone().into_iter().map(PolygonalArea).collect())
+            }
             _ => None,
         }
     }

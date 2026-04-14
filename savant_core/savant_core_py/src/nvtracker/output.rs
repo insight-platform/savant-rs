@@ -134,6 +134,7 @@ impl From<MiscTrackData> for PyMiscTrackData {
     module = "savant_rs.nvtracker",
     skip_from_py_object
 )]
+#[derive(Clone)]
 pub struct PyTrackerOutput {
     buffer: SharedBuffer,
     #[pyo3(get)]

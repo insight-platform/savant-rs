@@ -5,6 +5,7 @@ from typing import Any, BinaryIO, List, Optional, Tuple, TypeVar, Union
 from savant_rs.primitives import (
     AttributeValue,
     VideoFrame,
+    VideoFrameCodec,
     VideoFrameContent,
     VideoFrameUpdate,
 )
@@ -108,7 +109,7 @@ class ImageSource(FrameSource):
 
         video_frame = VideoFrame(
             source_id=self._source_id,
-            framerate=f"{self._framerate[0]}/{self._framerate[1]}",
+            fps=tuple(self._framerate),
             codec=codec,
             width=width,
             height=height,

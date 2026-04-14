@@ -1,5 +1,5 @@
 from typing import Any
-from savant_rs import register_handler, version
+from savant_rs import register_handler
 from savant_rs.logging import log, LogLevel
 from savant_rs.utils.serialization import Message
 from time import time

@@ -6,12 +6,7 @@ Crate: `deepstream_buffers`
 
 ## Prelude
 
-`use deepstream_buffers::prelude::*;` re-exports all commonly used types:
-`CudaStream`, `SharedBuffer`, `SurfaceView`, `ComputeMode`, `DstPadding`,
-`Interpolation`, `Padding`, `Rect`, `TransformConfig`, `TransformConfigBuilder`,
-`TransformError`, `BufferGenerator`, `BufferGeneratorBuilder`, `NonUniformBatch`,
-`NvBufSurfaceError`, `NvBufSurfaceMemType`, `SavantIdMetaKind`, `SurfaceBatch`,
-`UniformBatchGenerator`, `UniformBatchGeneratorBuilder`, `VideoFormat`.
+`use deepstream_buffers::prelude::*;` re-exports the crate's primary runtime and transform types (`BufferGenerator`, `UniformBatchGenerator`, `SurfaceBatch`, `NonUniformBatch`, `SharedBuffer`, `SurfaceView`, `TransformConfig`, `NvBufSurfaceError`, `VideoFormat`, etc).
 
 ---
 
@@ -30,7 +25,7 @@ Crate: `deepstream_buffers`
 
 ### Re-exports
 ```rust
-pub use SavantIdMeta, SavantIdMetaKind;  // from savant_gstreamer
+pub use SavantIdMetaKind;                // from savant_gstreamer
 pub use VideoFormat;                      // from savant_gstreamer
 pub use SharedBuffer;           // from shared_buffer
 pub use SurfaceView;                     // from surface_view
@@ -50,50 +45,19 @@ pub use pipeline::{BufferGeneratorExt, UniformBatchGeneratorExt};  // from pipel
 
 ---
 
-## BatchState (shared batching state)
-
-Generic helper used by higher-level batching operators (e.g. nvinfer/nvtracker).
-
-```rust
-pub struct BatchState<T> {
-    pub frames: Vec<T>,
-    pub deadline: Option<Instant>,
-}
-```
-
-| Method | Signature | Notes |
-|---|---|---|
-| `new` | `() -> Self` | empty queue, no deadline |
-| `take` | `(&mut self) -> Vec<T>` | drains `frames` and clears `deadline` |
-| `is_empty` | `(&self) -> bool` | whether `frames` is empty |
-
----
-
 ## SharedBuffer
 
-```rust
-pub struct SharedBuffer(Arc<parking_lot::Mutex<gst::Buffer>>);
-```
+`SharedBuffer` is `Arc<parking_lot::Mutex<gst::Buffer>>` wrapper used as the ownership currency across buffers/decoders/infer/tracker stages.
 
-Shared currency for passing NvBufSurface-backed buffers between `SurfaceView`,
-Picasso, and the encoder without ownership transfer. Implements `Send + Sync`.
+Key methods:
 
-**Note:** Uses `parking_lot::Mutex`, not `std::sync::Mutex`.
-
-| Trait / Method | Signature | Notes |
-|---|---|---|
-| `From<gst::Buffer>` | `impl From<gst::Buffer> for SharedBuffer` | Wrap a buffer in shared handle |
-| `Clone` | `fn clone(&self) -> Self` | Cheap Arc increment; no data copy |
-| `lock` | `(&self) → MutexGuard<'_, gst::Buffer>` | Lock for read/write; guard auto-derefs to `&gst::Buffer` / `&mut gst::Buffer` |
-| `into_buffer` | `(self) → Result<gst::Buffer, Self>` | Extract inner buffer; **fails** if other refs exist (returns `Err(self)`) |
-| `strong_count` | `(&self) → usize` | Number of strong references; 1 = sole owner |
-| `pts_ns` | `(&self) → Option<u64>` | Buffer PTS in nanoseconds, or `None` if unset |
-| `set_pts_ns` | `(&self, pts_ns: u64)` | Set buffer PTS in nanoseconds |
-| `duration_ns` | `(&self) → Option<u64>` | Buffer duration in nanoseconds, or `None` if unset |
-| `set_duration_ns` | `(&self, duration_ns: u64)` | Set buffer duration in nanoseconds |
-| `savant_ids` | `(&self) → Vec<SavantIdMetaKind>` | Read `SavantIdMeta` IDs (empty vec if no meta) |
-| `set_savant_ids` | `(&self, ids: Vec<SavantIdMetaKind>)` | Replace `SavantIdMeta` (removes old, adds new) |
-| `Debug` | `impl Debug` | Prints `SharedBuffer { strong_count: N }` |
+- `lock(&self) -> MutexGuard<'_, gst::Buffer>`
+- `into_buffer(self) -> Result<gst::Buffer, Self>` (requires sole ownership)
+- `strong_count(&self) -> usize`
+- `pts_ns`, `set_pts_ns`, `duration_ns`, `set_duration_ns`
+- `savant_ids`, `set_savant_ids`
+- `with_view(slot, f)` (scoped `SurfaceView`)
+- `transform_into(...)`
 
 ---
 
@@ -110,8 +74,10 @@ pub struct BufferGenerator { inner: UniformBatchGenerator }
 |---|---|---|
 | `new` | `(format, w, h, fps_num, fps_den, gpu_id, mem_type) → Result<Self, E>` | Simple constructor |
 | `builder` | `(format, w, h) → BufferGeneratorBuilder` | Advanced config |
-| `acquire` | `(&self, frame_id: Option<i64>) → Result<SharedBuffer, E>` | Acquire single buffer from pool. Attaches SavantIdMeta if frame_id given |
+| `acquire` | `(&self, id: Option<u128>) → Result<SharedBuffer, E>` | Acquire single buffer from pool. Attaches SavantIdMeta if id given |
+| `try_acquire` | `(&self, id: Option<u128>) → Result<SharedBuffer, E>` | Non-blocking acquire (`PoolExhausted` when unavailable) |
 | `transform` | `(&self, src: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) → Result<SharedBuffer, E>` | Acquire + GPU transform |
+| `transform_to_buffer` | `(&self, src: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) -> Result<gst::Buffer, E>` | Acquire + transform + extract when sole owner |
 | `width` / `height` / `format` / `gpu_id` | `(&self) → T` | Getters |
 | `nvmm_caps` | `(&self) → String` | NVMM caps string (delegates to inner `UniformBatchGenerator`) |
 | `raw_caps` | `(&self) → String` | Raw (non-NVMM) caps string |
@@ -130,14 +96,12 @@ Extension trait providing GStreamer-level caps access:
 
 ### gst_app (free functions)
 
-AppSrc helpers extracted from `BufferGenerator` into `deepstream_buffers::gst_app`.
+AppSrc helpers extracted from `BufferGenerator` into `deepstream_buffers::buffers::single::gst_app`.
 
 | Function | Signature | Notes |
 |---|---|---|
-| `push_to_appsrc` | `(gen: &BufferGenerator, appsrc: &AppSrc, pts_ns: u64, duration_ns: u64, id: Option<i64>) → Result<(), E>` | Acquire + set PTS/duration + push |
-| `push_to_appsrc_raw` | `unsafe (gen: &BufferGenerator, appsrc_ptr: usize, ...) → Result<(), E>` | FFI variant via raw pointer |
+| `push_to_appsrc` | `(gen: &BufferGenerator, appsrc: &AppSrc, pts_ns: u64, duration_ns: u64, id: Option<u128>) → Result<(), E>` | Acquire + set PTS/duration + push |
 | `send_eos` | `(appsrc: &AppSrc) → Result<(), E>` | Send EOS to AppSrc |
-| `send_eos_raw` | `unsafe (appsrc_ptr: usize) → Result<(), E>` | FFI variant via raw pointer |
 
 ---
 
@@ -151,7 +115,8 @@ pub struct UniformBatchGenerator { /* pool, format, w, h, gpu_id, max_batch_size
 |---|---|---|
 | `new` | `(format, w, h, max_batch_size, pool_size, gpu_id, mem_type) → Result<Self, E>` | Simple |
 | `builder` | `(format, w, h, max_batch_size) → Builder` | Advanced, DEF pool_size=2 |
-| `acquire_batch` | `(&self, config: TransformConfig, ids: Vec<SavantIdMetaKind>) → Result<SurfaceBatch, E>` | ⚠ `config` and `ids` are moved; ids attached at finalize |
+| `acquire_batch` | `(&self, config: TransformConfig, ids: Vec<SavantIdMetaKind>) → Result<SurfaceBatch, E>` | Main acquisition path |
+| `try_acquire_batch` | `(&self, config: TransformConfig, ids: Vec<SavantIdMetaKind>) -> Result<SurfaceBatch, E>` | Non-blocking acquire (`PoolExhausted` when unavailable) |
 | `max_batch_size` / `width` / `height` / `format` / `gpu_id` | `(&self) → T` | Getters |
 | `nvmm_caps` | `(&self) → String` | NVMM caps string (includes `memory:NVMM` feature) |
 | `nvmm_caps_gst` | `(&self) → gst::Caps` | NVMM caps as `gst::Caps` object |
@@ -175,7 +140,7 @@ Extension trait providing GStreamer-level caps access:
 
 ---
 
-## SurfaceBatch
+## SurfaceBatch (uniform batched)
 
 ```rust
 pub struct SurfaceBatch {
@@ -187,18 +152,16 @@ pub struct SurfaceBatch {
 }
 ```
 
-**Note:** `SavantIdMeta` is attached to the buffer immediately in `acquire_batch`,
-not deferred to `finalize`. This is consistent with `acquire()` for single frames.
-
 | Method | Signature | Notes |
 |---|---|---|
 | `transform_slot` | `(&mut self, slot: u32, src: &SurfaceView, src_rect: Option<&Rect>) → Result<(), E>` | GPU transform to slot. ⚠ Blocked after finalize |
 | `num_filled` | `(&self) → u32` | One past highest slot written |
 | `max_batch_size` | `(&self) → u32` | Max capacity |
-| `finalize` | `(&mut self) → Result<(), E>` | Sets numFilled only (meta already attached at acquire). ⚠ Double-call → AlreadyFinalized |
+| `finalize` | `(&mut self) → Result<(), E>` | Marks batch immutable and validates state |
 | `is_finalized` | `(&self) → bool` | |
 | `shared_buffer` | `(&self) → SharedBuffer` | Clone of Arc for shared access; use for downstream consumers |
 | `view` | `(&self, index: u32) → Result<SurfaceView, E>` | Creates SurfaceView for a specific slot |
+| `into_shared_buffer` | `(self) → SharedBuffer` | Consume batch and return inner SharedBuffer |
 
 **REMOVED:** `as_gst_buffer`, `extract_slot_view`. Use `shared_buffer()` and `SurfaceView::from_buffer` instead.
 
@@ -253,7 +216,7 @@ uses `extract_slot_view` internally.
 | `from_gst_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, E>` | Wraps buffer in `SharedBuffer`, resolves CUDA ptr for slot. |
 | `from_buffer` | `(buf: &SharedBuffer, slot_index: u32) → Result<Self, E>` | **Primary constructor** for batched access. Borrows buf, clones Arc internally. Create one view per slot. |
 | `from_cuda_ptr` | `(data_ptr, pitch, w, h, gpu_id, channels, color_format, keepalive) → Result<Self, E>` | Synthetic descriptor around raw CUDA ptr |
-| `wrap` | `(buf: gst::Buffer) → Self` | `#[cfg(any(test, feature = "testing"))]` only. Wrap plain buffer without NvBufSurface validation (zeroed params). |
+| `wrap` | `(buf: gst::Buffer) → Self` | Wrap plain buffer without NvBufSurface validation (zeroed params). For stubs/tests; real GPU paths need `from_buffer` / `from_gst_buffer`. |
 
 | Accessor | Signature |
 |---|---|
@@ -315,7 +278,7 @@ pub fn read_meta(buf: &BufferRef, slot_index: u32) → Option<EglCudaMapping>
 |---|---|
 | `ensure_meta(buf, slot_index)` | Per-slot lazy registration. Attaches meta on first call; registers only the requested slot. Returns cached mapping if slot already registered. Performs `NvBufSurfaceMapEglImage(surf_ptr, slot_index)` → `cuGraphicsEGLRegisterImage` → `cuGraphicsResourceGetMappedEglFrame`. Sets `GST_META_FLAG_POOLED | GST_META_FLAG_LOCKED` so meta **survives GstBufferPool recycles**. |
 | `read_meta(buf, slot_index)` | Per-slot read; returns `None` if meta absent or slot not registered. |
-| `tracking_counts` | `#[cfg(test)]` only: returns `(registrations, deregistrations)`; counts are per individual slot. |
+| `tracking_counts` | Returns `(registrations, deregistrations)`; counts are per individual slot (aarch64 / `egl_cuda_meta` only). |
 | `meta_free` | Iterates all slots, deregisters each with non-null `resource` via `cuGraphicsUnregisterResource` and `NvBufSurfaceUnMapEglImage(surf_ptr, i)`. |
 
 **Key implementation notes:**
@@ -357,6 +320,14 @@ Safe RAII wrapper around a CUDA stream handle. Implements `Send`, `Sync`, `Debug
 | `Default` | Legacy default stream (null), non-owning |
 
 ---
+
+## BatchState
+
+Generic queue/deadline helper reused by batching operators:
+
+- `BatchState::new()`
+- `take(&mut self) -> Vec<T>`
+- `is_empty(&self) -> bool`
 
 ## TransformConfig
 
@@ -458,6 +429,17 @@ pub fn buffer_gpu_id(buf: &BufferRef) → Result<u32, TransformError>
 ```
 
 Extract `gpuId` from NvBufSurface inside a GStreamer buffer.
+
+---
+
+## EglHeadlessContext (feature = "skia")
+
+Headless EGL display/context for OpenGL without a window system.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `new` | `() → Result<Self, EglError>` | Device platform + surfaceless context. |
+| `get_proc_address` | `(name: &str) → *const c_void` | Wraps `eglGetProcAddress`. Returns null if `name` contains an interior NUL (invalid C string) or if the function is not present — same as EGL for unknown symbols. |
 
 ---
 

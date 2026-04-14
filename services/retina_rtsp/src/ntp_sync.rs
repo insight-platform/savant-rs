@@ -6,7 +6,6 @@ use std::{
 
 use hashbrown::HashMap;
 use log::{debug, error, info};
-use retina::NtpTimestamp;
 use savant_core::primitives::{
     rust::{AttributeValue, VideoFrameProxy},
     Attribute, WithAttributes,
@@ -56,7 +55,7 @@ impl NtpSync {
         &mut self,
         source_id: &String,
         rtp_time: i64,
-        ntp_time: NtpTimestamp,
+        ntp_time: u64,
         clock_rate: NonZeroU32,
     ) {
         let cam_epoch_duration = ts2epoch_duration(ntp_time, 0);

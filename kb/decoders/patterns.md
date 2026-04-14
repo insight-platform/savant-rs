@@ -12,9 +12,13 @@ fn init() {
 
 ## Capability Guards
 
-- `has_nvdec()`: `ElementFactory::find("nvv4l2decoder").is_some()`
-- `has_nvjpegdec()`: `ElementFactory::find("nvjpegdec").is_some()`
-- `has_nvenc()`: `nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)`
+After `init()` / `cuda_init(0)`, integration tests assume NVDEC (`nvv4l2decoder`) and hardware JPEG (`nvjpegdec`) are present — no separate element probes.
+
+- `has_nvenc()`: `nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)` (encode-side tests/benches still skip when NVENC is missing)
+
+## `VideoFrameProxy` codec / time base
+
+`VideoFrameProxy::get_codec()` is `Option<VideoCodec>` (not a free-form string). `get_fps()` / `set_fps` and `get_time_base()` / `set_time_base` use `(i64, i64)` rationals. On the wire, protobuf uses the `VideoCodec` enum and `Rational32` messages for `fps` and `time_base`. Downstream decoders resolve `VideoCodec` to `DecoderConfig`; `VideoCodec::SwJpeg` selects CPU JPEG.
 
 ## Construction Pattern
 
@@ -34,8 +38,8 @@ let mut decoder = NvDecoder::new(
 
 1. Encode reference packets (`deepstream_encoders`) if needed.
 2. Submit packets with `(frame_id, pts_ns, dts_ns, duration_ns)`.
-3. Call `send_eos()`.
-4. Drain events from channel until `Eos`.
+3. Call `graceful_shutdown(...)` or `shutdown()` depending on the scenario.
+4. Drain outputs from `recv`/`recv_timeout` until `Eos`.
 5. Validate at least:
    - output `DecodedFrame.format == RGBA`
    - `frame_id` propagation
@@ -46,12 +50,58 @@ let mut decoder = NvDecoder::new(
 1. Submit valid packets (optional)
 2. Submit garbage packet bytes
 3. Observe one of:
-   - `DecoderEvent::Error(...)`
-   - `DecoderEvent::PipelineRestarted { .. }`
+   - `NvDecoderOutput::Error(...)`
+   - terminal `PipelineFailed` behavior via recv outputs
    - no frames + timeout/stall
 4. For PNG/JPEG CPU (`image` crate path), malformed bytes are expected to fail
    immediately from `submit_packet(...) -> Err(BufferError(...))`.
 5. If restart happened, submit valid packets again and verify recovery.
+
+## Stream Detection E2E Pattern
+
+Tests in `tests/test_stream_detect_e2e.rs` verify `detect_stream_config`
+and `is_random_access_point` against real asset files from
+`assets/manifest.json`:
+
+1. **Annex-B (raw files)**: read `.h264`/`.h265`, split into AUs via
+   `split_annexb_nalus` + `group_nalus_to_access_units`, feed first AU →
+   assert `ByteStream` with no `codec_data`.
+2. **AVCC/HVCC (MP4 demuxed)**: use `Mp4Demuxer::new()` (no parser, raw
+   container packets) to pull length-prefixed packets from `.mp4` files →
+   feed to `detect_stream_config` → assert `Avc`/`Hvc1` with valid
+   `codec_data` (version byte = 1, reasonable length).
+3. **Raw file prefix**: feed first 4 KiB of each raw bitstream directly
+   (no AU splitting) → assert Annex-B detection.
+4. **RAP (Annex-B)**: first grouped access unit of each raw `.h264`/`.h265`
+   asset → `is_random_access_point` is `true`.
+5. **RAP (MP4)**: `Mp4Demuxer::new()` packets — first RAP index matches a
+   keyframe; B-frame assets include at least one non-RAP packet.
+
+```rust
+use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
+
+let mut demuxer = Mp4Demuxer::new(mp4_path).unwrap();
+let mut packets = Vec::new();
+loop {
+    match demuxer.pull_timeout(Duration::from_secs(5)) {
+        Ok(Some(pkt)) => packets.push(pkt),
+        Ok(None) => break,
+        Err(e) => panic!("{e}"),
+    }
+}
+let codec = demuxer.detected_codec().unwrap();
+demuxer.finish();
+
+for pkt in &packets {
+    if let Some(cfg) = detect_stream_config(codec, &pkt.data) {
+        // verify stream format and codec_data
+        break;
+    }
+}
+```
+
+These tests do **not** need `#[serial]` or NVDEC hardware — they only
+exercise NAL parsing, not the decode pipeline.
 
 ## Build/Test Commands
 

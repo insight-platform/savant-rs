@@ -9,9 +9,9 @@ use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
 use savant_core_py::metrics::*;
 use savant_core_py::pipeline::{
-    load_stage_function_plugin, FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline,
-    PipelineConfiguration, StageFunction, StageLatencyMeasurements, StageLatencyStat,
-    StageProcessingStat, VideoPipelineStagePayloadType,
+    FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline, PipelineConfiguration,
+    StageFunction, StageLatencyMeasurements, StageLatencyStat, StageProcessingStat,
+    VideoPipelineStagePayloadType,
 };
 use savant_core_py::primitives::attribute::Attribute;
 use savant_core_py::primitives::attribute_value::{
@@ -24,7 +24,8 @@ use savant_core_py::primitives::bbox::{
 };
 use savant_core_py::primitives::eos::EndOfStream;
 use savant_core_py::primitives::frame::{
-    VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrame, VideoFrameCodec, VideoFrameContent, VideoFrameTranscodingMethod,
+    VideoFrameTransformation,
 };
 use savant_core_py::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
@@ -79,6 +80,13 @@ pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<gst::InvocationReason>()?;
     #[cfg(feature = "gst")]
     savant_core_py::gstreamer::register_classes(m)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
+pub fn retina_rtsp(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "gst")]
+    savant_core_py::retina_rtsp::register(_m)?;
     Ok(())
 }
 
@@ -262,6 +270,7 @@ pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<UserData>()?;
 
     m.add_class::<VideoFrame>()?;
+    m.add_class::<VideoFrameCodec>()?;
     m.add_class::<VideoFrameBatch>()?;
     m.add_class::<VideoFrameContent>()?;
     m.add_class::<VideoFrameTranscodingMethod>()?;
@@ -290,7 +299,6 @@ pub(crate) fn pipeline(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StageLatencyMeasurements>()?;
     m.add_class::<FrameProcessingStatRecordType>()?;
     m.add_class::<StageFunction>()?;
-    m.add_function(wrap_pyfunction!(load_stage_function_plugin, m)?)?;
     Ok(())
 }
 
@@ -388,10 +396,14 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_release_build, m)?)?;
     m.add_function(wrap_pyfunction!(register_handler, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_handler, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_all_handlers_py, m)?)?;
+
+    let atexit_mod = PyModule::import(py, "atexit")?;
+    let cleanup = m.getattr("clear_all_handlers")?;
+    atexit_mod.call_method1("register", (cleanup,))?;
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
     m.add_wrapped(wrap_pymodule!(self::pipeline))?;
-    m.add_wrapped(wrap_pymodule!(self::geometry))?;
     m.add_wrapped(wrap_pymodule!(self::draw_spec))?;
     m.add_wrapped(wrap_pymodule!(self::utils))?;
     m.add_wrapped(wrap_pymodule!(self::symbol_mapper))?;
@@ -404,6 +416,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::metrics))?;
     m.add_wrapped(wrap_pymodule!(self::kvs))?;
     m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
+    m.add_wrapped(wrap_pymodule!(self::retina_rtsp))?;
     m.add_wrapped(wrap_pymodule!(self::deepstream))?;
     m.add_wrapped(wrap_pymodule!(self::nvinfer))?;
     m.add_wrapped(wrap_pymodule!(self::nvtracker))?;
@@ -414,6 +427,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let sys_modules = sys_modules_bind.cast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
+    sys_modules.set_item("savant_rs.retina_rtsp", m.getattr("retina_rtsp")?)?;
     sys_modules.set_item("savant_rs.deepstream", m.getattr("deepstream")?)?;
     sys_modules.set_item("savant_rs.nvinfer", m.getattr("nvinfer")?)?;
     sys_modules.set_item("savant_rs.nvtracker", m.getattr("nvtracker")?)?;
@@ -422,7 +436,10 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
     sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;
 
-    sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
+    sys_modules.set_item(
+        "savant_rs.primitives.geometry",
+        m.getattr("primitives")?.getattr("geometry")?,
+    )?;
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
     sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;

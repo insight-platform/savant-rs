@@ -4,6 +4,7 @@ use crate::error::{NvTrackerError, Result};
 use deepstream_buffers::VideoFormat;
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 /// Default width passed to the tracker element (`tracker-width`).
 pub const DEFAULT_TRACKER_WIDTH: u32 = 640;
@@ -44,9 +45,17 @@ pub struct NvTrackerConfig {
     pub input_format: VideoFormat,
     pub element_properties: HashMap<String, String>,
     pub tracking_id_reset_mode: TrackingIdResetMode,
-    /// GStreamer queue element `max-size-buffers`.
-    /// 0 = no queue element (synchronous), >0 = insert queue with this depth.
-    pub queue_depth: u32,
+    /// Maximum time to wait for a submitted buffer to produce a result.
+    /// Passed to the GStreamer pipeline framework as the in-flight watchdog
+    /// deadline. When exceeded, the pipeline enters a terminal failed state.
+    /// Default: 30 s.
+    pub operation_timeout: Duration,
+    /// Bounded channel capacity for [`crate::pipeline::NvTracker::submit`].
+    pub input_channel_capacity: usize,
+    /// Bounded channel capacity for decoded [`crate::pipeline::NvTrackerOutput`].
+    pub output_channel_capacity: usize,
+    /// How often the framework drain thread polls `appsink` when idle.
+    pub drain_poll_interval: Duration,
 }
 
 impl NvTrackerConfig {
@@ -63,8 +72,29 @@ impl NvTrackerConfig {
             input_format: VideoFormat::RGBA,
             element_properties: HashMap::new(),
             tracking_id_reset_mode: TrackingIdResetMode::None,
-            queue_depth: 0,
+            operation_timeout: Duration::from_secs(30),
+            input_channel_capacity: 16,
+            output_channel_capacity: 16,
+            drain_poll_interval: Duration::from_millis(100),
         }
+    }
+
+    /// Set the bounded input channel capacity (framework backpressure).
+    pub fn input_channel_capacity(mut self, capacity: usize) -> Self {
+        self.input_channel_capacity = capacity;
+        self
+    }
+
+    /// Set the bounded output channel capacity.
+    pub fn output_channel_capacity(mut self, capacity: usize) -> Self {
+        self.output_channel_capacity = capacity;
+        self
+    }
+
+    /// Set the framework drain thread poll interval when no sample is ready.
+    pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
+        self.drain_poll_interval = interval;
+        self
     }
 
     /// Validate paths and dimensions.

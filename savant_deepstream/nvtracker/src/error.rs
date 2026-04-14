@@ -1,5 +1,6 @@
 //! Errors for the nvtracker pipeline.
 
+use savant_gstreamer::pipeline::PipelineError;
 use thiserror::Error;
 
 /// Result type alias for nvtracker operations.
@@ -70,11 +71,11 @@ pub enum NvTrackerError {
     )]
     FrameNumOverflow { pad_index: u32, source_id: String },
 
-    #[error("track_sync timed out after {timeout_secs}s (pts_key={pts_key})")]
-    TrackSyncTimeout { timeout_secs: u64, pts_key: u64 },
+    #[error("Pipeline entered failed state (operation timeout exceeded)")]
+    PipelineFailed,
 
-    #[error("track_sync channel disconnected (pts_key={pts_key}); pipeline may have errored")]
-    TrackSyncDisconnected { pts_key: u64 },
+    #[error("Batching operator entered failed state (pending batch timeout exceeded)")]
+    OperatorFailed,
 
     #[error("buffer is not writable during {operation}")]
     BufferNotWritable { operation: String },
@@ -86,6 +87,15 @@ pub enum NvTrackerError {
 
     #[error("DeepStream error: {0}")]
     DeepStream(#[from] deepstream::DeepStreamError),
+
+    #[error("GStreamer pipeline framework error: {0}")]
+    FrameworkError(#[from] PipelineError),
+
+    #[error("pipeline channel disconnected")]
+    ChannelDisconnected,
+
+    #[error("NvTracker is shutting down; no new input accepted")]
+    ShuttingDown,
 }
 
 impl NvTrackerError {

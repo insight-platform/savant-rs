@@ -26,7 +26,7 @@ need to match on error variants.
 
 | Operation | Error Condition |
 |-----------|----------------|
-| `new()` | Invalid framerate format (must be "num/den") |
+| `new()` | Width/height ≤ 0; FPS or time_base not strictly positive; PTS/DTS/duration < 0 |
 | `add_object(obj, Error)` | ID collision with existing object |
 | `set_parent_by_id()` | Object or parent not found; cycle detected |
 | `export_complete_object_trees()` | Inconsistent parent chain |

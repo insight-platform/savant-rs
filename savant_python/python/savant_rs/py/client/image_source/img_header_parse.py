@@ -6,11 +6,14 @@ from typing import BinaryIO, Tuple, Union
 
 import magic
 
-# positive lookbehind is included to avoid matching density in the JPEG header
+from savant_rs.primitives import VideoFrameCodec
+
 PATTERN = re.compile(r"(?<=, )(?P<width>\d+)( x |x)(?P<height>\d+)")
 
 
-def get_image_size_codec(file: Union[str, PathLike, BinaryIO]) -> Tuple[int, int, str]:
+def get_image_size_codec(
+    file: Union[str, PathLike, BinaryIO],
+) -> Tuple[int, int, VideoFrameCodec]:
     """Get JPEG or PNG image width and height by parsing the file header.
 
     :param file: Path to an image file or a file handle
@@ -18,8 +21,6 @@ def get_image_size_codec(file: Union[str, PathLike, BinaryIO]) -> Tuple[int, int
     :return: Image width, height and codec.
     """
     if hasattr(file, "read") and hasattr(file, "seek"):
-        # read only the first 512 KB of the file
-        # hoping that the SOF header segment is there
         magic_out = magic.from_buffer(file.read(512 * 1024))
         file.seek(0)
     elif isinstance(file, (str, PathLike)):
@@ -27,13 +28,10 @@ def get_image_size_codec(file: Union[str, PathLike, BinaryIO]) -> Tuple[int, int
     else:
         raise ValueError("File path or file handle is expected.")
 
-    # codec str should correspond to savant.gstreamer.codecs.Codec enum values
-    # can't import directly because of extra dependencies (gstreamer)
-    # that aren't going to be present in all the adapter images
     if magic_out.startswith("JPEG image data"):
-        codec = "jpeg"
+        codec = VideoFrameCodec.Jpeg
     elif magic_out.startswith("PNG image data"):
-        codec = "png"
+        codec = VideoFrameCodec.Png
     else:
         raise ValueError("Not a JPEG or PNG file.")
 

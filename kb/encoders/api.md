@@ -17,6 +17,7 @@ pub enum Codec {
     Png,      // pngenc (CPU-based)  — always available
     RawRgba,  // pseudoencoder       — always available
     RawRgb,   // pseudoencoder       — always available
+    RawNv12,  // pseudoencoder       — always available
 }
 ```
 
@@ -39,6 +40,7 @@ pub enum Codec {
 | Png | pngenc | identity | image/png |
 | RawRgba | identity | identity | video/x-raw,format=RGBA |
 | RawRgb | identity | identity | video/x-raw,format=RGB |
+| RawNv12 | identity | identity | video/x-raw,format=NV12 |
 
 ### Codec name ↔ from_name mapping
 | Codec | name() | from_name() accepts |
@@ -50,6 +52,7 @@ pub enum Codec {
 | Png | png | png |
 | RawRgba | raw_rgba | raw_rgba |
 | RawRgb | raw_rgb | raw_rgb |
+| RawNv12 | raw_nv12 | raw_nv12 |
 
 ---
 
@@ -126,6 +129,7 @@ pub struct EncodedFrame {
 
 ⚠ For `Codec::RawRgba`: `data.len() == width * height * 4`
 ⚠ For `Codec::RawRgb`: `data.len() == width * height * 3`
+⚠ For `Codec::RawNv12`: `data.len() == width * height * 3 / 2` (12-bit YUV 4:2:0)
 ⚠ Raw data is tightly-packed (stride padding stripped).
 
 ---
@@ -140,9 +144,11 @@ pub enum EncoderProperties {
     HevcJetson(HevcJetsonProps),
     Jpeg(JpegProps),
     Av1Dgpu(Av1DgpuProps),
+    Av1Jetson(Av1JetsonProps),
     Png(PngProps),
     RawRgba(RawProps),
     RawRgb(RawProps),
+    RawNv12(RawProps),
 }
 ```
 
@@ -174,7 +180,9 @@ Same as H264JetsonProps but with `profile: Option<HevcProfile>`, `enable_lossles
 
 ### Av1DgpuProps (dGPU only, NVENC)
 Key fields: `bitrate`, `control_rate`, `iframeinterval`, `idrinterval`, `preset`, `tuning_info`, `qp_range`, `max_bitrate`, `vbv_buf_size`, `vbv_init`, `cq`, `aq`, `temporal_aq`
-⚠ AV1 is NOT supported on Jetson: `from_pairs(Codec::Av1, Platform::Jetson, _)` → `UnsupportedCodec`.
+
+### Av1JetsonProps (Jetson only)
+Key fields: `bitrate`, `control_rate`, `preset_level` (JetsonPresetLevel), `peak_bitrate`, `vbv_size`, `qp_range`, `iframeinterval`, `idrinterval`
 
 ### JpegProps (both platforms)
 Key fields: `quality` (0–100, default 85)
@@ -226,8 +234,9 @@ pub use deepstream_buffers::{
     UniformBatchGenerator, VideoFormat,
 };
 pub use crate::properties::{
-    Av1DgpuProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps,
-    H264Profile, HevcDgpuProps, HevcJetsonProps, HevcProfile, JetsonPresetLevel,
-    JpegProps, Platform, PngProps, RateControl, RawProps, TuningPreset,
+    Av1DgpuProps, Av1JetsonProps, DgpuPreset, EncoderProperties, H264DgpuProps,
+    H264JetsonProps, H264Profile, HevcDgpuProps, HevcJetsonProps, HevcProfile,
+    JetsonPresetLevel, JpegProps, Platform, PngProps, RateControl, RawProps,
+    TuningPreset,
 };
 ```

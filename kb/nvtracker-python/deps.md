@@ -20,6 +20,13 @@ from savant_rs.nvtracker import (
     TrackedObject,
     MiscTrackData,
     MiscTrackFrame,
+    TrackedFrame,
+    NvTrackerBatchingOperatorConfig,
+    TrackerBatchFormationResult,
+    TrackerOperatorFrameOutput,
+    SealedDeliveries,
+    TrackerOperatorOutput,
+    NvTrackerBatchingOperator,
 )
 ```
 

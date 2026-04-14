@@ -46,12 +46,12 @@ fn gpu_mem_mib() -> u64 {
 fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         w,
         h,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,

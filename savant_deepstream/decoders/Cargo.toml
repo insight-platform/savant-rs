@@ -24,8 +24,11 @@ image = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
+cros-codecs = { workspace = true }
+crossbeam = { workspace = true }
 
 [dev-dependencies]
+cros-codecs = { workspace = true }
 deepstream_encoders = { path = "../encoders" }
 env_logger = { workspace = true }
 serial_test = { workspace = true }

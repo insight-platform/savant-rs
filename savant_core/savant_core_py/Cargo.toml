@@ -30,10 +30,13 @@ parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["num-bigint"] }
 savant_core = { workspace = true }
 savant_gstreamer = { workspace = true, optional = true }
+retina_rtsp = { workspace = true, optional = true }
+savant_services_common = { workspace = true, optional = true }
 gstreamer = { workspace = true, optional = true }
 glib = { workspace = true, optional = true }
 deepstream_buffers = { workspace = true, optional = true }
 deepstream_encoders = { path = "../../savant_deepstream/encoders", optional = true }
+deepstream_inputs = { path = "../../savant_deepstream/inputs", optional = true }
 nvidia_gpu_utils = { workspace = true, optional = true }
 nvinfer = { path = "../../savant_deepstream/nvinfer", optional = true }
 nvtracker = { path = "../../savant_deepstream/nvtracker", optional = true }
@@ -48,8 +51,8 @@ uuid = { workspace = true }
 
 [features]
 default = []
-gst = ["savant_gstreamer", "gstreamer"]
-deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_encoders", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
+gst = ["savant_gstreamer", "gstreamer", "retina_rtsp", "savant_services_common"]
+deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_encoders", "deepstream_inputs", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

@@ -6,11 +6,14 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union, final
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple, Union, final
 
 import cv2
 import numpy as np
 import skia
+
+from savant_rs.gstreamer import Codec
+from savant_rs.primitives import EndOfStream, VideoFrame
 
 __all__ = [
     "Padding",
@@ -40,6 +43,20 @@ __all__ = [
     "get_nvbufsurface_info",
     "GpuMatCudaArray",
     "make_gpu_mat",
+    "FlexibleDecoderConfig",
+    "DecoderParameters",
+    "SkipReason",
+    "DecodedFrame",
+    "SealedDelivery",
+    "FrameOutput",
+    "ParameterChangeOutput",
+    "SkippedOutput",
+    "OrphanFrameOutput",
+    "SourceEosOutput",
+    "EventOutput",
+    "ErrorOutput",
+    "FlexibleDecoderOutput",
+    "FlexibleDecoder",
     "nvgstbuf_as_gpu_mat",
     "nvbuf_as_gpu_mat",
     "from_gpumat",
@@ -1192,3 +1209,371 @@ def from_gpumat(
         Guard owning the newly acquired ``GstBuffer``.
     """
     ...
+
+# ── FlexibleDecoder types ─────────────────────────────────────────────────
+
+@final
+class FlexibleDecoderConfig:
+    """Configuration for a :class:`FlexibleDecoder`.
+
+    Args:
+        source_id: Bound source_id; frames with a different source_id are rejected.
+        gpu_id: GPU device ordinal.
+        pool_size: Number of RGBA buffers per internal decoder pool.
+    """
+
+    def __init__(
+        self, source_id: str, gpu_id: int, pool_size: int
+    ) -> None: ...
+
+    def with_idle_timeout_ms(self, ms: int) -> FlexibleDecoderConfig:
+        """Set the idle timeout for graceful drain (milliseconds).  Returns a new config."""
+        ...
+
+    def with_detect_buffer_limit(self, n: int) -> FlexibleDecoderConfig:
+        """Set the max frames buffered during H.264/HEVC stream detection."""
+        ...
+
+    @property
+    def source_id(self) -> str: ...
+    @property
+    def gpu_id(self) -> int: ...
+    @property
+    def pool_size(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class DecoderParameters:
+    """Codec, width and height snapshot for a decoder session."""
+
+    @property
+    def codec(self) -> Codec: ...
+    @property
+    def width(self) -> int: ...
+    @property
+    def height(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class SkipReason:
+    """Why a frame was not decoded.
+
+    Use the ``is_*`` properties to determine the variant, and :attr:`detail`
+    for the human-readable payload of string-carrying variants.
+    """
+
+    @property
+    def is_source_id_mismatch(self) -> bool: ...
+    @property
+    def is_unsupported_codec(self) -> bool: ...
+    @property
+    def is_waiting_for_keyframe(self) -> bool: ...
+    @property
+    def is_detection_buffer_overflow(self) -> bool: ...
+    @property
+    def is_no_payload(self) -> bool: ...
+    @property
+    def is_invalid_payload(self) -> bool: ...
+    @property
+    def is_decoder_creation_failed(self) -> bool: ...
+    @property
+    def detail(self) -> Optional[str]:
+        """Human-readable detail for string-carrying variants, or ``None``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class DecodedFrame:
+    """Scalar metadata from a decoded frame.
+
+    The GPU buffer (if not yet taken via
+    :meth:`FlexibleDecoderOutput.take_delivery`) is indicated by
+    :attr:`has_buffer`.
+    """
+
+    @property
+    def frame_id(self) -> Optional[int]: ...
+    @property
+    def pts_ns(self) -> int: ...
+    @property
+    def dts_ns(self) -> Optional[int]: ...
+    @property
+    def duration_ns(self) -> Optional[int]: ...
+    @property
+    def codec(self) -> Codec: ...
+    @property
+    def format(self) -> VideoFormat: ...
+    @property
+    def has_buffer(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class SealedDelivery:
+    """A ``(VideoFrame, SharedBuffer)`` pair sealed until the associated
+    :class:`FlexibleDecoderOutput` is dropped.
+
+    Call :meth:`unseal` (blocking, GIL released) or :meth:`try_unseal`
+    (non-blocking) to obtain the pair.
+    """
+
+    def is_released(self) -> bool:
+        """Whether the seal has been released (non-blocking check)."""
+        ...
+
+    def unseal(
+        self, timeout_ms: Optional[int] = None
+    ) -> Optional[Tuple[VideoFrame, SharedBuffer]]:
+        """Block until the :class:`FlexibleDecoderOutput` is dropped, then
+        return the ``(VideoFrame, SharedBuffer)`` pair.
+
+        The GIL is released during the blocking wait.
+
+        Args:
+            timeout_ms: Optional timeout in milliseconds.
+
+        Raises:
+            RuntimeError: If already consumed by a previous call.
+            TimeoutError: If the timeout expires before the seal is released.
+        """
+        ...
+
+    def try_unseal(self) -> Optional[Tuple[VideoFrame, SharedBuffer]]:
+        """Non-blocking attempt to unseal.
+
+        Returns ``(VideoFrame, SharedBuffer)`` if the seal has been
+        released, or ``None`` if still sealed.
+
+        Raises:
+            RuntimeError: If already consumed by a previous call.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class FrameOutput:
+    """Decoded frame paired with the submitted :class:`VideoFrame`.
+
+    Owns the underlying Rust output so that its ``Drop`` releases the
+    seal when this object is garbage-collected.
+
+    Call :meth:`take_delivery` to extract a :class:`SealedDelivery`.
+    """
+
+    @property
+    def frame(self) -> VideoFrame:
+        """The submitted :class:`VideoFrame`."""
+        ...
+
+    @property
+    def decoded_frame(self) -> DecodedFrame:
+        """Scalar metadata of the decoded frame."""
+        ...
+
+    def take_delivery(self) -> Optional[SealedDelivery]:
+        """Extract the sealed ``(VideoFrame, SharedBuffer)`` delivery.
+
+        Returns :class:`SealedDelivery` on the first call.
+        Subsequent calls return ``None``.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class ParameterChangeOutput:
+    """Codec or resolution changed between two decoder sessions."""
+
+    @property
+    def old(self) -> DecoderParameters:
+        """Previous decoder parameters."""
+        ...
+
+    @property
+    def new(self) -> DecoderParameters:
+        """New decoder parameters."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class SkippedOutput:
+    """A frame that was rejected (not submitted to the decoder)."""
+
+    @property
+    def frame(self) -> VideoFrame:
+        """The rejected :class:`VideoFrame`."""
+        ...
+
+    @property
+    def data(self) -> Optional[bytes]:
+        """Raw payload bytes (if available)."""
+        ...
+
+    @property
+    def reason(self) -> SkipReason:
+        """Why the frame was skipped."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class OrphanFrameOutput:
+    """A decoded frame whose ``frame_id`` had no matching submitted
+    :class:`VideoFrame`."""
+
+    @property
+    def decoded_frame(self) -> DecodedFrame:
+        """Decoded frame metadata."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class SourceEosOutput:
+    """Logical per-source end-of-stream."""
+
+    @property
+    def source_id(self) -> str:
+        """Source identifier."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class EventOutput:
+    """A GStreamer event captured at the pipeline output."""
+
+    @property
+    def summary(self) -> str:
+        """Debug summary of the GStreamer event."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class ErrorOutput:
+    """An error from the underlying decoder."""
+
+    @property
+    def message(self) -> str:
+        """Error message."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class FlexibleDecoderOutput:
+    """Callback payload from :class:`FlexibleDecoder`.
+
+    Use the ``is_*`` properties to determine the variant, then call the
+    corresponding ``as_*`` method to get a typed output object.
+
+    For ``Frame`` outputs, call ``as_frame().take_delivery()`` to extract a
+    sealed ``(VideoFrame, SharedBuffer)`` pair.  When the :class:`FrameOutput`
+    is dropped (garbage-collected), the seal is released and downstream can
+    unseal.
+    """
+
+    @property
+    def is_frame(self) -> bool: ...
+    @property
+    def is_parameter_change(self) -> bool: ...
+    @property
+    def is_skipped(self) -> bool: ...
+    @property
+    def is_orphan_frame(self) -> bool: ...
+    @property
+    def is_source_eos(self) -> bool: ...
+    @property
+    def is_event(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+
+    def as_frame(self) -> Optional[FrameOutput]:
+        """Downcast to :class:`FrameOutput`, or ``None``."""
+        ...
+
+    def as_parameter_change(self) -> Optional[ParameterChangeOutput]:
+        """Downcast to :class:`ParameterChangeOutput`, or ``None``."""
+        ...
+
+    def as_skipped(self) -> Optional[SkippedOutput]:
+        """Downcast to :class:`SkippedOutput`, or ``None``."""
+        ...
+
+    def as_orphan_frame(self) -> Optional[OrphanFrameOutput]:
+        """Downcast to :class:`OrphanFrameOutput`, or ``None``."""
+        ...
+
+    def as_source_eos(self) -> Optional[SourceEosOutput]:
+        """Downcast to :class:`SourceEosOutput`, or ``None``."""
+        ...
+
+    def as_event(self) -> Optional[EventOutput]:
+        """Downcast to :class:`EventOutput`, or ``None``."""
+        ...
+
+    def as_error(self) -> Optional[ErrorOutput]:
+        """Downcast to :class:`ErrorOutput`, or ``None``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class FlexibleDecoder:
+    """Single-stream adaptive GPU decoder.
+
+    Wraps the Rust ``FlexibleDecoder`` and delivers all output through the
+    ``result_callback`` supplied at construction.
+
+    Args:
+        config: Decoder configuration.
+        result_callback: Called for every decoded frame, parameter change,
+            skip, EOS, or error.
+    """
+
+    def __init__(
+        self,
+        config: FlexibleDecoderConfig,
+        result_callback: Callable[[FlexibleDecoderOutput], None],
+    ) -> None: ...
+
+    def submit(
+        self, frame: VideoFrame, data: Optional[bytes] = None
+    ) -> None:
+        """Submit an encoded frame for decoding.
+
+        Args:
+            frame: Video frame with metadata.
+            data: Encoded payload.  If ``None``, the frame's internal content
+                is used.
+
+        Raises:
+            RuntimeError: If shut down or an infrastructure error occurs.
+        """
+        ...
+
+    def source_eos(self, source_id: str) -> None:
+        """Inject a logical per-source EOS.
+
+        Raises:
+            RuntimeError: If shut down.
+        """
+        ...
+
+    def graceful_shutdown(self) -> None:
+        """Drain the current decoder and shut down.
+
+        Raises:
+            RuntimeError: If already shut down or a drain error occurs.
+        """
+        ...
+
+    def shutdown(self) -> None:
+        """Immediate teardown — frames in flight are lost."""
+        ...
+
+    def __repr__(self) -> str: ...
+

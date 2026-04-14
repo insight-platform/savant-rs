@@ -15,7 +15,10 @@ mod types;
 
 pub use config::{NvTrackerBatchingOperatorConfig, NvTrackerBatchingOperatorConfigBuilder};
 pub use operator::NvTrackerBatchingOperator;
-pub use output::{SealedDeliveries, TrackerOperatorFrameOutput, TrackerOperatorOutput};
+pub use output::{
+    SealedDeliveries, TrackerOperatorFrameOutput, TrackerOperatorOutput,
+    TrackerOperatorTrackingOutput,
+};
 pub use types::{
     TrackerBatchFormationCallback, TrackerBatchFormationResult, TrackerOperatorResultCallback,
 };

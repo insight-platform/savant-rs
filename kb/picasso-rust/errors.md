@@ -30,6 +30,15 @@ pub enum PicassoError {
     #[error("Failed to create worker CUDA stream: {0}")]
     CudaStreamCreationFailed(String),
 
+    #[error("Source worker send failed: {0}")]
+    SourceWorkerSendFailed(String),
+
+    #[error("Invalid letterbox parameters: {0}")]
+    InvalidLetterboxParams(String),
+
+    #[error("Buffer error: {0}")]
+    Buffer(#[from] NvBufSurfaceError),
+
     #[error("Engine is shut down")]
     Shutdown,
 }
@@ -48,6 +57,9 @@ pub enum PicassoError {
 | `GpuMismatch` | Incoming buffer's `NvBufSurface.gpuId` differs from `EncoderConfig.gpu_id`; checked at top of `process_encode`. Fail-open: skipped if GPU ID cannot be extracted (e.g., non-NVMM buffers). |
 | `ExternalCudaStream` | Returned by `set_source_spec` when `TransformConfig.cuda_stream` is not default (Picasso manages its own CUDA streams) |
 | `CudaStreamCreationFailed` | Reserved for future use |
+| `SourceWorkerSendFailed` | Source worker channel closed or disconnected. Triggered by `SourceWorker::send_frame()`, `send_eos()`, `send_update_spec()` when crossbeam channel send fails. Low-level worker API only; engine layer returns `ChannelDisconnected` instead. |
+| `InvalidLetterboxParams` | Invalid letterbox parameters. Triggered by `compute_letterbox_params()` when `dst_padding` reduces effective dimensions below 16 px. |
+| `Buffer` | Auto-converted from `deepstream_buffers::NvBufSurfaceError` via `#[from]`. Any `SurfaceView` or buffer operation failures become this variant. |
 | `SourceNotFound` | Currently unused in engine (kept for future use) |
 
 ## Testing Error Paths

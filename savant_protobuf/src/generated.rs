@@ -338,11 +338,10 @@ pub struct Crop {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VideoFrameTransformation {
-    #[prost(
-        oneof = "video_frame_transformation::Transformation",
-        tags = "1, 2, 3, 5"
-    )]
-    pub transformation: ::core::option::Option<video_frame_transformation::Transformation>,
+    #[prost(oneof = "video_frame_transformation::Transformation", tags = "1, 2, 3, 5")]
+    pub transformation: ::core::option::Option<
+        video_frame_transformation::Transformation,
+    >,
 }
 /// Nested message and enum types in `VideoFrameTransformation`.
 pub mod video_frame_transformation {
@@ -359,6 +358,22 @@ pub mod video_frame_transformation {
         Crop(super::Crop),
     }
 }
+/// Signed 32-bit rational (numerator / denominator). Used for `fps` and stream `time_base`.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Rational32 {
+    #[prost(int32, tag = "1")]
+    pub numerator: i32,
+    #[prost(int32, tag = "2")]
+    pub denominator: i32,
+}
+/// 128-bit nanosecond value as `(high << 64) | low` (matches `VideoFrame.creation_timestamp_ns` in Rust).
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct NanosecondsU128 {
+    #[prost(uint64, tag = "1")]
+    pub high: u64,
+    #[prost(uint64, tag = "2")]
+    pub low: u64,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrame {
     #[prost(int64, optional, tag = "1")]
@@ -367,26 +382,22 @@ pub struct VideoFrame {
     pub source_id: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub uuid: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "4")]
-    pub creation_timestamp_ns_high: u64,
-    #[prost(uint64, tag = "5")]
-    pub creation_timestamp_ns_low: u64,
-    #[prost(string, tag = "6")]
-    pub framerate: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "4")]
+    pub creation_timestamp_ns: ::core::option::Option<NanosecondsU128>,
+    #[prost(message, optional, tag = "6")]
+    pub fps: ::core::option::Option<Rational32>,
     #[prost(int64, tag = "7")]
     pub width: i64,
     #[prost(int64, tag = "8")]
     pub height: i64,
     #[prost(enumeration = "VideoFrameTranscodingMethod", tag = "9")]
     pub transcoding_method: i32,
-    #[prost(string, optional, tag = "10")]
-    pub codec: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(enumeration = "VideoCodec", tag = "10")]
+    pub video_codec: i32,
     #[prost(bool, optional, tag = "11")]
     pub keyframe: ::core::option::Option<bool>,
-    #[prost(int32, tag = "12")]
-    pub time_base_numerator: i32,
-    #[prost(int32, tag = "13")]
-    pub time_base_denominator: i32,
+    #[prost(message, optional, tag = "12")]
+    pub time_base: ::core::option::Option<Rational32>,
     #[prost(int64, tag = "14")]
     pub pts: i64,
     #[prost(int64, optional, tag = "15")]
@@ -429,8 +440,10 @@ pub struct Message {
     #[prost(string, repeated, tag = "2")]
     pub routing_labels: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(map = "string, string", tag = "3")]
-    pub propagated_context:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub propagated_context: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(uint64, tag = "4")]
     pub seq_id: u64,
     #[prost(string, tag = "20")]
@@ -578,6 +591,64 @@ impl VideoFrameTranscodingMethod {
         match value {
             "COPY" => Some(Self::Copy),
             "ENCODED" => Some(Self::Encoded),
+            _ => None,
+        }
+    }
+}
+/// Canonical codec ids (aligned with savant_core::primitives::video_codec::VideoCodec).
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum VideoCodec {
+    Unspecified = 0,
+    H264 = 1,
+    Hevc = 2,
+    Jpeg = 3,
+    Swjpeg = 4,
+    Av1 = 5,
+    Png = 6,
+    Vp8 = 7,
+    Vp9 = 8,
+    RawRgba = 9,
+    RawRgb = 10,
+    RawNv12 = 11,
+}
+impl VideoCodec {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "VIDEO_CODEC_UNSPECIFIED",
+            Self::H264 => "H264",
+            Self::Hevc => "HEVC",
+            Self::Jpeg => "JPEG",
+            Self::Swjpeg => "SWJPEG",
+            Self::Av1 => "AV1",
+            Self::Png => "PNG",
+            Self::Vp8 => "VP8",
+            Self::Vp9 => "VP9",
+            Self::RawRgba => "RAW_RGBA",
+            Self::RawRgb => "RAW_RGB",
+            Self::RawNv12 => "RAW_NV12",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "VIDEO_CODEC_UNSPECIFIED" => Some(Self::Unspecified),
+            "H264" => Some(Self::H264),
+            "HEVC" => Some(Self::Hevc),
+            "JPEG" => Some(Self::Jpeg),
+            "SWJPEG" => Some(Self::Swjpeg),
+            "AV1" => Some(Self::Av1),
+            "PNG" => Some(Self::Png),
+            "VP8" => Some(Self::Vp8),
+            "VP9" => Some(Self::Vp9),
+            "RAW_RGBA" => Some(Self::RawRgba),
+            "RAW_RGB" => Some(Self::RawRgb),
+            "RAW_NV12" => Some(Self::RawNv12),
             _ => None,
         }
     }

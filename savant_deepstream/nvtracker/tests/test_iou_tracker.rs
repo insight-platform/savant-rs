@@ -90,7 +90,7 @@ fn try_create_tracker(mode: TrackingIdResetMode) -> Option<NvTracker> {
     c.tracker_width = 320;
     c.tracker_height = 240;
     c.max_batch_size = 4;
-    match NvTracker::new(c, Box::new(|_| {})) {
+    match NvTracker::new(c) {
         Ok(t) => Some(t),
         Err(e) => {
             eprintln!("skip: NvTracker::new failed: {e}");
@@ -103,7 +103,7 @@ fn try_create_tracker(mode: TrackingIdResetMode) -> Option<NvTracker> {
 #[serial]
 fn test_single_source_id_stability() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
@@ -120,22 +120,22 @@ fn test_single_source_id_stability() {
         ]
     };
 
-    let out0 = tracker
-        .track_sync(
-            &[make_frame("cam-1", rois_frame(0.0), 320, 240)],
-            frame_ids(1),
-        )
-        .expect("track 0");
+    let out0 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois_frame(0.0), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("track 0");
     assert_eq!(out0.current_tracks.len(), 2, "two detections");
     let id_a = out0.current_tracks[0].object_id;
     let id_b = out0.current_tracks[1].object_id;
 
-    let out1 = tracker
-        .track_sync(
-            &[make_frame("cam-1", rois_frame(2.0), 320, 240)],
-            frame_ids(1),
-        )
-        .expect("track 1");
+    let out1 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois_frame(2.0), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("track 1");
     assert_eq!(out1.current_tracks.len(), 2);
     let ids1: Vec<u64> = out1.current_tracks.iter().map(|t| t.object_id).collect();
     assert!(
@@ -144,20 +144,20 @@ fn test_single_source_id_stability() {
         ids1
     );
 
-    let out2 = tracker
-        .track_sync(
-            &[make_frame(
-                "cam-1",
-                vec![Roi {
-                    id: 1,
-                    bbox: rb(44.0, 42.0, 80.0, 60.0),
-                }],
-                320,
-                240,
-            )],
-            frame_ids(1),
-        )
-        .expect("track 2");
+    let out2 = common::track_sync(
+        &tracker,
+        &[make_frame(
+            "cam-1",
+            vec![Roi {
+                id: 1,
+                bbox: rb(44.0, 42.0, 80.0, 60.0),
+            }],
+            320,
+            240,
+        )],
+        frame_ids(1),
+    )
+    .expect("track 2");
     assert_eq!(out2.current_tracks.len(), 1);
     assert_eq!(
         out2.current_tracks[0].object_id, id_a,
@@ -171,7 +171,7 @@ fn test_single_source_id_stability() {
 #[serial]
 fn test_multi_source_isolation() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
@@ -180,15 +180,15 @@ fn test_multi_source_isolation() {
         bbox: rb(50.0, 50.0, 60.0, 60.0),
     };
 
-    let out = tracker
-        .track_sync(
-            &[
-                make_frame("cam-a", vec![roi.clone()], 320, 240),
-                make_frame("cam-b", vec![roi.clone()], 320, 240),
-            ],
-            frame_ids(2),
-        )
-        .expect("multi track");
+    let out = common::track_sync(
+        &tracker,
+        &[
+            make_frame("cam-a", vec![roi.clone()], 320, 240),
+            make_frame("cam-b", vec![roi.clone()], 320, 240),
+        ],
+        frame_ids(2),
+    )
+    .expect("multi track");
     assert_eq!(out.current_tracks.len(), 2);
     let mut by_src: HashMap<String, u64> = HashMap::new();
     for t in &out.current_tracks {
@@ -198,31 +198,31 @@ fn test_multi_source_isolation() {
     let id_b = *by_src.get("cam-b").expect("cam-b");
     assert_ne!(id_a, id_b, "independent stream IDs");
 
-    let out2 = tracker
-        .track_sync(
-            &[
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(52.0, 52.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "cam-b",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(52.0, 52.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-            ],
-            frame_ids(2),
-        )
-        .expect("frame 2");
+    let out2 = common::track_sync(
+        &tracker,
+        &[
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(52.0, 52.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "cam-b",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(52.0, 52.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+        ],
+        frame_ids(2),
+    )
+    .expect("frame 2");
     let mut by2: HashMap<String, u64> = HashMap::new();
     for t in &out2.current_tracks {
         by2.insert(t.source_id.clone(), t.object_id);
@@ -237,35 +237,35 @@ fn test_multi_source_isolation() {
 #[serial]
 fn test_multi_source_nonuniform() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
-    let out = tracker
-        .track_sync(
-            &[
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(50.0, 50.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "cam-b",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(100.0, 100.0, 80.0, 80.0),
-                    }],
-                    640,
-                    480,
-                ),
-            ],
-            frame_ids(2),
-        )
-        .expect("nonuniform");
+    let out = common::track_sync(
+        &tracker,
+        &[
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(50.0, 50.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "cam-b",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(100.0, 100.0, 80.0, 80.0),
+                }],
+                640,
+                480,
+            ),
+        ],
+        frame_ids(2),
+    )
+    .expect("nonuniform");
     assert_eq!(out.current_tracks.len(), 2);
 
     let _ = tracker.shutdown();
@@ -275,66 +275,66 @@ fn test_multi_source_nonuniform() {
 #[serial]
 fn test_same_source_multi_frame() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
-    let out = tracker
-        .track_sync(
-            &[
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(50.0, 50.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(55.0, 52.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-            ],
-            frame_ids(2),
-        )
-        .expect("two frames same source");
+    let out = common::track_sync(
+        &tracker,
+        &[
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(50.0, 50.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(55.0, 52.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+        ],
+        frame_ids(2),
+    )
+    .expect("two frames same source");
     assert!(
         !out.current_tracks.is_empty(),
         "expected at least one track from temporal batch"
     );
     let id_first = out.current_tracks[0].object_id;
 
-    let out2 = tracker
-        .track_sync(
-            &[
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(56.0, 53.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(58.0, 54.0, 60.0, 60.0),
-                    }],
-                    320,
-                    240,
-                ),
-            ],
-            frame_ids(2),
-        )
-        .expect("second temporal batch");
+    let out2 = common::track_sync(
+        &tracker,
+        &[
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(56.0, 53.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(58.0, 54.0, 60.0, 60.0),
+                }],
+                320,
+                240,
+            ),
+        ],
+        frame_ids(2),
+    )
+    .expect("second temporal batch");
     let ids: Vec<u64> = out2
         .current_tracks
         .iter()
@@ -355,53 +355,53 @@ fn test_same_source_multi_frame() {
 #[serial]
 fn test_mixed_batch() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
-    let out = tracker
-        .track_sync(
-            &[
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(40.0, 40.0, 50.0, 50.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "cam-a",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(45.0, 45.0, 50.0, 50.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "cam-b",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(200.0, 200.0, 100.0, 100.0),
-                    }],
-                    640,
-                    480,
-                ),
-                make_frame(
-                    "cam-b",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(210.0, 210.0, 100.0, 100.0),
-                    }],
-                    640,
-                    480,
-                ),
-            ],
-            frame_ids(4),
-        )
-        .expect("mixed batch");
+    let out = common::track_sync(
+        &tracker,
+        &[
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(40.0, 40.0, 50.0, 50.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "cam-a",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(45.0, 45.0, 50.0, 50.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "cam-b",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(200.0, 200.0, 100.0, 100.0),
+                }],
+                640,
+                480,
+            ),
+            make_frame(
+                "cam-b",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(210.0, 210.0, 100.0, 100.0),
+                }],
+                640,
+                480,
+            ),
+        ],
+        frame_ids(4),
+    )
+    .expect("mixed batch");
     assert_eq!(out.current_tracks.len(), 4, "one track per slot");
 
     let mut by_src: HashMap<String, Vec<u64>> = HashMap::new();
@@ -424,7 +424,7 @@ fn test_mixed_batch() {
 #[serial]
 fn test_reset_stream_reassigns_ids() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
         return;
     };
 
@@ -433,21 +433,30 @@ fn test_reset_stream_reassigns_ids() {
         bbox: rb(60.0, 60.0, 90.0, 90.0),
     }];
 
-    let out0 = tracker
-        .track_sync(&[make_frame("cam-1", rois.clone(), 320, 240)], frame_ids(1))
-        .expect("t0");
+    let out0 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois.clone(), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("t0");
     let id0 = out0.current_tracks[0].object_id;
 
-    let out1 = tracker
-        .track_sync(&[make_frame("cam-1", rois.clone(), 320, 240)], frame_ids(1))
-        .expect("t1");
+    let out1 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois.clone(), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("t1");
     assert_eq!(out1.current_tracks[0].object_id, id0);
 
     tracker.reset_stream("cam-1").expect("reset");
 
-    let out2 = tracker
-        .track_sync(&[make_frame("cam-1", rois.clone(), 320, 240)], frame_ids(1))
-        .expect("t2");
+    let out2 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois.clone(), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("t2");
     let id2 = out2.current_tracks[0].object_id;
     assert_ne!(
         id2, id0,
@@ -461,7 +470,7 @@ fn test_reset_stream_reassigns_ids() {
 #[serial]
 fn test_reset_stream_only_affects_target() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::OnStreamReset) else {
         return;
     };
 
@@ -470,15 +479,15 @@ fn test_reset_stream_only_affects_target() {
         bbox: rb(50.0, 50.0, 60.0, 60.0),
     };
 
-    let out0 = tracker
-        .track_sync(
-            &[
-                make_frame("cam-a", vec![roi.clone()], 320, 240),
-                make_frame("cam-b", vec![roi.clone()], 320, 240),
-            ],
-            frame_ids(2),
-        )
-        .expect("t0");
+    let out0 = common::track_sync(
+        &tracker,
+        &[
+            make_frame("cam-a", vec![roi.clone()], 320, 240),
+            make_frame("cam-b", vec![roi.clone()], 320, 240),
+        ],
+        frame_ids(2),
+    )
+    .expect("t0");
     let mut id_a: Option<u64> = None;
     let mut id_b: Option<u64> = None;
     for t in &out0.current_tracks {
@@ -494,15 +503,15 @@ fn test_reset_stream_only_affects_target() {
 
     tracker.reset_stream("cam-a").expect("reset cam-a");
 
-    let out1 = tracker
-        .track_sync(
-            &[
-                make_frame("cam-a", vec![roi.clone()], 320, 240),
-                make_frame("cam-b", vec![roi.clone()], 320, 240),
-            ],
-            frame_ids(2),
-        )
-        .expect("t1");
+    let out1 = common::track_sync(
+        &tracker,
+        &[
+            make_frame("cam-a", vec![roi.clone()], 320, 240),
+            make_frame("cam-b", vec![roi.clone()], 320, 240),
+        ],
+        frame_ids(2),
+    )
+    .expect("t1");
     let mut new_a: Option<u64> = None;
     let mut new_b: Option<u64> = None;
     for t in &out1.current_tracks {
@@ -525,7 +534,7 @@ fn test_reset_stream_only_affects_target() {
 #[serial]
 fn test_shadow_tracks_on_disappearance() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
@@ -534,18 +543,27 @@ fn test_shadow_tracks_on_disappearance() {
         bbox: rb(80.0, 80.0, 70.0, 70.0),
     }];
 
-    let out0 = tracker
-        .track_sync(&[make_frame("cam-1", one.clone(), 320, 240)], frame_ids(1))
-        .expect("t0");
+    let out0 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", one.clone(), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("t0");
     let id0 = out0.current_tracks[0].object_id;
 
-    let _ = tracker
-        .track_sync(&[make_frame("cam-1", one.clone(), 320, 240)], frame_ids(1))
-        .expect("t1");
+    let _ = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", one.clone(), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("t1");
 
-    let out2 = tracker
-        .track_sync(&[make_frame("cam-1", vec![], 320, 240)], frame_ids(1))
-        .expect("empty rois");
+    let out2 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", vec![], 320, 240)],
+        frame_ids(1),
+    )
+    .expect("empty rois");
     let still_current: Vec<u64> = out2.current_tracks.iter().map(|t| t.object_id).collect();
     assert!(
         !still_current.contains(&id0),
@@ -573,56 +591,56 @@ fn test_shadow_tracks_on_disappearance() {
 #[serial]
 fn test_source_id_roundtrip() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
     let sid = "my-camera-stream-42";
-    let out = tracker
-        .track_sync(
-            &[make_frame(
-                sid,
-                vec![Roi {
-                    id: 1,
-                    bbox: rb(40.0, 40.0, 50.0, 50.0),
-                }],
-                320,
-                240,
-            )],
-            frame_ids(1),
-        )
-        .expect("track");
+    let out = common::track_sync(
+        &tracker,
+        &[make_frame(
+            sid,
+            vec![Roi {
+                id: 1,
+                bbox: rb(40.0, 40.0, 50.0, 50.0),
+            }],
+            320,
+            240,
+        )],
+        frame_ids(1),
+    )
+    .expect("track");
     assert_eq!(out.current_tracks[0].source_id, sid);
     let _ = tracker.shutdown();
 
-    let Some(mut tracker2) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker2) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
-    let out2 = tracker2
-        .track_sync(
-            &[
-                make_frame(
-                    "stream-alpha",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(30.0, 30.0, 40.0, 40.0),
-                    }],
-                    320,
-                    240,
-                ),
-                make_frame(
-                    "stream-beta",
-                    vec![Roi {
-                        id: 1,
-                        bbox: rb(100.0, 100.0, 40.0, 40.0),
-                    }],
-                    320,
-                    240,
-                ),
-            ],
-            frame_ids(2),
-        )
-        .expect("multi");
+    let out2 = common::track_sync(
+        &tracker2,
+        &[
+            make_frame(
+                "stream-alpha",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(30.0, 30.0, 40.0, 40.0),
+                }],
+                320,
+                240,
+            ),
+            make_frame(
+                "stream-beta",
+                vec![Roi {
+                    id: 1,
+                    bbox: rb(100.0, 100.0, 40.0, 40.0),
+                }],
+                320,
+                240,
+            ),
+        ],
+        frame_ids(2),
+    )
+    .expect("multi");
     let mut sids: Vec<String> = out2
         .current_tracks
         .iter()
@@ -642,7 +660,7 @@ fn test_source_id_roundtrip() {
 #[serial]
 fn test_class_id_tracking() {
     common::init();
-    let Some(mut tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
         return;
     };
 
@@ -661,9 +679,7 @@ fn test_class_id_tracking() {
         rois: HashMap::from([(0, vec![roi_a]), (1, vec![roi_b])]),
     };
 
-    let out = tracker
-        .track_sync(&[frame], frame_ids(1))
-        .expect("class_id track");
+    let out = common::track_sync(&tracker, &[frame], frame_ids(1)).expect("class_id track");
     assert_eq!(out.current_tracks.len(), 2);
 
     let class_ids: std::collections::HashSet<i32> =

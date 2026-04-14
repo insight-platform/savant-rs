@@ -331,6 +331,10 @@ fn build_parser_chain(
         .build()
         .map_err(|e| Mp4DemuxerError::ElementCreation(format!("{factory}: {e}")))?;
 
+    if needs_byte_stream_caps {
+        parser.set_property("config-interval", -1i32);
+    }
+
     pipeline
         .add(&parser)
         .map_err(|e| Mp4DemuxerError::LinkError(format!("add parser: {e}")))?;

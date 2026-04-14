@@ -28,9 +28,7 @@ use pyo3::prelude::*;
 ///     mem_type (MemType | int): Memory type (default ``MemType.DEFAULT``).
 ///     pool_size (int): Buffer pool size (default 4).
 #[pyclass(name = "BufferGenerator", module = "savant_rs.deepstream")]
-pub struct PyBufferGenerator {
-    inner: BufferGenerator,
-}
+pub struct PyBufferGenerator(BufferGenerator);
 
 #[pymethods]
 impl PyBufferGenerator {
@@ -62,27 +60,27 @@ impl PyBufferGenerator {
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        Ok(Self { inner })
+        Ok(Self(inner))
     }
 
     /// Return the NVMM caps string for configuring an ``appsrc``.
     fn nvmm_caps_str(&self) -> String {
-        self.inner.nvmm_caps()
+        self.0.nvmm_caps()
     }
 
     #[getter]
     fn width(&self) -> u32 {
-        self.inner.width()
+        self.0.width()
     }
 
     #[getter]
     fn height(&self) -> u32 {
-        self.inner.height()
+        self.0.height()
     }
 
     #[getter]
     fn format(&self) -> PyVideoFormat {
-        self.inner.format().into()
+        self.0.format().into()
     }
 
     /// Acquire a new NvBufSurface buffer from the pool.
@@ -92,7 +90,7 @@ impl PyBufferGenerator {
     #[pyo3(signature = (id=None))]
     fn acquire(&self, py: Python<'_>, id: Option<u128>) -> PyResult<PySharedBuffer> {
         let shared = py.detach(|| {
-            self.inner
+            self.0
                 .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
@@ -121,7 +119,7 @@ impl PyBufferGenerator {
     ) -> PyResult<PySharedBuffer> {
         let shared = py.detach(|| -> PyResult<SharedBuffer> {
             let sb = self
-                .inner
+                .0
                 .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             sb.set_pts_ns(pts_ns);
@@ -151,7 +149,7 @@ impl PyBufferGenerator {
             let src_view = deepstream_buffers::SurfaceView::from_buffer(&src_shared, 0)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let dst_shared = self
-                .inner
+                .0
                 .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             {
@@ -198,9 +196,7 @@ impl PyBufferGenerator {
 /// Raises:
 ///     RuntimeError: If pool creation fails.
 #[pyclass(name = "UniformBatchGenerator", module = "savant_rs.deepstream")]
-pub struct PyUniformBatchGenerator {
-    inner: UniformBatchGenerator,
-}
+pub struct PyUniformBatchGenerator(UniformBatchGenerator);
 
 #[pymethods]
 impl PyUniformBatchGenerator {
@@ -232,32 +228,32 @@ impl PyUniformBatchGenerator {
             .build()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        Ok(Self { inner })
+        Ok(Self(inner))
     }
 
     #[getter]
     fn width(&self) -> u32 {
-        self.inner.width()
+        self.0.width()
     }
 
     #[getter]
     fn height(&self) -> u32 {
-        self.inner.height()
+        self.0.height()
     }
 
     #[getter]
     fn format(&self) -> PyVideoFormat {
-        self.inner.format().into()
+        self.0.format().into()
     }
 
     #[getter]
     fn gpu_id(&self) -> u32 {
-        self.inner.gpu_id()
+        self.0.gpu_id()
     }
 
     #[getter]
     fn max_batch_size(&self) -> u32 {
-        self.inner.max_batch_size()
+        self.0.max_batch_size()
     }
 
     /// Acquire a ``SurfaceBatch`` from the pool, ready for slot filling.
@@ -280,10 +276,10 @@ impl PyUniformBatchGenerator {
             .collect();
         py.detach(|| {
             let batch = self
-                .inner
+                .0
                 .acquire_batch(config.to_rust(), id_kinds)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            Ok(PySurfaceBatch { inner: batch })
+            Ok(PySurfaceBatch(batch))
         })
     }
 }
@@ -297,25 +293,23 @@ impl PyUniformBatchGenerator {
 /// Fill individual slots with ``transform_slot``, then call ``finalize``,
 /// then ``shared_buffer`` to access the buffer.
 #[pyclass(name = "SurfaceBatch", module = "savant_rs.deepstream")]
-pub struct PySurfaceBatch {
-    inner: SurfaceBatch,
-}
+pub struct PySurfaceBatch(SurfaceBatch);
 
 #[pymethods]
 impl PySurfaceBatch {
     #[getter]
     fn num_filled(&self) -> u32 {
-        self.inner.num_filled()
+        self.0.num_filled()
     }
 
     #[getter]
     fn max_batch_size(&self) -> u32 {
-        self.inner.max_batch_size()
+        self.0.max_batch_size()
     }
 
     #[getter]
     fn is_finalized(&self) -> bool {
-        self.inner.is_finalized()
+        self.0.is_finalized()
     }
 
     /// Transform a source buffer into a specific batch slot.
@@ -335,7 +329,7 @@ impl PySurfaceBatch {
             let src_shared = SharedBuffer::from(src_buf);
             let src_view = deepstream_buffers::SurfaceView::from_buffer(&src_shared, 0)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            self.inner
+            self.0
                 .transform_slot(slot, &src_view, src_rect_rust.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
@@ -343,20 +337,20 @@ impl PySurfaceBatch {
 
     /// Finalize the batch: set ``numFilled`` and attach IDs from acquisition.
     fn finalize(&mut self) -> PyResult<()> {
-        self.inner
+        self.0
             .finalize()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Return the underlying ``SharedBuffer``. Available only after ``finalize``.
     fn shared_buffer(&self) -> PyResult<PySharedBuffer> {
-        Ok(PySharedBuffer::from_rust(self.inner.shared_buffer()))
+        Ok(PySharedBuffer::from_rust(self.0.shared_buffer()))
     }
 
     /// Create a zero-copy single-slot ``SurfaceView`` from the batch.
     fn view(&self, slot_index: u32) -> PyResult<PySurfaceView> {
         let view = self
-            .inner
+            .0
             .view(slot_index)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PySurfaceView::new(view))
@@ -365,7 +359,7 @@ impl PySurfaceBatch {
     /// Fill a slot's surface with a constant byte value.
     fn memset_slot(&self, py: Python<'_>, index: u32, value: u8) -> PyResult<()> {
         let view = self
-            .inner
+            .0
             .view(index)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         py.detach(|| {
@@ -382,7 +376,7 @@ impl PySurfaceBatch {
         data: PyReadonlyArray3<'py, u8>,
     ) -> PyResult<()> {
         let view = self
-            .inner
+            .0
             .view(index)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let arr = data.as_array();

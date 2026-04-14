@@ -29,19 +29,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use super::object::object_tree::ObjectTree;
+use super::video_codec::VideoCodec;
 
 pub type VideoObjectTree = ObjectTree<VideoObject>;
 
 #[derive(Debug, Hash)]
 struct StreamCompatibilityInformation<'a> {
     pub source_id: &'a str,
-    pub codec: &'a Option<String>,
+    pub codec: &'a Option<VideoCodec>,
     pub width: i64,
     pub height: i64,
 }
 
 impl<'a> StreamCompatibilityInformation<'a> {
-    pub fn new(source_id: &'a str, codec: &'a Option<String>, width: i64, height: i64) -> Self {
+    pub fn new(source_id: &'a str, codec: &'a Option<VideoCodec>, width: i64, height: i64) -> Self {
         Self {
             source_id,
             codec,
@@ -139,14 +140,15 @@ pub struct VideoFrame {
     pub uuid: u128,
     #[builder(setter(skip))]
     pub creation_timestamp_ns: u128,
-    pub framerate: String,
+    /// Frame rate as a rational: `fps.0 / fps.1` frames per second.
+    pub fps: (i64, i64),
     pub width: i64,
     pub height: i64,
     pub transcoding_method: VideoFrameTranscodingMethod,
-    pub codec: Option<String>,
+    pub codec: Option<VideoCodec>,
     pub keyframe: Option<bool>,
-    #[builder(setter(skip))]
-    pub time_base: (i32, i32),
+    #[builder(setter(skip), default = "(1, 1_000_000)")]
+    pub time_base: (i64, i64),
     pub pts: i64,
     #[builder(setter(skip))]
     pub dts: Option<i64>,
@@ -178,13 +180,13 @@ impl Default for VideoFrame {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos(),
-            framerate: String::new(),
+            fps: (30, 1),
             width: 0,
             height: 0,
             transcoding_method: VideoFrameTranscodingMethod::Copy,
             codec: None,
             keyframe: None,
-            time_base: (1, 1000000),
+            time_base: (1, 1_000_000),
             pts: 0,
             dts: None,
             duration: None,
@@ -220,13 +222,13 @@ impl ToSerdeJsonValue for VideoFrame {
                 "creation_timestamp_ns": if self.creation_timestamp_ns > 2^53 { 2^53 } else { self.creation_timestamp_ns },
                 "type": "VideoFrame",
                 "source_id": self.source_id,
-                "framerate": self.framerate,
+                "fps": [self.fps.0, self.fps.1],
                 "width": self.width,
                 "height": self.height,
                 "transcoding_method": self.transcoding_method.to_serde_json_value(),
-                "codec": self.codec,
+                "codec": self.codec.map(|c| c.name()),
                 "keyframe": self.keyframe,
-                "time_base": self.time_base,
+                "time_base": [self.time_base.0, self.time_base.1],
                 "pts": self.pts,
                 "dts": self.dts,
                 "duration": self.duration,
@@ -539,22 +541,19 @@ impl VideoFrameProxy {
             .collect()
     }
 
-    pub fn get_json(&self) -> String {
-        serde_json::to_string(&self.to_serde_json_value()).unwrap()
+    pub fn get_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string(&self.to_serde_json_value())
     }
 
-    pub fn get_json_pretty(&self) -> String {
-        serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
+    pub fn get_json_pretty(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(&self.to_serde_json_value())
     }
 
     pub fn access_objects_with_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
-        let resident_objects = inner.objects.clone();
-        drop(inner);
-
         ids.iter()
             .filter_map(|id| {
-                if resident_objects.contains_key(id) {
+                if inner.objects.contains_key(id) {
                     Some(BorrowedVideoObject(self.into(), *id))
                 } else {
                     None
@@ -710,7 +709,7 @@ impl VideoFrameProxy {
             .track_id(track_id)
             .track_box(track_box)
             .build()
-            .unwrap();
+            .map_err(|e| anyhow!("Failed to build VideoObject: {e}"))?;
         self.add_object(object, IdCollisionResolutionPolicy::Error)
     }
 
@@ -907,12 +906,12 @@ impl VideoFrameProxy {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         source_id: &str,
-        framerate: &str,
+        fps: (i64, i64),
         width: i64,
         height: i64,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod,
-        codec: &Option<&str>,
+        codec: Option<VideoCodec>,
         keyframe: Option<bool>,
         time_base: (i64, i64),
         pts: i64,
@@ -925,6 +924,9 @@ impl VideoFrameProxy {
                 width,
                 height
             );
+        }
+        if fps.0 <= 0 || fps.1 <= 0 {
+            bail!("FPS rational must be positive, got {:?}", fps);
         }
         if time_base.0 <= 0 || time_base.1 <= 0 {
             bail!("Time base must be greater than 0, got {:?}", time_base);
@@ -952,14 +954,14 @@ impl VideoFrameProxy {
         Ok(VideoFrameProxy::from_inner(VideoFrame {
             source_id: source_id.to_string(),
             pts,
-            framerate: framerate.to_string(),
+            fps,
             width,
             height,
-            time_base: (time_base.0 as i32, time_base.1 as i32),
+            time_base,
             dts,
             duration,
             transcoding_method,
-            codec: codec.map(String::from),
+            codec,
             keyframe,
             content: Arc::new(content),
             transformations: vec![VideoFrameTransformation::InitialSize(
@@ -1006,7 +1008,7 @@ impl VideoFrameProxy {
         inner.source_id = source_id.to_string();
     }
 
-    pub fn set_time_base(&mut self, time_base: (i32, i32)) -> anyhow::Result<()> {
+    pub fn set_time_base(&mut self, time_base: (i64, i64)) -> anyhow::Result<()> {
         if time_base.0 <= 0 || time_base.1 <= 0 {
             bail!("Time base must be greater than 0, got {:?}", time_base);
         }
@@ -1015,7 +1017,7 @@ impl VideoFrameProxy {
         Ok(())
     }
 
-    pub fn get_time_base(&self) -> (i32, i32) {
+    pub fn get_time_base(&self) -> (i64, i64) {
         trace!(self.inner.read_recursive()).time_base
     }
 
@@ -1053,13 +1055,17 @@ impl VideoFrameProxy {
         Ok(())
     }
 
-    pub fn get_framerate(&self) -> String {
-        trace!(self.inner.read_recursive()).framerate.clone()
+    pub fn get_fps(&self) -> (i64, i64) {
+        trace!(self.inner.read_recursive()).fps
     }
 
-    pub fn set_framerate(&mut self, framerate: &str) {
+    pub fn set_fps(&mut self, fps: (i64, i64)) -> anyhow::Result<()> {
+        if fps.0 <= 0 || fps.1 <= 0 {
+            bail!("FPS rational must be positive, got {:?}", fps);
+        }
         let mut inner = trace!(self.inner.write());
-        inner.framerate = framerate.to_string();
+        inner.fps = fps;
+        Ok(())
     }
 
     pub fn get_width(&self) -> i64 {
@@ -1140,12 +1146,12 @@ impl VideoFrameProxy {
         inner.transcoding_method = transcoding_method;
     }
 
-    pub fn get_codec(&self) -> Option<String> {
+    pub fn get_codec(&self) -> Option<VideoCodec> {
         let inner = trace!(self.inner.read_recursive());
-        inner.codec.clone()
+        inner.codec
     }
 
-    pub fn set_codec(&mut self, codec: Option<String>) {
+    pub fn set_codec(&mut self, codec: Option<VideoCodec>) {
         let mut inner = trace!(self.inner.write());
         inner.codec = codec;
     }

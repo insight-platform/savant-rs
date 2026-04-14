@@ -12,6 +12,7 @@ use deepstream_buffers::VideoFormat;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 /// Parse a key into (section, key). Bare keys go to "property".
@@ -41,9 +42,6 @@ pub struct NvInferConfig {
     pub element_properties: HashMap<String, String>,
     /// GPU ID (default: 0).
     pub gpu_id: u32,
-    /// GStreamer queue element max-size-buffers.
-    /// 0 = no queue element (synchronous), >0 = insert queue with this depth.
-    pub queue_depth: u32,
     /// Pixel format for the appsrc caps (e.g. [`VideoFormat::RGBA`]).
     pub input_format: VideoFormat,
     /// Model input tensor width in pixels.  Used by [`CoordinateScaler`] and
@@ -66,6 +64,20 @@ pub struct NvInferConfig {
     /// `maintain-aspect-ratio` / `symmetric-padding` in the generated config;
     /// those keys must not appear in `nvinfer_properties`. Default: [`ModelInputScaling::Fill`].
     pub scaling: ModelInputScaling,
+    /// Maximum time to wait for a submitted buffer to produce a result.
+    /// Used by the framework watchdog (in-flight deadline). When exceeded,
+    /// the pipeline enters a terminal failed state. Default: 30 s.
+    pub operation_timeout: Duration,
+    /// Capacity of the bounded input channel (framework backpressure).
+    /// When the channel is full, [`NvInfer::submit`] blocks.
+    /// Default: 16.
+    pub input_channel_capacity: usize,
+    /// Capacity of the bounded output channel.
+    /// Default: 16.
+    pub output_channel_capacity: usize,
+    /// How often the framework drain thread polls `appsink.try_pull_sample`.
+    /// Default: 100 ms.
+    pub drain_poll_interval: Duration,
 }
 
 impl NvInferConfig {
@@ -97,7 +109,6 @@ impl NvInferConfig {
             nvinfer_properties,
             element_properties: HashMap::new(),
             gpu_id: 0,
-            queue_depth: 0,
             input_format,
             model_width,
             model_height,
@@ -105,6 +116,10 @@ impl NvInferConfig {
             meta_clear_policy: MetaClearPolicy::default(),
             disable_output_host_copy: false,
             scaling: ModelInputScaling::default(),
+            operation_timeout: Duration::from_secs(30),
+            input_channel_capacity: 16,
+            output_channel_capacity: 16,
+            drain_poll_interval: Duration::from_millis(100),
         }
     }
 
@@ -117,12 +132,6 @@ impl NvInferConfig {
     /// Set GPU ID.
     pub fn gpu_id(mut self, gpu_id: u32) -> Self {
         self.gpu_id = gpu_id;
-        self
-    }
-
-    /// Set queue depth (max-size-buffers). 0 = no queue.
-    pub fn queue_depth(mut self, queue_depth: u32) -> Self {
-        self.queue_depth = queue_depth;
         self
     }
 
@@ -150,6 +159,30 @@ impl NvInferConfig {
     /// Set how input frames are scaled to the model input dimensions.
     pub fn scaling(mut self, scaling: ModelInputScaling) -> Self {
         self.scaling = scaling;
+        self
+    }
+
+    /// Set the operation timeout for the watchdog.
+    pub fn operation_timeout(mut self, timeout: Duration) -> Self {
+        self.operation_timeout = timeout;
+        self
+    }
+
+    /// Set the bounded input channel capacity (framework backpressure).
+    pub fn input_channel_capacity(mut self, capacity: usize) -> Self {
+        self.input_channel_capacity = capacity;
+        self
+    }
+
+    /// Set the bounded output channel capacity.
+    pub fn output_channel_capacity(mut self, capacity: usize) -> Self {
+        self.output_channel_capacity = capacity;
+        self
+    }
+
+    /// Set how often the framework drain thread polls appsink.
+    pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
+        self.drain_poll_interval = interval;
         self
     }
 

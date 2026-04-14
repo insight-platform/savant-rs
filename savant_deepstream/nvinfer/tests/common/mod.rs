@@ -251,6 +251,28 @@ pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
         batch.finalize().unwrap();
         batch.into_shared_buffer()
     };
-    let _ = engine.infer_sync(shared, None).expect("warmup infer_sync");
+    engine.submit(shared, None).expect("warmup submit");
+    let _ = recv_inference(engine);
     eprintln!("  [warmup] engine primed with {width}x{height} dummy frame");
+}
+
+/// Receive the next [`NvInferOutput::Inference`] from the engine, skipping
+/// any intermediate [`NvInferOutput::Event`] (e.g. `stream-start`, `caps`).
+///
+/// Panics if EOS is received or if too many iterations pass without a result.
+#[allow(dead_code)]
+pub fn recv_inference(engine: &nvinfer::NvInfer) -> nvinfer::output::BatchInferenceOutput {
+    for _ in 0..64 {
+        match engine.recv().expect("recv failed") {
+            nvinfer::NvInferOutput::Inference(output) => return output,
+            nvinfer::NvInferOutput::Event(_) => continue,
+            nvinfer::NvInferOutput::Eos { source_id } => {
+                panic!("unexpected EOS while waiting for inference: source_id={source_id}")
+            }
+            nvinfer::NvInferOutput::Error(e) => {
+                panic!("pipeline error while waiting for inference: {e}")
+            }
+        }
+    }
+    panic!("did not receive Inference output after 64 attempts");
 }

@@ -2,6 +2,7 @@ pub mod codec;
 pub mod id_meta;
 pub mod mp4_demuxer;
 pub mod mp4_muxer;
+pub mod pipeline;
 pub mod video_format;
 
 pub use codec::Codec;

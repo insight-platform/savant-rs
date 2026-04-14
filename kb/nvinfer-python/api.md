@@ -40,6 +40,21 @@ Supports `==`, `!=`, `int()`, `hash()`, `repr()`.
 
 ---
 
+## ModelColorFormat
+
+Color format the model expects for its input tensor.
+
+```python
+class ModelColorFormat:
+    RGB: ModelColorFormat
+    BGR: ModelColorFormat
+    GRAY: ModelColorFormat
+```
+
+Supports `==`, `!=`, `int()`, `hash()`, `repr()`.
+
+---
+
 ## DataType
 
 Enum for tensor element types.
@@ -79,6 +94,32 @@ logic.
 
 ---
 
+## RoiKind
+
+Specifies how ROIs are provided for a frame: either the entire frame or an
+explicit list of `Roi` objects.
+
+```python
+class RoiKind:
+    @staticmethod
+    def full_frame() -> RoiKind: ...
+
+    @staticmethod
+    def rois(rois: List[Roi]) -> RoiKind: ...
+
+    @property
+    def is_full_frame(self) -> bool: ...
+
+    def get_rois(self) -> List[Roi]: ...
+```
+
+- `full_frame()` — the entire frame is the ROI (no crop).
+- `rois(...)` — explicit list of per-frame ROIs.
+- `is_full_frame` — `True` when constructed via `full_frame()`.
+- `get_rois()` — returns the ROI list; empty for `full_frame()`.
+
+---
+
 ## NvInferConfig
 
 ```python
@@ -86,32 +127,23 @@ class NvInferConfig:
     def __init__(
         self,
         nvinfer_properties: Dict[str, str],   # REQ
-        input_format: str,                     # REQ (e.g. "RGBA")
-        input_width: int,                      # REQ
-        input_height: int,                     # REQ
+        input_format: VideoFormat,             # REQ (e.g. VideoFormat.RGBA)
+        model_width: int,                      # REQ
+        model_height: int,                     # REQ
         *,
         name: str = "",                                           # OPT
         element_properties: Optional[Dict[str, str]] = None,     # OPT
         gpu_id: int = 0,                                         # OPT
-        queue_depth: int = 0,                                    # OPT
+        queue_depth: int = 0,                                    # OPT — GStreamer queue max-size-buffers
+        input_channel_capacity: int = 16,                       # OPT — framework input channel (backpressure)
+        output_channel_capacity: int = 16,                        # OPT — framework output channel
+        drain_poll_interval_ms: int = 100,                        # OPT — appsink poll interval in framework drain
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE, # OPT
         disable_output_host_copy: bool = False,                  # OPT
         scaling: ModelInputScaling = ModelInputScaling.FILL,      # OPT
+        model_color_format: ModelColorFormat = ModelColorFormat.RGB, # OPT
+        operation_timeout_ms: int = 30000,                         # OPT — framework watchdog / in-flight deadline
     ) -> None: ...
-
-    @staticmethod
-    def new_flexible(
-        nvinfer_properties: Dict[str, str],
-        input_format: str,
-        *,
-        name: str = "",
-        element_properties: Optional[Dict[str, str]] = None,
-        gpu_id: int = 0,
-        queue_depth: int = 0,
-        meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
-        disable_output_host_copy: bool = False,
-        scaling: ModelInputScaling = ModelInputScaling.FILL,
-    ) -> NvInferConfig: ...
 
     @property
     def name(self) -> str: ...
@@ -120,17 +152,32 @@ class NvInferConfig:
     @property
     def queue_depth(self) -> int: ...
     @property
-    def input_format(self) -> str: ...
+    def input_channel_capacity(self) -> int: ...
     @property
-    def input_width(self) -> Optional[int]: ...    # None for flexible configs
+    def output_channel_capacity(self) -> int: ...
     @property
-    def input_height(self) -> Optional[int]: ...   # None for flexible configs
+    def drain_poll_interval_ms(self) -> int: ...
+    @property
+    def nvinfer_properties(self) -> Dict[str, str]: ...
+    @property
+    def element_properties(self) -> Dict[str, str]: ...
+    def model_input_dimensions(self) -> tuple[int, int]: ...
+    @property
+    def input_format(self) -> VideoFormat: ...
+    @property
+    def model_width(self) -> int: ...
+    @property
+    def model_height(self) -> int: ...
+    @property
+    def model_color_format(self) -> ModelColorFormat: ...
     @property
     def meta_clear_policy(self) -> MetaClearPolicy: ...
     @property
     def disable_output_host_copy(self) -> bool: ... # True = skip D2H copy
     @property
     def scaling(self) -> ModelInputScaling: ...
+    @property
+    def operation_timeout_ms(self) -> int: ...  # timeout in ms (Rust pipeline watchdog)
 ```
 
 **Forbidden in `nvinfer_properties`:** `maintain-aspect-ratio`, `symmetric-padding`
@@ -258,41 +305,77 @@ by indexing `savant_ids()` with that slot.
 
 ---
 
+## NvInferOutput
+
+Discriminated item from `NvInfer.recv()` / `recv_timeout()` / `try_recv()`:
+
+```python
+class NvInferOutput:
+    @property
+    def is_inference(self) -> bool: ...
+    @property
+    def is_event(self) -> bool: ...
+    @property
+    def is_eos(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+    def as_inference(self) -> Optional[BatchInferenceOutput]: ...
+    @property
+    def event_summary(self) -> Optional[str]: ...
+    @property
+    def eos_source_id(self) -> Optional[str]: ...
+    @property
+    def error_message(self) -> Optional[str]: ...
+```
+
+Pipeline/framework errors surface as `is_error` with `error_message` (not as
+Python exceptions from `recv`, except `RuntimeError` on channel disconnect).
+
+---
+
 ## NvInfer
+
+Pull-based API matching Rust `nvinfer::NvInfer` (no constructor callback).
 
 ```python
 class NvInfer:
-    def __init__(
-        self,
-        config: NvInferConfig,
-        callback: Callable[[BatchInferenceOutput], None],
-    ) -> None: ...
+    def __init__(self, config: NvInferConfig) -> None: ...
 
     def submit(
         self,
-        batch: SharedBuffer,
+        batch: Union[SharedBuffer, int],
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> None: ...
 
-    def infer_sync(
+    def recv(self) -> NvInferOutput: ...
+    def recv_timeout(self, timeout_ms: int) -> Optional[NvInferOutput]: ...
+    def try_recv(self) -> Optional[NvInferOutput]: ...
+    def send_eos(self, source_id: str) -> None: ...
+    def send_custom_downstream_event(
         self,
-        batch: SharedBuffer,
-        rois: Optional[Dict[int, List[Roi]]] = None,
-        timeout_ms: int = 30000,
-    ) -> BatchInferenceOutput: ...
-
+        structure_name: str,
+        string_fields: Optional[Dict[str, str]] = None,
+    ) -> None: ...
+    def is_failed(self) -> bool: ...
+    def graceful_shutdown(self, timeout_ms: int) -> list[NvInferOutput]: ...
     def shutdown(self) -> None: ...
 ```
 
-- `submit()` — async, results arrive via callback. The buffer is consumed
-  (internally deconstructed from `SharedBuffer` to `gst::Buffer`).
-- `infer_sync()` — blocks up to `timeout_ms` milliseconds (default 30 000),
-  returns result directly. Same buffer consumption semantics.
-- `shutdown()` — sends EOS, drains, stops pipeline. Raises if already shut down.
+- `submit()` — pushes a batch; buffer is consumed (`SharedBuffer` → `gst::Buffer`).
+- `recv()` — blocks until the next output item (inference, GStreamer event,
+  logical EOS, or error payload). Raises `RuntimeError` only on channel disconnect.
+- `recv_timeout(timeout_ms)` — same as `recv` but returns `None` on timeout.
+- `try_recv()` — non-blocking; `None` if no item ready.
+- `send_eos(source_id)` — logical per-source EOS (custom downstream event).
+- `send_custom_downstream_event(structure_name, string_fields=None)` — custom
+  downstream event with string fields only (subset of Rust `send_event`).
+- `is_failed()` — terminal failed state from the underlying pipeline.
+- `graceful_shutdown(timeout_ms)` — GIL released; returns drained `NvInferOutput` list; takes inner engine.
+- `shutdown()` — abrupt shutdown. Raises if already shut down.
 
 ### Rust API
 
-In the Rust API, `submit()` and `infer_sync()` accept `SharedBuffer` directly
+In the Rust API, `submit()` accepts `SharedBuffer` directly
 (not `gst::Buffer`). The `into_buffer()` deconstruction happens inside these
 methods. If the `SharedBuffer` has outstanding references, an `NvInferError`
 is returned.
@@ -309,8 +392,9 @@ crashes (SIGSEGV) when the meta pool doesn't support cloning outside the DS
 pipeline context. Always use `from_glib_none(buffer.as_ptr())` to get a
 ref-counted owned `gst::Buffer` without copying.
 
-Pipeline correlation (PTS) is auto-generated internally — callers do not
-provide a `batch_id`.
+Pipeline correlation (PTS) is managed via the `batch_id` parameter on
+`submit()`. The Python API also accepts a raw `int` (GstBuffer pointer)
+in addition to `SharedBuffer`.
 
 ---
 
@@ -325,12 +409,15 @@ class NvInferBatchingOperatorConfig:
         max_batch_size: int,
         max_batch_wait_ms: int,
         nvinfer_config: NvInferConfig,
+        pending_batch_timeout_ms: int = 60000,  # OPT — timeout for pending batches
     ) -> None: ...
 
     @property
     def max_batch_size(self) -> int: ...
     @property
     def max_batch_wait_ms(self) -> int: ...
+    @property
+    def pending_batch_timeout_ms(self) -> int: ...  # timeout in ms for pending batches
     @property
     def nvinfer_config(self) -> NvInferConfig: ...
 ```
@@ -361,17 +448,39 @@ class NvInferBatchingOperator:
         self,
         config: NvInferBatchingOperatorConfig,
         batch_formation_callback: Callable[[list[VideoFrame]], BatchFormationResult],
-        result_callback: Callable[[OperatorInferenceOutput], None],
+        result_callback: Callable[[OperatorOutput], None],
     ) -> None: ...
 
     def add_frame(self, frame: VideoFrame, buffer: SharedBuffer) -> None: ...
     def flush(self) -> None: ...
+    def send_eos(self, source_id: str) -> None: ...
+    def graceful_shutdown(self, timeout_ms: int) -> list[OperatorOutput]: ...
     def shutdown(self) -> None: ...
 ```
 
 Higher-level batching layer over `NvInfer`.  Accepts individual
 `(VideoFrame, SharedBuffer)` pairs, accumulates them into batches,
-and delivers per-frame results via `result_callback`.
+and delivers each result via `result_callback` as `OperatorOutput`
+(inference batch, per-source EOS, or pipeline error).
+
+---
+
+## OperatorOutput
+
+```python
+class OperatorOutput:
+    @property
+    def is_inference(self) -> bool: ...
+    @property
+    def is_eos(self) -> bool: ...
+    @property
+    def is_error(self) -> bool: ...
+    def as_operator_inference_output(self) -> Optional[OperatorInferenceOutput]: ...
+    @property
+    def eos_source_id(self) -> Optional[str]: ...
+    @property
+    def error_message(self) -> Optional[str]: ...
+```
 
 ---
 

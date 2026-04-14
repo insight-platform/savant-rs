@@ -18,6 +18,7 @@ use std::env::args;
 fn main() -> Result<()> {
     ctrlc::set_handler(move || {
         info!("Ctrl+C received, shutting down...");
+        savant_core_py::clear_all_handlers();
         std::process::exit(0);
     })?;
 

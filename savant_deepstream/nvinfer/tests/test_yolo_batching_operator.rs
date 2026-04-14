@@ -20,8 +20,7 @@ use common::yolo_test_utils::{
 use deepstream_buffers::{BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, VideoFormat};
 use nvinfer::{
     BatchFormationResult, ModelColorFormat, ModelInputScaling, NvInferBatchingOperator,
-    NvInferBatchingOperatorConfig, NvInferConfig, OperatorInferenceOutput, OperatorResultCallback,
-    RoiKind,
+    NvInferBatchingOperatorConfig, NvInferConfig, OperatorOutput, OperatorResultCallback, RoiKind,
 };
 use savant_core::converters::{NmsKind, YoloDetectionConverter, YoloFormat};
 use savant_core::primitives::frame::{
@@ -49,12 +48,12 @@ fn assets_dir() -> PathBuf {
 fn make_frame(source_id: &str, width: i64, height: i64) -> VideoFrameProxy {
     VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         width,
         height,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,
@@ -128,6 +127,7 @@ fn test_yolo_batching_operator_mixed_sizes() {
         max_batch_size: 2,
         max_batch_wait: Duration::from_secs(5),
         nvinfer: nvinfer_config,
+        pending_batch_timeout: Duration::from_secs(60),
     };
 
     let converter = Arc::new(YoloDetectionConverter::new(
@@ -154,80 +154,89 @@ fn test_yolo_batching_operator_mixed_sizes() {
     });
 
     let conv = converter.clone();
-    let result_callback: OperatorResultCallback =
-        Box::new(move |mut output: OperatorInferenceOutput| {
-            let mut batch_result = BatchResult {
-                num_frames: output.frames().len(),
-                frame_results: Vec::new(),
-                sole_owners: Vec::new(),
-            };
-
-            for frame_out in output.frames() {
-                let frame = &frame_out.frame;
-                let source_id = frame.get_source_id();
-                let width = frame.get_width();
-                let height = frame.get_height();
-
-                assert!(
-                    !frame_out.elements.is_empty(),
-                    "frame {source_id} ({width}x{height}) produced no elements"
-                );
-
-                let elem = &frame_out.elements[0];
-                let tensor = elem
-                    .tensors
-                    .iter()
-                    .find(|t| t.name == "output0")
-                    .expect("missing output0 tensor");
-
-                let data = tensor_to_f32_vec(tensor);
-                let raw_shape = tensor_shape(tensor);
-                let shape: Vec<usize> = if raw_shape.len() == 3 && raw_shape[0] == 1 {
-                    raw_shape[1..].to_vec()
-                } else {
-                    raw_shape.clone()
-                };
-
-                let tensors = [(&data[..], &shape[..])];
-                let detections = conv.decode(&tensors).expect("YOLO decode failed");
-
-                let scaler = elem.coordinate_scaler();
-                let mut scaled: HashMap<usize, Vec<(f32, RBBox)>> = HashMap::new();
-                for (class_id, dets) in &detections {
-                    for (conf, bbox) in dets {
-                        let sb = scaler.scale_rbbox(bbox);
-                        scaled.entry(*class_id).or_default().push((*conf, sb));
-                    }
-                }
-
-                batch_result.frame_results.push(FrameResult {
-                    source_id,
-                    width,
-                    height,
-                    detections: scaled,
-                });
+    let result_callback: OperatorResultCallback = Box::new(move |output: OperatorOutput| {
+        let mut output = match output {
+            OperatorOutput::Inference(output) => output,
+            OperatorOutput::Eos { source_id } => {
+                panic!("unexpected source EOS in YOLO batching test callback: {source_id}")
             }
+            OperatorOutput::Error(e) => {
+                panic!("unexpected pipeline error in YOLO batching test callback: {e}")
+            }
+        };
 
-            let sealed = output
-                .take_deliveries()
-                .expect("take_deliveries must return Some on first call");
-            assert_eq!(sealed.len(), batch_result.num_frames);
-            assert!(!sealed.is_released(), "seal should not be released yet");
+        let mut batch_result = BatchResult {
+            num_frames: output.frames().len(),
+            frame_results: Vec::new(),
+            sole_owners: Vec::new(),
+        };
+
+        for frame_out in output.frames() {
+            let frame = &frame_out.frame;
+            let source_id = frame.get_source_id();
+            let width = frame.get_width();
+            let height = frame.get_height();
+
             assert!(
-                output.take_deliveries().is_none(),
-                "second take_deliveries must return None"
+                !frame_out.elements.is_empty(),
+                "frame {source_id} ({width}x{height}) produced no elements"
             );
 
-            drop(output);
+            let elem = &frame_out.elements[0];
+            let tensor = elem
+                .tensors
+                .iter()
+                .find(|t| t.name == "output0")
+                .expect("missing output0 tensor");
 
-            let pairs = sealed.unseal();
-            assert_eq!(pairs.len(), batch_result.num_frames);
-            for (_frame, buf) in &pairs {
-                batch_result.sole_owners.push(buf.strong_count() == 1);
+            let data = tensor_to_f32_vec(tensor);
+            let raw_shape = tensor_shape(tensor);
+            let shape: Vec<usize> = if raw_shape.len() == 3 && raw_shape[0] == 1 {
+                raw_shape[1..].to_vec()
+            } else {
+                raw_shape.clone()
+            };
+
+            let tensors = [(&data[..], &shape[..])];
+            let detections = conv.decode(&tensors).expect("YOLO decode failed");
+
+            let scaler = elem.coordinate_scaler();
+            let mut scaled: HashMap<usize, Vec<(f32, RBBox)>> = HashMap::new();
+            for (class_id, dets) in &detections {
+                for (conf, bbox) in dets {
+                    let sb = scaler.scale_rbbox(bbox);
+                    scaled.entry(*class_id).or_default().push((*conf, sb));
+                }
             }
 
-            tx.send(batch_result).unwrap();
-        });
+            batch_result.frame_results.push(FrameResult {
+                source_id,
+                width,
+                height,
+                detections: scaled,
+            });
+        }
+
+        let sealed = output
+            .take_deliveries()
+            .expect("take_deliveries must return Some on first call");
+        assert_eq!(sealed.len(), batch_result.num_frames);
+        assert!(!sealed.is_released(), "seal should not be released yet");
+        assert!(
+            output.take_deliveries().is_none(),
+            "second take_deliveries must return None"
+        );
+
+        drop(output);
+
+        let pairs = sealed.unseal();
+        assert_eq!(pairs.len(), batch_result.num_frames);
+        for (_frame, buf) in &pairs {
+            batch_result.sole_owners.push(buf.strong_count() == 1);
+        }
+
+        tx.send(batch_result).unwrap();
+    });
 
     let mut operator =
         NvInferBatchingOperator::new(operator_config, batch_formation, result_callback)

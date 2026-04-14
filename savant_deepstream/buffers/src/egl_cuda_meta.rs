@@ -12,7 +12,6 @@
 use crate::{ffi, transform, NvBufSurfaceError};
 use gstreamer::{glib, MetaAPI};
 use log::debug;
-#[cfg(any(test, feature = "testing"))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const MAX_PLANES: usize = 3;
@@ -32,17 +31,14 @@ const MAX_PLANES: usize = 3;
 /// overhead predictable.
 pub const MAX_BATCH_SLOTS: usize = 64;
 
-// ─── Test-only registration tracking ─────────────────────────────────────────
+// ─── Registration tracking (diagnostics / tests) ─────────────────────────────
 
-#[cfg(any(test, feature = "testing"))]
 static REGISTRATIONS: AtomicUsize = AtomicUsize::new(0);
-#[cfg(any(test, feature = "testing"))]
 static DEREGISTRATIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// Return `(registrations, deregistrations)` since last [`reset_tracking`].
 ///
 /// Counts are per individual slot registration/deregistration.
-#[cfg(any(test, feature = "testing"))]
 pub fn tracking_counts() -> (usize, usize) {
     (
         REGISTRATIONS.load(Ordering::SeqCst),
@@ -51,7 +47,6 @@ pub fn tracking_counts() -> (usize, usize) {
 }
 
 /// Reset both counters to zero.
-#[cfg(any(test, feature = "testing"))]
 pub fn reset_tracking() {
     REGISTRATIONS.store(0, Ordering::SeqCst);
     DEREGISTRATIONS.store(0, Ordering::SeqCst);
@@ -92,6 +87,18 @@ unsafe impl Sync for EglCudaMapping {}
 #[repr(transparent)]
 pub struct EglCudaMeta(imp::EglCudaMetaInner);
 
+// SAFETY: `EglCudaMeta` is stored inline as `GstMeta` on a refcounted `GstBuffer`. `Send` is
+// required because GStreamer may pass buffers between threads.
+//
+// `Sync`: New slots are registered and existing slots are updated only while the caller holds
+// `&mut BufferRef` in `ensure_meta` (see SAFETY there for why interior mutation through a
+// shared `MetaRef` is still exclusive to this buffer). `read_meta` and the read-only path in
+// `ensure_meta` only copy POD fields (`cuda_ptrs`, `pitches`, `plane_count`) and check
+// whether `resource` is null — values that are stable after a successful registration until
+// `meta_free` runs on buffer teardown. `CUgraphicsResource` lifetime is tied to a CUDA context;
+// registration uses `ensure_cuda_egl_context` before driver calls, and `meta_free` unregisters
+// on the same buffer-finalization path. This relies on the usual GstBuffer contract: no
+// concurrent mutation of the same buffer from multiple threads without external synchronization.
 unsafe impl Send for EglCudaMeta {}
 unsafe impl Sync for EglCudaMeta {}
 
@@ -311,7 +318,6 @@ mod imp {
 
                 let _ = ffi::NvBufSurfaceUnMapEglImage(meta.surf_ptr, i as i32);
 
-                #[cfg(any(test, feature = "testing"))]
                 DEREGISTRATIONS.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -521,7 +527,6 @@ mod imp {
             slot_index, slot_params.bufferDesc, plane_count, cuda_ptrs[0], pitches[0]
         );
 
-        #[cfg(any(test, feature = "testing"))]
         REGISTRATIONS.fetch_add(1, Ordering::SeqCst);
 
         Ok(SlotRegistration {

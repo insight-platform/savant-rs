@@ -19,6 +19,7 @@
     },
     "rtsp_sources": {
         "group0": {
+            "backend": "${BACKEND:-gstreamer}",
             "sources": [
                 {
                     "source_id": "city-traffic",

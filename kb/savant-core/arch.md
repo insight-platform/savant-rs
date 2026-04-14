@@ -5,6 +5,9 @@
 savant_core/src/
 ├── lib.rs              # crate root: constants, runtime, version, fast_hash, tracer
 ├── atomic_f32.rs       # AtomicF32 wrapper (lock-free f32 mutations)
+├── converters.rs       # detection model output converters (NmsKind, YoloFormat, ConverterError)
+│   ├── nms.rs          # greedy NMS: nms_class_agnostic, nms_class_aware, iou_xcycwh
+│   └── yolo.rs         # YoloDetectionConverter: decode YOLO tensors → (class_id → Vec<(conf, RBBox)>)
 ├── deadlock_detection.rs # parking_lot deadlock detection
 ├── draw.rs             # draw specifications (PaddingDraw, ColorDraw, BoundingBoxDraw, etc.)
 ├── eval_cache.rs       # evalexpr LRU cache
@@ -22,8 +25,6 @@ savant_core/src/
 ├── pipeline.rs         # Pipeline, PipelineStageFunction, PipelinePayload
 │   ├── implementation   # pub(super) mod — inner Pipeline, PipelineConfiguration
 │   ├── stage.rs
-│   ├── stage_function_loader.rs
-│   ├── stage_plugin_sample.rs
 │   └── stats.rs
 ├── primitives.rs       # aggregator: Attribute, RBBox, Point, VideoFrameProxy, etc.
 │   ├── any_object.rs
@@ -33,8 +34,9 @@ savant_core/src/
 │   ├── bbox.rs          # RBBox, RBBoxData, BBoxMetricType
 │   │   └── utils.rs     # IoU/IoS/IoO geometry helpers (uses `geo` crate)
 │   ├── eos.rs           # EndOfStream
-│   ├── frame.rs         # VideoFrame, VideoFrameProxy, ExternalFrame, content types
+│   ├── frame.rs         # VideoFrame, VideoFrameProxy, ExternalFrame, content types, VideoObjectTree
 │   ├── frame_batch.rs   # VideoFrameBatch (HashMap<i64, VideoFrameProxy>)
+│   ├── gstreamer_frame_time.rs # GST_TIME_BASE, FrameClockNs, frame_clock_ns, normalize_frame_to_gst_ns, time_base_to_ns
 │   ├── frame_update.rs  # VideoFrameUpdate (delta to merge into frame)
 │   ├── object.rs        # VideoObject, BorrowedVideoObject, ObjectOperations trait
 │   │   └── object_tree.rs # VideoObjectTree (recursive object hierarchy)
@@ -42,7 +44,8 @@ savant_core/src/
 │   ├── polygonal_area.rs # PolygonalArea + Intersection
 │   ├── segment.rs       # Segment (two Points)
 │   ├── shutdown.rs      # Shutdown signal
-│   └── userdata.rs      # UserData (opaque bytes)
+│   ├── userdata.rs      # UserData (opaque bytes)
+│   └── video_codec.rs   # VideoCodec enum (H264, Hevc, Jpeg, SwJpeg, Av1, Png, Vp8, Vp9, RawRgba, RawRgb, RawNv12)
 ├── protobuf.rs         # serialization to/from protobuf (Message ↔ bytes)
 │   └── serialize/       # per-type ToProtobuf/TryFrom impls
 │        ├── attribute.rs
@@ -65,10 +68,11 @@ savant_core/src/
 ├── test.rs             # test utilities (gen_frame, gen_empty_frame)
 ├── transport.rs        # transport layer
 │   └── zeromq/         # ZeroMQ Reader/Writer/SyncReader/SyncWriter/NonBlocking*
-├── utils.rs            # clock, DefaultOnce, iterators, RTP PTS mapper, UUID v7
+├── utils.rs            # clock, DefaultOnce, iterators, RTP PTS mapper, UUID v7, release_seal
 │   ├── clock.rs
 │   ├── default_once.rs
 │   ├── iter.rs
+│   ├── release_seal.rs  # ReleaseSeal: one-shot condvar-gated release primitive (parking_lot)
 │   ├── rtp_pts_mapper.rs
 │   └── uuid_v7.rs
 ├── metrics.rs          # Prometheus metrics (Counter, Gauge, export)

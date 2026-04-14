@@ -277,9 +277,9 @@ pub struct SourceWorker { /* private */ }
 | Method | Signature | Notes |
 |---|---|---|
 | `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration, queue_size: usize, pts_reset_policy: PtsResetPolicy) → Self` | |
-| `send_frame` | `(&self, frame: VideoFrameProxy, view: SurfaceView, src_rect: Option<Rect>) → Result<(), PicassoError>` | Public convenience method |
-| `send_eos` | `(&self) → Result<(), PicassoError>` | Public convenience method |
-| `send_update_spec` | `(&self, spec: SourceSpec) → Result<(), PicassoError>` | Public convenience method |
+| `send_frame` | `(&self, frame: VideoFrameProxy, view: SurfaceView, src_rect: Option<Rect>) → Result<(), PicassoError>` | Public convenience method. Returns `Err(PicassoError::SourceWorkerSendFailed)` if worker channel is disconnected. |
+| `send_eos` | `(&self) → Result<(), PicassoError>` | Public convenience method. Returns `Err(PicassoError::SourceWorkerSendFailed)` if worker channel is disconnected. |
+| `send_update_spec` | `(&self, spec: SourceSpec) → Result<(), PicassoError>` | Public convenience method. Returns `Err(PicassoError::SourceWorkerSendFailed)` if worker channel is disconnected. |
 | `send` | `(&self, msg: WorkerMessage) → Result<(), SendError<WorkerMessage>>` | `pub(crate)` — internal |
 | `is_alive` | `(&self) → bool` | |
 

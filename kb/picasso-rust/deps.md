@@ -44,7 +44,7 @@ use deepstream_buffers::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu
 // SurfaceView.cuda_stream() — read CUDA stream; SurfaceView.with_cuda_stream(stream) — set stream
 // SurfaceView::transform_into(&self, dest: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) — GPU transform per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
-// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (test-only: requires `testing` feature)
+// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (always available)
 // SurfaceView::from_gst_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
 // SurfaceView::from_buffer(&shared, slot_index) — create view from SharedBuffer (primary for batched/single)
 // view.into_gst_buffer() — recover gst::Buffer from view (consumes view); or shared.into_buffer() after dropping view
@@ -82,14 +82,14 @@ use gstreamer::ClockTime;  // for set_pts/set_duration on buffers
 ```rust
 VideoFrameProxy::new(
     source_id,     // &str
-    framerate,     // &str, e.g. "30/1"
+    (30, 1),       // fps (numerator, denominator)
     width,         // i64
     height,        // i64
     content,       // VideoFrameContent::None
     transcoding,   // VideoFrameTranscodingMethod::Copy
-    codec,         // &Option<String> → &None
+    codec,         // Option<VideoCodec> → None
     keyframe,      // Option<bool> → None
-    time_base,     // (i32, i32), e.g. (1, 1_000_000_000)
+    time_base,     // (i64, i64), e.g. (1, 1_000_000_000)
     pts,           // i64
     dts,           // Option<i64> → None
     duration,      // Option<i64> → None

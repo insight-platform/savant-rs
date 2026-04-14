@@ -24,8 +24,14 @@ pyo3 = { workspace = true }
 pyo3-build-config = { workspace = true }
 
 [features]
+# Default builds produce a CPU-only wheel with no GStreamer/DeepStream dependencies.
 default = []
+# Enable GStreamer integration (savant_rs.gstreamer, savant_rs.retina_rtsp).
+# Requires GStreamer development libraries at build time.
 gst = ["savant_core_py/gst"]
+# Enable full NVIDIA DeepStream stack (implies gst). Adds savant_rs.deepstream,
+# savant_rs.nvinfer, savant_rs.nvtracker, and savant_rs.picasso.
+# Requires DeepStream SDK + GPU runtime.
 deepstream = ["gst", "savant_core_py/deepstream"]
 
 [package.metadata.maturin]

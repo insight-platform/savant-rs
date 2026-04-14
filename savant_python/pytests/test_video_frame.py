@@ -15,6 +15,7 @@ from savant_rs.primitives import (
     ObjectUpdatePolicy,
     VideoFrame,
     VideoFrameBatch,
+    VideoFrameCodec,
     VideoFrameContent,
     VideoFrameTranscodingMethod,
     VideoFrameTransformation,
@@ -125,13 +126,13 @@ class TestVideoFrameConstruction:
     def test_basic(self):
         f = VideoFrame(
             source_id="cam-1",
-            framerate="30/1",
+            fps=(30, 1),
             width=1920,
             height=1080,
             content=VideoFrameContent.none(),
         )
         assert f.source_id == "cam-1"
-        assert f.framerate == "30/1"
+        assert f.fps == (30, 1)
         assert f.width == 1920
         assert f.height == 1080
         assert f.pts == 0
@@ -144,19 +145,19 @@ class TestVideoFrameConstruction:
     def test_full_params(self):
         f = VideoFrame(
             source_id="src",
-            framerate="25/1",
+            fps=(25, 1),
             width=640,
             height=480,
             content=VideoFrameContent.internal(b"\x00"),
             transcoding_method=VideoFrameTranscodingMethod.Encoded,
-            codec="h264",
+            codec=VideoFrameCodec.H264,
             keyframe=True,
             time_base=(1, 90000),
             pts=12345,
             dts=12340,
             duration=3600,
         )
-        assert f.codec == "h264"
+        assert f.codec == VideoFrameCodec.H264
         assert f.keyframe is True
         assert f.time_base == (1, 90000)
         assert f.pts == 12345
@@ -169,7 +170,7 @@ class TestVideoFrameProperties:
     def frame(self):
         return VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=1280,
             height=720,
             content=VideoFrameContent.none(),
@@ -192,8 +193,8 @@ class TestVideoFrameProperties:
         frame.source_id = "new-cam"
         assert frame.source_id == "new-cam"
 
-        frame.framerate = "60/1"
-        assert frame.framerate == "60/1"
+        frame.fps = (60, 1)
+        assert frame.fps == (60, 1)
 
         frame.width = 3840
         assert frame.width == 3840
@@ -216,8 +217,8 @@ class TestVideoFrameProperties:
         frame.transcoding_method = VideoFrameTranscodingMethod.Encoded
         assert frame.transcoding_method == VideoFrameTranscodingMethod.Encoded
 
-        frame.codec = "hevc"
-        assert frame.codec == "hevc"
+        frame.codec = VideoFrameCodec.Hevc
+        assert frame.codec == VideoFrameCodec.Hevc
 
         frame.keyframe = True
         assert frame.keyframe is True
@@ -243,7 +244,7 @@ class TestVideoFrameAttributes:
     def frame(self):
         return VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=100,
             height=100,
             content=VideoFrameContent.none(),
@@ -309,7 +310,7 @@ class TestVideoFrameTransformations:
     def frame(self):
         return VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=100,
             height=100,
             content=VideoFrameContent.none(),
@@ -360,7 +361,7 @@ class TestVideoFrameTransformToInitial:
     def test_letterbox_to_initial(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=1920,
             height=1080,
             content=VideoFrameContent.none(),
@@ -394,7 +395,7 @@ class TestVideoFrameTransformToInitial:
     def test_identity_is_noop(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=800,
             height=600,
             content=VideoFrameContent.none(),
@@ -416,7 +417,7 @@ class TestVideoFrameTransformToInitial:
     def test_no_initial_size_raises(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=100,
             height=100,
             content=VideoFrameContent.none(),
@@ -429,7 +430,7 @@ class TestVideoFrameTransformToInitial:
     def test_crop_then_letterbox_to_initial(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=1920,
             height=1080,
             content=VideoFrameContent.none(),
@@ -458,7 +459,7 @@ class TestVideoFrameTransformToTarget:
         """Object in 1920x1080 (InitialSize) → forward through LetterBox → 660x500."""
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=1920,
             height=1080,
             content=VideoFrameContent.none(),
@@ -491,7 +492,7 @@ class TestVideoFrameTransformToTarget:
     def test_no_initial_size_raises(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=100,
             height=100,
             content=VideoFrameContent.none(),
@@ -505,7 +506,7 @@ class TestVideoFrameTransformToTarget:
         """Object in 1920x1080 → Crop(160,40,160,40) → LetterBox(800,500,0,0,0,0) → 800x500."""
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=1920,
             height=1080,
             content=VideoFrameContent.none(),
@@ -533,7 +534,7 @@ class TestVideoFrameTransformToTarget:
         """Only InitialSize in chain — no-op."""
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=800,
             height=600,
             content=VideoFrameContent.none(),
@@ -561,7 +562,7 @@ class TestVideoFrameObjects:
     def frame(self):
         return VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=1280,
             height=720,
             content=VideoFrameContent.none(),
@@ -673,7 +674,7 @@ class TestVideoFrameCopyAndProtobuf:
     def frame(self):
         f = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=640,
             height=480,
             content=VideoFrameContent.none(),
@@ -769,7 +770,7 @@ class TestVideoFrameApplyUpdate:
     def test_update_adds_attribute(self):
         frame = VideoFrame(
             source_id="cam",
-            framerate="30/1",
+            fps=(30, 1),
             width=100,
             height=100,
             content=VideoFrameContent.none(),
@@ -789,7 +790,7 @@ class TestVideoFrameBatch:
     def _make_frame(self, source_id="cam"):
         return VideoFrame(
             source_id=source_id,
-            framerate="30/1",
+            fps=(30, 1),
             width=100,
             height=100,
             content=VideoFrameContent.none(),

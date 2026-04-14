@@ -4,7 +4,7 @@
 
 ### NOGPU Tests (bypass, drop, worker, engine, geometry)
 - Require `gstreamer::init().unwrap()` at start
-- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (test-only, gated by `testing` feature)
+- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (zeroed NvBufSurface params; no GPU)
 - Helper: `make_surface_view()` in `tests/common/mod.rs`
 - Cover: Drop, Bypass codec specs, EOS, shutdown, spec hot-swap, idle eviction, geometry transforms
 
@@ -19,8 +19,8 @@
 ## Cargo.toml Test Dependencies
 ```toml
 [dev-dependencies]
-deepstream_buffers = { path = "../buffers", features = ["testing"] }
-env_logger = "0.11"
+deepstream_buffers = { path = "../buffers" }
+env_logger = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
@@ -41,9 +41,9 @@ Unit tests: inline `#[cfg(test)] mod tests` in source files
 ```rust
 fn make_frame(source_id: &str) -> VideoFrameProxy {
     VideoFrameProxy::new(
-        source_id, "30/1", 320, 240,
+        source_id, (30, 1), 320, 240,
         VideoFrameContent::None, VideoFrameTranscodingMethod::Copy,
-        &None, None, (1, 1_000_000_000), 0, None, None,
+        None, None, (1, 1_000_000_000), 0, None, None,
     ).unwrap()
 }
 ```
@@ -52,9 +52,9 @@ fn make_frame(source_id: &str) -> VideoFrameProxy {
 ```rust
 fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     VideoFrameProxy::new(
-        source_id, "30/1", w, h,
+        source_id, (30, 1), w, h,
         VideoFrameContent::None, VideoFrameTranscodingMethod::Copy,
-        &None, None, (1, 1_000_000_000), 0, None, None,
+        None, None, (1, 1_000_000_000), 0, None, None,
     ).unwrap()
 }
 ```

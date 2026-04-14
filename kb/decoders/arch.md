@@ -1,66 +1,65 @@
 # DeepStream Decoders Architecture
 
-## Module Tree
+## Module tree
 
 ```
-deepstream_decoders/src/
+savant_deepstream/decoders/src/
 ├── lib.rs
 ├── config.rs
-├── decoder.rs
 ├── error.rs
-└── prelude.rs
+├── pipeline.rs
+├── prelude.rs
+└── stream_detect.rs
 ```
 
-## Backends
+## High-level design
 
-`NvDecoder` chooses one of three internal backends:
+`NvDecoder` is built on top of the `savant_gstreamer::pipeline` framework and exposes a pull API (`recv`/`recv_timeout`/`try_recv`) rather than callback-based delivery.
 
-- `Pipeline`: GStreamer decode + appsink drain thread
-- `RawUpload`: direct CPU pixel upload into GPU buffers
-- `ImageDecode`: CPU decode via Rust `image` crate, then GPU upload/transform
+Three backend strategies are selected from `DecoderConfig`:
 
-## GStreamer Pipeline Variants
+- `Pipeline` for H264/HEVC/VP8/VP9/AV1 and GPU JPEG
+- `ImageDecode` for PNG and CPU JPEG (`image` crate decode + upload)
+- `RawUpload` for `RawRgb`/`RawRgba` packets
 
-- V4L2 codecs:
-  `appsrc -> parser -> nvv4l2decoder -> appsink`
-- JPEG GPU backend:
-  `appsrc -> jpegparse -> nvjpegdec -> appsink`
+All paths produce `DecodedFrame` whose `buffer` field is `Option<SharedBuffer>`,
+allowing ownership handoff (`take`) in downstream processing without moving the
+entire frame struct.
 
-## Non-Pipeline Decode Paths
+## Pipeline backend topology
 
-- JPEG CPU backend: decoded with Rust `image` crate (`load_from_memory`)
-- PNG: decoded with Rust `image` crate (`load_from_memory`)
-- Raw RGB/RGBA: uploaded directly from packet bytes
+Typical decode chain:
 
-Decoded pixels are uploaded to NVMM and transformed into the caller pool
-using `TransformConfig` when resolution differs.
+- `appsrc -> parser -> nvv4l2decoder -> appsink` (video codecs)
+- `appsrc -> jpegparse -> nvjpegdec -> appsink` (GPU JPEG)
 
-## Frame-ID Propagation
+Framework settings used by decoder pipeline:
 
-Two mechanisms are used together:
+- strict ordering policy (`PtsPolicy::StrictDecodeOrder`)
+- bounded input/output channels
+- operation timeout watchdog
+- drain polling interval
 
-1. `bridge_savant_id_meta(&decoder_element)` preserves `SavantIdMeta` across
-   decoder elements that allocate new output buffers.
-2. Internal PTS mapping:
-   `HashMap<pts_ns, (frame_id, dts_ns, duration_ns)>` plus FIFO fallback for
-   intra-only codecs.
+## Metadata and correlation model
 
-For `ImageDecode` and `RawUpload`, frame metadata comes directly from
-`submit_packet` inputs (no PTS-map lookup path involved).
+Pipeline backends use monotonic PTS plus an internal map to recover user metadata (`frame_id`, DTS, duration) on output.
 
-## Output Buffer Model
+- Primary correlation: PTS map (`pts -> FrameMetadata`)
+- Fallback for intra-only cases: FIFO keyed by submit order
 
-- Decoder output buffers are always acquired from caller-provided
-  `BufferGenerator`.
-- If source and pool sizes match, upload can be direct.
-- If sizes differ, an auxiliary temporary pool is used, then
-  `NvBufSurfTransform` applies scaling/padding/conversion into final output.
+`ImageDecode` and `RawUpload` bypass this and emit metadata directly from submit arguments.
 
-## Error Recovery
+## Output buffer strategy
 
-- `submit_packet` checks bus errors before push for pipeline backend.
-- On error, decoder pipeline is torn down and rebuilt.
-- State reset clears PTS map, FIFO, and monotonic PTS tracking.
-- Caller receives:
-  - `DecoderEvent::PipelineRestarted { reason, lost_frame_count }` on restart
-  - `DecoderEvent::Error(DecoderError::PipelineError(...))` on spawn/restart failures
+- Output buffers are always allocated from the decoder's target pool (`BufferGenerator`)
+- If decoded dimensions differ, decoder uses an auxiliary pool and `NvBufSurfTransform` into destination pool
+- Final caller-visible format is RGBA
+
+## Stream packaging detection
+
+`stream_detect.rs` provides:
+
+- `detect_stream_config(codec, data)` for H264/HEVC Annex-B vs AVCC/HVCC detection
+- `is_random_access_point(codec, data)` for strict one-AU entrypoint checks
+
+For H264/HEVC, RAP requires in-band parameter sets plus IDR/IRAP in the same access unit.

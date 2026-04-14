@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use etcd_client::TlsOptions;
 use etcd_client::*;
@@ -99,7 +99,9 @@ impl VarPathSpec {
                     }
                 }
             }
-            _ => panic!("get method is only defined for SingleVar"),
+            _ => Err(anyhow!(
+                "VarPathSpec::get() called on Prefix variant; use get_prefix() instead"
+            )),
         }
     }
 
@@ -117,8 +119,17 @@ impl VarPathSpec {
                 }
                 Ok(result)
             }
-            _ => panic!("get_prefix method is only defined for Prefix"),
+            _ => Err(anyhow!(
+                "VarPathSpec::get_prefix() called on SingleVar variant; use get() instead"
+            )),
         }
+    }
+}
+
+#[cfg(test)]
+impl EtcdClient {
+    fn etcd_client_mut(&mut self) -> &mut Client {
+        &mut self.client
     }
 }
 
@@ -392,6 +403,26 @@ mod tests {
             if max_retries == 0 {
                 panic!("Failed to connect to Etcd in {}", max_retries);
             }
+        }
+
+        {
+            let prefix_spec = VarPathSpec::Prefix("local/node".into());
+            let err = prefix_spec.get(client.etcd_client_mut()).await.unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("Prefix") && msg.contains("get_prefix"),
+                "unexpected error: {msg}"
+            );
+            let single_spec = VarPathSpec::SingleVar("local/node".into());
+            let err = single_spec
+                .get_prefix(client.etcd_client_mut())
+                .await
+                .unwrap_err();
+            let msg = err.to_string();
+            assert!(
+                msg.contains("SingleVar") && msg.contains("get()"),
+                "unexpected error: {msg}"
+            );
         }
 
         client

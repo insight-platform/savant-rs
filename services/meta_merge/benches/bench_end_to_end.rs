@@ -494,7 +494,7 @@ fn bench_end_to_end(c: &mut Criterion) {
     service_thread.join().expect("service thread panicked").ok();
     source_writer.shutdown().ok();
     dest_reader.shutdown().ok();
-    REGISTERED_HANDLERS.write().clear();
+    savant_core_py::clear_all_handlers();
 }
 
 criterion_group!(benches, bench_end_to_end);

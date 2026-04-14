@@ -222,6 +222,22 @@ enum VideoFrameTranscodingMethod {
   ENCODED = 1;
 }
 
+// Canonical codec ids (aligned with savant_core::primitives::video_codec::VideoCodec).
+enum VideoCodec {
+  VIDEO_CODEC_UNSPECIFIED = 0;
+  H264 = 1;
+  HEVC = 2;
+  JPEG = 3;
+  SWJPEG = 4;
+  AV1 = 5;
+  PNG = 6;
+  VP8 = 7;
+  VP9 = 8;
+  RAW_RGBA = 9;
+  RAW_RGB = 10;
+  RAW_NV12 = 11;
+}
+
 message ExternalFrame {
   string method = 1;
   optional string location = 2;
@@ -258,6 +274,7 @@ message Crop {
 }
 
 message VideoFrameTransformation {
+  reserved 4; // removed: historical oneof variant (field number must not be reused)
   oneof transformation {
     InitialSize initial_size = 1;
     LetterBox letter_box = 2;
@@ -266,20 +283,31 @@ message VideoFrameTransformation {
   }
 }
 
+// Signed 32-bit rational (numerator / denominator). Used for `fps` and stream `time_base`.
+message Rational32 {
+  int32 numerator = 1;
+  int32 denominator = 2;
+}
+
+// 128-bit nanosecond value as `(high << 64) | low` (matches `VideoFrame.creation_timestamp_ns` in Rust).
+message NanosecondsU128 {
+  uint64 high = 1;
+  uint64 low = 2;
+}
+
 message VideoFrame {
+  reserved 5, 13, 20 to 22; // removed: legacy field numbers; do not reuse (wire-compat guard)
   optional int64 previous_frame_seq_id = 1;
   string source_id = 2;
   string uuid = 3;
-  uint64 creation_timestamp_ns_high = 4;
-  uint64 creation_timestamp_ns_low = 5;
-  string framerate = 6;
+  NanosecondsU128 creation_timestamp_ns = 4;
+  Rational32 fps = 6;
   int64 width = 7;
   int64 height = 8;
   VideoFrameTranscodingMethod transcoding_method = 9;
-  optional string codec = 10;
+  VideoCodec video_codec = 10;
   optional bool keyframe = 11;
-  int32 time_base_numerator = 12;
-  int32 time_base_denominator = 13;
+  Rational32 time_base = 12;
   int64 pts = 14;
   optional int64 dts = 15;
   optional int64 duration = 16;

@@ -141,16 +141,14 @@ impl EglHeadlessContext {
     pub fn new() -> Result<Self, EglError> {
         unsafe {
             // ── Load extension function pointers ─────────────────────────
-            let query_devices_name = CString::new("eglQueryDevicesEXT").unwrap();
-            let query_devices_ptr = eglGetProcAddress(query_devices_name.as_ptr());
+            let query_devices_ptr = eglGetProcAddress(c"eglQueryDevicesEXT".as_ptr());
             if query_devices_ptr.is_null() {
                 return Err(EglError::MissingExtension("eglQueryDevicesEXT".into()));
             }
             let egl_query_devices: PFNEGLQUERYDEVICESEXTPROC =
                 std::mem::transmute(query_devices_ptr);
 
-            let get_platform_display_name = CString::new("eglGetPlatformDisplayEXT").unwrap();
-            let get_platform_display_ptr = eglGetProcAddress(get_platform_display_name.as_ptr());
+            let get_platform_display_ptr = eglGetProcAddress(c"eglGetPlatformDisplayEXT".as_ptr());
             if get_platform_display_ptr.is_null() {
                 return Err(EglError::MissingExtension(
                     "eglGetPlatformDisplayEXT".into(),
@@ -236,7 +234,9 @@ impl EglHeadlessContext {
     ///
     /// Used by Skia and the `gl` crate to load OpenGL function pointers.
     pub fn get_proc_address(&self, name: &str) -> *const std::ffi::c_void {
-        let c_name = CString::new(name).unwrap();
+        let Ok(c_name) = CString::new(name) else {
+            return std::ptr::null();
+        };
         unsafe { eglGetProcAddress(c_name.as_ptr()) }
     }
 }

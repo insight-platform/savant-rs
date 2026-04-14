@@ -9,6 +9,7 @@ deepstream/src/
 ├── object_meta.rs   # ObjectMeta: NvDsObjectMeta wrapper
 ├── infer_tensor_meta.rs # InferTensorMeta, InferDims
 ├── user_meta.rs     # UserMeta: NvDsUserMeta wrapper
+├── tracker_meta.rs  # TrackState, TargetMiscBatch, TargetMiscFrame, etc.
 └── error.rs         # DeepStreamError
 ```
 
@@ -29,6 +30,10 @@ GstBuffer
 `InferTensorMeta` is **not** directly attached to frames — it is stored as
 user data inside `NvDsUserMeta` entries on the frame's `frame_user_meta_list`.
 Use `UserMeta::as_infer_tensor_meta()` to extract it.
+
+Tracker metadata (shadow / terminated / past-frame lists) is stored as user
+metadata entries on the batch. Access via `BatchMeta::batch_user_meta()` and
+parse with `target_misc_batch_from_user_meta()`.
 
 ## Lock Model
 

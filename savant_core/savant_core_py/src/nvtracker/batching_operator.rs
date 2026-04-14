@@ -10,10 +10,12 @@ use deepstream_buffers::SavantIdMetaKind;
 use nvtracker::{
     NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig, SealedDeliveries,
     TrackerBatchFormationCallback, TrackerBatchFormationResult, TrackerOperatorOutput,
+    TrackerOperatorTrackingOutput,
 };
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3::Py;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,7 +29,7 @@ fn take_shared_buffer(batch: &Bound<'_, PyAny>) -> PyResult<deepstream_buffers::
     Ok(deepstream_buffers::SharedBuffer::from(buf))
 }
 
-type SharedTrackerOutput = Arc<Mutex<Option<TrackerOperatorOutput>>>;
+type SharedTrackingBatch = Arc<Mutex<Option<TrackerOperatorTrackingOutput>>>;
 type PyRoiHandle = Py<PyRoi>;
 
 /// Configuration for the NvTrackerBatchingOperator batching layer.
@@ -42,16 +44,19 @@ pub struct PyNvTrackerBatchingOperatorConfig {
 #[pymethods]
 impl PyNvTrackerBatchingOperatorConfig {
     #[new]
+    #[pyo3(signature = (max_batch_size, max_batch_wait_ms, nvtracker_config, *, pending_batch_timeout_ms=60000))]
     fn new(
         max_batch_size: usize,
         max_batch_wait_ms: u64,
         nvtracker_config: &PyNvTrackerConfig,
+        pending_batch_timeout_ms: u64,
     ) -> Self {
         Self {
             inner: NvTrackerBatchingOperatorConfig {
                 max_batch_size,
                 max_batch_wait: Duration::from_millis(max_batch_wait_ms),
                 nvtracker: nvtracker_config.inner.clone(),
+                pending_batch_timeout: Duration::from_millis(pending_batch_timeout_ms),
             },
         }
     }
@@ -64,6 +69,12 @@ impl PyNvTrackerBatchingOperatorConfig {
     #[getter]
     fn max_batch_wait_ms(&self) -> u64 {
         self.inner.max_batch_wait.as_millis() as u64
+    }
+
+    /// Pending batch timeout (milliseconds).
+    #[getter]
+    fn pending_batch_timeout_ms(&self) -> u64 {
+        self.inner.pending_batch_timeout.as_millis() as u64
     }
 
     #[getter]
@@ -150,7 +161,7 @@ impl PyTrackerBatchFormationResult {
 /// Per-frame tracking result (callback view — no direct buffer access).
 #[pyclass(name = "TrackerOperatorFrameOutput", module = "savant_rs.nvtracker")]
 pub struct PyTrackerOperatorFrameOutput {
-    shared: SharedTrackerOutput,
+    shared: SharedTrackingBatch,
     slot_idx: usize,
     frame: savant_core::primitives::frame::VideoFrameProxy,
     num_tracks: usize,
@@ -330,49 +341,108 @@ impl PySealedDeliveries {
     }
 }
 
-/// Full batch tracking result from the batching operator.
+enum PyTrackerOperatorOutputInner {
+    Batch {
+        shared: SharedTrackingBatch,
+        num_frames: usize,
+    },
+    Eos {
+        source_id: String,
+    },
+    Error {
+        message: String,
+    },
+}
+
+/// Callback payload from :class:`NvTrackerBatchingOperator`.
 #[pyclass(name = "TrackerOperatorOutput", module = "savant_rs.nvtracker")]
 pub struct PyTrackerOperatorOutput {
-    shared: SharedTrackerOutput,
-    num_frames: usize,
+    inner: PyTrackerOperatorOutputInner,
 }
 
 impl PyTrackerOperatorOutput {
     pub(crate) fn from_rust(output: TrackerOperatorOutput) -> Self {
-        let num_frames = output.frames().len();
-        Self {
-            shared: Arc::new(Mutex::new(Some(output))),
-            num_frames,
-        }
+        let inner = match output {
+            TrackerOperatorOutput::Tracking(t) => {
+                let num_frames = t.frames().len();
+                PyTrackerOperatorOutputInner::Batch {
+                    shared: Arc::new(Mutex::new(Some(t))),
+                    num_frames,
+                }
+            }
+            TrackerOperatorOutput::Eos { source_id } => {
+                PyTrackerOperatorOutputInner::Eos { source_id }
+            }
+            TrackerOperatorOutput::Error(e) => PyTrackerOperatorOutputInner::Error {
+                message: e.to_string(),
+            },
+        };
+        Self { inner }
     }
 }
 
 #[pymethods]
 impl PyTrackerOperatorOutput {
+    #[getter]
+    fn is_tracking(&self) -> bool {
+        matches!(self.inner, PyTrackerOperatorOutputInner::Batch { .. })
+    }
+
+    #[getter]
+    fn is_eos(&self) -> bool {
+        matches!(self.inner, PyTrackerOperatorOutputInner::Eos { .. })
+    }
+
+    #[getter]
+    fn is_error(&self) -> bool {
+        matches!(self.inner, PyTrackerOperatorOutputInner::Error { .. })
+    }
+
+    #[getter]
+    fn eos_source_id(&self) -> Option<String> {
+        match &self.inner {
+            PyTrackerOperatorOutputInner::Eos { source_id } => Some(source_id.clone()),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    fn error_message(&self) -> Option<String> {
+        match &self.inner {
+            PyTrackerOperatorOutputInner::Error { message } => Some(message.clone()),
+            _ => None,
+        }
+    }
+
     /// Per-frame outputs (tracking results only — no direct buffer access).
     #[getter]
     fn frames(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let guard = self.shared.lock();
-        let output = guard.as_ref().ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err("TrackerOperatorOutput has been released")
-        })?;
         let list = PyList::empty(py);
-        for (idx, frame_output) in output.frames().iter().enumerate() {
-            let py_frame = PyTrackerOperatorFrameOutput {
-                shared: self.shared.clone(),
-                slot_idx: idx,
-                frame: frame_output.frame.clone(),
-                num_tracks: frame_output.tracked_objects.len(),
-            };
-            list.append(Py::new(py, py_frame)?)?;
+        if let PyTrackerOperatorOutputInner::Batch { shared, .. } = &self.inner {
+            let guard = shared.lock();
+            let output = guard.as_ref().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("TrackerOperatorOutput has been released")
+            })?;
+            for (idx, frame_output) in output.frames().iter().enumerate() {
+                let py_frame = PyTrackerOperatorFrameOutput {
+                    shared: shared.clone(),
+                    slot_idx: idx,
+                    frame: frame_output.frame.clone(),
+                    num_tracks: frame_output.tracked_objects.len(),
+                };
+                list.append(Py::new(py, py_frame)?)?;
+            }
         }
         Ok(list.unbind())
     }
 
-    /// Number of frames in the batch.
+    /// Number of frames in the batch (0 for EOS / error).
     #[getter]
     fn num_frames(&self) -> usize {
-        self.num_frames
+        match &self.inner {
+            PyTrackerOperatorOutputInner::Batch { num_frames, .. } => *num_frames,
+            _ => 0,
+        }
     }
 
     /// Extract sealed deliveries while keeping tracking data alive.
@@ -380,15 +450,32 @@ impl PyTrackerOperatorOutput {
     /// Returns a :class:`SealedDeliveries` on the first call.
     /// Subsequent calls return ``None``.
     fn take_deliveries(&self) -> PyResult<Option<PySealedDeliveries>> {
-        let mut guard = self.shared.lock();
-        let output = guard.as_mut().ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err("TrackerOperatorOutput has been released")
-        })?;
-        Ok(output.take_deliveries().map(PySealedDeliveries::from_rust))
+        match &self.inner {
+            PyTrackerOperatorOutputInner::Batch { shared, .. } => {
+                let mut guard = shared.lock();
+                let output = guard.as_mut().ok_or_else(|| {
+                    pyo3::exceptions::PyRuntimeError::new_err(
+                        "TrackerOperatorOutput has been released",
+                    )
+                })?;
+                Ok(output.take_deliveries().map(PySealedDeliveries::from_rust))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn __repr__(&self) -> String {
-        format!("TrackerOperatorOutput(num_frames={})", self.num_frames)
+        match &self.inner {
+            PyTrackerOperatorOutputInner::Batch { num_frames, .. } => {
+                format!("TrackerOperatorOutput(Tracking(num_frames={num_frames}))")
+            }
+            PyTrackerOperatorOutputInner::Eos { source_id } => {
+                format!("TrackerOperatorOutput(Eos(source_id={source_id:?}))")
+            }
+            PyTrackerOperatorOutputInner::Error { message } => {
+                format!("TrackerOperatorOutput(Error({message:?}))")
+            }
+        }
     }
 }
 
@@ -502,6 +589,37 @@ impl PyNvTrackerBatchingOperator {
             op.reset_stream(source_id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
+    }
+
+    /// Forward logical per-source EOS to the inner tracker.
+    fn send_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
+        let op = self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("NvTrackerBatchingOperator is shut down")
+        })?;
+        py.detach(|| {
+            op.send_eos(source_id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    #[pyo3(signature = (timeout_ms))]
+    fn graceful_shutdown(
+        &mut self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Vec<Py<PyTrackerOperatorOutput>>> {
+        let mut op = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "NvTrackerBatchingOperator is already shut down",
+            )
+        })?;
+        let outs = py.detach(|| {
+            op.graceful_shutdown(Duration::from_millis(timeout_ms))
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        outs.into_iter()
+            .map(|o| Py::new(py, PyTrackerOperatorOutput::from_rust(o)))
+            .collect()
     }
 
     /// Flush pending frames, stop timer thread, and shut down NvTracker.

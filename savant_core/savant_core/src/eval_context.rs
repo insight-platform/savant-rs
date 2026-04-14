@@ -284,7 +284,10 @@ impl Context for ObjectContext<'_> {
                         .framerate
                         .get_or_init(|| match self.object.get_frame() {
                             None => Value::Empty,
-                            Some(f) => Value::from(f.get_framerate()),
+                            Some(f) => {
+                                let (n, d) = f.get_fps();
+                                Value::from(format!("{n}/{d}"))
+                            }
                         }),
                 )
             }
@@ -349,7 +352,7 @@ impl Context for ObjectContext<'_> {
                 Some(object_view.frame.time_base_nominator.get_or_init(|| {
                     match self.object.get_frame() {
                         None => Value::Empty,
-                        Some(f) => Value::from(f.get_time_base().0 as i64),
+                        Some(f) => Value::from(f.get_time_base().0),
                     }
                 }))
             }
@@ -357,7 +360,7 @@ impl Context for ObjectContext<'_> {
                 Some(object_view.frame.time_base_denominator.get_or_init(|| {
                     match self.object.get_frame() {
                         None => Value::Empty,
-                        Some(f) => Value::from(f.get_time_base().1 as i64),
+                        Some(f) => Value::from(f.get_time_base().1),
                     }
                 }))
             }

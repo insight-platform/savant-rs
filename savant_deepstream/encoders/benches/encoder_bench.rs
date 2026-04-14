@@ -41,42 +41,63 @@ fn has_nvjpegenc() -> bool {
 // ---------------------------------------------------------------------------
 
 fn h264_low_latency_config() -> EncoderConfig {
-    let props = EncoderProperties::H264Dgpu(H264DgpuProps {
-        preset: Some(DgpuPreset::P1),
-        tuning_info: Some(TuningPreset::LowLatency),
-        ..Default::default()
-    });
+    let props = if nvidia_gpu_utils::is_jetson_kernel() {
+        EncoderProperties::H264Jetson(H264JetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            ..Default::default()
+        })
+    } else {
+        EncoderProperties::H264Dgpu(H264DgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        })
+    };
     EncoderConfig::new(Codec::H264, 1920, 1080)
-        .format(VideoFormat::NV12)
+        .format(VideoFormat::RGBA)
         .properties(props)
 }
 
 fn hevc_low_latency_config() -> EncoderConfig {
-    let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
-        preset: Some(DgpuPreset::P1),
-        tuning_info: Some(TuningPreset::LowLatency),
-        ..Default::default()
-    });
+    let props = if nvidia_gpu_utils::is_jetson_kernel() {
+        EncoderProperties::HevcJetson(HevcJetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            ..Default::default()
+        })
+    } else {
+        EncoderProperties::HevcDgpu(HevcDgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        })
+    };
     EncoderConfig::new(Codec::Hevc, 1920, 1080)
-        .format(VideoFormat::NV12)
+        .format(VideoFormat::RGBA)
         .properties(props)
 }
 
 fn av1_low_latency_config() -> EncoderConfig {
-    let props = EncoderProperties::Av1Dgpu(Av1DgpuProps {
-        preset: Some(DgpuPreset::P1),
-        tuning_info: Some(TuningPreset::LowLatency),
-        ..Default::default()
-    });
+    let props = if nvidia_gpu_utils::is_jetson_kernel() {
+        EncoderProperties::Av1Jetson(Av1JetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            ..Default::default()
+        })
+    } else {
+        EncoderProperties::Av1Dgpu(Av1DgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        })
+    };
     EncoderConfig::new(Codec::Av1, 1920, 1080)
-        .format(VideoFormat::NV12)
+        .format(VideoFormat::RGBA)
         .properties(props)
 }
 
 fn jpeg_config() -> EncoderConfig {
     let props = EncoderProperties::Jpeg(JpegProps { quality: Some(85) });
     EncoderConfig::new(Codec::Jpeg, 1920, 1080)
-        .format(VideoFormat::I420)
+        .format(VideoFormat::RGBA)
         .properties(props)
 }
 
@@ -84,15 +105,26 @@ fn jpeg_config() -> EncoderConfig {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Acquire a buffer from the encoder's user-facing generator, create a
+/// [`SurfaceView`] (triggers EGL-CUDA registration on Jetson), then
+/// extract the underlying [`gst::Buffer`] for submission.
+fn acquire_frame(encoder: &NvEncoder, id: u128) -> gstreamer::Buffer {
+    let shared = encoder
+        .generator()
+        .acquire(Some(id))
+        .expect("acquire failed");
+    // Creating a SurfaceView resolves the CUDA pointer and, on Jetson,
+    // performs the one-time EGL-CUDA registration for this pool slot.
+    let _view = SurfaceView::from_buffer(&shared, 0).expect("SurfaceView failed");
+    drop(_view);
+    shared.into_buffer().expect("sole owner")
+}
+
 /// Create the encoder, submit one frame, finish, return encoded output.
 fn create_and_encode_one(config: &EncoderConfig) {
     let mut encoder = NvEncoder::new(config).expect("NvEncoder::new failed");
 
-    let shared = encoder
-        .generator()
-        .acquire(Some(0))
-        .expect("acquire failed");
-    let buffer = shared.into_buffer().expect("sole owner");
+    let buffer = acquire_frame(&encoder, 0);
 
     encoder
         .submit_frame(buffer, 0, 0, Some(33_333_333))
@@ -155,11 +187,7 @@ const FRAME_DURATION_NS: u64 = 33_333_333; // ~30 fps
 /// promptly (pool size is platform-dependent — see `NvEncoder::new`).
 fn encode_n_frames(mut encoder: NvEncoder) {
     for i in 0..THROUGHPUT_FRAMES {
-        let shared = encoder
-            .generator()
-            .acquire(Some(i as u128))
-            .expect("acquire failed");
-        let buffer = shared.into_buffer().expect("sole owner");
+        let buffer = acquire_frame(&encoder, i as u128);
 
         let pts_ns = i * FRAME_DURATION_NS;
         encoder

@@ -14,8 +14,8 @@ use deepstream_buffers::{
     cuda_init, BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, VideoFormat,
 };
 use nvtracker::{
-    default_ll_lib_path, NvTracker, NvTrackerConfig, Roi, TrackedFrame, TrackerOutput,
-    TrackingIdResetMode,
+    default_ll_lib_path, NvTracker, NvTrackerConfig, NvTrackerOutput, Result as NvResult, Roi,
+    TrackedFrame, TrackerOutput, TrackingIdResetMode,
 };
 use savant_core::primitives::RBBox;
 use std::collections::HashMap;
@@ -101,15 +101,34 @@ fn create_tracker(config_path: &std::path::Path) -> NvTracker {
     c.tracker_height = 384;
     c.max_batch_size = 1;
     c.tracking_id_reset_mode = TrackingIdResetMode::None;
-    NvTracker::new(c, Box::new(|_| {})).expect("NvTracker::new failed")
+    NvTracker::new(c).expect("NvTracker::new failed")
+}
+
+fn bench_track_sync(
+    tracker: &NvTracker,
+    frames: &[TrackedFrame],
+    ids: Vec<SavantIdMetaKind>,
+) -> NvResult<TrackerOutput> {
+    tracker.submit(frames, ids)?;
+    loop {
+        match tracker.recv()? {
+            NvTrackerOutput::Tracking(t) => return Ok(t),
+            NvTrackerOutput::Event(_) => continue,
+            NvTrackerOutput::Eos { source_id } => {
+                return Err(nvtracker::NvTrackerError::PipelineError(format!(
+                    "unexpected EOS: {source_id}"
+                )));
+            }
+            NvTrackerOutput::Error(e) => return Err(e),
+        }
+    }
 }
 
 /// Push `n` warm-up frames so the tracker passes its probation threshold.
 fn warm_up(tracker: &NvTracker, gen: &BufferGenerator, rois: &[Roi], n: usize) {
     for _ in 0..n {
-        let _ = tracker
-            .track_sync(&[make_frame(gen, rois)], frame_ids())
-            .expect("warm-up track_sync failed");
+        let _ = bench_track_sync(tracker, &[make_frame(gen, rois)], frame_ids())
+            .expect("warm-up track failed");
     }
 }
 
@@ -175,13 +194,12 @@ fn run_single_stream_bench(c: &mut Criterion, group_name: &str, config_path: &st
     for &n_objects in &[10usize, 25, 50, 100] {
         let rois = generate_rois(n_objects, W, H);
 
-        let mut tracker = create_tracker(config_path);
+        let tracker = create_tracker(config_path);
 
         warm_up(&tracker, &gen, &rois, WARMUP_FRAMES);
 
-        let val_output = tracker
-            .track_sync(&[make_frame(&gen, &rois)], frame_ids())
-            .expect("validation track_sync failed");
+        let val_output = bench_track_sync(&tracker, &[make_frame(&gen, &rois)], frame_ids())
+            .expect("validation track failed");
         validate_output(&val_output, &rois);
 
         group.throughput(criterion::Throughput::Elements(n_objects as u64));
@@ -194,9 +212,8 @@ fn run_single_stream_bench(c: &mut Criterion, group_name: &str, config_path: &st
                     let start = Instant::now();
                     for _ in 0..iters {
                         let frame = make_frame(&gen, &rois);
-                        let _output = tracker
-                            .track_sync(&[frame], frame_ids())
-                            .expect("track_sync failed during benchmark");
+                        let _output = bench_track_sync(&tracker, &[frame], frame_ids())
+                            .expect("track failed during benchmark");
                     }
                     start.elapsed()
                 });

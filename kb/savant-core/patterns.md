@@ -24,22 +24,28 @@ let independent = frame.smart_copy(); // deep copy
 
 ## Creating Frames
 
+Frame metadata uses a typed codec and a rational **time base** `(numerator, denominator)` in **`i64`** (seconds per tick = `num/den`). GStreamer clock scale is `(1, 1_000_000_000)`.
+
 ```rust
 use savant_core::primitives::frame::{VideoFrameProxy, VideoFrameContent, VideoFrameTranscodingMethod};
+use savant_core::primitives::rust::VideoCodec;
 
 let frame = VideoFrameProxy::new(
     "cam-1",                           // source_id
-    "30/1",                            // framerate
+    (30, 1),                           // fps (numerator, denominator) — i64
     1920, 1080,                        // width, height
     VideoFrameContent::None,           // no pixel data
     VideoFrameTranscodingMethod::Copy, // transcoding method
-    None,                              // codec
+    Some(VideoCodec::H264),            // codec: Option<VideoCodec>
     Some(true),                        // keyframe
-    (1, 30),                            // time_base (num, den)
-    Some(0),                           // pts
-    None, None,                        // dts, duration
+    (1, 30),                           // time_base (num, den) — i64 tuple
+    0,                                 // pts (in time_base units)
+    None,                              // dts
+    None,                              // duration
 )?;
 ```
+
+Protobuf `VideoFrame` carries **`NanosecondsU128`** for **`creation_timestamp_ns`** (field 4), **`Rational32`** for **`fps`** (field 6) and **`time_base`** (field 12), and **`VideoCodec`** enum (field 10). JSON on the Rust side uses **`fps`** / **`time_base`** as `[num, den]` arrays and codec as the canonical **string** name (`"h264"`, `"swjpeg"`, …).
 
 ## Adding Objects to Frames
 

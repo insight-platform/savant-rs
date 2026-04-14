@@ -1,16 +1,13 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 
-use pyo3::exceptions::{PySystemError, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use savant_core::pipeline::stage_function_loader::load_stage_function_plugin as rust_load_stage_function_plugin;
 use savant_core::pipeline::PipelineStageFunction as RustPipelineStageFunction;
-use savant_core::pipeline::PluginParams;
 use savant_core::rust;
 
 use crate::match_query::MatchQuery;
-use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::batch::VideoFrameBatch;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -35,35 +32,12 @@ impl Clone for StageFunction {
     }
 }
 
-#[pyfunction]
-pub fn handle_psf(f: StageFunction) {
-    let _ = f;
-}
-
 #[pymethods]
 impl StageFunction {
     #[staticmethod]
     fn none() -> Self {
         Self(Mutex::new(None))
     }
-}
-
-#[pyfunction]
-pub fn load_stage_function_plugin(
-    libname: &str,
-    init_name: &str,
-    plugin_name: &str,
-    params: HashMap<String, AttributeValue>,
-) -> PyResult<StageFunction> {
-    let params = params
-        .into_iter()
-        .map(|(k, v)| (k, v.0))
-        .collect::<hashbrown::HashMap<_, _>>();
-    let params = PluginParams { params };
-
-    rust_load_stage_function_plugin(libname, init_name, plugin_name, params)
-        .map(|f| StageFunction(Mutex::new(Some(f))))
-        .map_err(|e| PySystemError::new_err(e.to_string()))
 }
 
 /// Defines which type of payload a stage handles.

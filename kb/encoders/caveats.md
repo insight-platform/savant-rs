@@ -32,8 +32,7 @@ fn is_jetson() -> bool {
 }
 ```
 
-⚠ JPEG, PNG, and Raw codecs have platform-neutral properties — no branching needed.
-⚠ AV1 is dGPU-only. `EncoderProperties::from_pairs(Codec::Av1, Platform::Jetson, _)` returns `Err(UnsupportedCodec)`.
+⚠ JPEG, PNG, RawRgba, RawRgb, and RawNv12 codecs have platform-neutral properties — no branching needed.
 
 ---
 

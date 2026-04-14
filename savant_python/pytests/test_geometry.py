@@ -532,3 +532,17 @@ class TestAssociateBboxes:
         owners = [RBBox(100.0, 100.0, 2.0, 2.0)]
         result = associate_bboxes(candidates, owners, BBoxMetricType.IoU, 0.5)
         assert isinstance(result, dict)
+
+
+# ── Module layout (geometry only under primitives) ────────────────────────
+
+
+class TestGeometryModulePath:
+    def test_primitives_geometry_point(self):
+        p = Point(1.0, 2.0)
+        assert p.x == 1.0
+
+    def test_no_toplevel_savant_rs_geometry(self):
+        import importlib.util
+
+        assert importlib.util.find_spec("savant_rs.geometry") is None

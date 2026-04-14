@@ -16,7 +16,9 @@ pub struct ObjectMeta {
 impl ObjectMeta {
     /// Acquire a new object meta from the batch pool.
     pub fn from_batch(batch_meta: &BatchMeta) -> Result<Self> {
-        // SAFETY: batch_meta.as_raw() is guaranteed non-null by BatchMeta invariants.
+        // SAFETY: `batch_meta.as_raw()` is guaranteed non-null by the `BatchMeta`
+        // constructor invariant. The returned pointer may be null if the pool is
+        // exhausted, which is checked below.
         let raw = unsafe { deepstream_sys::nvds_acquire_obj_meta_from_pool(batch_meta.as_raw()) };
         if raw.is_null() {
             return Err(DeepStreamError::allocation_failed(

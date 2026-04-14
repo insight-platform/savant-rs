@@ -13,12 +13,12 @@ type FramePair = (VideoFrameProxy, deepstream_buffers::SharedBuffer);
 fn make_frame(source_id: &str) -> VideoFrameProxy {
     VideoFrameProxy::new(
         source_id,
-        "30/1",
+        (30, 1),
         320,
         240,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        &None,
+        None,
         None,
         (1, 1_000_000_000),
         0,
@@ -45,11 +45,14 @@ fn make_nvtracker_config() -> crate::config::NvTrackerConfig {
         input_format: deepstream_buffers::VideoFormat::RGBA,
         element_properties: StdHashMap::new(),
         tracking_id_reset_mode: TrackingIdResetMode::None,
-        queue_depth: 0,
+        operation_timeout: std::time::Duration::from_secs(30),
+        input_channel_capacity: 16,
+        output_channel_capacity: 16,
+        drain_poll_interval: std::time::Duration::from_millis(100),
     }
 }
 
-/// Helper to build a test `TrackerOperatorOutput` with N frames.
+/// Helper to build a test [`TrackerOperatorOutput::Tracking`] with N frames.
 fn make_test_output(n: usize) -> output::TrackerOperatorOutput {
     let mut frames = Vec::with_capacity(n);
     let mut deliveries = Vec::with_capacity(n);
@@ -65,7 +68,9 @@ fn make_test_output(n: usize) -> output::TrackerOperatorOutput {
             past_frame_data: vec![],
         });
     }
-    output::TrackerOperatorOutput::new(frames, deliveries)
+    output::TrackerOperatorOutput::Tracking(output::TrackerOperatorTrackingOutput::new(
+        frames, deliveries,
+    ))
 }
 
 // ── BatchState ──────────────────────────────────────────────────────
@@ -161,15 +166,16 @@ fn error_batch_formation_failed_display() {
 fn tracker_operator_output_debug_format() {
     let output = make_test_output(0);
     let dbg = format!("{output:?}");
-    assert!(dbg.contains("TrackerOperatorOutput"));
+    assert!(dbg.contains("Tracking"));
     assert!(dbg.contains("num_frames"));
 }
 
 #[test]
 fn tracker_operator_output_accessors() {
     let output = make_test_output(2);
-    assert_eq!(output.frames().len(), 2);
-    assert_eq!(output.frames()[0].frame.get_source_id(), "cam0");
+    let tracking = output.as_tracking().expect("tracking variant");
+    assert_eq!(tracking.frames().len(), 2);
+    assert_eq!(tracking.frames()[0].frame.get_source_id(), "cam0");
 }
 
 #[test]
@@ -220,7 +226,10 @@ fn frame_output_contains_per_frame_groups() {
 #[test]
 fn take_deliveries_returns_correct_count() {
     let mut output = make_test_output(3);
-    let sealed = output.take_deliveries();
+    let sealed = output
+        .as_tracking_mut()
+        .expect("tracking")
+        .take_deliveries();
     assert!(sealed.is_some());
     let sealed = sealed.unwrap();
     assert_eq!(sealed.len(), 3);
@@ -230,16 +239,21 @@ fn take_deliveries_returns_correct_count() {
 #[test]
 fn take_deliveries_twice_returns_none() {
     let mut output = make_test_output(2);
-    let first = output.take_deliveries();
+    let tracking = output.as_tracking_mut().expect("tracking");
+    let first = tracking.take_deliveries();
     assert!(first.is_some());
-    let second = output.take_deliveries();
+    let second = tracking.take_deliveries();
     assert!(second.is_none());
 }
 
 #[test]
 fn try_unseal_succeeds_after_drop() {
     let mut output = make_test_output(2);
-    let sealed = output.take_deliveries().unwrap();
+    let sealed = output
+        .as_tracking_mut()
+        .expect("tracking")
+        .take_deliveries()
+        .unwrap();
     drop(output);
     assert!(sealed.is_released());
     let pairs = sealed.try_unseal().expect("should succeed after drop");
@@ -249,7 +263,11 @@ fn try_unseal_succeeds_after_drop() {
 #[test]
 fn unseal_blocks_then_returns() {
     let mut output = make_test_output(2);
-    let sealed = output.take_deliveries().unwrap();
+    let sealed = output
+        .as_tracking_mut()
+        .expect("tracking")
+        .take_deliveries()
+        .unwrap();
 
     let handle = std::thread::spawn(move || {
         let pairs = sealed.unseal();
@@ -262,4 +280,48 @@ fn unseal_blocks_then_returns() {
 
     let pairs = handle.join().expect("thread panicked");
     assert_eq!(pairs.len(), 2);
+}
+
+// ── New error variant tests ────────────────────────────────────────
+
+#[test]
+fn error_pipeline_failed_display() {
+    let err = crate::error::NvTrackerError::PipelineFailed;
+    let msg = err.to_string();
+    assert!(
+        msg.contains("failed state"),
+        "expected 'failed state' in: {msg}"
+    );
+}
+
+#[test]
+fn error_operator_failed_display() {
+    let err = crate::error::NvTrackerError::OperatorFailed;
+    let msg = err.to_string();
+    assert!(
+        msg.contains("failed state"),
+        "expected 'failed state' in: {msg}"
+    );
+}
+
+// ── Config defaults for new fields ─────────────────────────────────
+
+#[test]
+fn operator_config_builder_pending_batch_timeout_default() {
+    let config = NvTrackerBatchingOperatorConfig::builder(make_nvtracker_config()).build();
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(60));
+}
+
+#[test]
+fn operator_config_builder_pending_batch_timeout_override() {
+    let config = NvTrackerBatchingOperatorConfig::builder(make_nvtracker_config())
+        .pending_batch_timeout(Duration::from_secs(120))
+        .build();
+    assert_eq!(config.pending_batch_timeout, Duration::from_secs(120));
+}
+
+#[test]
+fn nvtracker_config_operation_timeout_default() {
+    let cfg = crate::config::NvTrackerConfig::new("/tmp/lib.so", "/tmp/cfg.yml");
+    assert_eq!(cfg.operation_timeout, Duration::from_secs(30));
 }

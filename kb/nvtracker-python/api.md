@@ -14,9 +14,9 @@ Maps tracker misc state: `EMPTY`, `ACTIVE`, `INACTIVE`, `TENTATIVE`, `PROJECTED`
 
 ## `NvTrackerConfig`
 
-`SIG: __init__(ll_lib_file: str, ll_config_file: str, input_format: VideoFormat, *, name: str = "", tracker_width: int = 640, tracker_height: int = 384, max_batch_size: int = 16, gpu_id: int = 0, element_properties: Optional[dict[str, str]] = None, tracking_id_reset_mode: TrackingIdResetMode = NONE)`
+`SIG: __init__(ll_lib_file: str, ll_config_file: str, input_format: VideoFormat, *, name: str = "", tracker_width: int = 640, tracker_height: int = 384, max_batch_size: int = 16, gpu_id: int = 0, element_properties: Optional[dict[str, str]] = None, tracking_id_reset_mode: TrackingIdResetMode = NONE, queue_depth: int = 0, operation_timeout_ms: int = 30000, input_channel_capacity: int = 16, output_channel_capacity: int = 16, drain_poll_interval_ms: int = 100)`
 
-**Getters:** `ll_lib_file`, `ll_config_file` (other fields are ctor-only in the binding).
+**Getters:** `ll_lib_file`, `ll_config_file`, `queue_depth`, `operation_timeout_ms`, `input_channel_capacity`, `output_channel_capacity`, `drain_poll_interval_ms`, `name`, `tracker_width`, `tracker_height`, `max_batch_size`, `gpu_id`; `__repr__`.
 
 Rust `validate()` runs inside `NvTracker.__init__` (via `NvTracker::new`).
 
@@ -58,18 +58,32 @@ Input frame for tracking. Callers build one per source frame; the tracker assemb
 
 `__repr__` summarizes list lengths.
 
+## `NvTrackerOutput`
+
+Discriminated union from `recv` / `recv_timeout` / `try_recv` (mirrors `NvInferOutput`).
+
+**Properties:** `is_tracking`, `is_event`, `is_eos`, `is_error`, `event_summary`, `eos_source_id`, `error_message`.
+
+**Methods:** `as_tracking() -> Optional[TrackerOutput]`.
+
 ## `NvTracker`
 
-Pipeline: `appsrc → nvtracker → appsink` (Playing on `new`). No queue or meta bridge — nvtracker operates in-place.
+Pipeline: `appsrc → nvtracker → appsink` via the shared GStreamer framework (Playing on `new`). Optional queue from `queue_depth`.
 
-`SIG: __init__(config: NvTrackerConfig, callback: Callable[[TrackerOutput], None])`
+`SIG: __init__(config: NvTrackerConfig)`
 
 | Method | Signature | Notes |
 |--------|-----------|-------|
-| `track(frames, ids)` | `frames: List[TrackedFrame]`, `ids: List[Tuple[SavantIdMetaKind, int]]`; releases GIL via `py.detach` | Async; builds `NonUniformBatch` internally |
-| `track_sync(frames, ids)` | `-> TrackerOutput`; same params | Blocks up to 30 s in Rust |
-| `reset_stream(source_id: str)` | Stream reset event; resets frame counter for that source |
-| `shutdown()` | Idempotent; further calls raise `RuntimeError` |
+| `submit(frames, ids)` | `List[TrackedFrame]`, `List[Tuple[SavantIdMetaKind, int]]` | GIL released; backpressure if input channel full |
+| `recv()` | `-> NvTrackerOutput` | Blocks; `RuntimeError` on channel disconnect |
+| `recv_timeout(timeout_ms)` | `-> Optional[NvTrackerOutput]` | `None` on timeout |
+| `try_recv()` | `-> Optional[NvTrackerOutput]` | |
+| `send_eos(source_id)` | Logical per-source EOS (custom downstream event) |
+| `send_custom_downstream_event(structure_name, string_fields=None)` | String-keyed custom downstream event |
+| `is_failed()` | `-> bool` |
+| `reset_stream(source_id: str)` | Stream reset + internal counters |
+| `graceful_shutdown(timeout_ms: int)` | `-> List[NvTrackerOutput]`; GIL released; takes inner engine |
+| `shutdown()` | Abrupt shutdown; takes inner engine; second call raises `RuntimeError` |
 
 `__repr__`: `NvTracker(running)` / `NvTracker(shut_down)`.
 
@@ -120,14 +134,11 @@ Methods:
 
 ## `TrackerOperatorOutput`
 
-Read-only properties:
+Callback payload: tracking batch, logical EOS, or error.
 
-- `frames: List[TrackerOperatorFrameOutput]`
-- `num_frames: int`
+**Properties:** `is_tracking`, `is_eos`, `is_error`, `eos_source_id`, `error_message`, `frames`, `num_frames`.
 
-Methods:
-
-- `take_deliveries() -> Optional[SealedDeliveries]` (first call returns object, next calls return `None`)
+**Methods:** `take_deliveries() -> Optional[SealedDeliveries]` (only for `is_tracking`; otherwise `None`).
 
 ## `NvTrackerBatchingOperator`
 
@@ -140,4 +151,6 @@ Methods:
 - `add_frame(frame: VideoFrame, buffer: SharedBuffer | int)`
 - `flush()`
 - `reset_stream(source_id: str)`
+- `send_eos(source_id: str)` — forwards to inner `NvTracker.send_eos`
+- `graceful_shutdown(timeout_ms: int) -> List[TrackerOperatorOutput]` — GIL released
 - `shutdown()`
