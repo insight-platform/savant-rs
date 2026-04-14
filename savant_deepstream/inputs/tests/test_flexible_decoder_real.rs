@@ -44,13 +44,15 @@ fn find_entry<'a>(manifest: &'a Manifest, file: &str) -> Option<&'a AssetEntry> 
 
 /// Submit a slice of [`AccessUnit`]s to the decoder, wrapping each in a
 /// [`VideoFrameProxy`] with correct metadata.
+///
+/// Returns the UUIDs of every submitted [`VideoFrameProxy`] (in submission order).
 fn submit_access_units(
     dec: &FlexibleDecoder,
     aus: &[AccessUnit],
     entry: &AssetEntry,
     limit: usize,
     pts_offset_ns: u64,
-) -> usize {
+) -> Vec<u128> {
     submit_access_units_with_dims(
         dec,
         aus,
@@ -64,6 +66,8 @@ fn submit_access_units(
 
 /// Like [`submit_access_units`] but with explicit codec name and dimensions,
 /// allowing tests to inject mismatched metadata.
+///
+/// Returns the UUIDs of every submitted [`VideoFrameProxy`] (in submission order).
 fn submit_access_units_with_dims(
     dec: &FlexibleDecoder,
     aus: &[AccessUnit],
@@ -72,20 +76,20 @@ fn submit_access_units_with_dims(
     height: i64,
     limit: usize,
     pts_offset_ns: u64,
-) -> usize {
+) -> Vec<u128> {
     let vc = codec_name_to_video_codec(codec_name)
         .unwrap_or_else(|| panic!("unknown codec: {codec_name}"));
-    let mut submitted = 0;
-    for au in aus.iter().take(limit) {
+    let mut uuids = Vec::with_capacity(limit);
+    for (i, au) in aus.iter().take(limit).enumerate() {
         let pts = pts_offset_ns + au.pts_ns;
         let dts = au.dts_ns.map(|d| (pts_offset_ns + d) as i64);
         let dur = au.duration_ns.map(|d| d as i64);
         let frame = make_video_frame_ns(SOURCE_ID, vc, width, height, pts as i64, dts, dur, None);
+        uuids.push(frame.get_uuid_u128());
         dec.submit(&frame, Some(&au.data))
-            .unwrap_or_else(|e| panic!("submit failed at AU {submitted}: {e}"));
-        submitted += 1;
+            .unwrap_or_else(|e| panic!("submit failed at AU {i}: {e}"));
     }
-    submitted
+    uuids
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -106,12 +110,12 @@ fn test_h264_mp4_decode() {
     let aus = demux_mp4_to_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
-    assert!(submitted > 0, "no frames submitted for H.264 MP4");
+    assert!(!submitted.is_empty(), "no frames submitted for H.264 MP4");
 
-    collector.wait_for_frames(submitted, TIMEOUT);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
     assert_eq!(
         collector.frame_count(),
-        submitted,
+        submitted.len(),
         "H.264 MP4: decoded != submitted"
     );
     assert_eq!(
@@ -119,9 +123,10 @@ fn test_h264_mp4_decode() {
         0,
         "H.264 MP4: unexpected decoder errors"
     );
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_h264_mp4_decode: {submitted} frames");
+    eprintln!("  OK test_h264_mp4_decode: {} frames", submitted.len());
 }
 
 #[test]
@@ -139,12 +144,13 @@ fn test_h264_annexb_decode() {
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
 
-    collector.wait_for_frames(submitted, TIMEOUT);
-    assert_eq!(collector.frame_count(), submitted);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
+    assert_eq!(collector.frame_count(), submitted.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_h264_annexb_decode: {submitted} frames");
+    eprintln!("  OK test_h264_annexb_decode: {} frames", submitted.len());
 }
 
 #[test]
@@ -162,12 +168,13 @@ fn test_hevc_mp4_decode() {
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
 
-    collector.wait_for_frames(submitted, TIMEOUT);
-    assert_eq!(collector.frame_count(), submitted);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
+    assert_eq!(collector.frame_count(), submitted.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_hevc_mp4_decode: {submitted} frames");
+    eprintln!("  OK test_hevc_mp4_decode: {} frames", submitted.len());
 }
 
 #[test]
@@ -185,12 +192,13 @@ fn test_hevc_annexb_decode() {
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
 
-    collector.wait_for_frames(submitted, TIMEOUT);
-    assert_eq!(collector.frame_count(), submitted);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
+    assert_eq!(collector.frame_count(), submitted.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_hevc_annexb_decode: {submitted} frames");
+    eprintln!("  OK test_hevc_annexb_decode: {} frames", submitted.len());
 }
 
 #[test]
@@ -208,12 +216,13 @@ fn test_av1_mp4_decode() {
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
 
-    collector.wait_for_frames(submitted, TIMEOUT);
-    assert_eq!(collector.frame_count(), submitted);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
+    assert_eq!(collector.frame_count(), submitted.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_av1_mp4_decode: {submitted} frames");
+    eprintln!("  OK test_av1_mp4_decode: {} frames", submitted.len());
 }
 
 #[test]
@@ -231,12 +240,13 @@ fn test_jpeg_mp4_decode() {
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
 
-    collector.wait_for_frames(submitted, TIMEOUT);
-    assert_eq!(collector.frame_count(), submitted);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
+    assert_eq!(collector.frame_count(), submitted.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_jpeg_mp4_decode: {submitted} frames");
+    eprintln!("  OK test_jpeg_mp4_decode: {} frames", submitted.len());
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -260,27 +270,32 @@ fn test_h264_to_hevc_codec_change() {
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
-    let submitted_h264 = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
-    collector.wait_for_frames(submitted_h264, TIMEOUT);
-    eprintln!("  phase 1: {submitted_h264} H.264 frames decoded");
+    let mut all_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!("  phase 1: {} H.264 frames decoded", all_uuids.len());
 
     let hevc_aus = load_annexb_access_units(hevc_entry);
     let hevc_count = 4.min(hevc_aus.len());
     let pts_offset = (h264_count as u64) * 33_333_333;
-    let submitted_hevc = submit_access_units(&dec, &hevc_aus, hevc_entry, hevc_count, pts_offset);
+    let hevc_uuids = submit_access_units(&dec, &hevc_aus, hevc_entry, hevc_count, pts_offset);
+    all_uuids.extend(&hevc_uuids);
 
     collector.wait_for(
         |o| matches!(o, CollectedOutput::ParameterChange { .. }),
         TIMEOUT,
     );
-    collector.wait_for_frames(submitted_h264 + submitted_hevc, TIMEOUT);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
 
     assert_eq!(collector.parameter_change_count(), 1);
-    assert_eq!(collector.frame_count(), submitted_h264 + submitted_hevc);
+    assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_h264_to_hevc: {submitted_h264}+{submitted_hevc} frames, 1 param change");
+    eprintln!(
+        "  OK test_h264_to_hevc: {} frames, 1 param change",
+        all_uuids.len()
+    );
 }
 
 #[test]
@@ -300,27 +315,32 @@ fn test_jpeg_to_h264_codec_change() {
 
     let jpeg_aus = demux_mp4_to_access_units(jpeg_entry);
     let jpeg_count = 3.min(jpeg_aus.len());
-    let submitted_jpeg = submit_access_units(&dec, &jpeg_aus, jpeg_entry, jpeg_count, 0);
-    collector.wait_for_frames(submitted_jpeg, TIMEOUT);
-    eprintln!("  phase 1: {submitted_jpeg} JPEG frames decoded");
+    let mut all_uuids = submit_access_units(&dec, &jpeg_aus, jpeg_entry, jpeg_count, 0);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!("  phase 1: {} JPEG frames decoded", all_uuids.len());
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
     let pts_offset = (jpeg_count as u64) * 33_333_333;
-    let submitted_h264 = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, pts_offset);
+    let h264_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, pts_offset);
+    all_uuids.extend(&h264_uuids);
 
     collector.wait_for(
         |o| matches!(o, CollectedOutput::ParameterChange { .. }),
         TIMEOUT,
     );
-    collector.wait_for_frames(submitted_jpeg + submitted_h264, TIMEOUT);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
 
     assert_eq!(collector.parameter_change_count(), 1);
-    assert_eq!(collector.frame_count(), submitted_jpeg + submitted_h264);
+    assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_jpeg_to_h264: {submitted_jpeg}+{submitted_h264} frames, 1 param change");
+    eprintln!(
+        "  OK test_jpeg_to_h264: {} frames, 1 param change",
+        all_uuids.len()
+    );
 }
 
 #[test]
@@ -340,27 +360,32 @@ fn test_h264_to_jpeg_codec_change() {
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
-    let submitted_h264 = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
-    collector.wait_for_frames(submitted_h264, TIMEOUT);
-    eprintln!("  phase 1: {submitted_h264} H.264 frames decoded");
+    let mut all_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!("  phase 1: {} H.264 frames decoded", all_uuids.len());
 
     let jpeg_aus = demux_mp4_to_access_units(jpeg_entry);
     let jpeg_count = 3.min(jpeg_aus.len());
     let pts_offset = (h264_count as u64) * 33_333_333;
-    let submitted_jpeg = submit_access_units(&dec, &jpeg_aus, jpeg_entry, jpeg_count, pts_offset);
+    let jpeg_uuids = submit_access_units(&dec, &jpeg_aus, jpeg_entry, jpeg_count, pts_offset);
+    all_uuids.extend(&jpeg_uuids);
 
     collector.wait_for(
         |o| matches!(o, CollectedOutput::ParameterChange { .. }),
         TIMEOUT,
     );
-    collector.wait_for_frames(submitted_h264 + submitted_jpeg, TIMEOUT);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
 
     assert_eq!(collector.parameter_change_count(), 1);
-    assert_eq!(collector.frame_count(), submitted_h264 + submitted_jpeg);
+    assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_h264_to_jpeg: {submitted_h264}+{submitted_jpeg} frames, 1 param change");
+    eprintln!(
+        "  OK test_h264_to_jpeg: {} frames, 1 param change",
+        all_uuids.len()
+    );
 }
 
 #[test]
@@ -380,27 +405,32 @@ fn test_h264_to_av1_codec_change() {
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
-    let submitted_h264 = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
-    collector.wait_for_frames(submitted_h264, TIMEOUT);
-    eprintln!("  phase 1: {submitted_h264} H.264 frames decoded");
+    let mut all_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!("  phase 1: {} H.264 frames decoded", all_uuids.len());
 
     let av1_aus = demux_mp4_to_access_units(av1_entry);
     let av1_count = 4.min(av1_aus.len());
     let pts_offset = (h264_count as u64) * 33_333_333;
-    let submitted_av1 = submit_access_units(&dec, &av1_aus, av1_entry, av1_count, pts_offset);
+    let av1_uuids = submit_access_units(&dec, &av1_aus, av1_entry, av1_count, pts_offset);
+    all_uuids.extend(&av1_uuids);
 
     collector.wait_for(
         |o| matches!(o, CollectedOutput::ParameterChange { .. }),
         TIMEOUT,
     );
-    collector.wait_for_frames(submitted_h264 + submitted_av1, TIMEOUT);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
 
     assert_eq!(collector.parameter_change_count(), 1);
-    assert_eq!(collector.frame_count(), submitted_h264 + submitted_av1);
+    assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
-    eprintln!("  OK test_h264_to_av1: {submitted_h264}+{submitted_av1} frames, 1 param change");
+    eprintln!(
+        "  OK test_h264_to_av1: {} frames, 1 param change",
+        all_uuids.len()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -427,57 +457,75 @@ fn test_multi_codec_rotation_jpeg_h264_hevc_jpeg() {
 
     let frames_per_phase = 3usize;
     let dur = 33_333_333u64;
-    let mut total_submitted = 0usize;
+    let mut all_uuids = Vec::new();
     let mut expected_changes = 0usize;
 
     // Phase 1: JPEG
     let jpeg_aus = demux_mp4_to_access_units(jpeg_entry);
     let n = frames_per_phase.min(jpeg_aus.len());
-    let s = submit_access_units(&dec, &jpeg_aus, jpeg_entry, n, 0);
-    total_submitted += s;
-    collector.wait_for_frames(total_submitted, TIMEOUT);
-    eprintln!("  phase 1 (JPEG): {s} frames decoded, total={total_submitted}");
+    let uuids = submit_access_units(&dec, &jpeg_aus, jpeg_entry, n, 0);
+    all_uuids.extend(&uuids);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!(
+        "  phase 1 (JPEG): {} frames decoded, total={}",
+        uuids.len(),
+        all_uuids.len()
+    );
 
     // Phase 2: H.264
     let h264_aus = load_annexb_access_units(h264_entry);
     let n = frames_per_phase.min(h264_aus.len());
-    let offset = total_submitted as u64 * dur;
-    let s = submit_access_units(&dec, &h264_aus, h264_entry, n, offset);
-    total_submitted += s;
+    let offset = all_uuids.len() as u64 * dur;
+    let uuids = submit_access_units(&dec, &h264_aus, h264_entry, n, offset);
+    all_uuids.extend(&uuids);
     expected_changes += 1;
-    collector.wait_for_frames(total_submitted, TIMEOUT);
-    eprintln!("  phase 2 (H.264): {s} frames decoded, total={total_submitted}");
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!(
+        "  phase 2 (H.264): {} frames decoded, total={}",
+        uuids.len(),
+        all_uuids.len()
+    );
 
     // Phase 3: HEVC
     let hevc_aus = load_annexb_access_units(hevc_entry);
     let n = frames_per_phase.min(hevc_aus.len());
-    let offset = total_submitted as u64 * dur;
-    let s = submit_access_units(&dec, &hevc_aus, hevc_entry, n, offset);
-    total_submitted += s;
+    let offset = all_uuids.len() as u64 * dur;
+    let uuids = submit_access_units(&dec, &hevc_aus, hevc_entry, n, offset);
+    all_uuids.extend(&uuids);
     expected_changes += 1;
-    collector.wait_for_frames(total_submitted, TIMEOUT);
-    eprintln!("  phase 3 (HEVC): {s} frames decoded, total={total_submitted}");
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!(
+        "  phase 3 (HEVC): {} frames decoded, total={}",
+        uuids.len(),
+        all_uuids.len()
+    );
 
     // Phase 4: JPEG again
     let n = frames_per_phase.min(jpeg_aus.len());
-    let offset = total_submitted as u64 * dur;
-    let s = submit_access_units(&dec, &jpeg_aus, jpeg_entry, n, offset);
-    total_submitted += s;
+    let offset = all_uuids.len() as u64 * dur;
+    let uuids = submit_access_units(&dec, &jpeg_aus, jpeg_entry, n, offset);
+    all_uuids.extend(&uuids);
     expected_changes += 1;
-    collector.wait_for_frames(total_submitted, TIMEOUT);
-    eprintln!("  phase 4 (JPEG again): {s} frames decoded, total={total_submitted}");
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!(
+        "  phase 4 (JPEG again): {} frames decoded, total={}",
+        uuids.len(),
+        all_uuids.len()
+    );
 
     assert_eq!(
         collector.parameter_change_count(),
         expected_changes,
         "expected {expected_changes} ParameterChange events"
     );
-    assert_eq!(collector.frame_count(), total_submitted);
+    assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
     eprintln!(
-        "  OK test_multi_codec_rotation: {total_submitted} frames, {expected_changes} changes"
+        "  OK test_multi_codec_rotation: {} frames, {expected_changes} changes",
+        all_uuids.len()
     );
 }
 
@@ -503,8 +551,8 @@ fn test_source_eos_between_codec_changes() {
     // Phase 1: H.264
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
-    let submitted_h264 = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
-    collector.wait_for_frames(submitted_h264, TIMEOUT);
+    let mut all_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
 
     // Source EOS while active; push a flush frame so the custom EOS event
     // propagates through the GStreamer pipeline.
@@ -523,24 +571,24 @@ fn test_source_eos_between_codec_changes() {
             Some(33_333_333),
             None,
         );
+        all_uuids.push(frame.get_uuid_u128());
         dec.submit(&frame, Some(&flush_au.data)).unwrap();
     }
     collector.wait_for(|o| matches!(o, CollectedOutput::SourceEos { .. }), TIMEOUT);
-    eprintln!("  phase 1: {submitted_h264} H.264 + SourceEos received");
+    eprintln!("  phase 1: {} H.264 + SourceEos received", all_uuids.len());
 
     // Phase 2: switch to HEVC (triggers ParameterChange)
     let hevc_aus = load_annexb_access_units(hevc_entry);
     let hevc_count = 4.min(hevc_aus.len());
     let pts_offset = (h264_count as u64 + 1) * 33_333_333;
-    let submitted_hevc = submit_access_units(&dec, &hevc_aus, hevc_entry, hevc_count, pts_offset);
+    let hevc_uuids = submit_access_units(&dec, &hevc_aus, hevc_entry, hevc_count, pts_offset);
+    all_uuids.extend(&hevc_uuids);
 
     collector.wait_for(
         |o| matches!(o, CollectedOutput::ParameterChange { .. }),
         TIMEOUT,
     );
-    // +1 for the flush frame
-    let total_expected = submitted_h264 + 1 + submitted_hevc;
-    collector.wait_for_frames(total_expected, TIMEOUT);
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
 
     assert_eq!(collector.parameter_change_count(), 1);
     assert!(
@@ -551,6 +599,7 @@ fn test_source_eos_between_codec_changes() {
         "expected SourceEos for {SOURCE_ID}"
     );
     assert_eq!(collector.error_count(), 0);
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
     eprintln!("  OK test_source_eos_between_codec_changes");
@@ -575,13 +624,17 @@ fn test_graceful_shutdown_during_h264_decode() {
     let aus = load_annexb_access_units(entry);
     let count = 4.min(aus.len());
     let submitted = submit_access_units(&dec, &aus, entry, count, 0);
-    collector.wait_for_frames(submitted, TIMEOUT);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
 
     dec.graceful_shutdown().unwrap();
 
-    assert_eq!(collector.frame_count(), submitted);
+    assert_eq!(collector.frame_count(), submitted.len());
     assert_eq!(collector.error_count(), 0);
-    eprintln!("  OK test_graceful_shutdown_during_h264: {submitted} frames drained");
+    collector.assert_frame_uuid_coverage(&submitted);
+    eprintln!(
+        "  OK test_graceful_shutdown_during_h264: {} frames drained",
+        submitted.len()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -631,7 +684,7 @@ fn test_all_mp4_assets_single_codec() {
         let w = entry.width as i64;
         let h = entry.height as i64;
 
-        let mut submitted = 0usize;
+        let mut submitted_uuids = Vec::new();
         for au in aus.iter().take(limit) {
             let frame = make_video_frame_ns(
                 &entry.file,
@@ -643,13 +696,14 @@ fn test_all_mp4_assets_single_codec() {
                 au.duration_ns.map(|d| d as i64),
                 None,
             );
+            let uuid = frame.get_uuid_u128();
             if dec.submit(&frame, Some(&au.data)).is_err() {
                 break;
             }
-            submitted += 1;
+            submitted_uuids.push(uuid);
         }
 
-        if submitted == 0 {
+        if submitted_uuids.is_empty() {
             eprintln!("  SKIP (submit failed): {}", entry.file);
             skipped += 1;
             continue;
@@ -666,12 +720,14 @@ fn test_all_mp4_assets_single_codec() {
         );
         assert_eq!(
             collector.frame_count(),
-            submitted,
-            "{}: decoded ({}) != submitted ({submitted})",
+            submitted_uuids.len(),
+            "{}: decoded ({}) != submitted ({})",
             entry.file,
             collector.frame_count(),
+            submitted_uuids.len(),
         );
-        eprintln!("  OK {}: {submitted} frames", entry.file);
+        collector.assert_frame_uuid_coverage(&submitted_uuids);
+        eprintln!("  OK {}: {} frames", entry.file, submitted_uuids.len());
         tested += 1;
     }
 
@@ -712,7 +768,7 @@ fn test_all_annexb_assets_single_codec() {
         let w = entry.width as i64;
         let h = entry.height as i64;
 
-        let mut submitted = 0usize;
+        let mut submitted_uuids = Vec::new();
         for au in aus.iter().take(limit) {
             let frame = make_video_frame_ns(
                 &entry.file,
@@ -724,8 +780,8 @@ fn test_all_annexb_assets_single_codec() {
                 au.duration_ns.map(|d| d as i64),
                 None,
             );
+            submitted_uuids.push(frame.get_uuid_u128());
             dec.submit(&frame, Some(&au.data)).unwrap();
-            submitted += 1;
         }
 
         // Graceful shutdown flushes B-frame reorder buffers.
@@ -734,12 +790,14 @@ fn test_all_annexb_assets_single_codec() {
         assert_eq!(collector.error_count(), 0, "{}: errors", entry.file);
         assert_eq!(
             collector.frame_count(),
-            submitted,
-            "{}: decoded ({}) != submitted ({submitted})",
+            submitted_uuids.len(),
+            "{}: decoded ({}) != submitted ({})",
             entry.file,
             collector.frame_count(),
+            submitted_uuids.len(),
         );
-        eprintln!("  OK {}: {submitted} frames", entry.file);
+        collector.assert_frame_uuid_coverage(&submitted_uuids);
+        eprintln!("  OK {}: {} frames", entry.file, submitted_uuids.len());
         tested += 1;
     }
 
@@ -774,22 +832,22 @@ fn test_h264_bt709_then_bt2020_same_session() {
     // Phase 1 — bt709 8-bit
     let bt709_aus = demux_mp4_to_access_units(bt709_entry);
     let bt709_count = bt709_aus.len().min(bt709_entry.num_frames as usize);
-    let submitted_bt709 = submit_access_units(&dec, &bt709_aus, bt709_entry, bt709_count, 0);
-    assert!(submitted_bt709 > 0);
-    collector.wait_for_frames(submitted_bt709, TIMEOUT);
-    eprintln!("  phase 1 (bt709): {submitted_bt709} frames decoded");
+    let mut all_uuids = submit_access_units(&dec, &bt709_aus, bt709_entry, bt709_count, 0);
+    assert!(!all_uuids.is_empty());
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!("  phase 1 (bt709): {} frames decoded", all_uuids.len());
 
     // Phase 2 — bt2020 10-bit  (same codec H264, same 320×240)
     let bt2020_aus = demux_mp4_to_access_units(bt2020_entry);
     let bt2020_count = bt2020_aus.len().min(bt2020_entry.num_frames as usize);
     let pts_offset = (bt709_count as u64) * 33_333_333;
-    let submitted_bt2020 =
+    let bt2020_uuids =
         submit_access_units(&dec, &bt2020_aus, bt2020_entry, bt2020_count, pts_offset);
-    assert!(submitted_bt2020 > 0);
+    assert!(!bt2020_uuids.is_empty());
+    all_uuids.extend(&bt2020_uuids);
 
-    let total = submitted_bt709 + submitted_bt2020;
-    collector.wait_for_frames(total, TIMEOUT);
-    eprintln!("  phase 2 (bt2020): {submitted_bt2020} frames decoded");
+    collector.wait_for_frames(all_uuids.len(), TIMEOUT);
+    eprintln!("  phase 2 (bt2020): {} frames decoded", bt2020_uuids.len());
 
     // No parameter change expected — same codec and dimensions.
     assert_eq!(
@@ -797,12 +855,14 @@ fn test_h264_bt709_then_bt2020_same_session() {
         0,
         "no ParameterChange expected for same-codec same-dims switch"
     );
-    assert_eq!(collector.frame_count(), total);
+    assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0, "unexpected decoder errors");
+    collector.assert_frame_uuid_coverage(&all_uuids);
 
     dec.graceful_shutdown().unwrap();
     eprintln!(
-        "  OK test_h264_bt709_then_bt2020: {submitted_bt709}+{submitted_bt2020} frames, 0 param changes"
+        "  OK test_h264_bt709_then_bt2020: {} frames, 0 param changes",
+        all_uuids.len()
     );
 }
 
@@ -834,21 +894,24 @@ fn test_h264_wrong_frame_dimensions() {
 
     // Deliberately wrong dimensions — double the actual 320×240.
     let submitted = submit_access_units_with_dims(&dec, &aus, &entry.codec, 640, 480, limit, 0);
-    assert!(submitted > 0, "no frames submitted");
+    assert!(!submitted.is_empty(), "no frames submitted");
 
-    collector.wait_for_frames(submitted, TIMEOUT);
+    collector.wait_for_frames(submitted.len(), TIMEOUT);
 
     assert_eq!(
         collector.frame_count(),
-        submitted,
-        "wrong-dims: decoded ({}) != submitted ({submitted})",
+        submitted.len(),
+        "wrong-dims: decoded ({}) != submitted ({})",
         collector.frame_count(),
+        submitted.len(),
     );
     assert_eq!(collector.error_count(), 0, "unexpected decoder errors");
     assert_eq!(collector.skip_count(), 0, "unexpected skipped frames");
+    collector.assert_frame_uuid_coverage(&submitted);
 
     dec.graceful_shutdown().unwrap();
     eprintln!(
-        "  OK test_h264_wrong_frame_dimensions: {submitted} frames with 640x480 metadata for 320x240 bitstream"
+        "  OK test_h264_wrong_frame_dimensions: {} frames with 640x480 metadata for 320x240 bitstream",
+        submitted.len()
     );
 }

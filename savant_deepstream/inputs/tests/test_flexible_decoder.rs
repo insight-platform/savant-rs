@@ -29,6 +29,14 @@ fn make_jpeg(width: u32, height: u32) -> Vec<u8> {
     buf.into_inner()
 }
 
+/// Build a synthetic PNG image at the given dimensions.
+fn make_png(width: u32, height: u32) -> Vec<u8> {
+    let img = image::RgbaImage::from_pixel(width, height, image::Rgba([64, 128, 255, 255]));
+    let mut buf = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+    buf.into_inner()
+}
+
 /// Build a [`VideoFrameProxy`] for testing.
 fn make_frame(
     source_id: &str,
@@ -120,6 +128,31 @@ impl OutputCollector {
             .iter()
             .filter(|o| matches!(o, FlexibleDecoderOutput::Frame { .. }))
             .count()
+    }
+
+    fn assert_frame_uuid_coverage(&self, submitted: &[u128]) {
+        let outputs = self.outputs.lock();
+        let mut output_uuids: Vec<u128> = outputs
+            .iter()
+            .filter_map(|o| match o {
+                FlexibleDecoderOutput::Frame { frame, decoded } => {
+                    assert_eq!(
+                        Some(frame.get_uuid_u128()),
+                        decoded.frame_id,
+                        "proxy UUID must match decoded frame_id"
+                    );
+                    Some(frame.get_uuid_u128())
+                }
+                _ => None,
+            })
+            .collect();
+        output_uuids.sort();
+        let mut expected = submitted.to_vec();
+        expected.sort();
+        assert_eq!(
+            expected, output_uuids,
+            "submitted UUIDs must exactly match Frame output UUIDs"
+        );
     }
 }
 
@@ -215,6 +248,7 @@ fn test_jpeg_normal_decode() {
 
     let jpeg_data = make_jpeg(320, 240);
     let num_frames = 3;
+    let mut submitted_uuids = Vec::new();
     for i in 0..num_frames {
         let frame = make_frame(
             "cam-1",
@@ -224,11 +258,13 @@ fn test_jpeg_normal_decode() {
             VideoFrameContent::None,
             i as i64 * 33_333_333,
         );
+        submitted_uuids.push(frame.get_uuid_u128());
         dec.submit(&frame, Some(&jpeg_data)).unwrap();
     }
 
     collector.wait_for_frames(num_frames, Duration::from_secs(10));
     assert_eq!(collector.frame_count(), num_frames);
+    collector.assert_frame_uuid_coverage(&submitted_uuids);
 }
 
 #[test]
@@ -266,6 +302,7 @@ fn test_source_eos_active() {
         VideoFrameContent::None,
         0,
     );
+    let mut submitted_uuids = vec![frame1.get_uuid_u128()];
     dec.submit(&frame1, Some(&jpeg_data)).unwrap();
     collector.wait_for_frames(1, Duration::from_secs(5));
 
@@ -282,12 +319,15 @@ fn test_source_eos_active() {
         VideoFrameContent::None,
         33_333_333,
     );
+    submitted_uuids.push(frame2.get_uuid_u128());
     dec.submit(&frame2, Some(&jpeg_data)).unwrap();
 
     collector.wait_for(
         |o| matches!(o, FlexibleDecoderOutput::SourceEos { .. }),
         Duration::from_secs(5),
     );
+    collector.wait_for_frames(2, Duration::from_secs(5));
+    collector.assert_frame_uuid_coverage(&submitted_uuids);
 }
 
 #[test]
@@ -298,6 +338,7 @@ fn test_graceful_shutdown() {
     let mut dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
 
     let jpeg_data = make_jpeg(320, 240);
+    let mut submitted_uuids = Vec::new();
     for i in 0..3 {
         let frame = make_frame(
             "cam-1",
@@ -307,10 +348,12 @@ fn test_graceful_shutdown() {
             VideoFrameContent::None,
             i * 33_333_333,
         );
+        submitted_uuids.push(frame.get_uuid_u128());
         dec.submit(&frame, Some(&jpeg_data)).unwrap();
     }
 
     collector.wait_for_frames(3, Duration::from_secs(10));
+    collector.assert_frame_uuid_coverage(&submitted_uuids);
     dec.graceful_shutdown().unwrap();
 
     let result = dec.submit(
@@ -359,6 +402,7 @@ fn test_resolution_change() {
     let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
 
     let jpeg_320 = make_jpeg(320, 240);
+    let mut submitted_uuids = Vec::new();
     for i in 0..2 {
         let frame = make_frame(
             "cam-1",
@@ -368,6 +412,7 @@ fn test_resolution_change() {
             VideoFrameContent::None,
             i * 33_333_333,
         );
+        submitted_uuids.push(frame.get_uuid_u128());
         dec.submit(&frame, Some(&jpeg_320)).unwrap();
     }
     collector.wait_for_frames(2, Duration::from_secs(10));
@@ -381,6 +426,7 @@ fn test_resolution_change() {
         VideoFrameContent::None,
         2 * 33_333_333,
     );
+    submitted_uuids.push(frame_big.get_uuid_u128());
     // ParameterChange is emitted synchronously during this submit call.
     dec.submit(&frame_big, Some(&jpeg_640)).unwrap();
 
@@ -392,6 +438,7 @@ fn test_resolution_change() {
 
     // Also wait for the new decoder to produce a frame.
     collector.wait_for_frames(3, Duration::from_secs(10));
+    collector.assert_frame_uuid_coverage(&submitted_uuids);
 }
 
 #[test]
@@ -410,6 +457,7 @@ fn test_codec_change_jpeg_to_png() {
         VideoFrameContent::None,
         0,
     );
+    let mut submitted_uuids = vec![frame_jpeg.get_uuid_u128()];
     dec.submit(&frame_jpeg, Some(&jpeg_data)).unwrap();
     collector.wait_for_frames(1, Duration::from_secs(10));
 
@@ -426,6 +474,7 @@ fn test_codec_change_jpeg_to_png() {
         VideoFrameContent::None,
         33_333_333,
     );
+    submitted_uuids.push(frame_png.get_uuid_u128());
     // ParameterChange emitted synchronously during this submit call.
     dec.submit(&frame_png, Some(&png_data)).unwrap();
 
@@ -435,6 +484,7 @@ fn test_codec_change_jpeg_to_png() {
     );
 
     collector.wait_for_frames(2, Duration::from_secs(10));
+    collector.assert_frame_uuid_coverage(&submitted_uuids);
 }
 
 #[test]
@@ -495,10 +545,12 @@ fn test_payload_from_internal_content() {
         VideoFrameContent::Internal(jpeg_data),
         0,
     );
+    let submitted_uuids = vec![frame.get_uuid_u128()];
     dec.submit(&frame, None).unwrap();
 
     collector.wait_for_frames(1, Duration::from_secs(10));
     assert_eq!(collector.frame_count(), 1);
+    collector.assert_frame_uuid_coverage(&submitted_uuids);
 }
 
 #[test]
@@ -764,5 +816,189 @@ fn test_waiting_for_keyframe_on_codec_change() {
     assert!(
         !frame_outputs.is_empty(),
         "the JPEG frame after codec switch must decode"
+    );
+}
+
+/// Submit two garbage payloads pretending to be JPEG, then a valid JPEG.
+///
+/// Pre-submission payload validation rejects the garbage immediately as
+/// `Skipped { reason: InvalidPayload(..) }`.  The decoder never enters
+/// `Active` for the garbage, so the valid JPEG starts a clean session and
+/// its UUID maps correctly on output.
+#[test]
+#[serial]
+fn test_garbage_jpeg_then_valid_jpeg() {
+    init();
+    let collector = OutputCollector::new();
+    let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
+
+    let garbage = vec![0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0xFF, 0x42, 0x13];
+
+    let frame1 = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Jpeg),
+        VideoFrameContent::None,
+        0,
+    );
+    dec.submit(&frame1, Some(&garbage))
+        .expect("first garbage submit must not panic or fail");
+
+    let frame2 = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Jpeg),
+        VideoFrameContent::None,
+        33_333_333,
+    );
+    dec.submit(&frame2, Some(&garbage))
+        .expect("second garbage submit must not panic or fail");
+
+    // Both garbage frames must be rejected synchronously as Skipped.
+    let outputs = collector.drain();
+    let skipped: Vec<_> = outputs
+        .iter()
+        .filter_map(|o| match o {
+            FlexibleDecoderOutput::Skipped { frame, reason, .. } => Some((frame, reason)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(skipped.len(), 2, "both garbage frames must be Skipped");
+    for (_, reason) in &skipped {
+        assert!(
+            matches!(reason, SkipReason::InvalidPayload(_)),
+            "reason must be InvalidPayload, got: {reason:?}"
+        );
+    }
+
+    // Submit a valid JPEG — decoder activates from a clean Idle state.
+    let real_jpeg = make_jpeg(320, 240);
+    let frame3 = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Jpeg),
+        VideoFrameContent::None,
+        2 * 33_333_333,
+    );
+    let valid_uuid = frame3.get_uuid_u128();
+    dec.submit(&frame3, Some(&real_jpeg))
+        .expect("valid JPEG submit must succeed");
+
+    collector.wait_for_frames(1, Duration::from_secs(10));
+
+    let outputs = collector.drain();
+    let frame_uuids: Vec<u128> = outputs
+        .iter()
+        .filter_map(|o| match o {
+            FlexibleDecoderOutput::Frame { frame, decoded } => {
+                assert_eq!(
+                    Some(frame.get_uuid_u128()),
+                    decoded.frame_id,
+                    "proxy UUID must match decoded frame_id"
+                );
+                Some(frame.get_uuid_u128())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        frame_uuids,
+        vec![valid_uuid],
+        "only the valid JPEG must produce a Frame output with the correct UUID"
+    );
+}
+
+/// Submit two garbage payloads pretending to be PNG, then a valid PNG.
+///
+/// Pre-submission validation rejects the garbage (bad signature) as
+/// `Skipped { reason: InvalidPayload(..) }`.  The valid PNG decodes normally.
+#[test]
+#[serial]
+fn test_garbage_png_then_valid_png() {
+    init();
+    let collector = OutputCollector::new();
+    let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
+
+    let garbage = vec![
+        0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0xFF, 0x42, 0x13, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+        0x07, 0x08, 0x09, 0x0A, 0x0B,
+    ];
+
+    let frame1 = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Png),
+        VideoFrameContent::None,
+        0,
+    );
+    dec.submit(&frame1, Some(&garbage))
+        .expect("first garbage submit must not panic or fail");
+
+    let frame2 = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Png),
+        VideoFrameContent::None,
+        33_333_333,
+    );
+    dec.submit(&frame2, Some(&garbage))
+        .expect("second garbage submit must not panic or fail");
+
+    let outputs = collector.drain();
+    let skipped: Vec<_> = outputs
+        .iter()
+        .filter_map(|o| match o {
+            FlexibleDecoderOutput::Skipped { reason, .. } => Some(reason),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(skipped.len(), 2, "both garbage frames must be Skipped");
+    for reason in &skipped {
+        assert!(
+            matches!(reason, SkipReason::InvalidPayload(_)),
+            "reason must be InvalidPayload, got: {reason:?}"
+        );
+    }
+
+    // Valid PNG must decode successfully.
+    let real_png = make_png(320, 240);
+    let frame3 = make_frame(
+        "cam-1",
+        320,
+        240,
+        Some(VideoCodec::Png),
+        VideoFrameContent::None,
+        2 * 33_333_333,
+    );
+    let valid_uuid = frame3.get_uuid_u128();
+    dec.submit(&frame3, Some(&real_png))
+        .expect("valid PNG submit must succeed");
+
+    collector.wait_for_frames(1, Duration::from_secs(10));
+
+    let outputs = collector.drain();
+    let frame_uuids: Vec<u128> = outputs
+        .iter()
+        .filter_map(|o| match o {
+            FlexibleDecoderOutput::Frame { frame, decoded } => {
+                assert_eq!(
+                    Some(frame.get_uuid_u128()),
+                    decoded.frame_id,
+                    "proxy UUID must match decoded frame_id"
+                );
+                Some(frame.get_uuid_u128())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        frame_uuids,
+        vec![valid_uuid],
+        "only the valid PNG must produce a Frame output with the correct UUID"
     );
 }

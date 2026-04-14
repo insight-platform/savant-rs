@@ -15,6 +15,7 @@ mod handle_active;
 mod handle_detecting;
 mod handle_idle;
 mod output;
+mod payload_validate;
 mod state;
 
 pub use config::FlexibleDecoderConfig;

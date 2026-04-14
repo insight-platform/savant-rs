@@ -16,6 +16,7 @@ rust-version.workspace = true
 deepstream_buffers = { path = "../buffers" }
 deepstream_decoders = { path = "../decoders" }
 gstreamer = { workspace = true }
+jfifdump = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 savant_core = { workspace = true }

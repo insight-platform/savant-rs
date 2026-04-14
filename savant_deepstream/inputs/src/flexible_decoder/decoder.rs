@@ -144,6 +144,17 @@ impl FlexibleDecoder {
             }
         };
 
+        if let Some(vc) = video_codec {
+            if let Err(reason) = super::payload_validate::validate_payload(vc, &payload) {
+                self.emit(FlexibleDecoderOutput::Skipped {
+                    frame: frame.clone(),
+                    data: Some(payload),
+                    reason: SkipReason::InvalidPayload(reason),
+                });
+                return Ok(());
+            }
+        }
+
         // Locked section: lightweight outputs (Skipped, SourceEos, etc.) are
         // collected into `pending` and emitted after the state lock is released.
         //

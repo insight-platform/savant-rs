@@ -107,6 +107,7 @@ image = { version = "0.24", default-features = false, features = [
 ] }
 imagehash = "0.3"
 
+jfifdump = "0.6"
 jmespath = { version = "0.3", features = ["sync"] }
 
 lazy_static = "1.5"

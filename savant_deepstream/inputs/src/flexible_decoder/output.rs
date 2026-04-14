@@ -66,6 +66,9 @@ pub enum SkipReason {
     DetectionBufferOverflow,
     /// Neither the `data` argument nor `frame.get_content()` contained bytes.
     NoPayload,
+    /// Payload failed structural validation for the declared codec
+    /// (e.g. garbage data labelled as JPEG/PNG).
+    InvalidPayload(String),
     /// `NvDecoder::new()` failed when activating.
     DecoderCreationFailed(String),
 }

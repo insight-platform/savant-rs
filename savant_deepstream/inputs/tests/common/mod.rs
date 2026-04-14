@@ -407,6 +407,7 @@ pub fn load_annexb_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
 #[derive(Debug, Clone)]
 pub enum CollectedOutput {
     Frame {
+        proxy_uuid: u128,
         frame_id: Option<u128>,
         pts_ns: u64,
         codec: Codec,
@@ -435,11 +436,20 @@ pub enum CollectedOutput {
 impl CollectedOutput {
     fn from_output(out: FlexibleDecoderOutput) -> Self {
         match out {
-            FlexibleDecoderOutput::Frame { decoded: df, .. } => CollectedOutput::Frame {
-                frame_id: df.frame_id,
-                pts_ns: df.pts_ns,
-                codec: df.codec,
-            },
+            FlexibleDecoderOutput::Frame { frame, decoded: df } => {
+                let proxy_uuid = frame.get_uuid_u128();
+                assert_eq!(
+                    Some(proxy_uuid),
+                    df.frame_id,
+                    "proxy UUID must match decoded frame_id"
+                );
+                CollectedOutput::Frame {
+                    proxy_uuid,
+                    frame_id: df.frame_id,
+                    pts_ns: df.pts_ns,
+                    codec: df.codec,
+                }
+            }
             FlexibleDecoderOutput::ParameterChange { old, new } => {
                 CollectedOutput::ParameterChange {
                     old_codec: old.codec,
@@ -510,6 +520,17 @@ impl OutputCollector {
             .count()
     }
 
+    pub fn frame_uuids(&self) -> Vec<u128> {
+        self.outputs
+            .lock()
+            .iter()
+            .filter_map(|o| match o {
+                CollectedOutput::Frame { proxy_uuid, .. } => Some(*proxy_uuid),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub fn parameter_change_count(&self) -> usize {
         self.outputs
             .lock()
@@ -558,5 +579,18 @@ impl OutputCollector {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// Assert that every UUID in `submitted` appears exactly once in Frame
+    /// outputs and that there are no extra Frame outputs.
+    pub fn assert_frame_uuid_coverage(&self, submitted: &[u128]) {
+        let mut output_uuids = self.frame_uuids();
+        output_uuids.sort();
+        let mut expected = submitted.to_vec();
+        expected.sort();
+        assert_eq!(
+            expected, output_uuids,
+            "submitted UUIDs must exactly match Frame output UUIDs"
+        );
     }
 }
