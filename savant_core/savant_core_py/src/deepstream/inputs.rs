@@ -871,6 +871,292 @@ impl PyFlexibleDecoder {
     }
 }
 
+// ─── EvictionDecision ───────────────────────────────────────────────────
+
+/// Decision returned by an eviction callback.
+///
+/// Use the class-level constants :attr:`EVICT` and :attr:`KEEP`.
+#[pyclass(
+    name = "EvictionDecision",
+    module = "savant_rs.deepstream",
+    from_py_object
+)]
+#[derive(Clone)]
+pub struct PyEvictionDecision(deepstream_inputs::decoder_pool::EvictionDecision);
+
+#[pymethods]
+impl PyEvictionDecision {
+    /// Remove the decoder from the pool.
+    #[classattr]
+    const EVICT: PyEvictionDecision =
+        PyEvictionDecision(deepstream_inputs::decoder_pool::EvictionDecision::Evict);
+
+    /// Keep the decoder alive (reset TTL).
+    #[classattr]
+    const KEEP: PyEvictionDecision =
+        PyEvictionDecision(deepstream_inputs::decoder_pool::EvictionDecision::Keep);
+
+    #[getter]
+    fn is_evict(&self) -> bool {
+        self.0 == deepstream_inputs::decoder_pool::EvictionDecision::Evict
+    }
+
+    #[getter]
+    fn is_keep(&self) -> bool {
+        self.0 == deepstream_inputs::decoder_pool::EvictionDecision::Keep
+    }
+
+    fn __repr__(&self) -> &'static str {
+        match self.0 {
+            deepstream_inputs::decoder_pool::EvictionDecision::Evict => "EvictionDecision.EVICT",
+            deepstream_inputs::decoder_pool::EvictionDecision::Keep => "EvictionDecision.KEEP",
+        }
+    }
+
+    fn __eq__(&self, other: &PyEvictionDecision) -> bool {
+        self.0 == other.0
+    }
+}
+
+// ─── FlexibleDecoderPoolConfig ──────────────────────────────────────────
+
+/// Configuration for a :class:`FlexibleDecoderPool`.
+///
+/// Args:
+///     gpu_id (int): GPU device ordinal.
+///     pool_size (int): Number of RGBA buffers per internal decoder pool.
+///     eviction_ttl_ms (int): Idle stream TTL in milliseconds before eviction
+///         is considered.
+#[pyclass(name = "FlexibleDecoderPoolConfig", module = "savant_rs.deepstream")]
+pub struct PyFlexibleDecoderPoolConfig(
+    pub(crate) deepstream_inputs::decoder_pool::FlexibleDecoderPoolConfig,
+);
+
+#[pymethods]
+impl PyFlexibleDecoderPoolConfig {
+    #[new]
+    fn new(gpu_id: u32, pool_size: u32, eviction_ttl_ms: u64) -> Self {
+        Self(
+            deepstream_inputs::decoder_pool::FlexibleDecoderPoolConfig::new(
+                gpu_id,
+                pool_size,
+                Duration::from_millis(eviction_ttl_ms),
+            ),
+        )
+    }
+
+    /// Set the idle timeout for graceful drain (milliseconds).  Returns a new
+    /// config (builder pattern).
+    fn with_idle_timeout_ms(&self, ms: u64) -> Self {
+        Self(self.0.clone().idle_timeout(Duration::from_millis(ms)))
+    }
+
+    /// Set the maximum frames buffered during H.264/HEVC stream detection.
+    fn with_detect_buffer_limit(&self, n: usize) -> Self {
+        Self(self.0.clone().detect_buffer_limit(n))
+    }
+
+    #[getter]
+    fn gpu_id(&self) -> u32 {
+        self.0.gpu_id
+    }
+
+    #[getter]
+    fn pool_size(&self) -> u32 {
+        self.0.pool_size
+    }
+
+    #[getter]
+    fn get_idle_timeout_ms(&self) -> u64 {
+        self.0.idle_timeout.as_millis() as u64
+    }
+
+    #[getter]
+    fn get_detect_buffer_limit(&self) -> usize {
+        self.0.detect_buffer_limit
+    }
+
+    #[getter]
+    fn get_eviction_ttl_ms(&self) -> u64 {
+        self.0.eviction_ttl.as_millis() as u64
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "FlexibleDecoderPoolConfig(gpu_id={}, pool_size={}, \
+             eviction_ttl_ms={}, idle_timeout_ms={}, detect_buffer_limit={})",
+            self.0.gpu_id,
+            self.0.pool_size,
+            self.0.eviction_ttl.as_millis(),
+            self.0.idle_timeout.as_millis(),
+            self.0.detect_buffer_limit,
+        )
+    }
+}
+
+// ─── FlexibleDecoderPool ────────────────────────────────────────────────
+
+const POOL_SHUT_DOWN_MSG: &str = "FlexibleDecoderPool is shut down";
+
+/// Multi-stream pool of :class:`FlexibleDecoder` instances.
+///
+/// Routes incoming frames by ``source_id`` to per-stream decoders, creating
+/// them on demand.  Idle streams are evicted after ``eviction_ttl_ms``.
+///
+/// Args:
+///     config (FlexibleDecoderPoolConfig): Pool configuration.
+///     result_callback: ``Callable[[FlexibleDecoderOutput], None]`` invoked
+///         for every decoded output from any stream.
+///     eviction_callback: Optional ``Callable[[str], EvictionDecision]``.
+///         Called when a stream's TTL expires.  Return :attr:`EvictionDecision.KEEP`
+///         to reset the TTL or :attr:`EvictionDecision.EVICT` to remove the stream.
+///         When ``None``, all expired streams are evicted automatically.
+#[pyclass(name = "FlexibleDecoderPool", module = "savant_rs.deepstream")]
+pub struct PyFlexibleDecoderPool(Option<deepstream_inputs::decoder_pool::FlexibleDecoderPool>);
+
+#[pymethods]
+impl PyFlexibleDecoderPool {
+    #[new]
+    #[pyo3(signature = (config, result_callback, eviction_callback=None))]
+    fn new(
+        py: Python<'_>,
+        config: &PyFlexibleDecoderPoolConfig,
+        result_callback: Py<PyAny>,
+        eviction_callback: Option<Py<PyAny>>,
+    ) -> PyResult<Self> {
+        let rust_config = config.0.clone();
+
+        let on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync> =
+            Arc::new(move |output: FlexibleDecoderOutput| {
+                Python::attach(|py| {
+                    let py_output = match PyFlexibleDecoderOutput::from_rust(py, output) {
+                        Ok(o) => o,
+                        Err(e) => {
+                            log::error!("FlexibleDecoderPool: failed to wrap output: {e}");
+                            return;
+                        }
+                    };
+                    if let Err(e) = result_callback.call1(py, (py_output,)) {
+                        log::error!("FlexibleDecoderPool result_callback error: {e}");
+                    }
+                });
+            });
+
+        let pool = if let Some(eviction_cb) = eviction_callback {
+            let on_eviction =
+                move |source_id: &str| -> deepstream_inputs::decoder_pool::EvictionDecision {
+                    Python::attach(|py| match eviction_cb.call1(py, (source_id,)) {
+                        Ok(result) => match result.extract::<PyEvictionDecision>(py) {
+                            Ok(decision) => decision.0,
+                            Err(e) => {
+                                log::error!(
+                                        "FlexibleDecoderPool eviction_callback returned invalid type: {e}"
+                                    );
+                                deepstream_inputs::decoder_pool::EvictionDecision::Evict
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("FlexibleDecoderPool eviction_callback error: {e}");
+                            deepstream_inputs::decoder_pool::EvictionDecision::Evict
+                        }
+                    })
+                };
+            let on_out = Arc::clone(&on_output);
+            py.detach(move || {
+                deepstream_inputs::decoder_pool::FlexibleDecoderPool::with_eviction_callback(
+                    rust_config,
+                    move |out| on_out(out),
+                    on_eviction,
+                )
+            })
+        } else {
+            let on_out = Arc::clone(&on_output);
+            py.detach(move || {
+                deepstream_inputs::decoder_pool::FlexibleDecoderPool::new(rust_config, move |out| {
+                    on_out(out)
+                })
+            })
+        };
+
+        Ok(Self(Some(pool)))
+    }
+
+    /// Submit an encoded frame for decoding.
+    ///
+    /// The frame is routed to the per-stream decoder for
+    /// ``frame.source_id``.  If none exists, one is created transparently.
+    ///
+    /// Args:
+    ///     frame (VideoFrame): The video frame with metadata.
+    ///     data (Optional[bytes]): Encoded payload.  If ``None``, the frame's
+    ///         internal content is used.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the pool is shut down or an infrastructure
+    ///         error occurs.
+    #[pyo3(signature = (frame, data=None))]
+    fn submit(&self, py: Python<'_>, frame: &VideoFrame, data: Option<Vec<u8>>) -> PyResult<()> {
+        let pool = self
+            .0
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(POOL_SHUT_DOWN_MSG))?;
+        let proxy = frame.0.clone();
+        py.detach(move || {
+            pool.submit(&proxy, data.as_deref())
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Inject a logical per-source EOS.
+    ///
+    /// Args:
+    ///     source_id (str): Source identifier.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the pool is shut down.
+    fn source_eos(&self, source_id: &str) -> PyResult<()> {
+        let pool = self
+            .0
+            .as_ref()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(POOL_SHUT_DOWN_MSG))?;
+        pool.source_eos(source_id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Drain every decoder in the pool and shut down.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the pool is already shut down.
+    fn graceful_shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
+        let mut pool = self
+            .0
+            .take()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(POOL_SHUT_DOWN_MSG))?;
+        py.detach(move || {
+            pool.graceful_shutdown()
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Immediate teardown — frames in flight are lost.
+    fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
+        let mut pool = self
+            .0
+            .take()
+            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(POOL_SHUT_DOWN_MSG))?;
+        py.detach(move || pool.shutdown());
+        Ok(())
+    }
+
+    fn __repr__(&self) -> &'static str {
+        if self.0.is_some() {
+            "FlexibleDecoderPool(running)"
+        } else {
+            "FlexibleDecoderPool(shut_down)"
+        }
+    }
+}
+
 // ─── Module registration ────────────────────────────────────────────────
 
 /// Register input adapter types on ``savant_rs.deepstream``.
@@ -889,5 +1175,8 @@ pub fn register_inputs_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyErrorOutput>()?;
     m.add_class::<PyFlexibleDecoderOutput>()?;
     m.add_class::<PyFlexibleDecoder>()?;
+    m.add_class::<PyEvictionDecision>()?;
+    m.add_class::<PyFlexibleDecoderPoolConfig>()?;
+    m.add_class::<PyFlexibleDecoderPool>()?;
     Ok(())
 }

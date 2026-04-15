@@ -57,6 +57,9 @@ __all__ = [
     "ErrorOutput",
     "FlexibleDecoderOutput",
     "FlexibleDecoder",
+    "EvictionDecision",
+    "FlexibleDecoderPoolConfig",
+    "FlexibleDecoderPool",
     "nvgstbuf_as_gpu_mat",
     "nvbuf_as_gpu_mat",
     "from_gpumat",
@@ -1577,3 +1580,135 @@ class FlexibleDecoder:
 
     def __repr__(self) -> str: ...
 
+
+@final
+class EvictionDecision:
+    """Decision returned by an eviction callback.
+
+    Use the class-level constants :attr:`EVICT` and :attr:`KEEP`.
+    """
+
+    EVICT: EvictionDecision
+    """Remove the decoder from the pool."""
+
+    KEEP: EvictionDecision
+    """Keep the decoder alive (reset TTL)."""
+
+    @property
+    def is_evict(self) -> bool:
+        """``True`` if this is :attr:`EVICT`."""
+        ...
+
+    @property
+    def is_keep(self) -> bool:
+        """``True`` if this is :attr:`KEEP`."""
+        ...
+
+    def __eq__(self, other: object) -> bool: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class FlexibleDecoderPoolConfig:
+    """Configuration for a :class:`FlexibleDecoderPool`.
+
+    Args:
+        gpu_id: GPU device ordinal.
+        pool_size: Number of RGBA buffers per internal decoder pool.
+        eviction_ttl_ms: Idle stream TTL in milliseconds before eviction
+            is considered.
+    """
+
+    def __init__(
+        self, gpu_id: int, pool_size: int, eviction_ttl_ms: int
+    ) -> None: ...
+
+    def with_idle_timeout_ms(self, ms: int) -> FlexibleDecoderPoolConfig:
+        """Return a new config with the given idle timeout (milliseconds)."""
+        ...
+
+    def with_detect_buffer_limit(self, n: int) -> FlexibleDecoderPoolConfig:
+        """Return a new config with the given detection buffer limit."""
+        ...
+
+    @property
+    def gpu_id(self) -> int: ...
+
+    @property
+    def pool_size(self) -> int: ...
+
+    @property
+    def idle_timeout_ms(self) -> int: ...
+
+    @property
+    def detect_buffer_limit(self) -> int: ...
+
+    @property
+    def eviction_ttl_ms(self) -> int: ...
+
+    def __repr__(self) -> str: ...
+
+
+@final
+class FlexibleDecoderPool:
+    """Multi-stream pool of :class:`FlexibleDecoder` instances.
+
+    Routes incoming frames by ``source_id`` to per-stream decoders,
+    creating them on demand.  Idle streams are evicted after
+    ``eviction_ttl_ms``.
+
+    Args:
+        config: Pool configuration.
+        result_callback: Called for every decoded output from any stream.
+        eviction_callback: Optional.  Called when a stream's TTL expires.
+            Return :attr:`EvictionDecision.KEEP` to reset the TTL or
+            :attr:`EvictionDecision.EVICT` to remove the stream.
+            When ``None``, all expired streams are evicted automatically.
+    """
+
+    def __init__(
+        self,
+        config: FlexibleDecoderPoolConfig,
+        result_callback: Callable[[FlexibleDecoderOutput], None],
+        eviction_callback: Optional[Callable[[str], EvictionDecision]] = None,
+    ) -> None: ...
+
+    def submit(
+        self, frame: VideoFrame, data: Optional[bytes] = None
+    ) -> None:
+        """Submit an encoded frame for decoding.
+
+        The frame is routed to the per-stream decoder for
+        ``frame.source_id``.  If none exists, one is created transparently.
+
+        Args:
+            frame: Video frame with metadata.
+            data: Encoded payload.  If ``None``, the frame's internal content
+                is used.
+
+        Raises:
+            RuntimeError: If shut down or an infrastructure error occurs.
+        """
+        ...
+
+    def source_eos(self, source_id: str) -> None:
+        """Inject a logical per-source EOS.
+
+        Raises:
+            RuntimeError: If shut down.
+        """
+        ...
+
+    def graceful_shutdown(self) -> None:
+        """Drain every decoder in the pool and shut down.
+
+        Raises:
+            RuntimeError: If already shut down.
+        """
+        ...
+
+    def shutdown(self) -> None:
+        """Immediate teardown — frames in flight are lost."""
+        ...
+
+    def __repr__(self) -> str: ...
