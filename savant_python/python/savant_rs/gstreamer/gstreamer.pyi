@@ -6,7 +6,7 @@ are only available when ``savant_rs`` is built with the ``gst`` Cargo feature.
 
 from __future__ import annotations
 
-from typing import List, Optional, Union, final
+from typing import Callable, Optional, Union, final
 
 __all__ = [
     "FlowResult",
@@ -14,6 +14,7 @@ __all__ = [
     "Codec",
     "Mp4Muxer",
     "DemuxedPacket",
+    "Mp4DemuxerOutput",
     "Mp4Demuxer",
 ]
 
@@ -198,19 +199,65 @@ class DemuxedPacket:
 
     def __repr__(self) -> str: ...
 
+@final
+class Mp4DemuxerOutput:
+    """Callback payload from :class:`Mp4Demuxer`.
+
+    Use the ``is_*`` properties to determine the variant, then call the
+    corresponding ``as_*`` method to get a typed value.
+
+    Variants:
+        - **Packet** — a demuxed :class:`DemuxedPacket`.
+        - **Eos** — end of stream; all packets have been delivered.
+        - **Error** — a pipeline error message (string).
+    """
+
+    @property
+    def is_packet(self) -> bool:
+        """``True`` if this is a :class:`DemuxedPacket` variant."""
+        ...
+
+    @property
+    def is_eos(self) -> bool:
+        """``True`` if this is an end-of-stream marker."""
+        ...
+
+    @property
+    def is_error(self) -> bool:
+        """``True`` if this is an error variant."""
+        ...
+
+    def as_packet(self) -> Optional[DemuxedPacket]:
+        """Downcast to :class:`DemuxedPacket`, or ``None``."""
+        ...
+
+    def as_error_message(self) -> Optional[str]:
+        """Return the error message string, or ``None``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
 class Mp4Demuxer:
-    """Minimal GStreamer pipeline: ``filesrc -> qtdemux -> queue -> appsink``
+    """Callback-based GStreamer pipeline: ``filesrc -> qtdemux -> queue -> appsink``
     (requires ``gst`` feature).
 
-    Reads encoded packets from an MP4 (QuickTime) container and exposes them
-    as elementary stream payloads with timestamps.
+    Reads encoded packets from an MP4 (QuickTime) container and delivers them
+    through the ``result_callback`` supplied at construction.
 
     When ``parsed=True`` (the default), codec-specific parsers are inserted
     so that H.264/HEVC output uses byte-stream (Annex-B) format instead of
     container-native AVC/HEV1 length-prefixed NALUs.
 
+    The pipeline starts immediately on construction.  Use :meth:`wait` to
+    block until all packets have been delivered (EOS) or an error occurs.
+
+    **Threading**: the callback fires on GStreamer's internal streaming
+    thread.  Do **not** call :meth:`finish` from within the callback.
+
     Args:
         input_path: Filesystem path to the ``.mp4`` file.
+        result_callback: ``Callable[[Mp4DemuxerOutput], None]`` invoked for
+            every packet, EOS, or error.
         parsed: If ``True``, insert parsers for byte-stream output.
             Defaults to ``True``.
 
@@ -219,41 +266,28 @@ class Mp4Demuxer:
             start.
     """
 
-    def __init__(self, input_path: str, parsed: bool = True) -> None: ...
+    def __init__(
+        self,
+        input_path: str,
+        result_callback: Callable[[Mp4DemuxerOutput], None],
+        parsed: bool = True,
+    ) -> None: ...
+    def wait(self) -> None:
+        """Block until the demuxer reaches EOS, encounters an error, or
+        :meth:`finish` is called.
 
-    def pull(self) -> Optional[DemuxedPacket]:
-        """Pull the next demuxed packet (5 s default timeout).
-
-        Returns:
-            The next packet, or ``None`` on EOS.
-
-        Raises:
-            RuntimeError: On pipeline error, timeout, or if already finished.
+        The GIL is released while waiting so the callback can fire.
         """
         ...
 
-    def pull_timeout(self, timeout_ms: int) -> Optional[DemuxedPacket]:
-        """Pull the next demuxed packet with a custom timeout.
+    def wait_timeout(self, timeout_ms: int) -> bool:
+        """Block until the demuxer finishes or the timeout expires.
 
         Args:
             timeout_ms: Timeout in milliseconds.
 
         Returns:
-            The next packet, or ``None`` on EOS.
-
-        Raises:
-            RuntimeError: On pipeline error, timeout, or if already finished.
-        """
-        ...
-
-    def pull_all(self) -> List[DemuxedPacket]:
-        """Pull all remaining packets until EOS.
-
-        Returns:
-            All remaining packets.
-
-        Raises:
-            RuntimeError: On pipeline error or if already finished.
+            ``True`` if finished, ``False`` on timeout.
         """
         ...
 
@@ -265,7 +299,10 @@ class Mp4Demuxer:
     def finish(self) -> None:
         """Shut down the demuxer pipeline.
 
-        Safe to call multiple times.
+        Safe to call multiple times.  After this call, no more callbacks
+        will fire.
+
+        Must **not** be called from within the ``result_callback``.
         """
         ...
 

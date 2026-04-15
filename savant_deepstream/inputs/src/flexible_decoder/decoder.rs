@@ -361,7 +361,7 @@ impl FlexibleDecoder {
     ///
     /// Terminal — subsequent [`submit`](Self::submit) / [`source_eos`](Self::source_eos)
     /// calls return `Err(ShutDown)`.
-    pub fn graceful_shutdown(&mut self) -> Result<(), FlexibleDecoderError> {
+    pub fn graceful_shutdown(&self) -> Result<(), FlexibleDecoderError> {
         let mut pending = Vec::new();
         let drain_decoder = {
             let mut state = self.state.lock();
@@ -418,7 +418,7 @@ impl FlexibleDecoder {
     ///
     /// Terminal — subsequent [`submit`](Self::submit) / [`source_eos`](Self::source_eos)
     /// calls return `Err(ShutDown)`.
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&self) {
         let mut state = self.state.lock();
         let (guard, taken) = StateGuard::take(&mut state);
         match taken {

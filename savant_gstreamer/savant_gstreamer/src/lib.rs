@@ -261,9 +261,6 @@ mod tests {
             "Must return the new attributes when they are cleared"
         );
 
-        unsafe {
-            gstreamer::deinit();
-        }
         Ok(())
     }
 }

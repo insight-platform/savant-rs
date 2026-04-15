@@ -45,7 +45,7 @@
   must contain in-band parameter sets: SPS + PPS for H264, VPS + SPS + PPS
   for HEVC. Non-IDR frames without parameter sets return `None`.
 - MP4 containers may strip in-band parameter sets from non-keyframe packets
-  (parameter sets live in `codec_data` sideband). Use `Mp4Demuxer::new()`
+  (parameter sets live in `codec_data` sideband). Use `Mp4Demuxer::demux_all()`
   (no parser) to get raw container packets; only keyframe AUs with in-band
   params will be detectable as AVCC/HVCC.
 - NAL parsing depends on `cros-codecs` crate. The `Header` trait must be

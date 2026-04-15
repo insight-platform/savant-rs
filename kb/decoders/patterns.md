@@ -66,34 +66,26 @@ and `is_random_access_point` against real asset files from
 1. **Annex-B (raw files)**: read `.h264`/`.h265`, split into AUs via
    `split_annexb_nalus` + `group_nalus_to_access_units`, feed first AU →
    assert `ByteStream` with no `codec_data`.
-2. **AVCC/HVCC (MP4 demuxed)**: use `Mp4Demuxer::new()` (no parser, raw
-   container packets) to pull length-prefixed packets from `.mp4` files →
-   feed to `detect_stream_config` → assert `Avc`/`Hvc1` with valid
-   `codec_data` (version byte = 1, reasonable length).
+2. **AVCC/HVCC (MP4 demuxed)**: use `Mp4Demuxer::demux_all()` (no parser,
+   raw container packets) to collect length-prefixed packets from `.mp4`
+   files → feed to `detect_stream_config` → assert `Avc`/`Hvc1` with
+   valid `codec_data` (version byte = 1, reasonable length).
 3. **Raw file prefix**: feed first 4 KiB of each raw bitstream directly
    (no AU splitting) → assert Annex-B detection.
 4. **RAP (Annex-B)**: first grouped access unit of each raw `.h264`/`.h265`
    asset → `is_random_access_point` is `true`.
-5. **RAP (MP4)**: `Mp4Demuxer::new()` packets — first RAP index matches a
-   keyframe; B-frame assets include at least one non-RAP packet.
+5. **RAP (MP4)**: `Mp4Demuxer::demux_all()` packets — first RAP index
+   matches a keyframe; B-frame assets include at least one non-RAP packet.
 
 ```rust
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
 
-let mut demuxer = Mp4Demuxer::new(mp4_path).unwrap();
-let mut packets = Vec::new();
-loop {
-    match demuxer.pull_timeout(Duration::from_secs(5)) {
-        Ok(Some(pkt)) => packets.push(pkt),
-        Ok(None) => break,
-        Err(e) => panic!("{e}"),
-    }
-}
-let codec = demuxer.detected_codec().unwrap();
-demuxer.finish();
+// Callback-based: collect all raw (unparsed) packets in one call.
+let (packets, codec) = Mp4Demuxer::demux_all(mp4_path)
+    .unwrap_or_else(|e| panic!("demuxer failed: {e}"));
 
 for pkt in &packets {
-    if let Some(cfg) = detect_stream_config(codec, &pkt.data) {
+    if let Some(cfg) = detect_stream_config(codec.unwrap(), &pkt.data) {
         // verify stream format and codec_data
         break;
     }

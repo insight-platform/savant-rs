@@ -1,11 +1,22 @@
-//! Minimal GStreamer MP4 demuxer: `filesrc -> qtdemux -> queue -> appsink`.
+//! Callback-based GStreamer MP4 demuxer: `filesrc -> qtdemux -> queue -> appsink`.
 //!
-//! Reads encoded packets from an MP4 (QuickTime) container and exposes them as
-//! elementary stream payloads with timestamps.
+//! Reads encoded packets from an MP4 (QuickTime) container and delivers them
+//! as elementary stream payloads with timestamps through a user-supplied
+//! callback.
+//!
+//! All output (packets, EOS, errors) is delivered through [`Mp4DemuxerOutput`]
+//! via the callback provided at construction.  Callbacks fire on GStreamer's
+//! streaming thread.
+//!
+//! # Threading
+//!
+//! The callback is invoked from GStreamer's internal streaming thread.
+//! **Do not** call [`Mp4Demuxer::finish`] from within the callback — this
+//! would deadlock because `finish()` waits for the streaming thread to stop.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use gstreamer as gst;
@@ -15,6 +26,7 @@ use thiserror::Error;
 
 use crate::codec::Codec;
 
+/// A single demuxed elementary stream packet.
 #[derive(Debug, Clone)]
 pub struct DemuxedPacket {
     pub data: Vec<u8>,
@@ -24,6 +36,7 @@ pub struct DemuxedPacket {
     pub is_keyframe: bool,
 }
 
+/// Errors that can occur during demuxing.
 #[derive(Debug, Error)]
 pub enum Mp4DemuxerError {
     #[error("Input file does not exist: {0}")]
@@ -34,8 +47,6 @@ pub enum Mp4DemuxerError {
     LinkError(String),
     #[error("Pipeline state change failed")]
     StateChangeFailed,
-    #[error("Timed out waiting for demuxed packet")]
-    PullTimeout,
     #[error("Pipeline error from {src}: {msg} ({debug})")]
     PipelineError {
         src: String,
@@ -46,29 +57,62 @@ pub enum Mp4DemuxerError {
     AlreadyFinished,
 }
 
+/// Callback payload delivered by [`Mp4Demuxer`].
+#[derive(Debug)]
+pub enum Mp4DemuxerOutput {
+    /// A demuxed packet from the container.
+    Packet(DemuxedPacket),
+    /// End of stream — all packets have been delivered.
+    Eos,
+    /// An error occurred in the pipeline.
+    Error(Mp4DemuxerError),
+}
+
+/// Callback-based GStreamer MP4 demuxer.
+///
+/// Reads encoded packets from an MP4 (QuickTime) container and delivers
+/// them through the `on_output` callback provided at construction.
+///
+/// # Threading
+///
+/// The callback fires on GStreamer's internal streaming thread.  Do **not**
+/// call [`finish`](Self::finish) from within the callback.
 pub struct Mp4Demuxer {
     pipeline: gst::Pipeline,
-    appsink: gst_app::AppSink,
-    linked_video_pad: Arc<AtomicBool>,
-    finished: bool,
-    detected_codec: Option<Codec>,
+    finished: Arc<AtomicBool>,
+    detected_codec: Arc<Mutex<Option<Codec>>>,
+    done_pair: Arc<(Mutex<bool>, Condvar)>,
 }
 
 impl Mp4Demuxer {
     /// Create a demuxer that outputs raw container-format packets (e.g. AVC
     /// length-prefixed NALUs for H.264 in MP4).
-    pub fn new(input_path: &str) -> Result<Self, Mp4DemuxerError> {
-        Self::new_inner(input_path, false)
+    ///
+    /// The pipeline starts immediately; packets are delivered through
+    /// `on_output`.
+    pub fn new<F>(input_path: &str, on_output: F) -> Result<Self, Mp4DemuxerError>
+    where
+        F: Fn(Mp4DemuxerOutput) + Send + Sync + 'static,
+    {
+        Self::new_inner(input_path, false, on_output)
     }
 
     /// Create a demuxer that inserts codec-specific parsers to convert output
-    /// to byte-stream / Annex-B format. Use this when feeding packets to a
-    /// standalone decoder (`NvDecoder`) that expects byte-stream input.
-    pub fn new_parsed(input_path: &str) -> Result<Self, Mp4DemuxerError> {
-        Self::new_inner(input_path, true)
+    /// to byte-stream / Annex-B format.
+    ///
+    /// Use this when feeding packets to a standalone decoder (`NvDecoder`)
+    /// that expects byte-stream input.
+    pub fn new_parsed<F>(input_path: &str, on_output: F) -> Result<Self, Mp4DemuxerError>
+    where
+        F: Fn(Mp4DemuxerOutput) + Send + Sync + 'static,
+    {
+        Self::new_inner(input_path, true, on_output)
     }
 
-    fn new_inner(input_path: &str, parsed: bool) -> Result<Self, Mp4DemuxerError> {
+    fn new_inner<F>(input_path: &str, parsed: bool, on_output: F) -> Result<Self, Mp4DemuxerError>
+    where
+        F: Fn(Mp4DemuxerOutput) + Send + Sync + 'static,
+    {
         let _ = gst::init();
         if !Path::new(input_path).exists() {
             return Err(Mp4DemuxerError::InputNotFound(input_path.to_string()));
@@ -115,6 +159,7 @@ impl Mp4Demuxer {
             .static_pad("sink")
             .ok_or_else(|| Mp4DemuxerError::ElementCreation("queue sink pad missing".into()))?;
 
+        // Dynamic pad linking (qtdemux -> parser? -> queue)
         let linked_video_pad = Arc::new(AtomicBool::new(false));
         let linked_video_pad_closure = linked_video_pad.clone();
         let pipeline_for_pad = pipeline.clone();
@@ -158,6 +203,80 @@ impl Mp4Demuxer {
             .dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| Mp4DemuxerError::ElementCreation("appsink cast failed".into()))?;
 
+        // Shared state
+        let on_output = Arc::new(on_output);
+        let detected_codec: Arc<Mutex<Option<Codec>>> = Arc::new(Mutex::new(None));
+        let finished = Arc::new(AtomicBool::new(false));
+        let done_pair = Arc::new((Mutex::new(false), Condvar::new()));
+
+        // Appsink callbacks (fire on GStreamer streaming thread)
+        {
+            let on_output_sample = on_output.clone();
+            let detected_codec = detected_codec.clone();
+            let finished_sample = finished.clone();
+            let done_pair_sample = done_pair.clone();
+
+            let on_output_eos = on_output.clone();
+            let finished_eos = finished.clone();
+            let done_pair_eos = done_pair.clone();
+
+            appsink.set_callbacks(
+                gst_app::AppSinkCallbacks::builder()
+                    .new_sample(move |sink| {
+                        if finished_sample.load(Ordering::SeqCst) {
+                            return Err(gst::FlowError::Eos);
+                        }
+                        let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                        match sample_to_packet(sample, &detected_codec) {
+                            Ok(pkt) => {
+                                on_output_sample(Mp4DemuxerOutput::Packet(pkt));
+                                Ok(gst::FlowSuccess::Ok)
+                            }
+                            Err(e) => {
+                                if !finished_sample.swap(true, Ordering::SeqCst) {
+                                    on_output_sample(Mp4DemuxerOutput::Error(e));
+                                    signal_done(&done_pair_sample);
+                                }
+                                Err(gst::FlowError::Error)
+                            }
+                        }
+                    })
+                    .eos(move |_| {
+                        if !finished_eos.swap(true, Ordering::SeqCst) {
+                            on_output_eos(Mp4DemuxerOutput::Eos);
+                            signal_done(&done_pair_eos);
+                        }
+                    })
+                    .build(),
+            );
+        }
+
+        // Bus sync handler for pipeline errors
+        if let Some(bus) = pipeline.bus() {
+            let on_output_err = on_output.clone();
+            let finished_bus = finished.clone();
+            let done_pair_bus = done_pair.clone();
+
+            bus.set_sync_handler(move |_, msg| {
+                if let gst::MessageView::Error(e) = msg.view() {
+                    if !finished_bus.swap(true, Ordering::SeqCst) {
+                        on_output_err(Mp4DemuxerOutput::Error(Mp4DemuxerError::PipelineError {
+                            src: e
+                                .src()
+                                .map(|s| s.path_string().to_string())
+                                .unwrap_or_else(|| "<unknown>".to_string()),
+                            msg: e.error().to_string(),
+                            debug: e.debug().unwrap_or_default().to_string(),
+                        }));
+                        signal_done(&done_pair_bus);
+                    }
+                    return gst::BusSyncReply::Drop;
+                }
+                gst::BusSyncReply::Pass
+            });
+        }
+
+        // Start pipeline
         let ret = pipeline.set_state(gst::State::Playing);
         if ret == Err(gst::StateChangeError) {
             return Err(Mp4DemuxerError::StateChangeFailed);
@@ -165,140 +284,102 @@ impl Mp4Demuxer {
 
         Ok(Self {
             pipeline,
-            appsink,
-            linked_video_pad,
-            finished: false,
-            detected_codec: None,
+            finished,
+            detected_codec,
+            done_pair,
         })
     }
 
-    /// Pull the next demuxed packet with a 5-second default timeout.
-    ///
-    /// Returns `Ok(None)` on EOS.
-    pub fn pull(&mut self) -> Result<Option<DemuxedPacket>, Mp4DemuxerError> {
-        self.pull_timeout(Duration::from_secs(5))
+    /// Block until the demuxer reaches EOS, encounters an error, or
+    /// [`finish`](Self::finish) is called.
+    pub fn wait(&self) {
+        let (lock, cvar) = &*self.done_pair;
+        let _guard = cvar
+            .wait_while(lock.lock().unwrap(), |done| !*done)
+            .unwrap();
     }
 
-    /// Pull the next demuxed packet with a caller-specified timeout.
+    /// Block until the demuxer finishes or the timeout expires.
     ///
-    /// Returns `Ok(None)` on EOS.
-    pub fn pull_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<Option<DemuxedPacket>, Mp4DemuxerError> {
-        if self.finished {
-            return Err(Mp4DemuxerError::AlreadyFinished);
-        }
-
-        if let Some(msg) = self.poll_bus_error_or_eos() {
-            return msg;
-        }
-
-        if !self.linked_video_pad.load(Ordering::SeqCst) {
-            if let Some(msg) = self.poll_bus_error_or_eos() {
-                return msg;
-            }
-        }
-
-        let gst_timeout = gst::ClockTime::from_nseconds(timeout.as_nanos() as u64);
-        match self.appsink.try_pull_sample(gst_timeout) {
-            Some(sample) => self.sample_to_packet(sample).map(Some),
-            None => {
-                if let Some(msg) = self.poll_bus_error_or_eos() {
-                    msg
-                } else if self.appsink.is_eos() {
-                    self.finish();
-                    Ok(None)
-                } else {
-                    Err(Mp4DemuxerError::PullTimeout)
-                }
-            }
-        }
+    /// Returns `true` if the demuxer finished, `false` on timeout.
+    pub fn wait_timeout(&self, timeout: Duration) -> bool {
+        let (lock, cvar) = &*self.done_pair;
+        let (guard, _) = cvar
+            .wait_timeout_while(lock.lock().unwrap(), timeout, |done| !*done)
+            .unwrap();
+        *guard
     }
 
+    /// Auto-detected video codec from the container, or `None` if no sample
+    /// has been processed yet.
     pub fn detected_codec(&self) -> Option<Codec> {
-        self.detected_codec
+        *self.detected_codec.lock().unwrap()
     }
 
+    /// Stop the pipeline and release resources.
+    ///
+    /// Safe to call multiple times.  After this call, no more callbacks will
+    /// fire.
+    ///
+    /// # Panics
+    ///
+    /// Must **not** be called from within the `on_output` callback (deadlock).
     pub fn finish(&mut self) {
-        if self.finished {
+        if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
-        self.finished = true;
         let _ = self.pipeline.set_state(gst::State::Null);
+        signal_done(&self.done_pair);
     }
 
+    /// Whether the demuxer has been finalized (EOS, error, or explicit
+    /// `finish()`).
     pub fn is_finished(&self) -> bool {
-        self.finished
+        self.finished.load(Ordering::SeqCst)
     }
 
-    fn sample_to_packet(&mut self, sample: gst::Sample) -> Result<DemuxedPacket, Mp4DemuxerError> {
-        if self.detected_codec.is_none() {
-            self.detected_codec = sample.caps().and_then(Self::codec_from_caps);
-        }
-
-        let Some(buffer) = sample.buffer() else {
-            return Err(Mp4DemuxerError::PipelineError {
-                src: "appsink".to_string(),
-                msg: "sample has no buffer".to_string(),
-                debug: String::new(),
-            });
-        };
-        let map = buffer
-            .map_readable()
-            .map_err(|e| Mp4DemuxerError::PipelineError {
-                src: "appsink".to_string(),
-                msg: format!("unable to map buffer: {e}"),
-                debug: String::new(),
-            })?;
-        let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
-        let dts_ns = buffer.dts().map(|t| t.nseconds());
-        let duration_ns = buffer.duration().map(|t| t.nseconds());
-        let is_keyframe = !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT);
-        Ok(DemuxedPacket {
-            data: map.as_slice().to_vec(),
-            pts_ns,
-            dts_ns,
-            duration_ns,
-            is_keyframe,
-        })
+    /// Convenience: demux all packets from an MP4 file (raw container-format).
+    ///
+    /// Returns `(packets, detected_codec)`.
+    pub fn demux_all(
+        input_path: &str,
+    ) -> Result<(Vec<DemuxedPacket>, Option<Codec>), Mp4DemuxerError> {
+        Self::demux_all_inner(input_path, false)
     }
 
-    fn codec_from_caps(caps: &gst::CapsRef) -> Option<Codec> {
-        let s = caps.structure(0)?;
-        match s.name().as_str() {
-            "video/x-h264" => Some(Codec::H264),
-            "video/x-h265" => Some(Codec::Hevc),
-            "video/x-av1" => Some(Codec::Av1),
-            "video/x-vp8" => Some(Codec::Vp8),
-            "video/x-vp9" => Some(Codec::Vp9),
-            "image/jpeg" => Some(Codec::Jpeg),
-            "image/png" => Some(Codec::Png),
-            _ => None,
-        }
+    /// Convenience: demux all packets from an MP4 file (parsed/byte-stream).
+    ///
+    /// Returns `(packets, detected_codec)`.
+    pub fn demux_all_parsed(
+        input_path: &str,
+    ) -> Result<(Vec<DemuxedPacket>, Option<Codec>), Mp4DemuxerError> {
+        Self::demux_all_inner(input_path, true)
     }
 
-    fn poll_bus_error_or_eos(&mut self) -> Option<Result<Option<DemuxedPacket>, Mp4DemuxerError>> {
-        let bus = self.pipeline.bus()?;
-        let msg = bus.pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos])?;
-        match msg.view() {
-            gst::MessageView::Eos(..) => {
-                self.finish();
-                Some(Ok(None))
-            }
-            gst::MessageView::Error(e) => {
-                self.finish();
-                Some(Err(Mp4DemuxerError::PipelineError {
-                    src: e
-                        .src()
-                        .map(|s| s.path_string().to_string())
-                        .unwrap_or_else(|| "<unknown>".to_string()),
-                    msg: e.error().to_string(),
-                    debug: e.debug().unwrap_or_default().to_string(),
-                }))
-            }
-            _ => None,
+    fn demux_all_inner(
+        input_path: &str,
+        parsed: bool,
+    ) -> Result<(Vec<DemuxedPacket>, Option<Codec>), Mp4DemuxerError> {
+        let packets: Arc<Mutex<Vec<DemuxedPacket>>> = Arc::new(Mutex::new(Vec::new()));
+        let error: Arc<Mutex<Option<Mp4DemuxerError>>> = Arc::new(Mutex::new(None));
+        let p = packets.clone();
+        let e = error.clone();
+
+        let demuxer = Self::new_inner(input_path, parsed, move |output| match output {
+            Mp4DemuxerOutput::Packet(pkt) => p.lock().unwrap().push(pkt),
+            Mp4DemuxerOutput::Eos => {}
+            Mp4DemuxerOutput::Error(err) => *e.lock().unwrap() = Some(err),
+        })?;
+
+        demuxer.wait();
+
+        if let Some(e) = error.lock().unwrap().take() {
+            return Err(e);
         }
+
+        let codec = demuxer.detected_codec();
+        let pkts = std::mem::take(&mut *packets.lock().unwrap());
+        Ok((pkts, codec))
     }
 }
 
@@ -308,8 +389,70 @@ impl Drop for Mp4Demuxer {
     }
 }
 
+/// Notify the condvar that the demuxer is done.
+fn signal_done(done_pair: &(Mutex<bool>, Condvar)) {
+    let (lock, cvar) = done_pair;
+    *lock.lock().unwrap() = true;
+    cvar.notify_all();
+}
+
+/// Convert a GStreamer sample to a [`DemuxedPacket`], updating
+/// `detected_codec` on the first sample with caps.
+fn sample_to_packet(
+    sample: gst::Sample,
+    detected_codec: &Mutex<Option<Codec>>,
+) -> Result<DemuxedPacket, Mp4DemuxerError> {
+    {
+        let mut codec = detected_codec.lock().unwrap();
+        if codec.is_none() {
+            *codec = sample.caps().and_then(codec_from_caps);
+        }
+    }
+
+    let Some(buffer) = sample.buffer() else {
+        return Err(Mp4DemuxerError::PipelineError {
+            src: "appsink".to_string(),
+            msg: "sample has no buffer".to_string(),
+            debug: String::new(),
+        });
+    };
+    let map = buffer
+        .map_readable()
+        .map_err(|e| Mp4DemuxerError::PipelineError {
+            src: "appsink".to_string(),
+            msg: format!("unable to map buffer: {e}"),
+            debug: String::new(),
+        })?;
+    let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
+    let dts_ns = buffer.dts().map(|t| t.nseconds());
+    let duration_ns = buffer.duration().map(|t| t.nseconds());
+    let is_keyframe = !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT);
+    Ok(DemuxedPacket {
+        data: map.as_slice().to_vec(),
+        pts_ns,
+        dts_ns,
+        duration_ns,
+        is_keyframe,
+    })
+}
+
+/// Map GStreamer caps to a [`Codec`] value.
+fn codec_from_caps(caps: &gst::CapsRef) -> Option<Codec> {
+    let s = caps.structure(0)?;
+    match s.name().as_str() {
+        "video/x-h264" => Some(Codec::H264),
+        "video/x-h265" => Some(Codec::Hevc),
+        "video/x-av1" => Some(Codec::Av1),
+        "video/x-vp8" => Some(Codec::Vp8),
+        "video/x-vp9" => Some(Codec::Vp9),
+        "image/jpeg" => Some(Codec::Jpeg),
+        "image/png" => Some(Codec::Png),
+        _ => None,
+    }
+}
+
 /// Dynamically insert a codec-specific parser (+ byte-stream capsfilter for
-/// H.264/HEVC) between the qtdemux pad and the queue. Returns the parser's
+/// H.264/HEVC) between the qtdemux pad and the queue.  Returns the parser's
 /// sink pad so the caller can link qtdemux's src_pad to it.
 fn build_parser_chain(
     pipeline: &gst::Pipeline,
@@ -406,17 +549,17 @@ mod tests {
         let vp9 = gst::Caps::from_str("video/x-vp9").unwrap();
         let jpeg = gst::Caps::from_str("image/jpeg").unwrap();
 
-        assert_eq!(Mp4Demuxer::codec_from_caps(&h264), Some(Codec::H264));
-        assert_eq!(Mp4Demuxer::codec_from_caps(&hevc), Some(Codec::Hevc));
-        assert_eq!(Mp4Demuxer::codec_from_caps(&av1), Some(Codec::Av1));
-        assert_eq!(Mp4Demuxer::codec_from_caps(&vp8), Some(Codec::Vp8));
-        assert_eq!(Mp4Demuxer::codec_from_caps(&vp9), Some(Codec::Vp9));
-        assert_eq!(Mp4Demuxer::codec_from_caps(&jpeg), Some(Codec::Jpeg));
+        assert_eq!(codec_from_caps(&h264), Some(Codec::H264));
+        assert_eq!(codec_from_caps(&hevc), Some(Codec::Hevc));
+        assert_eq!(codec_from_caps(&av1), Some(Codec::Av1));
+        assert_eq!(codec_from_caps(&vp8), Some(Codec::Vp8));
+        assert_eq!(codec_from_caps(&vp9), Some(Codec::Vp9));
+        assert_eq!(codec_from_caps(&jpeg), Some(Codec::Jpeg));
     }
 
     #[test]
     fn test_demuxer_rejects_missing_file() {
-        let result = Mp4Demuxer::new("/tmp/does-not-exist-savant-rs.mp4");
+        let result = Mp4Demuxer::new("/tmp/does-not-exist-savant-rs.mp4", |_| {});
         assert!(matches!(result, Err(Mp4DemuxerError::InputNotFound(_))));
     }
 
@@ -429,8 +572,7 @@ mod tests {
         let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
         muxer.finish().unwrap();
 
-        let mut demuxer = Mp4Demuxer::new(path).unwrap();
-        let err = demuxer.pull_timeout(Duration::from_secs(2)).unwrap_err();
+        let err = Mp4Demuxer::demux_all(path).unwrap_err();
         assert!(matches!(err, Mp4DemuxerError::PipelineError { .. }));
         let _ = std::fs::remove_file(path);
     }

@@ -303,18 +303,9 @@ pub fn demux_mp4_to_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
     let mp4_path = assets_dir().join(&entry.file);
     let mp4_str = mp4_path.to_str().unwrap();
 
-    let mut demuxer = Mp4Demuxer::new_parsed(mp4_str)
+    let (packets, _codec) = Mp4Demuxer::demux_all_parsed(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
 
-    let mut packets = Vec::new();
-    loop {
-        match demuxer.pull_timeout(Duration::from_secs(5)) {
-            Ok(Some(pkt)) => packets.push(pkt),
-            Ok(None) => break,
-            Err(e) => panic!("demuxer pull error for {}: {e}", entry.file),
-        }
-    }
-    demuxer.finish();
     assert!(
         !packets.is_empty(),
         "{}: demuxer produced 0 packets",

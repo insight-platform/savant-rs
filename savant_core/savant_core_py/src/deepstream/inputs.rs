@@ -827,13 +827,16 @@ impl PyFlexibleDecoder {
     ///
     /// Raises:
     ///     RuntimeError: If the decoder is shut down.
-    fn source_eos(&self, source_id: &str) -> PyResult<()> {
+    fn source_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let dec = self
             .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(SHUT_DOWN_MSG))?;
-        dec.source_eos(source_id)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        let source_id = source_id.to_string();
+        py.detach(move || {
+            dec.source_eos(&source_id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
     }
 
     /// Drain the current decoder and shut down.
@@ -842,7 +845,7 @@ impl PyFlexibleDecoder {
     ///     RuntimeError: If the decoder is already shut down or a drain
     ///         error occurs.
     fn graceful_shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
-        let mut dec = self
+        let dec = self
             .0
             .take()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(SHUT_DOWN_MSG))?;
@@ -854,7 +857,7 @@ impl PyFlexibleDecoder {
 
     /// Immediate teardown — frames in flight are lost.
     fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
-        let mut dec = self
+        let dec = self
             .0
             .take()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(SHUT_DOWN_MSG))?;
@@ -1114,13 +1117,16 @@ impl PyFlexibleDecoderPool {
     ///
     /// Raises:
     ///     RuntimeError: If the pool is shut down.
-    fn source_eos(&self, source_id: &str) -> PyResult<()> {
+    fn source_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let pool = self
             .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(POOL_SHUT_DOWN_MSG))?;
-        pool.source_eos(source_id)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        let source_id = source_id.to_string();
+        py.detach(move || {
+            pool.source_eos(&source_id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
     }
 
     /// Drain every decoder in the pool and shut down.

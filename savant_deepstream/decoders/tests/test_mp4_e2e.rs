@@ -14,7 +14,7 @@ fn run_mp4_e2e(entry: &AssetEntry) {
     let config = decoder_config_for_codec(&entry.codec)
         .unwrap_or_else(|| panic!("unsupported codec in manifest: {}", entry.codec));
 
-    let mut demuxer = Mp4Demuxer::new_parsed(mp4_str)
+    let (demuxed_packets, _codec) = Mp4Demuxer::demux_all_parsed(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
 
     let decoder = NvDecoder::new(
@@ -25,15 +25,6 @@ fn run_mp4_e2e(entry: &AssetEntry) {
     .unwrap_or_else(|e| panic!("decoder create failed for {}: {e}", entry.file));
 
     let mut submitted = 0u32;
-    let mut demuxed_packets = Vec::new();
-    loop {
-        match demuxer.pull_timeout(Duration::from_secs(5)) {
-            Ok(Some(pkt)) => demuxed_packets.push(pkt),
-            Ok(None) => break,
-            Err(e) => panic!("demuxer pull error for {}: {e}", entry.file),
-        }
-    }
-    demuxer.finish();
 
     assert!(
         !demuxed_packets.is_empty(),

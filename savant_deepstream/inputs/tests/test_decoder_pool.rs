@@ -173,8 +173,8 @@ fn test_eviction_no_callback_evicts_by_default() {
     pool.submit(&f, Some(&jpeg)).unwrap();
     collector.wait_for_frames(1, Duration::from_secs(5));
 
-    // Wait for TTL to expire + sweep
-    std::thread::sleep(Duration::from_millis(1500));
+    // Wait for TTL (200ms) to expire + sweep (100ms min interval) + margin
+    std::thread::sleep(Duration::from_millis(400));
 
     // Submit again for same source — should create a fresh decoder
     let f2 = make_frame("cam-1", 320, 240, 1_000_000);
@@ -205,8 +205,8 @@ fn test_eviction_callback_keep() {
     pool.submit(&f, Some(&jpeg)).unwrap();
     collector.wait_for_frames(1, Duration::from_secs(5));
 
-    // Wait for at least one eviction sweep
-    std::thread::sleep(Duration::from_millis(1500));
+    // Wait for at least one eviction sweep (TTL 200ms + sweep 100ms + margin)
+    std::thread::sleep(Duration::from_millis(400));
     assert!(
         eviction_count.load(Ordering::Relaxed) >= 1,
         "eviction callback should have been called at least once"
@@ -242,8 +242,8 @@ fn test_eviction_callback_evict() {
     pool.submit(&f, Some(&jpeg)).unwrap();
     collector.wait_for_frames(1, Duration::from_secs(5));
 
-    // Wait for eviction
-    std::thread::sleep(Duration::from_millis(1500));
+    // Wait for eviction (TTL 200ms + sweep 100ms + margin)
+    std::thread::sleep(Duration::from_millis(400));
     assert!(eviction_count.load(Ordering::Relaxed) >= 1);
 
     // Submit again — should create a fresh decoder
@@ -332,8 +332,8 @@ fn test_submit_after_evict_creates_fresh_decoder() {
     pool.submit(&f, Some(&jpeg)).unwrap();
     collector.wait_for_frames(1, Duration::from_secs(5));
 
-    // Wait for eviction
-    std::thread::sleep(Duration::from_millis(1500));
+    // Wait for eviction (TTL 200ms + sweep 100ms + margin)
+    std::thread::sleep(Duration::from_millis(400));
 
     // New submission should create a fresh decoder and succeed
     let f2 = make_frame("cam-1", 320, 240, 0);

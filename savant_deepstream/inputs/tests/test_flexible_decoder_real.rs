@@ -20,11 +20,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const SOURCE_ID: &str = "real-codec-test";
-const TIMEOUT: Duration = Duration::from_secs(30);
+const TIMEOUT: Duration = Duration::from_secs(15);
 
 fn default_config() -> FlexibleDecoderConfig {
     FlexibleDecoderConfig::new(SOURCE_ID, 0, 4)
-        .idle_timeout(Duration::from_secs(10))
+        .idle_timeout(Duration::from_secs(5))
         .detect_buffer_limit(60)
 }
 
@@ -109,7 +109,7 @@ fn test_h264_mp4_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
     let aus = demux_mp4_to_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
@@ -142,7 +142,7 @@ fn test_h264_annexb_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
     let aus = load_annexb_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
@@ -166,7 +166,7 @@ fn test_hevc_mp4_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
     let aus = demux_mp4_to_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
@@ -190,7 +190,7 @@ fn test_hevc_annexb_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
     let aus = load_annexb_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
@@ -214,7 +214,7 @@ fn test_av1_mp4_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
     let aus = demux_mp4_to_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
@@ -238,7 +238,7 @@ fn test_jpeg_mp4_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
     let aus = demux_mp4_to_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);
@@ -269,7 +269,7 @@ fn test_h264_to_hevc_codec_change() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
@@ -314,7 +314,7 @@ fn test_jpeg_to_h264_codec_change() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let jpeg_aus = demux_mp4_to_access_units(jpeg_entry);
     let jpeg_count = 3.min(jpeg_aus.len());
@@ -359,7 +359,7 @@ fn test_h264_to_jpeg_codec_change() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
@@ -404,7 +404,7 @@ fn test_h264_to_av1_codec_change() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
@@ -456,7 +456,7 @@ fn test_multi_codec_rotation_jpeg_h264_hevc_jpeg() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let frames_per_phase = 3usize;
     let dur = 33_333_333u64;
@@ -549,7 +549,7 @@ fn test_source_eos_between_codec_changes() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     // Phase 1: H.264
     let h264_aus = load_annexb_access_units(h264_entry);
@@ -622,7 +622,7 @@ fn test_graceful_shutdown_during_h264_decode() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let aus = load_annexb_access_units(entry);
     let count = 4.min(aus.len());
@@ -675,9 +675,9 @@ fn test_all_mp4_assets_single_codec() {
         // VP9 may not be supported on all platforms for FlexibleDecoder
         // (same limitations as NvDecoder).  Skip gracefully on error.
         let collector = OutputCollector::new();
-        let mut dec = FlexibleDecoder::new(
+        let dec = FlexibleDecoder::new(
             FlexibleDecoderConfig::new(&entry.file, 0, 4)
-                .idle_timeout(Duration::from_secs(10))
+                .idle_timeout(Duration::from_secs(5))
                 .detect_buffer_limit(60),
             collector.callback(),
         );
@@ -758,9 +758,9 @@ fn test_all_annexb_assets_single_codec() {
         }
 
         let collector = OutputCollector::new();
-        let mut dec = FlexibleDecoder::new(
+        let dec = FlexibleDecoder::new(
             FlexibleDecoderConfig::new(&entry.file, 0, 4)
-                .idle_timeout(Duration::from_secs(10))
+                .idle_timeout(Duration::from_secs(5))
                 .detect_buffer_limit(60),
             collector.callback(),
         );
@@ -830,7 +830,7 @@ fn test_h264_bt709_then_bt2020_same_session() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     // Phase 1 — bt709 8-bit
     let bt709_aus = demux_mp4_to_access_units(bt709_entry);
@@ -890,7 +890,7 @@ fn test_h264_wrong_frame_dimensions() {
     };
 
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
     let aus = demux_mp4_to_access_units(entry);
     let limit = aus.len().min(entry.num_frames as usize);
@@ -967,7 +967,7 @@ fn test_sealed_delivery_cross_thread_unseal() {
         // `out` drops here → seal released
     };
 
-    let mut dec = FlexibleDecoder::new(default_config(), callback);
+    let dec = FlexibleDecoder::new(default_config(), callback);
     let aus = demux_mp4_to_access_units(entry);
     let num = aus.len().min(entry.num_frames as usize);
     let submitted = submit_access_units(&dec, &aus, entry, num, 0);

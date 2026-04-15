@@ -158,7 +158,7 @@ impl OutputCollector {
 
 fn default_config(source_id: &str) -> FlexibleDecoderConfig {
     FlexibleDecoderConfig::new(source_id, 0, 4)
-        .idle_timeout(Duration::from_secs(5))
+        .idle_timeout(Duration::from_secs(2))
         .detect_buffer_limit(30)
 }
 
@@ -335,7 +335,7 @@ fn test_source_eos_active() {
 fn test_graceful_shutdown() {
     init();
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
+    let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
 
     let jpeg_data = make_jpeg(320, 240);
     let mut submitted_uuids = Vec::new();
@@ -375,7 +375,7 @@ fn test_graceful_shutdown() {
 fn test_shutdown_immediate() {
     init();
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
+    let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
 
     let jpeg_data = make_jpeg(320, 240);
     let frame = make_frame(
@@ -558,7 +558,7 @@ fn test_payload_from_internal_content() {
 fn test_graceful_shutdown_detecting() {
     init();
     let collector = OutputCollector::new();
-    let mut dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
+    let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
 
     let dummy_data = vec![0u8; 100];
     let frame = make_frame(

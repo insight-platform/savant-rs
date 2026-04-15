@@ -9,7 +9,7 @@
 //! decoder or transparently create a new one.
 
 use crate::flexible_decoder::{FlexibleDecoder, FlexibleDecoderError, FlexibleDecoderOutput};
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::collections::HashMap;
@@ -29,13 +29,14 @@ fn epoch_ms() -> u64 {
         .as_millis() as u64
 }
 
-/// Minimum sweep interval so we never spin.
-const MIN_SWEEP_INTERVAL: Duration = Duration::from_secs(1);
+/// Minimum sweep interval. The condvar-based sleep ensures we never spin
+/// even with a low floor — the thread wakes on signal or after the interval.
+const MIN_SWEEP_INTERVAL: Duration = Duration::from_millis(100);
 
 // ── StreamEntry ──────────────────────────────────────────────────────────
 
 struct StreamEntry {
-    decoder: FlexibleDecoder,
+    decoder: Arc<FlexibleDecoder>,
     last_activity_ms: AtomicU64,
     eviction_seal: Option<Arc<ReleaseSeal>>,
 }
@@ -59,7 +60,7 @@ pub struct FlexibleDecoderPool {
     config: FlexibleDecoderPoolConfig,
     streams: Arc<Mutex<HashMap<String, StreamEntry>>>,
     on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync + 'static>,
-    eviction_stop: Arc<AtomicBool>,
+    eviction_stop: Arc<(Mutex<bool>, Condvar)>,
     eviction_join: Option<JoinHandle<()>>,
     shut_down: AtomicBool,
 }
@@ -100,7 +101,7 @@ impl FlexibleDecoderPool {
     ) -> Self {
         let streams: Arc<Mutex<HashMap<String, StreamEntry>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        let eviction_stop = Arc::new(AtomicBool::new(false));
+        let eviction_stop = Arc::new((Mutex::new(false), Condvar::new()));
 
         let sweep_interval = (config.eviction_ttl / 4).max(MIN_SWEEP_INTERVAL);
 
@@ -167,11 +168,14 @@ impl FlexibleDecoderPool {
             return Err(FlexibleDecoderError::ShutDown);
         }
 
-        let streams = self.streams.lock();
-        if let Some(entry) = streams.get(source_id) {
-            entry.decoder.source_eos(source_id)
+        let decoder = {
+            let streams = self.streams.lock();
+            streams.get(source_id).map(|e| Arc::clone(&e.decoder))
+        };
+
+        if let Some(decoder) = decoder {
+            decoder.source_eos(source_id)
         } else {
-            drop(streams);
             (self.on_output)(FlexibleDecoderOutput::SourceEos {
                 source_id: source_id.to_string(),
             });
@@ -230,7 +234,9 @@ impl FlexibleDecoderPool {
     // ── Private helpers ──────────────────────────────────────────────
 
     fn stop_eviction_thread(&mut self) {
-        self.eviction_stop.store(true, Ordering::Relaxed);
+        let (lock, cvar) = &*self.eviction_stop;
+        *lock.lock() = true;
+        cvar.notify_one();
         if let Some(jh) = self.eviction_join.take() {
             let _ = jh.join();
         }
@@ -244,37 +250,39 @@ impl FlexibleDecoderPool {
         data: Option<&[u8]>,
     ) -> Result<(), FlexibleDecoderError> {
         loop {
-            let seal = {
+            let result = {
                 let mut streams = self.streams.lock();
 
                 if let Some(entry) = streams.get(source_id) {
                     if let Some(ref seal) = entry.eviction_seal {
                         // Eviction in progress — grab the seal and wait
                         // outside the lock.
-                        Arc::clone(seal)
+                        Err(Arc::clone(seal))
                     } else {
                         entry.last_activity_ms.store(epoch_ms(), Ordering::Relaxed);
-                        return entry.decoder.submit(frame, data);
+                        Ok(Arc::clone(&entry.decoder))
                     }
                 } else {
                     // Create a new decoder for this source_id.
                     let flex_config = self.config.to_flexible_config(source_id);
                     let on_out = Arc::clone(&self.on_output);
-                    let decoder = FlexibleDecoder::new(flex_config, move |out| (on_out)(out));
+                    let decoder =
+                        Arc::new(FlexibleDecoder::new(flex_config, move |out| (on_out)(out)));
 
                     let entry = StreamEntry {
-                        decoder,
+                        decoder: Arc::clone(&decoder),
                         last_activity_ms: AtomicU64::new(epoch_ms()),
                         eviction_seal: None,
                     };
                     streams.insert(source_id.to_string(), entry);
-                    let entry = streams.get(source_id).unwrap();
-                    return entry.decoder.submit(frame, data);
+                    Ok(decoder)
                 }
             };
 
-            // Wait for eviction to complete, then retry.
-            seal.wait();
+            match result {
+                Ok(decoder) => return decoder.submit(frame, data),
+                Err(seal) => seal.wait(),
+            }
         }
     }
 }
@@ -291,16 +299,22 @@ impl Drop for FlexibleDecoderPool {
 
 fn eviction_loop(
     streams: &Mutex<HashMap<String, StreamEntry>>,
-    stop: &AtomicBool,
+    stop: &(Mutex<bool>, Condvar),
     on_eviction: &Option<EvictionCallback>,
     eviction_ttl_ms: u64,
     sweep_interval: Duration,
 ) {
-    while !stop.load(Ordering::Relaxed) {
-        std::thread::sleep(sweep_interval);
-        if stop.load(Ordering::Relaxed) {
+    let (lock, cvar) = stop;
+    loop {
+        let mut stopped = lock.lock();
+        if *stopped {
             break;
         }
+        cvar.wait_for(&mut stopped, sweep_interval);
+        if *stopped {
+            break;
+        }
+        drop(stopped);
         eviction_sweep(streams, on_eviction, eviction_ttl_ms);
     }
 }
@@ -333,7 +347,7 @@ fn eviction_sweep(
     // Lock released — blocked submit() calls can see the seal and wait.
 
     // Phase 2: consult callback and act.
-    let mut to_drain: Vec<(String, FlexibleDecoder)> = Vec::new();
+    let mut to_drain: Vec<(String, Arc<FlexibleDecoder>)> = Vec::new();
 
     for (source_id, seal) in expired {
         let decision = on_eviction
@@ -367,7 +381,7 @@ fn eviction_sweep(
     }
 
     // Phase 3: drain evicted decoders outside any lock.
-    for (_source_id, mut decoder) in to_drain {
+    for (_source_id, decoder) in to_drain {
         let _ = decoder.graceful_shutdown();
     }
 }

@@ -14,7 +14,6 @@ mod common;
 use common::*;
 use deepstream_decoders::prelude::*;
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
-use std::time::Duration;
 
 fn codec_from_str(s: &str) -> Option<Codec> {
     match s {
@@ -149,19 +148,8 @@ fn run_detect_mp4_demuxed(entry: &AssetEntry) {
     let mp4_path = assets_dir().join(&entry.file);
     let mp4_str = mp4_path.to_str().unwrap();
 
-    let mut demuxer = Mp4Demuxer::new(mp4_str)
+    let (packets, detected_codec) = Mp4Demuxer::demux_all(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
-
-    let mut packets = Vec::new();
-    loop {
-        match demuxer.pull_timeout(Duration::from_secs(5)) {
-            Ok(Some(pkt)) => packets.push(pkt),
-            Ok(None) => break,
-            Err(e) => panic!("demuxer pull error for {}: {e}", entry.file),
-        }
-    }
-    let detected_codec = demuxer.detected_codec();
-    demuxer.finish();
 
     assert!(
         !packets.is_empty(),
@@ -279,21 +267,10 @@ fn run_rap_mp4_demuxed(entry: &AssetEntry) {
     let mp4_path = assets_dir().join(&entry.file);
     let mp4_str = mp4_path.to_str().unwrap();
 
-    let mut demuxer = Mp4Demuxer::new(mp4_str)
+    let (packets, detected_codec) = Mp4Demuxer::demux_all(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
 
-    let mut packets = Vec::new();
-    loop {
-        match demuxer.pull_timeout(Duration::from_secs(5)) {
-            Ok(Some(pkt)) => packets.push(pkt),
-            Ok(None) => break,
-            Err(e) => panic!("demuxer pull error for {}: {e}", entry.file),
-        }
-    }
-    let codec = demuxer
-        .detected_codec()
-        .unwrap_or_else(|| panic!("{}: no codec", entry.file));
-    demuxer.finish();
+    let codec = detected_codec.unwrap_or_else(|| panic!("{}: no codec", entry.file));
 
     let mut first_rap: Option<usize> = None;
     for (i, pkt) in packets.iter().enumerate() {
