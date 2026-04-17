@@ -124,9 +124,7 @@ def test_receive_frames_from_rtsp_sources():
 
         # 3. Build the group programmatically (mirrors the JSON config).
         group = RtspSourceGroup(
-            sources=[
-                RtspSource(s["source_id"], s["url"]) for s in SOURCES
-            ],
+            sources=[RtspSource(s["source_id"], s["url"]) for s in SOURCES],
             backend=RtspBackend.Gstreamer,
             rtcp_sr_sync=SyncConfiguration(
                 group_window_duration_ms=5000,

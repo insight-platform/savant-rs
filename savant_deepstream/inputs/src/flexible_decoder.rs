@@ -18,7 +18,7 @@ mod output;
 mod payload_validate;
 mod state;
 
-pub use config::FlexibleDecoderConfig;
+pub use config::{DecoderConfigCallback, FlexibleDecoderConfig};
 pub use decoder::FlexibleDecoder;
 pub use deepstream_decoders::DecodedFrame;
 pub use error::FlexibleDecoderError;

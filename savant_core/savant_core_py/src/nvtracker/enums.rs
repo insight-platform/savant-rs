@@ -1,8 +1,8 @@
 //! Python enums for nvtracker.
 
-use nvtracker::TrackState;
 use nvtracker::TrackingIdResetMode;
 use pyo3::prelude::*;
+use savant_core::primitives::misc_track::TrackState;
 
 /// Maps to DeepStream ``tracking-id-reset-mode`` on ``nvtracker``.
 #[pyclass(

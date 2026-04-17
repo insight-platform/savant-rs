@@ -1,6 +1,7 @@
 //! PyO3 wrapper for NvInferConfig.
 
-use super::enums::{PyMetaClearPolicy, PyModelColorFormat, PyModelInputScaling};
+use super::enums::{PyModelColorFormat, PyModelInputScaling};
+use crate::deepstream::enums::PyMetaClearPolicy;
 use crate::deepstream::enums::PyVideoFormat;
 use nvinfer::NvInferConfig;
 use pyo3::prelude::*;

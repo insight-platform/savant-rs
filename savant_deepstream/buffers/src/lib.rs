@@ -28,6 +28,7 @@
 
 pub mod cuda_stream;
 pub mod ffi;
+pub mod meta_clear_policy;
 pub mod prelude;
 pub mod transform;
 
@@ -38,6 +39,7 @@ pub mod surface_readers;
 pub mod surface_view;
 
 pub use cuda_stream::CudaStream;
+pub use meta_clear_policy::MetaClearPolicy;
 pub use shared_buffer::SharedBuffer;
 pub use surface_view::SurfaceView;
 

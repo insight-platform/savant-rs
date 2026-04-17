@@ -467,6 +467,23 @@ impl FlexibleDecoder {
         }
     }
 
+    /// Apply the user-supplied decoder-config callback (if any).
+    ///
+    /// The callback takes ownership of the incoming [`DecoderConfig`] and
+    /// returns a (possibly modified) config. When no callback is installed,
+    /// this is the identity function.
+    #[inline]
+    fn apply_decoder_config_callback(
+        &self,
+        decoder_config: DecoderConfig,
+        frame: &VideoFrameProxy,
+    ) -> DecoderConfig {
+        match &self.config.decoder_config_callback {
+            Some(cb) => cb(decoder_config, frame),
+            None => decoder_config,
+        }
+    }
+
     /// Create a new [`NvDecoder`], its buffer pool, and a worker thread.
     fn activate(
         &self,
@@ -476,6 +493,8 @@ impl FlexibleDecoder {
         height: i64,
         frame: &VideoFrameProxy,
     ) -> Result<ActivatedDecoder, String> {
+        let decoder_config = self.apply_decoder_config_callback(decoder_config, frame);
+
         if let DecoderConfig::Jpeg(ref j) = decoder_config {
             if j.backend == JpegBackend::Gpu
                 && (width < 16 || height < 16 || width % 8 != 0 || height % 8 != 0)
@@ -576,6 +595,19 @@ fn convert_output(fm: &FrameMap, out: NvDecoderOutput) -> FlexibleDecoderOutput 
     }
 }
 
+#[cfg(test)]
+impl FlexibleDecoder {
+    /// Test-only hook: exercise the decoder-config callback path without
+    /// spinning up an [`NvDecoder`].
+    pub(crate) fn apply_decoder_config_callback_for_test(
+        &self,
+        cfg: DecoderConfig,
+        frame: &VideoFrameProxy,
+    ) -> DecoderConfig {
+        self.apply_decoder_config_callback(cfg, frame)
+    }
+}
+
 /// Background worker: polls [`NvDecoder`] output and forwards to the callback.
 fn worker_loop(
     decoder: Arc<NvDecoder>,
@@ -622,6 +654,62 @@ fn worker_loop(
                 on_output(FlexibleDecoderOutput::Error(e));
                 break;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use deepstream_decoders::Vp8DecoderConfig;
+    use savant_core::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
+    use savant_core::primitives::video_codec::VideoCodec;
+
+    fn test_frame() -> VideoFrameProxy {
+        VideoFrameProxy::new(
+            "src",
+            (30, 1),
+            64,
+            48,
+            VideoFrameContent::None,
+            VideoFrameTranscodingMethod::Copy,
+            Some(VideoCodec::Vp8),
+            None,
+            (1, 30),
+            0,
+            None,
+            None,
+        )
+        .expect("test frame")
+    }
+
+    #[test]
+    fn callback_none_is_identity() {
+        let config = FlexibleDecoderConfig::new("src", 0, 4);
+        let dec = FlexibleDecoder::new(config, |_| {});
+        let input = DecoderConfig::Vp8(Vp8DecoderConfig::default().num_extra_surfaces(1));
+        let out = dec.apply_decoder_config_callback_for_test(input, &test_frame());
+        match out {
+            DecoderConfig::Vp8(c) => assert_eq!(c.num_extra_surfaces, Some(1)),
+            _ => panic!("expected Vp8"),
+        }
+    }
+
+    #[test]
+    fn callback_transforms_vp8_num_extra_surfaces() {
+        let config = FlexibleDecoderConfig::new("src", 0, 4).decoder_config_callback(|cfg, f| {
+            assert_eq!(f.get_source_id(), "src");
+            match cfg {
+                DecoderConfig::Vp8(c) => DecoderConfig::Vp8(c.num_extra_surfaces(7)),
+                other => other,
+            }
+        });
+        let dec = FlexibleDecoder::new(config, |_| {});
+        let input = DecoderConfig::Vp8(Vp8DecoderConfig::default());
+        let out = dec.apply_decoder_config_callback_for_test(input, &test_frame());
+        match out {
+            DecoderConfig::Vp8(c) => assert_eq!(c.num_extra_surfaces, Some(7)),
+            _ => panic!("expected Vp8"),
         }
     }
 }

@@ -325,11 +325,11 @@ impl Mp4Demuxer {
     ///
     /// Must **not** be called from within the `on_output` callback (deadlock).
     pub fn finish(&mut self) {
-        if self.finished.swap(true, Ordering::SeqCst) {
-            return;
-        }
+        let was_finished = self.finished.swap(true, Ordering::SeqCst);
         let _ = self.pipeline.set_state(gst::State::Null);
-        signal_done(&self.done_pair);
+        if !was_finished {
+            signal_done(&self.done_pair);
+        }
     }
 
     /// Whether the demuxer has been finalized (EOS, error, or explicit

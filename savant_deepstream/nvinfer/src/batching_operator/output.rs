@@ -1,7 +1,7 @@
-use crate::batch_meta_builder::clear_all_frame_objects;
 use crate::error::NvInferError;
 use crate::model_input_scaling::ModelInputScaling;
 use crate::output::ElementOutput;
+use deepstream::clear_all_frame_objects;
 use deepstream_buffers::SharedBuffer;
 use deepstream_sys::GstBuffer;
 use savant_core::primitives::frame::VideoFrameProxy;

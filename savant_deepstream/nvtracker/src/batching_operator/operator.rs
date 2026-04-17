@@ -301,13 +301,8 @@ fn process_tracking_output(
     output: TrackerOutput,
     pending_batches: &PendingMap,
 ) -> Option<TrackerOperatorOutput> {
-    let TrackerOutput {
-        buffer,
-        current_tracks,
-        shadow_tracks,
-        terminated_tracks,
-        past_frame_data,
-    } = output;
+    let (buffer, current_tracks, shadow_tracks, terminated_tracks, past_frame_data) =
+        output.into_parts();
 
     let batch_id = match find_batch_id(&buffer) {
         Some(id) => id,

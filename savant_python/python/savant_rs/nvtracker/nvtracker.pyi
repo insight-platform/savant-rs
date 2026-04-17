@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Tuple, final
 
-from savant_rs.deepstream import SavantIdMetaKind, SharedBuffer, VideoFormat
+from savant_rs.deepstream import MetaClearPolicy, SavantIdMetaKind, SharedBuffer, VideoFormat
 from savant_rs.nvinfer import Roi
 from savant_rs.primitives import VideoFrame
 
@@ -67,6 +67,7 @@ class NvTrackerConfig:
         gpu_id: int = ...,
         element_properties: Optional[dict[str, str]] = ...,
         tracking_id_reset_mode: TrackingIdResetMode = ...,
+        meta_clear_policy: MetaClearPolicy = ...,
         operation_timeout_ms: int = ...,
         input_channel_capacity: int = ...,
         output_channel_capacity: int = ...,
@@ -107,6 +108,11 @@ class NvTrackerConfig:
 
     @property
     def gpu_id(self) -> int: ...
+
+    @property
+    def meta_clear_policy(self) -> MetaClearPolicy:
+        """`NvDsObjectMeta` clearing policy (before submit / on output drop)."""
+        ...
 
     def __repr__(self) -> str: ...
 

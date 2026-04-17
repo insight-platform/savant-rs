@@ -1,17 +1,63 @@
 use crate::{DeepStreamError, FrameMeta, Result, UserMeta};
-use deepstream_sys::{GstBuffer, NvDsBatchMeta};
+use deepstream_sys::{
+    gst_buffer_get_nvds_batch_meta, nvds_clear_obj_meta_list, GstBuffer, NvDsBatchMeta,
+    NvDsFrameMeta,
+};
 use std::sync::{Arc, Once};
 
 /// Force-initialise the private tag quark inside `libnvdsgst_meta.so`.
 ///
 /// Any code path that calls `gst_buffer_get_nvds_batch_meta` must call this
 /// first to avoid `gst_meta_api_type_has_tag: assertion 'tag != 0' failed`.
-fn ensure_nvds_meta_api_registered() {
+///
+/// Safe to call many times; the underlying init runs only once process-wide.
+pub fn ensure_nvds_meta_api_registered() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         // SAFETY: nvds_meta_api_get_type is safe to call once for global init.
         unsafe { deepstream_sys::nvds_meta_api_get_type() };
     });
+}
+
+/// Remove every `NvDsObjectMeta` from every frame in the batch meta attached
+/// to `buf_ptr`.
+///
+/// Used by `MetaClearPolicy::Before` (before submitting to inference/tracker)
+/// and `MetaClearPolicy::After` (when the output is dropped) to keep the
+/// batch buffer free of stale upstream object metas.
+///
+/// No-op when `buf_ptr` is null or has no attached batch meta.
+///
+/// # Safety
+/// `buf_ptr` must be a valid, writable `*mut GstBuffer` with a unique
+/// reference (i.e. writable per GStreamer's copy-on-write rules). Concurrent
+/// access to the batch meta linked lists is not safe.
+pub unsafe fn clear_all_frame_objects(buf_ptr: *mut GstBuffer) {
+    ensure_nvds_meta_api_registered();
+    if buf_ptr.is_null() {
+        return;
+    }
+    let batch_meta = gst_buffer_get_nvds_batch_meta(buf_ptr);
+    if batch_meta.is_null() {
+        return;
+    }
+    clear_frames_objects(batch_meta);
+}
+
+/// Iterate the frame meta list of `batch_meta` and clear every
+/// `NvDsObjectMeta` via `nvds_clear_obj_meta_list`.
+fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
+    let mut frame_list = unsafe { (*batch_meta).frame_meta_list };
+    while !frame_list.is_null() {
+        let frame_ptr = unsafe { (*frame_list).data as *mut NvDsFrameMeta };
+        if !frame_ptr.is_null() {
+            let obj_list = unsafe { (*frame_ptr).obj_meta_list };
+            if !obj_list.is_null() {
+                unsafe { nvds_clear_obj_meta_list(frame_ptr, obj_list) };
+            }
+        }
+        frame_list = unsafe { (*frame_list).next };
+    }
 }
 
 /// RAII guard for the DeepStream batch metadata lock.

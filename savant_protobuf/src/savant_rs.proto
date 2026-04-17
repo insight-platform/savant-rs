@@ -295,6 +295,43 @@ message NanosecondsU128 {
   uint64 low = 2;
 }
 
+// Tracker misc-track types (shadow / terminated / past-frame).
+
+enum TrackState {
+  TRACK_STATE_EMPTY = 0;
+  TRACK_STATE_ACTIVE = 1;
+  TRACK_STATE_INACTIVE = 2;
+  TRACK_STATE_TENTATIVE = 3;
+  TRACK_STATE_PROJECTED = 4;
+}
+
+enum MiscTrackCategory {
+  MISC_TRACK_SHADOW = 0;
+  MISC_TRACK_TERMINATED = 1;
+  MISC_TRACK_PAST_FRAME = 2;
+}
+
+message MiscTrackFrame {
+  uint32 frame_num = 1;
+  float bbox_left = 2;
+  float bbox_top = 3;
+  float bbox_width = 4;
+  float bbox_height = 5;
+  float confidence = 6;
+  uint32 age = 7;
+  TrackState state = 8;
+  float visibility = 9;
+}
+
+message MiscTrackData {
+  uint64 object_id = 1;
+  uint32 class_id = 2;
+  optional string label = 3;
+  string source_id = 4;
+  MiscTrackCategory category = 5;
+  repeated MiscTrackFrame frames = 6;
+}
+
 message VideoFrame {
   reserved 5, 13, 20 to 22; // removed: legacy field numbers; do not reuse (wire-compat guard)
   optional int64 previous_frame_seq_id = 1;
@@ -320,6 +357,7 @@ message VideoFrame {
   repeated Attribute attributes = 24;
   repeated VideoObject objects = 25;
   optional string previous_keyframe = 26;
+  repeated MiscTrackData misc_tracks = 27;
 }
 
 message VideoFrameBatch {

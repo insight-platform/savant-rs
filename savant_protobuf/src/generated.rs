@@ -374,6 +374,42 @@ pub struct NanosecondsU128 {
     #[prost(uint64, tag = "2")]
     pub low: u64,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct MiscTrackFrame {
+    #[prost(uint32, tag = "1")]
+    pub frame_num: u32,
+    #[prost(float, tag = "2")]
+    pub bbox_left: f32,
+    #[prost(float, tag = "3")]
+    pub bbox_top: f32,
+    #[prost(float, tag = "4")]
+    pub bbox_width: f32,
+    #[prost(float, tag = "5")]
+    pub bbox_height: f32,
+    #[prost(float, tag = "6")]
+    pub confidence: f32,
+    #[prost(uint32, tag = "7")]
+    pub age: u32,
+    #[prost(enumeration = "TrackState", tag = "8")]
+    pub state: i32,
+    #[prost(float, tag = "9")]
+    pub visibility: f32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MiscTrackData {
+    #[prost(uint64, tag = "1")]
+    pub object_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub class_id: u32,
+    #[prost(string, optional, tag = "3")]
+    pub label: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, tag = "4")]
+    pub source_id: ::prost::alloc::string::String,
+    #[prost(enumeration = "MiscTrackCategory", tag = "5")]
+    pub category: i32,
+    #[prost(message, repeated, tag = "6")]
+    pub frames: ::prost::alloc::vec::Vec<MiscTrackFrame>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrame {
     #[prost(int64, optional, tag = "1")]
@@ -412,6 +448,8 @@ pub struct VideoFrame {
     pub objects: ::prost::alloc::vec::Vec<VideoObject>,
     #[prost(string, optional, tag = "26")]
     pub previous_keyframe: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "27")]
+    pub misc_tracks: ::prost::alloc::vec::Vec<MiscTrackData>,
     #[prost(oneof = "video_frame::Content", tags = "17, 18, 19")]
     pub content: ::core::option::Option<video_frame::Content>,
 }
@@ -649,6 +687,72 @@ impl VideoCodec {
             "RAW_RGBA" => Some(Self::RawRgba),
             "RAW_RGB" => Some(Self::RawRgb),
             "RAW_NV12" => Some(Self::RawNv12),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum TrackState {
+    Empty = 0,
+    Active = 1,
+    Inactive = 2,
+    Tentative = 3,
+    Projected = 4,
+}
+impl TrackState {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Empty => "TRACK_STATE_EMPTY",
+            Self::Active => "TRACK_STATE_ACTIVE",
+            Self::Inactive => "TRACK_STATE_INACTIVE",
+            Self::Tentative => "TRACK_STATE_TENTATIVE",
+            Self::Projected => "TRACK_STATE_PROJECTED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TRACK_STATE_EMPTY" => Some(Self::Empty),
+            "TRACK_STATE_ACTIVE" => Some(Self::Active),
+            "TRACK_STATE_INACTIVE" => Some(Self::Inactive),
+            "TRACK_STATE_TENTATIVE" => Some(Self::Tentative),
+            "TRACK_STATE_PROJECTED" => Some(Self::Projected),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum MiscTrackCategory {
+    MiscTrackShadow = 0,
+    MiscTrackTerminated = 1,
+    MiscTrackPastFrame = 2,
+}
+impl MiscTrackCategory {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::MiscTrackShadow => "MISC_TRACK_SHADOW",
+            Self::MiscTrackTerminated => "MISC_TRACK_TERMINATED",
+            Self::MiscTrackPastFrame => "MISC_TRACK_PAST_FRAME",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "MISC_TRACK_SHADOW" => Some(Self::MiscTrackShadow),
+            "MISC_TRACK_TERMINATED" => Some(Self::MiscTrackTerminated),
+            "MISC_TRACK_PAST_FRAME" => Some(Self::MiscTrackPastFrame),
             _ => None,
         }
     }

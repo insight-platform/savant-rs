@@ -3,8 +3,9 @@
 use super::enums::PyTrackState;
 use crate::deepstream::buffer::PySharedBuffer;
 use deepstream_buffers::SharedBuffer;
-use nvtracker::{MiscTrackData, MiscTrackFrame, TrackedObject, TrackerOutput};
+use nvtracker::{TrackedObject, TrackerOutput};
 use pyo3::prelude::*;
+use savant_core::primitives::misc_track::{MiscTrackData, MiscTrackFrame};
 
 #[pyclass(
     name = "TrackedObject",
@@ -167,13 +168,8 @@ impl PyTrackerOutput {
 
 impl PyTrackerOutput {
     pub(crate) fn from_rust(o: TrackerOutput) -> Self {
-        let TrackerOutput {
-            buffer,
-            current_tracks,
-            shadow_tracks,
-            terminated_tracks,
-            past_frame_data,
-        } = o;
+        let (buffer, current_tracks, shadow_tracks, terminated_tracks, past_frame_data) =
+            o.into_parts();
         Self {
             buffer,
             current_tracks: current_tracks

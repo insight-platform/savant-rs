@@ -1,17 +1,48 @@
 //! Python bindings for [`deepstream_inputs::flexible_decoder`].
 
 use crate::deepstream::buffer::PySharedBuffer;
+use crate::deepstream::decoder_config::PyDecoderConfig;
 use crate::deepstream::enums::PyVideoFormat;
 use crate::gstreamer::PyCodec;
 use crate::primitives::frame::VideoFrame;
+use deepstream_decoders::DecoderConfig;
 use deepstream_inputs::flexible_decoder::{
-    DecodedFrame, DecoderParameters, FlexibleDecoder, FlexibleDecoderConfig, FlexibleDecoderOutput,
-    SealedDelivery, SkipReason,
+    DecodedFrame, DecoderConfigCallback, DecoderParameters, FlexibleDecoder, FlexibleDecoderConfig,
+    FlexibleDecoderOutput, SealedDelivery, SkipReason,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
+use savant_core::primitives::frame::VideoFrameProxy;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Build a [`DecoderConfigCallback`] that invokes the given Python callable.
+///
+/// Failures (Python exception or wrong return type) are logged via
+/// `log::error!` and the original config is returned unchanged.
+fn make_decoder_config_callback(cb: Py<PyAny>) -> DecoderConfigCallback {
+    Arc::new(
+        move |cfg: DecoderConfig, frame: &VideoFrameProxy| -> DecoderConfig {
+            Python::attach(|py| {
+                let py_cfg = PyDecoderConfig::from_rust(cfg.clone());
+                let py_frame = VideoFrame(frame.clone());
+                match cb.call1(py, (py_cfg, py_frame)) {
+                    Ok(ret) => match ret.extract::<PyDecoderConfig>(py) {
+                        Ok(new) => new.into_rust(),
+                        Err(e) => {
+                            log::error!("decoder_config_callback returned non-DecoderConfig: {e}");
+                            cfg
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("decoder_config_callback raised: {e}");
+                        cfg
+                    }
+                }
+            })
+        },
+    )
+}
 
 // ─── FlexibleDecoderConfig ──────────────────────────────────────────────
 
@@ -41,6 +72,24 @@ impl PyFlexibleDecoderConfig {
     /// Set the maximum frames buffered during H.264/HEVC stream detection.
     fn with_detect_buffer_limit(&self, n: usize) -> Self {
         Self(self.0.clone().detect_buffer_limit(n))
+    }
+
+    /// Install a decoder-config transformation callback.
+    ///
+    /// The callback takes ``(DecoderConfig, VideoFrame)`` and must return a
+    /// :class:`DecoderConfig`. It fires each time a new underlying decoder
+    /// is activated (first submit and every subsequent codec / resolution
+    /// change). Exceptions and non-:class:`DecoderConfig` return values are
+    /// logged and fall back to the original config.
+    ///
+    /// Args:
+    ///     cb: ``Callable[[DecoderConfig, VideoFrame], DecoderConfig]``.
+    fn with_decoder_config_callback(&self, cb: Py<PyAny>) -> Self {
+        Self(
+            self.0
+                .clone()
+                .decoder_config_callback_arc(make_decoder_config_callback(cb)),
+        )
     }
 
     #[getter]
@@ -959,6 +1008,18 @@ impl PyFlexibleDecoderPoolConfig {
         Self(self.0.clone().detect_buffer_limit(n))
     }
 
+    /// Install a decoder-config transformation callback. See
+    /// :meth:`FlexibleDecoderConfig.with_decoder_config_callback` for
+    /// semantics. The callback is inherited by every per-stream decoder
+    /// created by the pool.
+    fn with_decoder_config_callback(&self, cb: Py<PyAny>) -> Self {
+        Self(
+            self.0
+                .clone()
+                .decoder_config_callback_arc(make_decoder_config_callback(cb)),
+        )
+    }
+
     #[getter]
     fn gpu_id(&self) -> u32 {
         self.0.gpu_id
@@ -1159,6 +1220,19 @@ impl PyFlexibleDecoderPool {
             "FlexibleDecoderPool(running)"
         } else {
             "FlexibleDecoderPool(shut_down)"
+        }
+    }
+}
+
+impl Drop for PyFlexibleDecoderPool {
+    fn drop(&mut self) {
+        if let Some(pool) = self.0.take() {
+            // Move the pool to a detached thread so that the GC thread
+            // (which holds the GIL) does not block on worker-thread joins
+            // while those threads try to re-acquire the GIL via callbacks.
+            std::thread::spawn(move || {
+                drop(pool);
+            });
         }
     }
 }

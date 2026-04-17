@@ -31,6 +31,7 @@ __all__ = [
     "SurfaceBatch",
     "NonUniformBatch",
     "SavantIdMetaKind",
+    "MetaClearPolicy",
     "set_num_filled",
     "SkiaContext",
     "SkiaCanvas",
@@ -60,6 +61,20 @@ __all__ = [
     "EvictionDecision",
     "FlexibleDecoderPoolConfig",
     "FlexibleDecoderPool",
+    "H264StreamFormat",
+    "HevcStreamFormat",
+    "JpegBackend",
+    "CudadecMemtype",
+    "H264DecoderConfig",
+    "HevcDecoderConfig",
+    "Vp8DecoderConfig",
+    "Vp9DecoderConfig",
+    "Av1DecoderConfig",
+    "JpegDecoderConfig",
+    "PngDecoderConfig",
+    "RawRgbaDecoderConfig",
+    "RawRgbDecoderConfig",
+    "DecoderConfig",
     "nvgstbuf_as_gpu_mat",
     "nvbuf_as_gpu_mat",
     "from_gpumat",
@@ -205,6 +220,30 @@ class ComputeMode:
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+
+@final
+class MetaClearPolicy:
+    """Controls when ``NvDsObjectMeta`` entries are erased from the batch buffer.
+
+    Shared by both :mod:`savant_rs.nvinfer` and :mod:`savant_rs.nvtracker`
+    pipelines; re-exported from those modules for convenience.
+
+    - ``NONE`` -- never clear automatically.
+    - ``BEFORE`` -- clear stale objects before attaching new objects (default).
+    - ``AFTER`` -- clear all objects when the output is dropped.
+    - ``BOTH`` -- clear before submission **and** after the output is dropped.
+    """
+
+    NONE: MetaClearPolicy
+    BEFORE: MetaClearPolicy
+    AFTER: MetaClearPolicy
+    BOTH: MetaClearPolicy
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 @final
 class SavantIdMetaKind:
@@ -1237,6 +1276,19 @@ class FlexibleDecoderConfig:
         """Set the max frames buffered during H.264/HEVC stream detection."""
         ...
 
+    def with_decoder_config_callback(
+        self,
+        cb: Callable[[DecoderConfig, VideoFrame], DecoderConfig],
+    ) -> FlexibleDecoderConfig:
+        """Install a decoder-config transformation callback.
+
+        The callback is invoked each time the underlying decoder is
+        (re-)activated (first submit and every subsequent codec / resolution
+        change).  Exceptions and non-:class:`DecoderConfig` return values are
+        logged and fall back to the original config.
+        """
+        ...
+
     @property
     def source_id(self) -> str: ...
     @property
@@ -1631,6 +1683,16 @@ class FlexibleDecoderPoolConfig:
         """Return a new config with the given detection buffer limit."""
         ...
 
+    def with_decoder_config_callback(
+        self,
+        cb: Callable[[DecoderConfig, VideoFrame], DecoderConfig],
+    ) -> FlexibleDecoderPoolConfig:
+        """Install a decoder-config transformation callback applied to every
+        per-stream decoder created by the pool. See
+        :meth:`FlexibleDecoderConfig.with_decoder_config_callback`.
+        """
+        ...
+
     @property
     def gpu_id(self) -> int: ...
 
@@ -1710,5 +1772,457 @@ class FlexibleDecoderPool:
     def shutdown(self) -> None:
         """Immediate teardown — frames in flight are lost."""
         ...
+
+    def __repr__(self) -> str: ...
+
+
+# ── DecoderConfig types ─────────────────────────────────────────────────
+
+@final
+class H264StreamFormat:
+    """H.264 bitstream format carried in the GStreamer caps."""
+
+    BYTE_STREAM: H264StreamFormat
+    AVC: H264StreamFormat
+    AVC3: H264StreamFormat
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class HevcStreamFormat:
+    """HEVC bitstream format carried in the GStreamer caps."""
+
+    BYTE_STREAM: HevcStreamFormat
+    HVC1: HevcStreamFormat
+    HEV1: HevcStreamFormat
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class JpegBackend:
+    """Backend used by the JPEG decoder."""
+
+    GPU: JpegBackend
+    CPU: JpegBackend
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class CudadecMemtype:
+    """CUDA memory type for the ``nvv4l2decoder`` ``cudadec-memtype`` property.
+
+    **Platform: dGPU only.** This class is not exposed on Jetson
+    (``aarch64``); ``nvv4l2decoder`` does not expose the
+    ``cudadec-memtype`` property on that platform. Importing the
+    symbol on Jetson raises ``ImportError``.
+    """
+
+    DEVICE: CudadecMemtype
+    PINNED: CudadecMemtype
+    UNIFIED: CudadecMemtype
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class H264DecoderConfig:
+    """H.264 decoder configuration.
+
+    ``codec_data`` is derived by the pipeline from the bitstream and is
+    intentionally not exposed.
+
+    Tunable availability (per DeepStream 7.1 Gst-nvvideo4linux2 docs):
+
+    * ``num_extra_surfaces`` -- both platforms.
+    * ``drop_frame_interval`` -- both platforms.
+    * ``cudadec_memtype``, ``low_latency_mode`` -- dGPU only.
+    * ``enable_max_performance``, ``low_latency`` -- Jetson only.
+    """
+
+    def __init__(self, stream_format: H264StreamFormat) -> None: ...
+    def with_num_extra_surfaces(self, n: int) -> H264DecoderConfig: ...
+    def with_drop_frame_interval(self, n: int) -> H264DecoderConfig: ...
+    def with_cudadec_memtype(self, t: CudadecMemtype) -> H264DecoderConfig:
+        """**dGPU only** -- maps to ``cudadec-memtype``."""
+        ...
+
+    def with_low_latency_mode(self, v: bool) -> H264DecoderConfig:
+        """**dGPU only** -- maps to ``low-latency-mode`` (no frame
+        reordering; requires IDR-only or low-delay-encoded
+        bitstreams).
+        """
+        ...
+
+    def with_enable_max_performance(self, v: bool) -> H264DecoderConfig:
+        """**Jetson only** -- maps to ``enable-max-performance``."""
+        ...
+
+    def with_low_latency(self, v: bool) -> H264DecoderConfig:
+        """**Jetson only** -- maps to ``disable-dpb`` (low-latency mode
+        for IDR-only or IPPP bitstreams).
+        """
+        ...
+
+    @property
+    def stream_format(self) -> H264StreamFormat: ...
+    @property
+    def num_extra_surfaces(self) -> Optional[int]: ...
+    @property
+    def drop_frame_interval(self) -> Optional[int]: ...
+    @property
+    def cudadec_memtype(self) -> Optional[CudadecMemtype]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def low_latency_mode(self) -> Optional[bool]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def enable_max_performance(self) -> Optional[bool]:
+        """**Jetson only.**"""
+        ...
+
+    @property
+    def low_latency(self) -> Optional[bool]:
+        """**Jetson only** -- ``disable-dpb``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+
+@final
+class HevcDecoderConfig:
+    """HEVC decoder configuration (``codec_data`` not exposed).
+
+    See :class:`H264DecoderConfig` for the per-platform tunable matrix.
+    """
+
+    def __init__(self, stream_format: HevcStreamFormat) -> None: ...
+    def with_num_extra_surfaces(self, n: int) -> HevcDecoderConfig: ...
+    def with_drop_frame_interval(self, n: int) -> HevcDecoderConfig: ...
+    def with_cudadec_memtype(self, t: CudadecMemtype) -> HevcDecoderConfig:
+        """**dGPU only** -- maps to ``cudadec-memtype``."""
+        ...
+
+    def with_low_latency_mode(self, v: bool) -> HevcDecoderConfig:
+        """**dGPU only** -- maps to ``low-latency-mode``."""
+        ...
+
+    def with_enable_max_performance(self, v: bool) -> HevcDecoderConfig:
+        """**Jetson only** -- maps to ``enable-max-performance``."""
+        ...
+
+    def with_low_latency(self, v: bool) -> HevcDecoderConfig:
+        """**Jetson only** -- maps to ``disable-dpb``."""
+        ...
+
+    @property
+    def stream_format(self) -> HevcStreamFormat: ...
+    @property
+    def num_extra_surfaces(self) -> Optional[int]: ...
+    @property
+    def drop_frame_interval(self) -> Optional[int]: ...
+    @property
+    def cudadec_memtype(self) -> Optional[CudadecMemtype]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def low_latency_mode(self) -> Optional[bool]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def enable_max_performance(self) -> Optional[bool]:
+        """**Jetson only.**"""
+        ...
+
+    @property
+    def low_latency(self) -> Optional[bool]:
+        """**Jetson only** -- ``disable-dpb``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+
+@final
+class Vp8DecoderConfig:
+    """VP8 decoder configuration.
+
+    See :class:`H264DecoderConfig` for the per-platform tunable matrix.
+    """
+
+    def __init__(self) -> None: ...
+    def with_num_extra_surfaces(self, n: int) -> Vp8DecoderConfig: ...
+    def with_drop_frame_interval(self, n: int) -> Vp8DecoderConfig: ...
+    def with_cudadec_memtype(self, t: CudadecMemtype) -> Vp8DecoderConfig:
+        """**dGPU only** -- maps to ``cudadec-memtype``."""
+        ...
+
+    def with_low_latency_mode(self, v: bool) -> Vp8DecoderConfig:
+        """**dGPU only** -- maps to ``low-latency-mode``."""
+        ...
+
+    def with_enable_max_performance(self, v: bool) -> Vp8DecoderConfig:
+        """**Jetson only** -- maps to ``enable-max-performance``."""
+        ...
+
+    def with_low_latency(self, v: bool) -> Vp8DecoderConfig:
+        """**Jetson only** -- maps to ``disable-dpb``."""
+        ...
+
+    @property
+    def num_extra_surfaces(self) -> Optional[int]: ...
+    @property
+    def drop_frame_interval(self) -> Optional[int]: ...
+    @property
+    def cudadec_memtype(self) -> Optional[CudadecMemtype]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def low_latency_mode(self) -> Optional[bool]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def enable_max_performance(self) -> Optional[bool]:
+        """**Jetson only.**"""
+        ...
+
+    @property
+    def low_latency(self) -> Optional[bool]:
+        """**Jetson only** -- ``disable-dpb``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+
+@final
+class Vp9DecoderConfig:
+    """VP9 decoder configuration.
+
+    See :class:`H264DecoderConfig` for the per-platform tunable matrix.
+    """
+
+    def __init__(self) -> None: ...
+    def with_num_extra_surfaces(self, n: int) -> Vp9DecoderConfig: ...
+    def with_drop_frame_interval(self, n: int) -> Vp9DecoderConfig: ...
+    def with_cudadec_memtype(self, t: CudadecMemtype) -> Vp9DecoderConfig:
+        """**dGPU only** -- maps to ``cudadec-memtype``."""
+        ...
+
+    def with_low_latency_mode(self, v: bool) -> Vp9DecoderConfig:
+        """**dGPU only** -- maps to ``low-latency-mode``."""
+        ...
+
+    def with_enable_max_performance(self, v: bool) -> Vp9DecoderConfig:
+        """**Jetson only** -- maps to ``enable-max-performance``."""
+        ...
+
+    def with_low_latency(self, v: bool) -> Vp9DecoderConfig:
+        """**Jetson only** -- maps to ``disable-dpb``."""
+        ...
+
+    @property
+    def num_extra_surfaces(self) -> Optional[int]: ...
+    @property
+    def drop_frame_interval(self) -> Optional[int]: ...
+    @property
+    def cudadec_memtype(self) -> Optional[CudadecMemtype]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def low_latency_mode(self) -> Optional[bool]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def enable_max_performance(self) -> Optional[bool]:
+        """**Jetson only.**"""
+        ...
+
+    @property
+    def low_latency(self) -> Optional[bool]:
+        """**Jetson only** -- ``disable-dpb``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+
+@final
+class Av1DecoderConfig:
+    """AV1 decoder configuration.
+
+    See :class:`H264DecoderConfig` for the per-platform tunable matrix.
+    """
+
+    def __init__(self) -> None: ...
+    def with_num_extra_surfaces(self, n: int) -> Av1DecoderConfig: ...
+    def with_drop_frame_interval(self, n: int) -> Av1DecoderConfig: ...
+    def with_cudadec_memtype(self, t: CudadecMemtype) -> Av1DecoderConfig:
+        """**dGPU only** -- maps to ``cudadec-memtype``."""
+        ...
+
+    def with_low_latency_mode(self, v: bool) -> Av1DecoderConfig:
+        """**dGPU only** -- maps to ``low-latency-mode``."""
+        ...
+
+    def with_enable_max_performance(self, v: bool) -> Av1DecoderConfig:
+        """**Jetson only** -- maps to ``enable-max-performance``."""
+        ...
+
+    def with_low_latency(self, v: bool) -> Av1DecoderConfig:
+        """**Jetson only** -- maps to ``disable-dpb``."""
+        ...
+
+    @property
+    def num_extra_surfaces(self) -> Optional[int]: ...
+    @property
+    def drop_frame_interval(self) -> Optional[int]: ...
+    @property
+    def cudadec_memtype(self) -> Optional[CudadecMemtype]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def low_latency_mode(self) -> Optional[bool]:
+        """**dGPU only.**"""
+        ...
+
+    @property
+    def enable_max_performance(self) -> Optional[bool]:
+        """**Jetson only.**"""
+        ...
+
+    @property
+    def low_latency(self) -> Optional[bool]:
+        """**Jetson only** -- ``disable-dpb``."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+
+@final
+class JpegDecoderConfig:
+    """JPEG decoder configuration."""
+
+    @staticmethod
+    def gpu() -> JpegDecoderConfig:
+        """Use the GPU JPEG decoder (``nvjpegdec``)."""
+        ...
+
+    @staticmethod
+    def cpu() -> JpegDecoderConfig:
+        """Use the CPU JPEG decoder (``jpegdec``)."""
+        ...
+
+    @property
+    def backend(self) -> JpegBackend: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class PngDecoderConfig:
+    """PNG decoder configuration (no tunable parameters)."""
+
+    def __init__(self) -> None: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class RawRgbaDecoderConfig:
+    """Raw RGBA decoder configuration (dimensions from the frame)."""
+
+    def __init__(self, width: int, height: int) -> None: ...
+    @property
+    def width(self) -> int: ...
+    @property
+    def height(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class RawRgbDecoderConfig:
+    """Raw RGB decoder configuration (dimensions from the frame)."""
+
+    def __init__(self, width: int, height: int) -> None: ...
+    @property
+    def width(self) -> int: ...
+    @property
+    def height(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+
+@final
+class DecoderConfig:
+    """Umbrella wrapper for the per-codec decoder configurations.
+
+    Use :meth:`codec` to inspect the variant and ``as_*`` /
+    ``with_*`` / ``from_*`` methods to convert between typed inner
+    classes and this umbrella type.
+    """
+
+    @staticmethod
+    def from_h264(cfg: H264DecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_hevc(cfg: HevcDecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_vp8(cfg: Vp8DecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_vp9(cfg: Vp9DecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_av1(cfg: Av1DecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_jpeg(cfg: JpegDecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_png(cfg: PngDecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_raw_rgba(cfg: RawRgbaDecoderConfig) -> DecoderConfig: ...
+    @staticmethod
+    def from_raw_rgb(cfg: RawRgbDecoderConfig) -> DecoderConfig: ...
+
+    def codec(self) -> Codec: ...
+    def as_h264(self) -> Optional[H264DecoderConfig]: ...
+    def as_hevc(self) -> Optional[HevcDecoderConfig]: ...
+    def as_vp8(self) -> Optional[Vp8DecoderConfig]: ...
+    def as_vp9(self) -> Optional[Vp9DecoderConfig]: ...
+    def as_av1(self) -> Optional[Av1DecoderConfig]: ...
+    def as_jpeg(self) -> Optional[JpegDecoderConfig]: ...
+    def as_png(self) -> Optional[PngDecoderConfig]: ...
+    def as_raw_rgba(self) -> Optional[RawRgbaDecoderConfig]: ...
+    def as_raw_rgb(self) -> Optional[RawRgbDecoderConfig]: ...
+
+    def with_h264(self, cfg: H264DecoderConfig) -> DecoderConfig: ...
+    def with_hevc(self, cfg: HevcDecoderConfig) -> DecoderConfig: ...
+    def with_vp8(self, cfg: Vp8DecoderConfig) -> DecoderConfig: ...
+    def with_vp9(self, cfg: Vp9DecoderConfig) -> DecoderConfig: ...
+    def with_av1(self, cfg: Av1DecoderConfig) -> DecoderConfig: ...
+    def with_jpeg(self, cfg: JpegDecoderConfig) -> DecoderConfig: ...
+    def with_png(self, cfg: PngDecoderConfig) -> DecoderConfig: ...
+    def with_raw_rgba(self, cfg: RawRgbaDecoderConfig) -> DecoderConfig: ...
+    def with_raw_rgb(self, cfg: RawRgbDecoderConfig) -> DecoderConfig: ...
 
     def __repr__(self) -> str: ...

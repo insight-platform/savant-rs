@@ -1,57 +1,12 @@
 //! PyO3 enum wrappers for nvinfer types.
+//!
+//! Note: `PyMetaClearPolicy` lives in `crate::deepstream::enums` since it is
+//! shared with `nvtracker`. Import it from there directly.
 
 use nvinfer::DataType;
-use nvinfer::MetaClearPolicy;
 use nvinfer::ModelColorFormat;
 use nvinfer::ModelInputScaling;
 use pyo3::prelude::*;
-
-/// Controls when object metadata is erased from the batch buffer.
-///
-/// - ``NONE`` -- never clear automatically.
-/// - ``BEFORE`` -- clear stale objects before attaching ROI objects (default).
-/// - ``AFTER`` -- clear all objects when the output is dropped.
-/// - ``BOTH`` -- clear before submission **and** after the output is dropped.
-#[pyclass(
-    from_py_object,
-    name = "MetaClearPolicy",
-    module = "savant_rs.nvinfer",
-    eq,
-    eq_int
-)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PyMetaClearPolicy {
-    #[pyo3(name = "NONE")]
-    None = 0,
-    #[pyo3(name = "BEFORE")]
-    Before = 1,
-    #[pyo3(name = "AFTER")]
-    After = 2,
-    #[pyo3(name = "BOTH")]
-    Both = 3,
-}
-
-impl From<PyMetaClearPolicy> for MetaClearPolicy {
-    fn from(p: PyMetaClearPolicy) -> Self {
-        match p {
-            PyMetaClearPolicy::None => MetaClearPolicy::None,
-            PyMetaClearPolicy::Before => MetaClearPolicy::Before,
-            PyMetaClearPolicy::After => MetaClearPolicy::After,
-            PyMetaClearPolicy::Both => MetaClearPolicy::Both,
-        }
-    }
-}
-
-impl From<MetaClearPolicy> for PyMetaClearPolicy {
-    fn from(p: MetaClearPolicy) -> Self {
-        match p {
-            MetaClearPolicy::None => PyMetaClearPolicy::None,
-            MetaClearPolicy::Before => PyMetaClearPolicy::Before,
-            MetaClearPolicy::After => PyMetaClearPolicy::After,
-            MetaClearPolicy::Both => PyMetaClearPolicy::Both,
-        }
-    }
-}
 
 /// How input frames are scaled to the model's fixed input dimensions.
 ///

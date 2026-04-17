@@ -1,5 +1,17 @@
 export PROJECT_DIR=$(CURDIR)
 
+# ── .envrc auto-loading ──────────────────────────────────────────────────────
+# Source .envrc at parse time so every recipe inherits SKIA_BINARIES_URL &
+# SCCACHE_CACHE_SIZE.  Wrapping in a function lets `return` work inside
+# .envrc; stdout is discarded to keep its echo from polluting $(shell) output.
+# Update the printf/export list below when .envrc adds new exports.
+_ENVRC := $(shell bash -c 'f(){ source $(CURDIR)/.envrc; }; f >/dev/null && printf "%s %s" "$$SKIA_BINARIES_URL" "$$SCCACHE_CACHE_SIZE"')
+ifneq ($(_ENVRC),)
+  export SKIA_BINARIES_URL  := $(firstword $(_ENVRC))
+  export SCCACHE_CACHE_SIZE := $(lastword $(_ENVRC))
+  $(info .envrc loaded: SKIA_BINARIES_URL=$(SKIA_BINARIES_URL) SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE))
+endif
+
 # Project-local virtualenv.  All pip / python3 / pytest invocations go
 # through VENV_BIN so we never accidentally touch the system site-packages.
 VENV_DIR  ?= /opt/venv

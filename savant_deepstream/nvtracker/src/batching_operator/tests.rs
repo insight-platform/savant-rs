@@ -45,6 +45,7 @@ fn make_nvtracker_config() -> crate::config::NvTrackerConfig {
         input_format: deepstream_buffers::VideoFormat::RGBA,
         element_properties: StdHashMap::new(),
         tracking_id_reset_mode: TrackingIdResetMode::None,
+        meta_clear_policy: deepstream_buffers::MetaClearPolicy::Before,
         operation_timeout: std::time::Duration::from_secs(30),
         input_channel_capacity: 16,
         output_channel_capacity: 16,
@@ -117,6 +118,17 @@ fn operator_config_builder_overrides() {
         .build();
     assert_eq!(config.max_batch_size, 16);
     assert_eq!(config.max_batch_wait, Duration::from_millis(100));
+}
+
+#[test]
+fn operator_config_preserves_nvtracker_meta_clear_policy() {
+    let mut nvtracker_config = make_nvtracker_config();
+    nvtracker_config.meta_clear_policy = deepstream_buffers::MetaClearPolicy::Both;
+    let config = NvTrackerBatchingOperatorConfig::builder(nvtracker_config).build();
+    assert_eq!(
+        config.nvtracker.meta_clear_policy,
+        deepstream_buffers::MetaClearPolicy::Both
+    );
 }
 
 // ── TrackerBatchFormationResult ────────────────────────────────────
@@ -201,6 +213,7 @@ fn frame_output_contains_per_frame_groups() {
             class_id: 0,
             label: Some("car".to_string()),
             source_id: "cam-a".to_string(),
+            category: crate::MiscTrackCategory::Shadow,
             frames: vec![MiscTrackFrame {
                 frame_num: 1,
                 bbox_left: 0.0,

@@ -2,23 +2,16 @@
 
 use crate::error::{NvTrackerError, Result};
 use crate::roi::Roi;
+use deepstream::ensure_nvds_meta_api_registered;
 use deepstream_sys::{
     gst_buffer_add_nvds_meta, gst_buffer_get_nvds_batch_meta, nvds_acquire_frame_meta_from_pool,
     nvds_acquire_obj_meta_from_pool, nvds_add_frame_meta_to_batch, nvds_add_obj_meta_to_frame,
     nvds_batch_meta_copy_func, nvds_batch_meta_release_func, nvds_clear_obj_meta_list,
-    nvds_create_batch_meta, nvds_meta_api_get_type, GstBuffer, GstNvDsMetaType_NVDS_BATCH_GST_META,
-    NvDsBatchMeta, NvDsFrameMeta,
+    nvds_create_batch_meta, GstBuffer, GstNvDsMetaType_NVDS_BATCH_GST_META, NvDsBatchMeta,
+    NvDsFrameMeta,
 };
 use savant_core::primitives::RBBox;
 use std::ptr;
-use std::sync::Once;
-
-fn ensure_nvds_meta_api_registered() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| unsafe {
-        nvds_meta_api_get_type();
-    });
-}
 
 /// Pre-tracking placeholder (`UNTRACKED_OBJECT_ID` in DeepStream headers).
 const PRETRACK_OBJECT_ID: u64 = u64::MAX;

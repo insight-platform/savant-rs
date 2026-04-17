@@ -35,6 +35,7 @@ savant_services_common = { workspace = true, optional = true }
 gstreamer = { workspace = true, optional = true }
 glib = { workspace = true, optional = true }
 deepstream_buffers = { workspace = true, optional = true }
+deepstream_decoders = { path = "../../savant_deepstream/decoders", optional = true }
 deepstream_encoders = { path = "../../savant_deepstream/encoders", optional = true }
 deepstream_inputs = { path = "../../savant_deepstream/inputs", optional = true }
 nvidia_gpu_utils = { workspace = true, optional = true }
@@ -52,7 +53,7 @@ uuid = { workspace = true }
 [features]
 default = []
 gst = ["savant_gstreamer", "gstreamer", "retina_rtsp", "savant_services_common"]
-deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_encoders", "deepstream_inputs", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
+deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_decoders", "deepstream_encoders", "deepstream_inputs", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

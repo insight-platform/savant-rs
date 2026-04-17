@@ -20,11 +20,13 @@ pub use batching_operator::{
     TrackerOperatorResultCallback, TrackerOperatorTrackingOutput,
 };
 pub use config::{NvTrackerConfig, TrackingIdResetMode};
+pub use deepstream_buffers::MetaClearPolicy;
 pub use deepstream_buffers::SavantIdMetaKind;
 pub use detection_meta::attach_detection_meta;
 pub use error::{NvTrackerError, Result};
 pub use output::{
-    extract_tracker_output, MiscTrackData, MiscTrackFrame, TrackState, TrackedObject, TrackerOutput,
+    extract_tracker_output, MiscTrackCategory, MiscTrackData, MiscTrackFrame, TrackState,
+    TrackedObject, TrackerOutput,
 };
 pub use pipeline::{default_ll_lib_path, NvTracker, NvTrackerOutput, TrackedFrame};
 pub use roi::Roi;

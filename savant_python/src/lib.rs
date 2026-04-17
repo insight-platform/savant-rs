@@ -33,6 +33,9 @@ use savant_core_py::primitives::frame_update::{
 use savant_core_py::primitives::message::loader::*;
 use savant_core_py::primitives::message::saver::*;
 use savant_core_py::primitives::message::*;
+use savant_core_py::primitives::misc_track::{
+    MiscTrackCategory, MiscTrackData, MiscTrackFrame, TrackState, TrackUpdate,
+};
 use savant_core_py::primitives::object::object_tree::VideoObjectTree;
 use savant_core_py::primitives::object::{
     BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject,
@@ -276,6 +279,12 @@ pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VideoFrameTranscodingMethod>()?;
     m.add_class::<VideoFrameUpdate>()?;
     m.add_class::<VideoFrameTransformation>()?;
+
+    m.add_class::<TrackState>()?;
+    m.add_class::<MiscTrackCategory>()?;
+    m.add_class::<MiscTrackFrame>()?;
+    m.add_class::<MiscTrackData>()?;
+    m.add_class::<TrackUpdate>()?;
 
     m.add_class::<BorrowedVideoObject>()?;
     m.add_class::<VideoObject>()?;

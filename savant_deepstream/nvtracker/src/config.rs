@@ -1,7 +1,7 @@
 //! NvTracker configuration.
 
 use crate::error::{NvTrackerError, Result};
-use deepstream_buffers::VideoFormat;
+use deepstream_buffers::{MetaClearPolicy, VideoFormat};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -45,6 +45,9 @@ pub struct NvTrackerConfig {
     pub input_format: VideoFormat,
     pub element_properties: HashMap<String, String>,
     pub tracking_id_reset_mode: TrackingIdResetMode,
+    /// Controls clearing of `NvDsObjectMeta` before submit and on output drop.
+    /// Default: `Before`.
+    pub meta_clear_policy: MetaClearPolicy,
     /// Maximum time to wait for a submitted buffer to produce a result.
     /// Passed to the GStreamer pipeline framework as the in-flight watchdog
     /// deadline. When exceeded, the pipeline enters a terminal failed state.
@@ -72,6 +75,7 @@ impl NvTrackerConfig {
             input_format: VideoFormat::RGBA,
             element_properties: HashMap::new(),
             tracking_id_reset_mode: TrackingIdResetMode::None,
+            meta_clear_policy: MetaClearPolicy::default(),
             operation_timeout: Duration::from_secs(30),
             input_channel_capacity: 16,
             output_channel_capacity: 16,
@@ -94,6 +98,12 @@ impl NvTrackerConfig {
     /// Set the framework drain thread poll interval when no sample is ready.
     pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
         self.drain_poll_interval = interval;
+        self
+    }
+
+    /// Set the `NvDsObjectMeta` clearing policy.
+    pub fn meta_clear_policy(mut self, policy: MetaClearPolicy) -> Self {
+        self.meta_clear_policy = policy;
         self
     }
 
@@ -156,5 +166,18 @@ mod tests {
 
         let _ = std::fs::remove_file(&lib);
         let _ = std::fs::remove_file(&yml);
+    }
+
+    #[test]
+    fn new_defaults_meta_clear_policy_before() {
+        let c = NvTrackerConfig::new("/tmp/lib.so", "/tmp/cfg.yml");
+        assert_eq!(c.meta_clear_policy, MetaClearPolicy::Before);
+    }
+
+    #[test]
+    fn fluent_meta_clear_policy_setter_updates_value() {
+        let c = NvTrackerConfig::new("/tmp/lib.so", "/tmp/cfg.yml")
+            .meta_clear_policy(MetaClearPolicy::Both);
+        assert_eq!(c.meta_clear_policy, MetaClearPolicy::Both);
     }
 }

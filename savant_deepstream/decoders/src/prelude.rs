@@ -5,3 +5,6 @@ pub use crate::{
     NvDecoderConfig, NvDecoderOutput, PngDecoderConfig, RawRgbDecoderConfig, RawRgbaDecoderConfig,
     SharedBuffer, SurfaceView, TransformConfig, VideoFormat, Vp8DecoderConfig, Vp9DecoderConfig,
 };
+
+#[cfg(not(target_arch = "aarch64"))]
+pub use crate::CudadecMemtype;

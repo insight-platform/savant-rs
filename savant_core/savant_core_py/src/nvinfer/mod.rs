@@ -14,7 +14,8 @@ use pyo3::prelude::*;
 
 /// Register all nvinfer Python classes on the given module.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<enums::PyMetaClearPolicy>()?;
+    // `MetaClearPolicy` is registered in the shared `savant_rs.deepstream`
+    // submodule; both nvinfer and nvtracker import it from there.
     m.add_class::<enums::PyModelInputScaling>()?;
     m.add_class::<enums::PyModelColorFormat>()?;
     m.add_class::<enums::PyDataType>()?;

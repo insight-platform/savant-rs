@@ -19,8 +19,8 @@ use crate::output::{extract_tracker_output, TrackerOutput};
 use crate::roi::Roi;
 use crossbeam::channel::{Receiver, Sender};
 use deepstream_buffers::{
-    read_slot_dimensions, read_surface_header, NonUniformBatch, SavantIdMetaKind, SharedBuffer,
-    SurfaceView,
+    read_slot_dimensions, read_surface_header, MetaClearPolicy, NonUniformBatch, SavantIdMetaKind,
+    SharedBuffer, SurfaceView,
 };
 use deepstream_sys;
 use gstreamer as gst;
@@ -80,6 +80,7 @@ pub struct NvTracker {
     output_rx: Receiver<PipelineOutput>,
     pipeline: Mutex<GstPipeline>,
     config: NvTrackerConfig,
+    policy: MetaClearPolicy,
     next_pts: AtomicU64,
     source_lru: Mutex<LruCache<u32, String>>,
     frame_counters: Mutex<HashMap<u32, i32>>,
@@ -94,6 +95,7 @@ impl NvTracker {
     /// Create and start the pipeline in `Playing`.
     pub fn new(config: NvTrackerConfig) -> Result<Self> {
         config.validate()?;
+        let policy = config.meta_clear_policy;
 
         let name_display = if config.name.is_empty() {
             "nvtracker"
@@ -195,6 +197,7 @@ impl NvTracker {
             output_rx,
             pipeline: Mutex::new(gst_pipeline),
             config,
+            policy,
             next_pts: AtomicU64::new(0),
             source_lru: Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)),
             frame_counters: Mutex::new(HashMap::new()),
@@ -354,7 +357,8 @@ impl NvTracker {
                         .cloned()
                         .unwrap_or_else(|| format!("unknown-{pad:#x}"))
                 };
-                let tracker_output = extract_tracker_output(buffer, resolve)?;
+                let tracker_output =
+                    extract_tracker_output(buffer, resolve, self.policy.clear_after())?;
                 Ok(NvTrackerOutput::Tracking(tracker_output))
             }
             PipelineOutput::Eos => Ok(NvTrackerOutput::Error(NvTrackerError::PipelineError(
@@ -486,6 +490,19 @@ impl NvTracker {
             }
             nums
         };
+
+        if self.policy.clear_before() {
+            let buf_ref = batch
+                .get_mut()
+                .ok_or_else(|| NvTrackerError::BufferNotWritable {
+                    operation: "meta_clear_policy_before".into(),
+                })?;
+            unsafe {
+                deepstream::clear_all_frame_objects(
+                    buf_ref.as_mut_ptr() as *mut deepstream_sys::GstBuffer
+                );
+            }
+        }
 
         {
             let buf_ref = batch

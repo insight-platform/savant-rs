@@ -531,8 +531,8 @@ impl PyMp4Demuxer {
     ///
     /// Must **not** be called from within the ``result_callback``.
     fn finish(&mut self, py: Python<'_>) {
-        if let Some(ref mut inner) = self.inner {
-            py.detach(|| inner.finish());
+        if let Some(mut inner) = self.inner.take() {
+            py.detach(move || inner.finish());
         }
     }
 
@@ -540,6 +540,19 @@ impl PyMp4Demuxer {
     #[getter]
     fn is_finished(&self) -> bool {
         self.inner.as_ref().map(|d| d.is_finished()).unwrap_or(true)
+    }
+}
+
+impl Drop for PyMp4Demuxer {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            // Move the demuxer to a detached thread so that the GC thread
+            // (which holds the GIL) does not block on GStreamer streaming
+            // threads that try to re-acquire the GIL via callbacks.
+            std::thread::spawn(move || {
+                drop(inner);
+            });
+        }
     }
 }
 

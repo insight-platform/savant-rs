@@ -1,6 +1,46 @@
-use log::warn;
 use savant_gstreamer::Codec;
 use std::time::Duration;
+
+/// CUDA memory type exposed by the `nvv4l2decoder` element via its
+/// `cudadec-memtype` GObject property. Only meaningful on desktop GPUs;
+/// the property is absent on Jetson, so the type itself is compiled
+/// in only on non-`aarch64` targets.
+///
+/// Numeric mapping mirrors the GStreamer property enum:
+///
+/// - `Device`  = 0 — `memtype_device` (CUDA device memory, default).
+/// - `Pinned`  = 1 — `memtype_pinned` (CUDA pinned host memory).
+/// - `Unified` = 2 — `memtype_unified` (CUDA unified memory).
+#[cfg(not(target_arch = "aarch64"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum CudadecMemtype {
+    Device = 0,
+    Pinned = 1,
+    Unified = 2,
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+impl CudadecMemtype {
+    pub fn as_u32(self) -> u32 {
+        self as u32
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Device => "device",
+            Self::Pinned => "pinned",
+            Self::Unified => "unified",
+        }
+    }
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+impl std::fmt::Display for CudadecMemtype {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum H264StreamFormat {
@@ -74,6 +114,8 @@ impl std::fmt::Display for HevcStreamFormat {
     }
 }
 
+// ─── H.264 ──────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone)]
 pub struct H264DecoderConfig {
     pub stream_format: H264StreamFormat,
@@ -81,8 +123,17 @@ pub struct H264DecoderConfig {
     pub codec_data: Option<Vec<u8>>,
     pub num_extra_surfaces: Option<u32>,
     pub drop_frame_interval: Option<u32>,
-    pub cudadec_memtype: Option<u32>,
+    #[cfg(not(target_arch = "aarch64"))]
+    pub cudadec_memtype: Option<CudadecMemtype>,
+    /// Enable dGPU `low-latency-mode` (no frame reordering; requires
+    /// IDR-only or low-delay-encoded bitstreams).
+    #[cfg(not(target_arch = "aarch64"))]
+    pub low_latency_mode: Option<bool>,
+    #[cfg(target_arch = "aarch64")]
     pub enable_max_performance: Option<bool>,
+    /// Enable Jetson `disable-dpb` (low-latency mode for IDR-only or
+    /// IPPP bitstreams).
+    #[cfg(target_arch = "aarch64")]
     pub low_latency: Option<bool>,
 }
 
@@ -93,8 +144,13 @@ impl H264DecoderConfig {
             codec_data: None,
             num_extra_surfaces: None,
             drop_frame_interval: None,
+            #[cfg(not(target_arch = "aarch64"))]
             cudadec_memtype: None,
+            #[cfg(not(target_arch = "aarch64"))]
+            low_latency_mode: None,
+            #[cfg(target_arch = "aarch64")]
             enable_max_performance: None,
+            #[cfg(target_arch = "aarch64")]
             low_latency: None,
         }
     }
@@ -114,31 +170,53 @@ impl H264DecoderConfig {
         self
     }
 
-    pub fn cudadec_memtype(mut self, t: u32) -> Self {
+    #[cfg(not(target_arch = "aarch64"))]
+    pub fn cudadec_memtype(mut self, t: CudadecMemtype) -> Self {
         self.cudadec_memtype = Some(t);
         self
     }
 
+    #[cfg(not(target_arch = "aarch64"))]
+    pub fn low_latency_mode(mut self, v: bool) -> Self {
+        self.low_latency_mode = Some(v);
+        self
+    }
+
+    #[cfg(target_arch = "aarch64")]
     pub fn enable_max_performance(mut self, v: bool) -> Self {
         self.enable_max_performance = Some(v);
         self
     }
 
+    #[cfg(target_arch = "aarch64")]
     pub fn low_latency(mut self, v: bool) -> Self {
         self.low_latency = Some(v);
         self
     }
 
     pub(crate) fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
-        collect_v4l2_pairs(
-            self.num_extra_surfaces,
-            self.drop_frame_interval,
-            self.cudadec_memtype,
-            self.enable_max_performance,
-            self.low_latency,
-        )
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            collect_v4l2_pairs(
+                self.num_extra_surfaces,
+                self.drop_frame_interval,
+                self.cudadec_memtype,
+                self.low_latency_mode,
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            collect_v4l2_pairs(
+                self.num_extra_surfaces,
+                self.drop_frame_interval,
+                self.enable_max_performance,
+                self.low_latency,
+            )
+        }
     }
 }
+
+// ─── HEVC ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct HevcDecoderConfig {
@@ -147,8 +225,17 @@ pub struct HevcDecoderConfig {
     pub codec_data: Option<Vec<u8>>,
     pub num_extra_surfaces: Option<u32>,
     pub drop_frame_interval: Option<u32>,
-    pub cudadec_memtype: Option<u32>,
+    #[cfg(not(target_arch = "aarch64"))]
+    pub cudadec_memtype: Option<CudadecMemtype>,
+    /// Enable dGPU `low-latency-mode` (no frame reordering; requires
+    /// IDR-only or low-delay-encoded bitstreams).
+    #[cfg(not(target_arch = "aarch64"))]
+    pub low_latency_mode: Option<bool>,
+    #[cfg(target_arch = "aarch64")]
     pub enable_max_performance: Option<bool>,
+    /// Enable Jetson `disable-dpb` (low-latency mode for IDR-only or
+    /// IPPP bitstreams).
+    #[cfg(target_arch = "aarch64")]
     pub low_latency: Option<bool>,
 }
 
@@ -159,8 +246,13 @@ impl HevcDecoderConfig {
             codec_data: None,
             num_extra_surfaces: None,
             drop_frame_interval: None,
+            #[cfg(not(target_arch = "aarch64"))]
             cudadec_memtype: None,
+            #[cfg(not(target_arch = "aarch64"))]
+            low_latency_mode: None,
+            #[cfg(target_arch = "aarch64")]
             enable_max_performance: None,
+            #[cfg(target_arch = "aarch64")]
             low_latency: None,
         }
     }
@@ -180,217 +272,155 @@ impl HevcDecoderConfig {
         self
     }
 
-    pub fn cudadec_memtype(mut self, t: u32) -> Self {
+    #[cfg(not(target_arch = "aarch64"))]
+    pub fn cudadec_memtype(mut self, t: CudadecMemtype) -> Self {
         self.cudadec_memtype = Some(t);
         self
     }
 
+    #[cfg(not(target_arch = "aarch64"))]
+    pub fn low_latency_mode(mut self, v: bool) -> Self {
+        self.low_latency_mode = Some(v);
+        self
+    }
+
+    #[cfg(target_arch = "aarch64")]
     pub fn enable_max_performance(mut self, v: bool) -> Self {
         self.enable_max_performance = Some(v);
         self
     }
 
+    #[cfg(target_arch = "aarch64")]
     pub fn low_latency(mut self, v: bool) -> Self {
         self.low_latency = Some(v);
         self
     }
 
     pub(crate) fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
-        collect_v4l2_pairs(
-            self.num_extra_surfaces,
-            self.drop_frame_interval,
-            self.cudadec_memtype,
-            self.enable_max_performance,
-            self.low_latency,
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Vp8DecoderConfig {
-    pub num_extra_surfaces: Option<u32>,
-    pub drop_frame_interval: Option<u32>,
-    pub cudadec_memtype: Option<u32>,
-    pub enable_max_performance: Option<bool>,
-    pub low_latency: Option<bool>,
-}
-
-impl Vp8DecoderConfig {
-    pub fn new() -> Self {
-        Self {
-            num_extra_surfaces: None,
-            drop_frame_interval: None,
-            cudadec_memtype: None,
-            enable_max_performance: None,
-            low_latency: None,
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            collect_v4l2_pairs(
+                self.num_extra_surfaces,
+                self.drop_frame_interval,
+                self.cudadec_memtype,
+                self.low_latency_mode,
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            collect_v4l2_pairs(
+                self.num_extra_surfaces,
+                self.drop_frame_interval,
+                self.enable_max_performance,
+                self.low_latency,
+            )
         }
     }
-
-    pub fn num_extra_surfaces(mut self, n: u32) -> Self {
-        self.num_extra_surfaces = Some(n);
-        self
-    }
-
-    pub fn drop_frame_interval(mut self, n: u32) -> Self {
-        self.drop_frame_interval = Some(n);
-        self
-    }
-
-    pub fn cudadec_memtype(mut self, t: u32) -> Self {
-        self.cudadec_memtype = Some(t);
-        self
-    }
-
-    pub fn enable_max_performance(mut self, v: bool) -> Self {
-        self.enable_max_performance = Some(v);
-        self
-    }
-
-    pub fn low_latency(mut self, v: bool) -> Self {
-        self.low_latency = Some(v);
-        self
-    }
-
-    pub(crate) fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
-        collect_v4l2_pairs(
-            self.num_extra_surfaces,
-            self.drop_frame_interval,
-            self.cudadec_memtype,
-            self.enable_max_performance,
-            self.low_latency,
-        )
-    }
 }
 
-impl Default for Vp8DecoderConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// ─── VP8 / VP9 / AV1 (identical tunable surface) ────────────────────────
 
-#[derive(Debug, Clone)]
-pub struct Vp9DecoderConfig {
-    pub num_extra_surfaces: Option<u32>,
-    pub drop_frame_interval: Option<u32>,
-    pub cudadec_memtype: Option<u32>,
-    pub enable_max_performance: Option<bool>,
-    pub low_latency: Option<bool>,
-}
-
-impl Vp9DecoderConfig {
-    pub fn new() -> Self {
-        Self {
-            num_extra_surfaces: None,
-            drop_frame_interval: None,
-            cudadec_memtype: None,
-            enable_max_performance: None,
-            low_latency: None,
+macro_rules! nvv4l2_codec_struct {
+    ($name:ident) => {
+        #[derive(Debug, Clone)]
+        pub struct $name {
+            pub num_extra_surfaces: Option<u32>,
+            pub drop_frame_interval: Option<u32>,
+            #[cfg(not(target_arch = "aarch64"))]
+            pub cudadec_memtype: Option<CudadecMemtype>,
+            #[cfg(not(target_arch = "aarch64"))]
+            pub low_latency_mode: Option<bool>,
+            #[cfg(target_arch = "aarch64")]
+            pub enable_max_performance: Option<bool>,
+            #[cfg(target_arch = "aarch64")]
+            pub low_latency: Option<bool>,
         }
-    }
 
-    pub fn num_extra_surfaces(mut self, n: u32) -> Self {
-        self.num_extra_surfaces = Some(n);
-        self
-    }
+        impl $name {
+            pub fn new() -> Self {
+                Self {
+                    num_extra_surfaces: None,
+                    drop_frame_interval: None,
+                    #[cfg(not(target_arch = "aarch64"))]
+                    cudadec_memtype: None,
+                    #[cfg(not(target_arch = "aarch64"))]
+                    low_latency_mode: None,
+                    #[cfg(target_arch = "aarch64")]
+                    enable_max_performance: None,
+                    #[cfg(target_arch = "aarch64")]
+                    low_latency: None,
+                }
+            }
 
-    pub fn drop_frame_interval(mut self, n: u32) -> Self {
-        self.drop_frame_interval = Some(n);
-        self
-    }
+            pub fn num_extra_surfaces(mut self, n: u32) -> Self {
+                self.num_extra_surfaces = Some(n);
+                self
+            }
 
-    pub fn cudadec_memtype(mut self, t: u32) -> Self {
-        self.cudadec_memtype = Some(t);
-        self
-    }
+            pub fn drop_frame_interval(mut self, n: u32) -> Self {
+                self.drop_frame_interval = Some(n);
+                self
+            }
 
-    pub fn enable_max_performance(mut self, v: bool) -> Self {
-        self.enable_max_performance = Some(v);
-        self
-    }
+            #[cfg(not(target_arch = "aarch64"))]
+            pub fn cudadec_memtype(mut self, t: CudadecMemtype) -> Self {
+                self.cudadec_memtype = Some(t);
+                self
+            }
 
-    pub fn low_latency(mut self, v: bool) -> Self {
-        self.low_latency = Some(v);
-        self
-    }
+            #[cfg(not(target_arch = "aarch64"))]
+            pub fn low_latency_mode(mut self, v: bool) -> Self {
+                self.low_latency_mode = Some(v);
+                self
+            }
 
-    pub(crate) fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
-        collect_v4l2_pairs(
-            self.num_extra_surfaces,
-            self.drop_frame_interval,
-            self.cudadec_memtype,
-            self.enable_max_performance,
-            self.low_latency,
-        )
-    }
-}
+            #[cfg(target_arch = "aarch64")]
+            pub fn enable_max_performance(mut self, v: bool) -> Self {
+                self.enable_max_performance = Some(v);
+                self
+            }
 
-impl Default for Vp9DecoderConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+            #[cfg(target_arch = "aarch64")]
+            pub fn low_latency(mut self, v: bool) -> Self {
+                self.low_latency = Some(v);
+                self
+            }
 
-#[derive(Debug, Clone)]
-pub struct Av1DecoderConfig {
-    pub num_extra_surfaces: Option<u32>,
-    pub drop_frame_interval: Option<u32>,
-    pub cudadec_memtype: Option<u32>,
-    pub enable_max_performance: Option<bool>,
-    pub low_latency: Option<bool>,
-}
-
-impl Av1DecoderConfig {
-    pub fn new() -> Self {
-        Self {
-            num_extra_surfaces: None,
-            drop_frame_interval: None,
-            cudadec_memtype: None,
-            enable_max_performance: None,
-            low_latency: None,
+            pub(crate) fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
+                #[cfg(not(target_arch = "aarch64"))]
+                {
+                    collect_v4l2_pairs(
+                        self.num_extra_surfaces,
+                        self.drop_frame_interval,
+                        self.cudadec_memtype,
+                        self.low_latency_mode,
+                    )
+                }
+                #[cfg(target_arch = "aarch64")]
+                {
+                    collect_v4l2_pairs(
+                        self.num_extra_surfaces,
+                        self.drop_frame_interval,
+                        self.enable_max_performance,
+                        self.low_latency,
+                    )
+                }
+            }
         }
-    }
 
-    pub fn num_extra_surfaces(mut self, n: u32) -> Self {
-        self.num_extra_surfaces = Some(n);
-        self
-    }
-
-    pub fn drop_frame_interval(mut self, n: u32) -> Self {
-        self.drop_frame_interval = Some(n);
-        self
-    }
-
-    pub fn cudadec_memtype(mut self, t: u32) -> Self {
-        self.cudadec_memtype = Some(t);
-        self
-    }
-
-    pub fn enable_max_performance(mut self, v: bool) -> Self {
-        self.enable_max_performance = Some(v);
-        self
-    }
-
-    pub fn low_latency(mut self, v: bool) -> Self {
-        self.low_latency = Some(v);
-        self
-    }
-
-    pub(crate) fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
-        collect_v4l2_pairs(
-            self.num_extra_surfaces,
-            self.drop_frame_interval,
-            self.cudadec_memtype,
-            self.enable_max_performance,
-            self.low_latency,
-        )
-    }
+        impl Default for $name {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
 }
 
-impl Default for Av1DecoderConfig {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+nvv4l2_codec_struct!(Vp8DecoderConfig);
+nvv4l2_codec_struct!(Vp9DecoderConfig);
+nvv4l2_codec_struct!(Av1DecoderConfig);
+
+// ─── JPEG / PNG / Raw ───────────────────────────────────────────────────
 
 /// Selects GPU-accelerated or CPU-only JPEG decoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -539,10 +569,41 @@ impl NvDecoderConfig {
     }
 }
 
+// ─── GStreamer property emission ────────────────────────────────────────
+//
+// The nvv4l2decoder element exposes a different set of tunable properties
+// depending on the platform (dGPU vs Jetson), per the DeepStream 7.1
+// Gst-nvvideo4linux2 docs. We split `collect_v4l2_pairs` into two
+// per-arch versions with platform-specific argument lists so each codec
+// struct passes only fields that actually exist at compile time.
+
+#[cfg(not(target_arch = "aarch64"))]
 fn collect_v4l2_pairs(
     num_extra_surfaces: Option<u32>,
     drop_frame_interval: Option<u32>,
-    cudadec_memtype: Option<u32>,
+    cudadec_memtype: Option<CudadecMemtype>,
+    low_latency_mode: Option<bool>,
+) -> Vec<(&'static str, String)> {
+    let mut out = Vec::new();
+    if let Some(v) = num_extra_surfaces {
+        out.push(("num-extra-surfaces", v.to_string()));
+    }
+    if let Some(v) = drop_frame_interval {
+        out.push(("drop-frame-interval", v.to_string()));
+    }
+    if let Some(v) = cudadec_memtype {
+        out.push(("cudadec-memtype", v.as_u32().to_string()));
+    }
+    if let Some(v) = low_latency_mode {
+        out.push(("low-latency-mode", if v { "1" } else { "0" }.to_string()));
+    }
+    out
+}
+
+#[cfg(target_arch = "aarch64")]
+fn collect_v4l2_pairs(
+    num_extra_surfaces: Option<u32>,
+    drop_frame_interval: Option<u32>,
     enable_max_performance: Option<bool>,
     low_latency: Option<bool>,
 ) -> Vec<(&'static str, String)> {
@@ -550,38 +611,17 @@ fn collect_v4l2_pairs(
     if let Some(v) = num_extra_surfaces {
         out.push(("num-extra-surfaces", v.to_string()));
     }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        if let Some(v) = drop_frame_interval {
-            out.push(("drop-frame-interval", v.to_string()));
-        }
-        if let Some(v) = cudadec_memtype {
-            out.push(("cudadec-memtype", v.to_string()));
-        }
-        if enable_max_performance.is_some() {
-            warn!("enable_max_performance is only supported on aarch64 (Jetson); ignored on this platform");
-        }
-        if low_latency.is_some() {
-            warn!("low_latency is only supported on aarch64 (Jetson); ignored on this platform");
-        }
+    if let Some(v) = drop_frame_interval {
+        out.push(("drop-frame-interval", v.to_string()));
     }
-    #[cfg(target_arch = "aarch64")]
-    {
-        if let Some(v) = enable_max_performance {
-            out.push((
-                "enable-max-performance",
-                if v { "1" } else { "0" }.to_string(),
-            ));
-        }
-        if let Some(v) = low_latency {
-            out.push(("disable-dpb", if v { "1" } else { "0" }.to_string()));
-        }
-        if drop_frame_interval.is_some() {
-            warn!("drop_frame_interval is only supported on desktop GPUs; ignored on Jetson");
-        }
-        if cudadec_memtype.is_some() {
-            warn!("cudadec_memtype is only supported on desktop GPUs; ignored on Jetson");
-        }
+    if let Some(v) = enable_max_performance {
+        out.push((
+            "enable-max-performance",
+            if v { "1" } else { "0" }.to_string(),
+        ));
+    }
+    if let Some(v) = low_latency {
+        out.push(("disable-dpb", if v { "1" } else { "0" }.to_string()));
     }
     out
 }

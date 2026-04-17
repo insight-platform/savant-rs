@@ -9,6 +9,9 @@ pub use config::{
     HevcStreamFormat, JpegBackend, JpegDecoderConfig, NvDecoderConfig, PngDecoderConfig,
     RawRgbDecoderConfig, RawRgbaDecoderConfig, Vp8DecoderConfig, Vp9DecoderConfig,
 };
+
+#[cfg(not(target_arch = "aarch64"))]
+pub use config::CudadecMemtype;
 pub use error::DecoderError;
 pub use pipeline::{NvDecoder, NvDecoderExt, NvDecoderOutput};
 pub use stream_detect::{detect_stream_config, is_random_access_point};
