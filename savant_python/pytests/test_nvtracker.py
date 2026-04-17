@@ -32,6 +32,17 @@ try:
 except ImportError:
     HAS_NVTRACKER = False
 
+    # Placeholder so module-level ``@pytest.mark.parametrize`` decorators can
+    # still be evaluated at collection time on builds without the deepstream
+    # feature. The actual tests are skipped via ``pytestmark`` below.
+    class _MetaClearPolicyStub:  # type: ignore[no-redef]
+        NONE = None
+        BEFORE = None
+        AFTER = None
+        BOTH = None
+
+    MetaClearPolicy = _MetaClearPolicyStub  # type: ignore[assignment,misc]
+
 pytestmark = pytest.mark.skipif(
     not HAS_NVTRACKER, reason="savant_rs built without deepstream / nvtracker"
 )

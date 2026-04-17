@@ -52,6 +52,13 @@ try:
     HAS_DS = True
 except ImportError:
     HAS_DS = False
+    # Placeholders so module-level ``@pytest.mark.parametrize`` decorators can
+    # still be evaluated at collection time on builds without the deepstream
+    # feature. The actual tests are skipped via ``pytestmark`` below.
+    Vp8DecoderConfig = None  # type: ignore[assignment]
+    Vp9DecoderConfig = None  # type: ignore[assignment]
+    Av1DecoderConfig = None  # type: ignore[assignment]
+    CudadecMemtype = None  # type: ignore[assignment]
 
 
 pytestmark = pytest.mark.skipif(not HAS_DS, reason="DeepStream runtime not available")
