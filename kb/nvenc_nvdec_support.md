@@ -66,37 +66,57 @@ YES/NO). Rows cover only the generations targeted by savant-rs.
 | 5th gen — **Ampere** (RTX 30, Ax)       |    YES     | YES  | YES |  YES   |   YES   |   YES   |      YES       |    **NO**       |      **NO**       |         YES         |        **NO**       |         YES         |  NO    |   NO    |
 | 5th gen — **Ada Lovelace** (RTX 40, Lx) |    YES     | YES  | YES |  YES   |   YES   |   YES   |      YES       |    **NO**       |      **NO**       |         YES         |        **NO**       |         YES         |  YES   |   YES   |
 | 6th gen — **Blackwell** (RTX 50, RTX PRO Blackwell) | YES | YES | YES | YES | YES | YES | YES | **YES** | **YES** | YES | **YES** | YES | YES | YES |
-| Tegra — **Jetson Orin**                 |    YES     | YES  | YES |  YES   |   YES   |   NO    |      YES       |    **YES**      |      partial*     |         YES         |        partial*     |         YES         |  YES   |   YES   |
+| Tegra — **Jetson Orin**                 |    YES     | YES  | YES |  YES   |   YES   |   YES   |      YES       |    **NO**       |      **NO**       |         YES         |        partial*     |         YES         |  YES   |   YES   |
 
 \* Jetson Orin 4:2:2 / 4:4:4 coverage varies by module revision and
 JetPack version; the public Tegra Multimedia API docs are the
-authoritative source. For the profiles savant-rs cares about (8-bit
-4:2:0, 10-bit 4:2:0) Orin is fully capable.
+authoritative source.
+
+\*\* Jetson Orin NVDEC **does not** support H.264 High10 (4:2:0 10-bit).
+H.264 on Orin is limited to Baseline/Main/High 8-bit. Attempting to feed
+a High10 stream to `nvv4l2decoder` on Orin fails with
+`NvMMLiteBlockCreate : Block : BlockType = 261 NVMMLITE_NVVIDEODEC`
+followed by `<NvVideoBufferProcessing:NNNN> video_parser_parse
+Unsupported Codec` — this is an empirical finding confirmed on JetPack 6
+and aligned with the Jetson Linux Multimedia API guide (which lists only
+Baseline / Main / High for H.264 decode on Orin). VP9 Profile 2
+(4:2:0 10-bit) and HEVC Main10 work on Orin, so use those for 10-bit
+test coverage on Jetson.
 
 ### Key decode takeaways for savant-rs
 
 1. **H.264 4:2:0 10-bit (High 10)** is the single most important split:
    * **NO** on Turing, Ampere, and Ada dGPU NVDEC.
-   * **YES** on Blackwell dGPU NVDEC and Jetson Orin Tegra NVDEC.
-   * Symptom on the "NO" platforms: `nvv4l2decoder` emits
+   * **NO** on Jetson Orin Tegra NVDEC (H.264 on Orin is 8-bit only —
+     Baseline/Main/High).
+   * **YES** on Blackwell dGPU NVDEC and Jetson Thor.
+   * Symptom on dGPU "NO" platforms: `nvv4l2decoder` emits
      `NvV4l2VideoDec: Feature not supported on this GPU (Error Code: 801)`,
      `Failed to process frame`, then `streaming stopped, reason error (-5)`
-     and zero frames decoded. See `kb/decoders/caveats.md §11`.
+     and zero frames decoded.
+   * Symptom on Jetson Orin: `NvMMLiteBlockCreate : Block : BlockType =
+     261 NVMMLITE_NVVIDEODEC` followed by `video_parser_parse Unsupported
+     Codec`, zero frames decoded.
+   * See `kb/decoders/caveats.md §11`.
    * Manifest encoding: `test_h264_bt2020_ip.mp4` and
-     `test_h264_bt2020_ipb.mp4` list `supported_platforms: ["blackwell",
-     "jetson_orin"]`.
+     `test_h264_bt2020_ipb.mp4` list `supported_platforms:
+     ["blackwell"]`. Use VP9 Profile 2 or HEVC Main10 for 10-bit coverage
+     on Orin.
 2. **H.264 4:2:2** (any bit depth) is only decoded by Blackwell. Not
    currently exercised by any test asset — if added, gate the manifest
-   entry to `["blackwell", "jetson_orin"]` (Orin pending datasheet
-   confirmation).
+   entry to `["blackwell"]` (Orin does not decode H.264 4:2:2).
 3. **HEVC Main10 (4:2:0 10-bit)** is universally supported on all
    generations we target (Turing and later). Safe default for 10-bit
    test assets.
 4. **HEVC 4:2:2** (8/10/12-bit) is a Blackwell-only dGPU feature. Same
    gating rule as H.264 4:2:2.
 5. **VP9** decode works on all dGPU generations (Turing+) and on Orin
-   (8-bit / 10-bit, no 12-bit on Orin). VP9 **encode is not available
-   on any NVIDIA NVENC** — there is no VP9 encoder in any NVENC
+   (8-bit / 10-bit; Orin supports 12-bit per the Tegra API docs). The
+   savant-rs `NvDecoder` VP9 pipeline uses
+   `appsrc → vp9parse → nvv4l2decoder` on **both** dGPU and Jetson —
+   Tegra NVDEC also requires the enriched caps that `vp9parse` emits,
+   see `kb/decoders/caveats.md §10`. VP9 **encode is not available on
+   any NVIDIA NVENC** — there is no VP9 encoder in any NVENC
    generation.
 6. **AV1 decode** starts at Ada (5th gen NVDEC on Ada silicon; Ampere
    5th gen is the same generation number but does *not* include AV1 —

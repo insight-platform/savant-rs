@@ -698,22 +698,27 @@ fn build_pipeline_elements(
             vec![parse, dec]
         }
         DecoderConfig::Vp9(cfg) => {
-            // Platform-aware parser selection:
+            // `vp9parse` is used on both dGPU and Jetson. It reads the VP9
+            // uncompressed frame header and enriches the downstream caps
+            // with `width`, `height`, `profile`, `chroma-format`, and
+            // `bit-depth-luma`/`bit-depth-chroma`, and emits
+            // `alignment=super-frame`.
+            //
             // * dGPU DeepStream (`nvvideo4linux2` on Turing/Ampere/Ada/
-            //   Blackwell) rejects bare `video/x-vp9` caps on the decoder
-            //   sink — `width`/`height` (and typically `profile`,
-            //   `chroma-format`, `bit-depth-*`) are required, otherwise
-            //   caps negotiation fails with `not-negotiated (-4)` and zero
-            //   frames are decoded. `vp9parse` reads the VP9 uncompressed
-            //   header and enriches the caps accordingly.
-            // * Jetson (Tegra) NVDEC accepts bare caps, so keep `identity`
-            //   to preserve the known-good pre-existing behaviour there.
-            let parser_factory = if nvidia_gpu_utils::is_jetson_kernel() {
-                "identity"
-            } else {
-                "vp9parse"
-            };
-            let parse = make_elem(parser_factory, "parse")?;
+            //   Blackwell) *requires* these enriched caps — fed bare
+            //   `video/x-vp9` it fails caps negotiation with
+            //   `not-negotiated (-4)` and decodes zero frames.
+            // * Jetson (Tegra) `nvv4l2decoder` tolerates bare caps via
+            //   `identity`, but the pre-parsed MP4 packets produced by
+            //   `Mp4Demuxer::new_parsed` (which itself uses `vp9parse`)
+            //   are super-frame aligned. Feeding them through `identity`
+            //   on Jetson empirically yields zero decoded frames — the
+            //   Tegra NVDEC needs the enriched caps too. Using
+            //   `vp9parse` on both platforms keeps the behaviour
+            //   consistent and produces frames on Jetson.
+            //
+            // See `kb/decoders/caveats.md §10`.
+            let parse = make_elem("vp9parse", "parse")?;
             let dec = make_elem("nvv4l2decoder", "dec")?;
             apply_v4l2_props(&dec, cfg.to_gst_pairs())?;
             vec![parse, dec]

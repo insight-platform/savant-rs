@@ -33,6 +33,28 @@ pub enum PipelineOutput {
     Error(PipelineError),
 }
 
+/// Predicate for the custom-event rescue mechanism installed around
+/// the processing chain in [`GstPipeline::start`].
+///
+/// An event is rescue-eligible iff:
+/// 1. it is a serialized custom-downstream event
+///    (`GST_EVENT_CUSTOM_DOWNSTREAM`), and
+/// 2. its structure name lives in the `savant.*` namespace.
+///
+/// Restricting to the `savant.*` namespace keeps element-specific
+/// serialized events (e.g. `GstForceKeyUnit`) out of the rescue path —
+/// those are typically intended to be consumed by a specific element
+/// and re-injecting them on EOS would be semantically wrong.
+fn is_rescueable_event(event: &gst::Event) -> bool {
+    if event.type_() != gst::EventType::CustomDownstream {
+        return false;
+    }
+    event
+        .structure()
+        .map(|s| s.name().starts_with("savant."))
+        .unwrap_or(false)
+}
+
 /// Send `msg` on `tx`, retrying every 50 ms.  Returns `Err` (giving back
 /// the message) when `shutdown` becomes `true` or the channel disconnects.
 /// This replaces bare `tx.send(msg)` in background threads so that a full
@@ -143,13 +165,96 @@ impl GstPipeline {
         let (output_tx, output_rx) =
             channel::bounded::<PipelineOutput>(config.output_channel_capacity);
 
-        // Capture all downstream non-EOS events that arrive to appsink.
-        // Uses try_send to avoid blocking the GStreamer streaming thread when the
-        // bounded output channel is full (which would deadlock set_state(Null)).
-        let event_out = output_tx.clone();
-        appsink_sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
+        // ── Custom-event rescue mechanism ────────────────────────────────
+        //
+        // Certain serialized custom-downstream events (notably our
+        // per-source EOS marker, `savant.pipeline.source_eos`) are
+        // *application-layer* markers that the pipeline must deliver
+        // reliably, even when no further buffer follows. GStreamer's
+        // `GstVideoDecoder` base class (used by `nvv4l2decoder` on both
+        // Jetson and dGPU, `avdec_*`, `vaapi*`, etc.) queues serialized
+        // custom-downstream events against the currently-parsed frame
+        // and releases them only when the frame is pushed downstream;
+        // on EOS-induced drain, the queued events are silently dropped.
+        //
+        // To compensate generically we install a **probe pair** around
+        // the whole processing chain (appsrc.src → … → appsink.sink):
+        //
+        // * The entry probe on `appsrc.src` records every
+        //   rescue-eligible event (identified by [`is_rescueable_event`]
+        //   — currently: serialized custom-downstream events in the
+        //   `savant.*` namespace) on a shared pending list.
+        // * The exit probe on `appsink.sink` removes events from the
+        //   pending list as they successfully traverse the pipeline,
+        //   and — when a real `GstEvent::Eos` reaches it with events
+        //   still pending — re-injects each one *downstream* before
+        //   letting EOS pass, via `peer.push_event(event)` on the
+        //   sink-pad's peer (the last processing element's src pad).
+        //   The re-injected event re-enters this same probe, is
+        //   captured as a normal custom-downstream, and forwarded to
+        //   the output channel via `event_out.try_send`.
+        //
+        // This makes the pipeline's "all app-layer events delivered
+        // before EOS" contract an invariant of the runner, independent
+        // of which specific decoder / transform sits in the chain. See
+        // `kb/decoders/caveats.md §12`.
+        let pending_rescue_events: Arc<Mutex<Vec<gst::Event>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let pending_in = pending_rescue_events.clone();
+        appsrc_src_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |_pad, info| {
             if let Some(event) = info.event() {
-                if event.type_() != gst::EventType::Eos {
+                if is_rescueable_event(event) {
+                    pending_in.lock().push(event.clone());
+                }
+            }
+            gst::PadProbeReturn::Ok
+        });
+
+        let event_out = output_tx.clone();
+        let pending_out = pending_rescue_events.clone();
+        appsink_sink_pad.add_probe(gst::PadProbeType::EVENT_DOWNSTREAM, move |pad, info| {
+            if let Some(event) = info.event() {
+                let ev_type = event.type_();
+                if ev_type == gst::EventType::Eos {
+                    // Rescue any pending custom-downstream events the
+                    // intermediate elements swallowed on drain. Take
+                    // ownership of the pending list before re-injection
+                    // so that the re-entrant probe invocations observe
+                    // an empty list (and thus forward normally rather
+                    // than trying to remove entries that no longer
+                    // exist).
+                    let to_rescue: Vec<gst::Event> = {
+                        let mut guard = pending_out.lock();
+                        std::mem::take(&mut *guard)
+                    };
+                    if !to_rescue.is_empty() {
+                        if let Some(peer) = pad.peer() {
+                            for e in to_rescue {
+                                // `peer` is the src pad of whatever
+                                // element sits immediately upstream of
+                                // appsink (the decoder in the usual
+                                // case). Pushing on a src pad delivers
+                                // the event downstream, re-entering
+                                // this very probe with the event,
+                                // where the non-EOS branch below
+                                // forwards it to the output channel.
+                                let _ = peer.push_event(e);
+                            }
+                        }
+                    }
+                    // Fall through: let EOS propagate. The
+                    // drain-thread watches `appsink.is_eos()` and
+                    // emits `PipelineOutput::Eos` itself.
+                } else {
+                    if ev_type == gst::EventType::CustomDownstream {
+                        // Event made it through the whole chain — drop
+                        // from pending (if tracked).
+                        let sn = event.seqnum();
+                        let mut guard = pending_out.lock();
+                        if let Some(pos) = guard.iter().position(|e| e.seqnum() == sn) {
+                            guard.remove(pos);
+                        }
+                    }
                     let _ = event_out.try_send(PipelineOutput::Event(event.to_owned()));
                 }
             }
