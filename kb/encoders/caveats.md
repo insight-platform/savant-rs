@@ -89,9 +89,27 @@ B-frames are categorically disabled:
 
 ---
 
-## 8. AV1 Codec Header Buffers
+## 8. AV1 Codec Header Inlining (dGPU parity with Jetson)
 
-AV1 encoders emit a sequence header buffer before the first data frame, often with the same PTS. The output PTS validation is relaxed to allow equal PTS (only strictly backwards PTS is rejected). Codec header buffers are not in the pts_map and skip ordering validation.
+AV1 encoders emit an `OBU_SEQUENCE_HEADER` at stream start. The two platforms surface it differently at the raw GStreamer layer:
+
+- **Jetson** (`nvv4l2av1enc`, MMAPI/V4L2): inlines the sequence header into the first IDR's compressed buffer — one `appsink` sample per user frame.
+- **dGPU** (`nvv4l2av1enc`, NVENC shim): emits the sequence header as a **separate ~32-byte buffer** before the first IDR — two `appsink` samples for the first frame.
+
+`NvEncoder::sample_to_frame` normalises this to Jetson-style behavior on both platforms:
+
+1. A sample that fails the `pts_map` correlation on a non-intra-only codec (H.264 / HEVC / AV1) is treated as a stream-level header and its bytes are stashed in `NvEncoder::pending_codec_header` (concatenated if multiple header OBUs arrive).
+2. `sample_to_frame` returns `Ok(None)` for such samples; `pull_encoded` / `pull_encoded_timeout` loop internally so the stash is invisible to callers.
+3. When the next user frame arrives, the stashed bytes are prepended to its `data`. The resulting `EncodedFrame` has `frame_id = Some(id)` and a bitstream that starts with `OBU_SEQUENCE_HEADER`.
+4. An orphan header at `finish()` (no user frame ever followed) is dropped with a `debug!` — benign, as no consumer was waiting on it.
+
+Consequences for consumers:
+
+- Every `EncodedFrame` returned from `NvEncoder` corresponds to a submitted frame. `frame_id` is always `Some` for non-intra-only codecs.
+- Picasso no longer logs `ERROR: drain: cannot correlate encoded payload …` for AV1. The branch was downgraded to `warn!` as a diagnostic safety net.
+- Output PTS validation is relaxed to allow equal PTS (only strictly backwards PTS is rejected), preserving tolerance for any residual edge cases where codec headers share a PTS with the following frame.
+
+Test reference: `test_av1_sequence_header_is_inlined` in `savant_deepstream/encoders/tests/test_encoder.rs` verifies the invariant under Picasso's actual AV1 config (`Av1DgpuProps` with P1 preset / LowLatency tuning).
 
 ---
 

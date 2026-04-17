@@ -321,7 +321,7 @@ fn process_tracking_output(
         }
     };
 
-    let mut grouped_tracks: HashMap<u32, Vec<crate::TrackedObject>> = HashMap::new();
+    let mut grouped_tracks: HashMap<i64, Vec<crate::TrackedObject>> = HashMap::new();
     for track in current_tracks {
         grouped_tracks
             .entry(track.slot_number)
@@ -365,7 +365,7 @@ fn process_tracking_output(
         let source_id = frame.get_source_id().to_string();
         let frame_clone = frame.clone();
         let tracked_objects = grouped_tracks
-            .remove(&(slot_idx as u32))
+            .remove(&(slot_idx as i64))
             .unwrap_or_default();
         let shadow_tracks = grouped_shadow
             .get(&source_id)
@@ -407,6 +407,8 @@ fn filter_misc_for_frame_num(
     items: &[crate::MiscTrackData],
     frame_num: u32,
 ) -> Vec<crate::MiscTrackData> {
+    // DS-side frame_num is u32; the savant-owned field is i64 (lossless widen).
+    let frame_num = frame_num as i64;
     let mut out = Vec::new();
     for item in items {
         let filtered_frames: Vec<crate::MiscTrackFrame> = item

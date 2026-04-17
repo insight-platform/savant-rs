@@ -17,7 +17,7 @@ pub struct PyTrackedObject {
     #[pyo3(get)]
     pub object_id: u64,
     #[pyo3(get)]
-    pub class_id: i32,
+    pub class_id: i64,
     #[pyo3(get)]
     pub bbox_left: f32,
     #[pyo3(get)]
@@ -33,7 +33,7 @@ pub struct PyTrackedObject {
     #[pyo3(get)]
     pub label: Option<String>,
     #[pyo3(get)]
-    pub slot_number: u32,
+    pub slot_number: i64,
     #[pyo3(get)]
     pub source_id: String,
 }
@@ -64,7 +64,7 @@ impl From<TrackedObject> for PyTrackedObject {
 #[derive(Debug, Clone)]
 pub struct PyMiscTrackFrame {
     #[pyo3(get)]
-    pub frame_num: u32,
+    pub frame_num: i64,
     #[pyo3(get)]
     pub bbox_left: f32,
     #[pyo3(get)]
@@ -76,7 +76,7 @@ pub struct PyMiscTrackFrame {
     #[pyo3(get)]
     pub confidence: f32,
     #[pyo3(get)]
-    pub age: u32,
+    pub age: i64,
     #[pyo3(get)]
     pub state: PyTrackState,
     #[pyo3(get)]
@@ -109,7 +109,7 @@ pub struct PyMiscTrackData {
     #[pyo3(get)]
     pub object_id: u64,
     #[pyo3(get)]
-    pub class_id: u16,
+    pub class_id: i64,
     #[pyo3(get)]
     pub label: Option<String>,
     #[pyo3(get)]

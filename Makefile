@@ -134,7 +134,7 @@ deepstream-tests:
 	@set -e; cd $(PROJECT_DIR); \
 	for p in $(DEEPSTREAM_TEST_CRATES); do \
 		echo "==> cargo test -p $$p"; \
-		cargo test -p "$$p"; \
+		cargo test -p "$$p" -- --test-threads=1; \
 	done
 
 bench:

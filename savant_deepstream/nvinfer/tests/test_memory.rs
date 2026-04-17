@@ -343,7 +343,7 @@ fn test_nonuniform_slot_numbers() {
         "SavantIdMeta on input batch must match output buffer after nvinfer"
     );
     assert_eq!(output.num_elements(), 4, "two ROIs per slot × two slots");
-    let slots: Vec<u32> = output.elements().iter().map(|e| e.slot_number).collect();
+    let slots: Vec<i64> = output.elements().iter().map(|e| e.slot_number).collect();
     assert_eq!(slots, vec![0, 0, 1, 1]);
 
     assert_eq!(savant_in.len(), 2, "one Savant id per surface slot");

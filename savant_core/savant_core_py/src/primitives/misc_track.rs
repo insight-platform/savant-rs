@@ -98,7 +98,7 @@ impl From<MiscTrackCategory> for core::MiscTrackCategory {
 #[derive(Debug, Clone)]
 pub struct MiscTrackFrame {
     #[pyo3(get)]
-    pub frame_num: u32,
+    pub frame_num: i64,
     #[pyo3(get)]
     pub bbox_left: f32,
     #[pyo3(get)]
@@ -110,7 +110,7 @@ pub struct MiscTrackFrame {
     #[pyo3(get)]
     pub confidence: f32,
     #[pyo3(get)]
-    pub age: u32,
+    pub age: i64,
     #[pyo3(get)]
     pub state: TrackState,
     #[pyo3(get)]
@@ -123,13 +123,13 @@ impl MiscTrackFrame {
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (frame_num, bbox_left, bbox_top, bbox_width, bbox_height, confidence, age, state, visibility))]
     fn new(
-        frame_num: u32,
+        frame_num: i64,
         bbox_left: f32,
         bbox_top: f32,
         bbox_width: f32,
         bbox_height: f32,
         confidence: f32,
-        age: u32,
+        age: i64,
         state: TrackState,
         visibility: f32,
     ) -> Self {
@@ -197,7 +197,7 @@ pub struct MiscTrackData {
     #[pyo3(get)]
     pub object_id: u64,
     #[pyo3(get)]
-    pub class_id: u16,
+    pub class_id: i64,
     #[pyo3(get)]
     pub label: Option<String>,
     #[pyo3(get)]
@@ -214,7 +214,7 @@ impl MiscTrackData {
     #[pyo3(signature = (object_id, class_id, source_id, category, label=None, frames=None))]
     fn new(
         object_id: u64,
-        class_id: u16,
+        class_id: i64,
         source_id: String,
         category: MiscTrackCategory,
         label: Option<String>,

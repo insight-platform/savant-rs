@@ -59,13 +59,13 @@ impl ToSerdeJsonValue for MiscTrackCategory {
 /// A single frame's worth of position data inside a misc track history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiscTrackFrame {
-    pub frame_num: u32,
+    pub frame_num: i64,
     pub bbox_left: f32,
     pub bbox_top: f32,
     pub bbox_width: f32,
     pub bbox_height: f32,
     pub confidence: f32,
-    pub age: u32,
+    pub age: i64,
     pub state: TrackState,
     pub visibility: f32,
 }
@@ -98,7 +98,7 @@ impl ToSerdeJsonValue for MiscTrackFrame {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MiscTrackData {
     pub object_id: u64,
-    pub class_id: u16,
+    pub class_id: i64,
     pub label: Option<String>,
     pub source_id: String,
     pub category: MiscTrackCategory,

@@ -682,11 +682,11 @@ fn test_class_id_tracking() {
     let out = common::track_sync(&tracker, &[frame], frame_ids(1)).expect("class_id track");
     assert_eq!(out.current_tracks.len(), 2);
 
-    let class_ids: std::collections::HashSet<i32> =
+    let class_ids: std::collections::HashSet<i64> =
         out.current_tracks.iter().map(|t| t.class_id).collect();
     assert_eq!(
         class_ids,
-        std::collections::HashSet::from([0, 1]),
+        std::collections::HashSet::from([0i64, 1i64]),
         "both class_ids should be preserved"
     );
 

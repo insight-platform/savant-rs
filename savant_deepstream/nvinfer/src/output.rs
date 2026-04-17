@@ -121,7 +121,7 @@ pub struct ElementOutput {
     /// User frame ids live on the output [`BatchInferenceOutput::buffer`] via
     /// [`SharedBuffer::savant_ids`](deepstream_buffers::SharedBuffer::savant_ids)
     /// (same order as surface slots).
-    pub slot_number: u32,
+    pub slot_number: i64,
     /// Output tensors by layer name.
     pub tensors: Vec<TensorView>,
 }

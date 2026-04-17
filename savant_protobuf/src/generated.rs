@@ -376,8 +376,8 @@ pub struct NanosecondsU128 {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct MiscTrackFrame {
-    #[prost(uint32, tag = "1")]
-    pub frame_num: u32,
+    #[prost(int64, tag = "1")]
+    pub frame_num: i64,
     #[prost(float, tag = "2")]
     pub bbox_left: f32,
     #[prost(float, tag = "3")]
@@ -388,8 +388,8 @@ pub struct MiscTrackFrame {
     pub bbox_height: f32,
     #[prost(float, tag = "6")]
     pub confidence: f32,
-    #[prost(uint32, tag = "7")]
-    pub age: u32,
+    #[prost(int64, tag = "7")]
+    pub age: i64,
     #[prost(enumeration = "TrackState", tag = "8")]
     pub state: i32,
     #[prost(float, tag = "9")]
@@ -399,8 +399,8 @@ pub struct MiscTrackFrame {
 pub struct MiscTrackData {
     #[prost(uint64, tag = "1")]
     pub object_id: u64,
-    #[prost(uint32, tag = "2")]
-    pub class_id: u32,
+    #[prost(int64, tag = "2")]
+    pub class_id: i64,
     #[prost(string, optional, tag = "3")]
     pub label: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, tag = "4")]

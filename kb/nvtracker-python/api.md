@@ -38,17 +38,22 @@ Input frame for tracking. Callers build one per source frame; the tracker assemb
 
 ## Output types (read-only properties)
 
+Python sees arbitrary-precision `int` for all integer fields; on the
+Rust side they are `i64` (ids / counters) or `u64` (`object_id`,
+`unique_id`). See `kb/savant-core/patterns.md` §
+*Numeric widths on public structs* for the convention.
+
 ### `TrackedObject`
 
-`object_id`, `class_id`, `bbox_left`, `bbox_top`, `bbox_width`, `bbox_height`, `confidence`, `tracker_confidence`, `label`, `slot_number`, `source_id`.
+`object_id: int (u64)`, `class_id: int (i64)`, `bbox_left / top / width / height: float`, `confidence: float`, `tracker_confidence: float`, `label: Optional[str]`, `slot_number: int (i64)`, `source_id: str`.
 
 ### `MiscTrackFrame`
 
-`frame_num`, bbox fields, `confidence`, `age`, `state` (`TrackState`), `visibility`.
+`frame_num: int (i64)`, bbox fields (`float`), `confidence: float`, `age: int (i64)`, `state: TrackState`, `visibility: float`.
 
 ### `MiscTrackData`
 
-`object_id`, `class_id`, `label`, `source_id`, `frames` (`List[MiscTrackFrame]`).
+`object_id: int (u64)`, `class_id: int (i64)`, `label: Optional[str]`, `source_id: str`, `frames: List[MiscTrackFrame]`.
 
 ### `TrackerOutput`
 

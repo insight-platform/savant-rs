@@ -412,7 +412,8 @@ fn extract_batch_output(
     let mut elements: Vec<ElementOutput> = Vec::new();
 
     for frame in frames.into_iter() {
-        let slot_number = frame.batch_id();
+        // Widen DS u32 batch_id to savant i64 (lossless).
+        let slot_number = frame.batch_id() as i64;
 
         for obj in frame.objects() {
             let roi_id = if obj.unique_component_id() == FULL_FRAME_SENTINEL {

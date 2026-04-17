@@ -698,7 +698,22 @@ fn build_pipeline_elements(
             vec![parse, dec]
         }
         DecoderConfig::Vp9(cfg) => {
-            let parse = make_elem("identity", "parse")?;
+            // Platform-aware parser selection:
+            // * dGPU DeepStream (`nvvideo4linux2` on Turing/Ampere/Ada/
+            //   Blackwell) rejects bare `video/x-vp9` caps on the decoder
+            //   sink — `width`/`height` (and typically `profile`,
+            //   `chroma-format`, `bit-depth-*`) are required, otherwise
+            //   caps negotiation fails with `not-negotiated (-4)` and zero
+            //   frames are decoded. `vp9parse` reads the VP9 uncompressed
+            //   header and enriches the caps accordingly.
+            // * Jetson (Tegra) NVDEC accepts bare caps, so keep `identity`
+            //   to preserve the known-good pre-existing behaviour there.
+            let parser_factory = if nvidia_gpu_utils::is_jetson_kernel() {
+                "identity"
+            } else {
+                "vp9parse"
+            };
+            let parse = make_elem(parser_factory, "parse")?;
             let dec = make_elem("nvv4l2decoder", "dec")?;
             apply_v4l2_props(&dec, cfg.to_gst_pairs())?;
             vec![parse, dec]

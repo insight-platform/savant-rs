@@ -480,7 +480,12 @@ fn drain_and_finish(
                     if let Some(frame) = frame {
                         encode::fill_encoded_frame(frame, encoded, cb);
                     } else if !encoded.data.is_empty() {
-                        error!(
+                        // Codec headers are inlined by `NvEncoder` into the
+                        // next user frame (see `drain_loop` comment in
+                        // `pipeline/encode.rs`).  A non-empty uncorrelated
+                        // payload here is unexpected — log as a diagnostic
+                        // safety net.
+                        warn!(
                             "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
                             encoded.data.len(),
                             encoded.frame_id

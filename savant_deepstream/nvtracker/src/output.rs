@@ -21,7 +21,7 @@ pub use savant_core::primitives::misc_track::{
 #[derive(Debug, Clone)]
 pub struct TrackedObject {
     pub object_id: u64,
-    pub class_id: i32,
+    pub class_id: i64,
     pub bbox_left: f32,
     pub bbox_top: f32,
     pub bbox_width: f32,
@@ -29,7 +29,7 @@ pub struct TrackedObject {
     pub confidence: f32,
     pub tracker_confidence: f32,
     pub label: Option<String>,
-    pub slot_number: u32,
+    pub slot_number: i64,
     pub source_id: String,
 }
 
@@ -86,14 +86,16 @@ fn ds_track_state(s: DsTrackState) -> TrackState {
 }
 
 fn misc_frame_from_ds(f: &DsTargetMiscFrame) -> MiscTrackFrame {
+    // Widen DeepStream native widths (u32 / u32) to the savant-owned i64 domain.
+    // Both widenings are lossless; no runtime check needed.
     MiscTrackFrame {
-        frame_num: f.frame_num,
+        frame_num: f.frame_num as i64,
         bbox_left: f.bbox_left,
         bbox_top: f.bbox_top,
         bbox_width: f.bbox_width,
         bbox_height: f.bbox_height,
         confidence: f.confidence,
-        age: f.age,
+        age: f.age as i64,
         state: ds_track_state(f.state),
         visibility: f.visibility,
     }
@@ -110,7 +112,8 @@ fn append_misc_batch(
         for obj in stream.objects {
             out.push(MiscTrackData {
                 object_id: obj.unique_id,
-                class_id: obj.class_id,
+                // Widen DS u16 class_id to savant i64 (lossless).
+                class_id: obj.class_id as i64,
                 label: obj.label.clone(),
                 source_id: sid.clone(),
                 category,
@@ -140,9 +143,10 @@ pub fn extract_tracker_output(
         let pad_index = frame.pad_index();
         let source_id = resolve_source_id(pad_index);
         for obj in frame.objects() {
+            // Widen DS native widths (i32 class_id, u32 slot_number) to i64 (lossless).
             current_tracks.push(TrackedObject {
                 object_id: obj.object_id(),
-                class_id: obj.class_id(),
+                class_id: obj.class_id() as i64,
                 bbox_left: obj.rect_left(),
                 bbox_top: obj.rect_top(),
                 bbox_width: obj.rect_width(),
@@ -150,7 +154,7 @@ pub fn extract_tracker_output(
                 confidence: obj.confidence(),
                 tracker_confidence: obj.tracker_confidence(),
                 label: obj.label().unwrap_or(None),
-                slot_number,
+                slot_number: slot_number as i64,
                 source_id: source_id.clone(),
             });
         }
