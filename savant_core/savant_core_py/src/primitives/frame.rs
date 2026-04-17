@@ -1501,4 +1501,75 @@ impl VideoFrame {
             Ok(Self(obj))
         })
     }
+
+    // -----------------------------------------------------------------------
+    // Misc-track (shadow / terminated / past-frame) management
+    // -----------------------------------------------------------------------
+
+    /// Append a single misc track to the frame.
+    pub fn add_misc_track(&self, track: crate::primitives::misc_track::MiscTrackData) {
+        use savant_core::primitives::misc_track::MiscTrackData as Core;
+        self.0.add_misc_track(Core::from(&track));
+    }
+
+    /// Append multiple misc tracks to the frame.
+    pub fn add_misc_tracks(&self, tracks: Vec<crate::primitives::misc_track::MiscTrackData>) {
+        use savant_core::primitives::misc_track::MiscTrackData as Core;
+        self.0
+            .add_misc_tracks(tracks.iter().map(Core::from).collect());
+    }
+
+    /// Return all misc tracks stored on the frame.
+    pub fn get_misc_tracks(&self) -> Vec<crate::primitives::misc_track::MiscTrackData> {
+        self.0
+            .get_misc_tracks()
+            .into_iter()
+            .map(crate::primitives::misc_track::MiscTrackData::from)
+            .collect()
+    }
+
+    /// Return misc tracks matching the given category.
+    pub fn get_misc_tracks_by_category(
+        &self,
+        category: crate::primitives::misc_track::MiscTrackCategory,
+    ) -> Vec<crate::primitives::misc_track::MiscTrackData> {
+        self.0
+            .get_misc_tracks_by_category(category.into())
+            .into_iter()
+            .map(crate::primitives::misc_track::MiscTrackData::from)
+            .collect()
+    }
+
+    /// Remove all misc tracks from the frame.
+    pub fn clear_misc_tracks(&self) {
+        self.0.clear_misc_tracks();
+    }
+
+    /// Remove misc tracks of the given category from the frame.
+    pub fn clear_misc_tracks_by_category(
+        &self,
+        category: crate::primitives::misc_track::MiscTrackCategory,
+    ) {
+        self.0.clear_misc_tracks_by_category(category.into());
+    }
+
+    /// Apply full tracker output to this frame in a single operation.
+    ///
+    /// For each :class:`TrackUpdate`, sets ``track_id`` and ``track_box``
+    /// on the corresponding :class:`VideoObject`.  Then replaces the frame's
+    /// misc-track list with ``misc_tracks``.
+    pub fn apply_tracking_info(
+        &self,
+        track_updates: Vec<crate::primitives::misc_track::TrackUpdate>,
+        misc_tracks: Vec<crate::primitives::misc_track::MiscTrackData>,
+    ) -> PyResult<()> {
+        use savant_core::primitives::misc_track::{
+            MiscTrackData as CoreData, TrackUpdate as CoreUpdate,
+        };
+        let updates: Vec<CoreUpdate> = track_updates.iter().map(CoreUpdate::from).collect();
+        let tracks: Vec<CoreData> = misc_tracks.iter().map(CoreData::from).collect();
+        self.0
+            .apply_tracking_info(updates, tracks)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }

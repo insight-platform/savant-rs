@@ -12,6 +12,7 @@ try:
     from savant_rs.deepstream import (
         BufferGenerator,
         MemType,
+        MetaClearPolicy,
         SavantIdMetaKind,
         VideoFormat,
         init_cuda,
@@ -30,6 +31,17 @@ try:
     HAS_NVTRACKER = True
 except ImportError:
     HAS_NVTRACKER = False
+
+    # Placeholder so module-level ``@pytest.mark.parametrize`` decorators can
+    # still be evaluated at collection time on builds without the deepstream
+    # feature. The actual tests are skipped via ``pytestmark`` below.
+    class _MetaClearPolicyStub:  # type: ignore[no-redef]
+        NONE = None
+        BEFORE = None
+        AFTER = None
+        BOTH = None
+
+    MetaClearPolicy = _MetaClearPolicyStub  # type: ignore[assignment,misc]
 
 pytestmark = pytest.mark.skipif(
     not HAS_NVTRACKER, reason="savant_rs built without deepstream / nvtracker"
@@ -70,9 +82,7 @@ def _make_frame(
 ) -> TrackedFrame:
     """Create a TrackedFrame with a single-surface buffer."""
     _ensure_gpu()
-    gen = BufferGenerator(
-        VideoFormat.RGBA, w, h, gpu_id=0, mem_type=MemType.DEFAULT
-    )
+    gen = BufferGenerator(VideoFormat.RGBA, w, h, gpu_id=0, mem_type=MemType.DEFAULT)
     buf = gen.acquire(None)
     if pts_ns is not None:
         buf.pts_ns = pts_ns
@@ -88,9 +98,7 @@ def _recv_tracking(tracker: NvTracker) -> TrackerOutput:
             assert t is not None
             return t
         if out.is_eos:
-            raise AssertionError(
-                f"unexpected EOS: {out.eos_source_id!r}"
-            )
+            raise AssertionError(f"unexpected EOS: {out.eos_source_id!r}")
         if out.is_error:
             raise RuntimeError(out.error_message or "NvTracker error")
 
@@ -98,6 +106,53 @@ def _recv_tracking(tracker: NvTracker) -> TrackerOutput:
 def test_enums_and_track_state() -> None:
     assert int(TrackingIdResetMode.NONE) == 0
     assert int(TrackState.ACTIVE) == 1
+
+
+def test_meta_clear_policy_enum_values() -> None:
+    """`MetaClearPolicy` enum exposes all four variants with distinct ints."""
+    values = {
+        int(MetaClearPolicy.NONE),
+        int(MetaClearPolicy.BEFORE),
+        int(MetaClearPolicy.AFTER),
+        int(MetaClearPolicy.BOTH),
+    }
+    assert values == {0, 1, 2, 3}
+
+
+def test_meta_clear_policy_canonical_module() -> None:
+    """``MetaClearPolicy`` lives in :mod:`savant_rs.deepstream` as its
+    canonical module (shared by both ``nvinfer`` and ``nvtracker``)."""
+    assert MetaClearPolicy.__module__ == "savant_rs.deepstream"
+
+
+def test_meta_clear_policy_default_is_before() -> None:
+    """`NvTrackerConfig.meta_clear_policy` defaults to ``BEFORE``."""
+    cfg = NvTrackerConfig(
+        "/tmp/lib.so",
+        "/tmp/cfg.yml",
+        VideoFormat.RGBA,
+    )
+    assert cfg.meta_clear_policy == MetaClearPolicy.BEFORE
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        MetaClearPolicy.NONE,
+        MetaClearPolicy.BEFORE,
+        MetaClearPolicy.AFTER,
+        MetaClearPolicy.BOTH,
+    ],
+)
+def test_meta_clear_policy_constructor_roundtrip(policy: MetaClearPolicy) -> None:
+    """Each variant survives construction and is reflected in the getter."""
+    cfg = NvTrackerConfig(
+        "/tmp/lib.so",
+        "/tmp/cfg.yml",
+        VideoFormat.RGBA,
+        meta_clear_policy=policy,
+    )
+    assert cfg.meta_clear_policy == policy
 
 
 def test_nv_tracker_config_paths() -> None:
@@ -345,10 +400,14 @@ def test_resolution_change_auto_reset_py() -> None:
     )
     t = NvTracker(cfg)
     roi = Roi(1, RBBox.ltwh(40.0, 40.0, 50.0, 50.0))
-    t.submit([_make_frame("cam-r", {0: [roi]}, 320, 240)], [(SavantIdMetaKind.FRAME, 1)])
+    t.submit(
+        [_make_frame("cam-r", {0: [roi]}, 320, 240)], [(SavantIdMetaKind.FRAME, 1)]
+    )
     o0 = _recv_tracking(t)
     id0 = o0.current_tracks[0].object_id
-    t.submit([_make_frame("cam-r", {0: [roi]}, 640, 480)], [(SavantIdMetaKind.FRAME, 2)])
+    t.submit(
+        [_make_frame("cam-r", {0: [roi]}, 640, 480)], [(SavantIdMetaKind.FRAME, 2)]
+    )
     o1 = _recv_tracking(t)
     id1 = o1.current_tracks[0].object_id
     assert id1 != id0

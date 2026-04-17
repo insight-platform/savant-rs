@@ -119,6 +119,17 @@ let restored = load_message(&bytes);
 assert!(restored.is_video_frame());
 ```
 
+## Wire-to-domain narrowing in protobuf deserialization
+
+When Rust domain fields are narrower than protobuf wire fields, validate explicitly.
+For `u16` Rust fields stored as `u32` on wire, use `u16::try_from(...)` and return a typed
+`protobuf::serialize::Error` on failure, never `as` casts.
+For protobuf enums (`i32` wire), use `try_from` plus an exhaustive `match` and map invalid
+wire values to `Error::Unknown*` variants.
+Do not use wildcard enum fallbacks/defaults in from-pb helpers; unknown wire values must hard-fail
+at the message boundary to prevent silent data corruption.
+Reference implementation: `savant_core/src/protobuf/serialize/video_frame.rs` misc-track helpers.
+
 ## Pipeline Usage
 
 ```rust
@@ -202,3 +213,35 @@ criterion_main!(benches);
 ```
 
 Run: `cargo bench -p savant_core`
+
+---
+
+## Numeric widths on public structs (i64 convention)
+
+All logical ids, counters, and ages on savant-owned public structs use
+`i64`. `u64` is reserved for values whose semantics are inherently
+non-negative 64-bit (e.g. `object_id`, `unique_id`,
+`surface_stream_id`). Narrow widths (`u16` / `u32` / `i32`) only exist
+inside FFI-mirror structs (`deepstream-sys`, `deepstream::tracker_meta`,
+DS C headers) and are widened **losslessly** at the first
+savant-owned struct past the FFI seam.
+
+Examples in the tracker/misc-track area:
+
+| Struct | Field | Width |
+|---|---|---|
+| `MiscTrackData` | `class_id` | `i64` |
+| `MiscTrackFrame` | `frame_num`, `age` | `i64` |
+| `TrackedObject` (nvtracker) | `class_id`, `slot_number` | `i64` |
+| `ElementOutput` (nvinfer) | `slot_number` | `i64` |
+
+Protobuf messages mirror the domain: `MiscTrackData.class_id`,
+`MiscTrackFrame.frame_num`, `MiscTrackFrame.age` are all `int64` on the
+wire (see `savant_protobuf/src/savant_rs.proto`). This removed the
+previous wire-vs-domain narrowing and its associated
+`Error::MiscTrackClassIdOverflow` variant.
+
+Why: arbitrary-precision Python ints already cross the boundary
+without surprises; there is no narrowing to check on the way back; and
+tracker/detector producers that emit class ids > u16 do not silently
+truncate.

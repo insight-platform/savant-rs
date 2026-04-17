@@ -1,6 +1,7 @@
 //! PyO3 wrapper for NvTrackerConfig.
 
 use super::enums::PyTrackingIdResetMode;
+use crate::deepstream::enums::PyMetaClearPolicy;
 use crate::deepstream::enums::PyVideoFormat;
 use nvtracker::NvTrackerConfig;
 use pyo3::prelude::*;
@@ -20,6 +21,12 @@ use std::collections::HashMap;
 ///     gpu_id (int): GPU id.
 ///     element_properties (Optional[Dict[str, str]]): Extra element properties.
 ///     tracking_id_reset_mode (TrackingIdResetMode): ID reset behaviour.
+///     meta_clear_policy (MetaClearPolicy): When to clear ``NvDsObjectMeta``
+///         entries from the batch buffer. ``BEFORE`` (default) removes any
+///         stale upstream object metas before attaching the new detection
+///         objects; ``AFTER`` clears all objects from the output buffer
+///         when the :class:`TrackerOutput` is dropped; ``BOTH`` does both;
+///         ``NONE`` disables automatic clearing.
 ///     operation_timeout_ms (int): Maximum time (in milliseconds) for the
 ///         framework in-flight watchdog. When exceeded, the pipeline enters a
 ///         terminal failed state. Default: ``30000``.
@@ -51,6 +58,7 @@ impl PyNvTrackerConfig {
         gpu_id = 0u32,
         element_properties = None,
         tracking_id_reset_mode = PyTrackingIdResetMode::None,
+        meta_clear_policy = PyMetaClearPolicy::Before,
         operation_timeout_ms = 30000u64,
         input_channel_capacity = 16usize,
         output_channel_capacity = 16usize,
@@ -68,6 +76,7 @@ impl PyNvTrackerConfig {
         gpu_id: u32,
         element_properties: Option<HashMap<String, String>>,
         tracking_id_reset_mode: PyTrackingIdResetMode,
+        meta_clear_policy: PyMetaClearPolicy,
         operation_timeout_ms: u64,
         input_channel_capacity: usize,
         output_channel_capacity: usize,
@@ -81,6 +90,7 @@ impl PyNvTrackerConfig {
         cfg.gpu_id = gpu_id;
         cfg.input_format = fmt;
         cfg.tracking_id_reset_mode = tracking_id_reset_mode.into();
+        cfg.meta_clear_policy = meta_clear_policy.into();
         cfg.operation_timeout = std::time::Duration::from_millis(operation_timeout_ms);
         cfg.input_channel_capacity = input_channel_capacity;
         cfg.output_channel_capacity = output_channel_capacity;
@@ -150,14 +160,22 @@ impl PyNvTrackerConfig {
         self.inner.gpu_id
     }
 
+    /// `NvDsObjectMeta` clearing policy.
+    #[getter]
+    fn meta_clear_policy(&self) -> PyMetaClearPolicy {
+        self.inner.meta_clear_policy.into()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "NvTrackerConfig(name={:?}, gpu_id={}, max_batch_size={}, \
-             operation_timeout_ms={}, input_channel_capacity={}, output_channel_capacity={}, \
+             meta_clear_policy={:?}, operation_timeout_ms={}, \
+             input_channel_capacity={}, output_channel_capacity={}, \
              drain_poll_interval_ms={})",
             self.inner.name,
             self.inner.gpu_id,
             self.inner.max_batch_size,
+            self.inner.meta_clear_policy,
             self.operation_timeout_ms(),
             self.input_channel_capacity(),
             self.output_channel_capacity(),

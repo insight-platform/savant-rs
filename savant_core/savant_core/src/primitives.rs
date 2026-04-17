@@ -15,6 +15,7 @@ pub mod frame;
 pub mod frame_batch;
 pub mod frame_update;
 pub mod gstreamer_frame_time;
+pub mod misc_track;
 pub mod object;
 pub mod segment;
 pub mod shutdown;
@@ -42,6 +43,11 @@ pub mod rust {
     pub use super::gstreamer_frame_time::{
         frame_clock_ns, normalize_frame_to_gst_ns, time_base_to_ns, FrameClockNs, GST_TIME_BASE,
     };
+    pub use super::misc_track::MiscTrackCategory;
+    pub use super::misc_track::MiscTrackData;
+    pub use super::misc_track::MiscTrackFrame;
+    pub use super::misc_track::TrackState;
+    pub use super::misc_track::TrackUpdate;
     pub use super::object::BorrowedVideoObject;
     pub use super::object::VideoObject;
     pub use super::object::VideoObjectBBoxTransformation;

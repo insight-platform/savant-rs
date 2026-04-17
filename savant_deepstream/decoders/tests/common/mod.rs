@@ -126,7 +126,7 @@ pub fn test_decoder_config(gpu_id: u32, decoder: DecoderConfig) -> NvDecoderConf
 /// immediately so the internal pool (size 4) is never exhausted.
 pub fn drain_decoder(decoder: &NvDecoder, mut on_frame: impl FnMut(DecodedFrame)) {
     loop {
-        match decoder.recv_timeout(Duration::from_secs(30)) {
+        match decoder.recv_timeout(Duration::from_secs(10)) {
             Ok(Some(NvDecoderOutput::Frame(f))) => on_frame(f),
             Ok(Some(NvDecoderOutput::Eos)) => break,
             Ok(Some(NvDecoderOutput::Error(e))) => panic!("decoder error: {e}"),

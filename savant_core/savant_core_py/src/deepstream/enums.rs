@@ -1,7 +1,7 @@
 //! Python enum wrappers and extraction helpers for DeepStream types.
 
 use deepstream_buffers::{
-    ComputeMode, Interpolation, NvBufSurfaceMemType, Padding, SavantIdMetaKind,
+    ComputeMode, Interpolation, MetaClearPolicy, NvBufSurfaceMemType, Padding, SavantIdMetaKind,
 };
 use pyo3::prelude::*;
 use savant_gstreamer::VideoFormat;
@@ -68,6 +68,70 @@ impl From<Padding> for PyPadding {
             Padding::None => PyPadding::None,
             Padding::RightBottom => PyPadding::RightBottom,
             Padding::Symmetric => PyPadding::Symmetric,
+        }
+    }
+}
+
+// ─── MetaClearPolicy enum ────────────────────────────────────────────────
+
+/// Controls when ``NvDsObjectMeta`` entries are erased from the batch buffer.
+///
+/// Shared by both ``nvinfer`` and ``nvtracker`` pipelines — re-exported from
+/// :mod:`savant_rs.nvinfer` and :mod:`savant_rs.nvtracker` for convenience.
+///
+/// - ``NONE`` -- never clear automatically.
+/// - ``BEFORE`` -- clear stale objects before attaching new objects (default).
+/// - ``AFTER`` -- clear all objects when the output is dropped.
+/// - ``BOTH`` -- clear before submission **and** after the output is dropped.
+#[pyclass(
+    from_py_object,
+    name = "MetaClearPolicy",
+    module = "savant_rs.deepstream",
+    eq,
+    eq_int
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyMetaClearPolicy {
+    #[pyo3(name = "NONE")]
+    None = 0,
+    #[pyo3(name = "BEFORE")]
+    Before = 1,
+    #[pyo3(name = "AFTER")]
+    After = 2,
+    #[pyo3(name = "BOTH")]
+    Both = 3,
+}
+
+#[pymethods]
+impl PyMetaClearPolicy {
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PyMetaClearPolicy::None => "MetaClearPolicy.NONE",
+            PyMetaClearPolicy::Before => "MetaClearPolicy.BEFORE",
+            PyMetaClearPolicy::After => "MetaClearPolicy.AFTER",
+            PyMetaClearPolicy::Both => "MetaClearPolicy.BOTH",
+        }
+    }
+}
+
+impl From<PyMetaClearPolicy> for MetaClearPolicy {
+    fn from(p: PyMetaClearPolicy) -> Self {
+        match p {
+            PyMetaClearPolicy::None => MetaClearPolicy::None,
+            PyMetaClearPolicy::Before => MetaClearPolicy::Before,
+            PyMetaClearPolicy::After => MetaClearPolicy::After,
+            PyMetaClearPolicy::Both => MetaClearPolicy::Both,
+        }
+    }
+}
+
+impl From<MetaClearPolicy> for PyMetaClearPolicy {
+    fn from(p: MetaClearPolicy) -> Self {
+        match p {
+            MetaClearPolicy::None => PyMetaClearPolicy::None,
+            MetaClearPolicy::Before => PyMetaClearPolicy::Before,
+            MetaClearPolicy::After => PyMetaClearPolicy::After,
+            MetaClearPolicy::Both => PyMetaClearPolicy::Both,
         }
     }
 }

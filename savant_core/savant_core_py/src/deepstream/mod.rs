@@ -5,6 +5,7 @@
 
 pub mod buffer;
 pub mod config;
+pub mod decoder_config;
 pub mod enums;
 pub mod functions;
 pub mod generators;
@@ -16,7 +17,7 @@ pub mod surface_view;
 pub use buffer::PySharedBuffer;
 pub(crate) use buffer::{extract_gst_buffer, extract_shared_buffer};
 pub use config::{PyDstPadding, PyRect, PyTransformConfig};
-pub use enums::{PyMemType, PySavantIdMetaKind, PyVideoFormat};
+pub use enums::{PyMemType, PyMetaClearPolicy, PySavantIdMetaKind, PyVideoFormat};
 pub use surface_view::PySurfaceView;
 
 use gstreamer as gst;
@@ -33,6 +34,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<enums::PyComputeMode>()?;
     m.add_class::<enums::PyVideoFormat>()?;
     m.add_class::<enums::PyMemType>()?;
+    m.add_class::<enums::PyMetaClearPolicy>()?;
     m.add_class::<enums::PySavantIdMetaKind>()?;
     m.add_class::<config::PyRect>()?;
     m.add_class::<config::PyDstPadding>()?;
@@ -62,6 +64,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_class::<skia::PySkiaContext>()?;
+    decoder_config::register_decoder_config_classes(m)?;
     inputs::register_inputs_classes(m)?;
     Ok(())
 }

@@ -51,6 +51,14 @@ need to match on error variants.
 | `save_message()` | Protobuf encoding failure |
 | `load_message()` | Never returns `Result` — panics on decode failure (callers must handle at transport layer) |
 
+`protobuf::serialize` misc-track deserialization hard-fails only on
+unknown enum wire values — numeric fields (`class_id`, `frame_num`,
+`age`) are `int64` on both wire and domain sides, so the previous
+`MiscTrackClassIdOverflow` variant was removed:
+
+- `Error::UnknownTrackState(i32)` — unknown `MiscTrackData.TrackState` wire enum value.
+- `Error::UnknownMiscTrackCategory(i32)` — unknown `MiscTrackData.MiscTrackCategory` wire enum value.
+
 ### ZeroMQ Transport
 
 | Operation | Error Condition |

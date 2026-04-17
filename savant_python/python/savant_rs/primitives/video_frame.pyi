@@ -19,6 +19,11 @@ __all__ = [
     "VideoFrame",
     "VideoFrameUpdate",
     "VideoFrameBatch",
+    "TrackState",
+    "MiscTrackCategory",
+    "MiscTrackFrame",
+    "MiscTrackData",
+    "TrackUpdate",
 ]
 
 class ObjectUpdatePolicy(Enum):
@@ -75,6 +80,111 @@ class VideoFrameCodec(Enum):
     @staticmethod
     def from_name(name: str) -> VideoFrameCodec: ...
     def name(self) -> str: ...
+
+class TrackState:
+    """Logical state of a tracker target."""
+
+    EMPTY: TrackState
+    ACTIVE: TrackState
+    INACTIVE: TrackState
+    TENTATIVE: TrackState
+    PROJECTED: TrackState
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class MiscTrackCategory:
+    """Which tracker output list a misc track came from."""
+
+    SHADOW: MiscTrackCategory
+    TERMINATED: MiscTrackCategory
+    PAST_FRAME: MiscTrackCategory
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class MiscTrackFrame:
+    """A single frame's worth of position data inside a misc track history."""
+
+    @property
+    def frame_num(self) -> int: ...
+    @property
+    def bbox_left(self) -> float: ...
+    @property
+    def bbox_top(self) -> float: ...
+    @property
+    def bbox_width(self) -> float: ...
+    @property
+    def bbox_height(self) -> float: ...
+    @property
+    def confidence(self) -> float: ...
+    @property
+    def age(self) -> int: ...
+    @property
+    def state(self) -> TrackState: ...
+    @property
+    def visibility(self) -> float: ...
+
+    def __init__(
+        self,
+        frame_num: int,
+        bbox_left: float,
+        bbox_top: float,
+        bbox_width: float,
+        bbox_height: float,
+        confidence: float,
+        age: int,
+        state: TrackState,
+        visibility: float,
+    ) -> None: ...
+
+    def __repr__(self) -> str: ...
+
+class MiscTrackData:
+    """A tracker target not bound to a regular VideoObject."""
+
+    @property
+    def object_id(self) -> int: ...
+    @property
+    def class_id(self) -> int: ...
+    @property
+    def label(self) -> Optional[str]: ...
+    @property
+    def source_id(self) -> str: ...
+    @property
+    def category(self) -> MiscTrackCategory: ...
+    @property
+    def frames(self) -> List[MiscTrackFrame]: ...
+
+    def __init__(
+        self,
+        object_id: int,
+        class_id: int,
+        source_id: str,
+        category: MiscTrackCategory,
+        label: Optional[str] = None,
+        frames: Optional[List[MiscTrackFrame]] = None,
+    ) -> None: ...
+
+    def __repr__(self) -> str: ...
+
+class TrackUpdate:
+    """Describes how to apply tracker output to an existing VideoObject."""
+
+    @property
+    def object_id(self) -> int: ...
+    @property
+    def track_id(self) -> int: ...
+    @property
+    def track_box(self) -> RBBox: ...
+
+    def __init__(self, object_id: int, track_id: int, track_box: RBBox) -> None: ...
+
+    def __repr__(self) -> str: ...
 
 class VideoFrame:
     def transform_geometry(
@@ -243,6 +353,45 @@ class VideoFrame:
     @classmethod
     def from_protobuf(cls, bytes: bytes, no_gil: bool = True) -> VideoFrame: ...
     def get_parent_chain(self, obj: BorrowedVideoObject) -> List[int]: ...
+
+    def add_misc_track(self, track: MiscTrackData) -> None:
+        """Append a single misc track to the frame."""
+        ...
+
+    def add_misc_tracks(self, tracks: List[MiscTrackData]) -> None:
+        """Append multiple misc tracks to the frame."""
+        ...
+
+    def get_misc_tracks(self) -> List[MiscTrackData]:
+        """Return all misc tracks stored on the frame."""
+        ...
+
+    def get_misc_tracks_by_category(
+        self, category: MiscTrackCategory
+    ) -> List[MiscTrackData]:
+        """Return misc tracks matching the given category."""
+        ...
+
+    def clear_misc_tracks(self) -> None:
+        """Remove all misc tracks from the frame."""
+        ...
+
+    def clear_misc_tracks_by_category(self, category: MiscTrackCategory) -> None:
+        """Remove misc tracks of the given category from the frame."""
+        ...
+
+    def apply_tracking_info(
+        self,
+        track_updates: List[TrackUpdate],
+        misc_tracks: List[MiscTrackData],
+    ) -> None:
+        """Apply full tracker output to this frame in a single operation.
+
+        For each ``TrackUpdate``, sets ``track_id`` and ``track_box`` on the
+        corresponding ``VideoObject``.  Then replaces the frame's misc-track
+        list with ``misc_tracks``.
+        """
+        ...
 
 class VideoFrameUpdate:
     frame_attribute_policy: AttributeUpdatePolicy

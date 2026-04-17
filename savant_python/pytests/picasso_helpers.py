@@ -11,7 +11,9 @@ and the Rust test helpers (``savant_deepstream/picasso/tests/common/mod.rs``).
 from __future__ import annotations
 
 import math
-from typing import Optional
+import threading
+import time
+from typing import Callable, Optional
 
 from savant_rs.deepstream import (
     BufferGenerator,
@@ -74,6 +76,73 @@ CLASSES: list[tuple[str, tuple[int, int, int]]] = [
 ]
 
 PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+
+
+# ─── Async wait helpers ────────────────────────────────────────────────
+#
+# Picasso pipelines deliver encoded frames and EOS markers asynchronously
+# from worker threads. Tests previously used large fixed ``time.sleep``
+# calls as a generous upper bound for drain completion, which inflated the
+# suite wall-clock by tens of seconds.  The helpers below replace those
+# fixed waits with bounded polling on a user-supplied predicate so that a
+# test proceeds as soon as its observable condition holds while still
+# capping the maximum wait.
+
+DEFAULT_DRAIN_TIMEOUT = 15.0
+DEFAULT_POLL_INTERVAL = 0.02
+
+
+def poll_until(
+    predicate: Callable[[], bool],
+    timeout: float = DEFAULT_DRAIN_TIMEOUT,
+    poll_interval: float = DEFAULT_POLL_INTERVAL,
+) -> bool:
+    """Poll ``predicate`` until it returns truthy or ``timeout`` elapses.
+
+    Returns ``True`` when the predicate succeeded before the deadline,
+    ``False`` otherwise. The poll loop uses ``time.monotonic`` so it is
+    robust to wall-clock adjustments.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if predicate():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll_interval)
+
+
+def wait_for_eos(
+    results: list,
+    lock: threading.Lock,
+    min_eos: int = 1,
+    timeout: float = DEFAULT_DRAIN_TIMEOUT,
+) -> bool:
+    """Wait until ``results`` holds at least ``min_eos`` EOS outputs."""
+
+    def _predicate() -> bool:
+        with lock:
+            return sum(1 for o in results if getattr(o, "is_eos", False)) >= min_eos
+
+    return poll_until(_predicate, timeout=timeout)
+
+
+def wait_for_count(
+    results: list,
+    lock: threading.Lock,
+    min_count: int,
+    timeout: float = DEFAULT_DRAIN_TIMEOUT,
+    predicate: Optional[Callable[[object], bool]] = None,
+) -> bool:
+    """Wait until ``results`` holds at least ``min_count`` items matching ``predicate``."""
+
+    def _predicate() -> bool:
+        with lock:
+            if predicate is None:
+                return len(results) >= min_count
+            return sum(1 for o in results if predicate(o)) >= min_count
+
+    return poll_until(_predicate, timeout=timeout)
 
 
 # ─── Deterministic pseudo-random (matches Rust version) ────────────────

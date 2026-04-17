@@ -15,9 +15,13 @@
         "--gpus",
         "all"
     ],
+    "remoteEnv": {
+        "SCCACHE_CACHE_SIZE": "2G"
+    },
     "remoteUser": "${localEnv:USER}",
     "mounts": [
-        "source=home-dir-vol,target=/home/${localEnv:USER},type=volume"
+        "source=home-dir-vol,target=/home/${localEnv:USER},type=volume",
+        "source=cargo-target-vol,target=/workspaces/savant-rs/target,type=volume"
     ],
     "customizations": {
         "vscode": {
@@ -33,5 +37,6 @@
     "forwardPorts": [
         3000
     ],
-    "postCreateCommand": "echo 'Dev container ready! Import .envrc to the shell to load the required environment variables.'"
+    "postCreateCommand": "echo 'Dev container ready! Import .envrc to the shell to load the required environment variables.'",
+    "postStartCommand": "find ~/.cursor-server/bin ~/.vscode-server/bin -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | head -n -1 | xargs rm -rf 2>/dev/null; rm -rf /tmp/ds-mini /tmp/savant-check-target /tmp/enc-check 2>/dev/null; echo 'Cleaned stale IDE server versions and temp data.'"
 }

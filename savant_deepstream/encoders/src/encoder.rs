@@ -87,6 +87,14 @@ pub struct NvEncoder {
     /// submission order, so we can fall back to popping this FIFO when the map
     /// misses (see [`Self::sample_to_frame`]).
     intra_submit_fifo: VecDeque<u128>,
+    /// Stream-level codec metadata emitted by the encoder as a standalone
+    /// buffer (e.g. AV1 `OBU_SEQUENCE_HEADER` from `nvv4l2av1enc` on dGPU
+    /// before the first IDR).  Stashed here and prepended to the next user
+    /// frame's `data`, matching Jetson's behavior where the V4L2 encoder
+    /// inlines the header into the first IDR automatically.  Consumers thus
+    /// always see a single `EncodedFrame` per submitted frame with the
+    /// sequence header concatenated onto the first frame's bitstream.
+    pending_codec_header: Option<Vec<u8>>,
     /// When format conversion is needed (e.g. RGBA → NV12), this holds a
     /// second generator for the encoder-native format and a dedicated
     /// non-blocking CUDA stream for the `NvBufSurfTransform` call.
@@ -460,6 +468,7 @@ impl NvEncoder {
             finalized: false,
             pts_map: HashMap::new(),
             intra_submit_fifo: VecDeque::new(),
+            pending_codec_header: None,
             convert_ctx,
         })
     }
@@ -596,11 +605,24 @@ impl NvEncoder {
     /// Returns `Ok(Some(frame))` when an encoded frame is available,
     /// `Ok(None)` when no frame is ready yet, or `Err` on pipeline error
     /// or if B-frame reordering is detected in the output.
+    ///
+    /// Codec-header-only samples (e.g. AV1 `OBU_SEQUENCE_HEADER` from
+    /// dGPU `nvv4l2av1enc`) are stashed internally and inlined into the
+    /// next user frame; they are never surfaced as standalone outputs.
+    /// The loop below drains such samples transparently so callers always
+    /// see a frame (or none) in a single call.
     pub fn pull_encoded(&mut self) -> Result<Option<EncodedFrame>, EncoderError> {
-        let sample = self
-            .appsink
-            .try_pull_sample(gst::ClockTime::from_mseconds(0));
-        self.sample_to_frame(sample)
+        loop {
+            let sample = self
+                .appsink
+                .try_pull_sample(gst::ClockTime::from_mseconds(0));
+            let had_sample = sample.is_some();
+            match self.sample_to_frame(sample)? {
+                Some(frame) => return Ok(Some(frame)),
+                None if had_sample => continue,
+                None => return Ok(None),
+            }
+        }
     }
 
     /// Pull one encoded frame from the encoder (blocking with timeout).
@@ -612,14 +634,30 @@ impl NvEncoder {
     /// Returns `Ok(Some(frame))` when a frame arrives within the timeout,
     /// `Ok(None)` on timeout, or `Err` on pipeline error or if B-frame
     /// reordering is detected in the output.
+    ///
+    /// Codec-header-only samples are stashed and inlined into the next
+    /// user frame (see [`Self::pull_encoded`] for details).  The initial
+    /// wait uses the caller's timeout; subsequent iterations (after a
+    /// header stash) poll with a zero timeout to avoid stacking waits.
     pub fn pull_encoded_timeout(
         &mut self,
         timeout_ms: u64,
     ) -> Result<Option<EncodedFrame>, EncoderError> {
-        let sample = self
-            .appsink
-            .try_pull_sample(gst::ClockTime::from_mseconds(timeout_ms));
-        self.sample_to_frame(sample)
+        let mut wait_ms = timeout_ms;
+        loop {
+            let sample = self
+                .appsink
+                .try_pull_sample(gst::ClockTime::from_mseconds(wait_ms));
+            let had_sample = sample.is_some();
+            match self.sample_to_frame(sample)? {
+                Some(frame) => return Ok(Some(frame)),
+                None if had_sample => {
+                    wait_ms = 0;
+                    continue;
+                }
+                None => return Ok(None),
+            }
+        }
     }
 
     /// Convert an appsink sample into an [`EncodedFrame`], validating
@@ -703,6 +741,48 @@ impl NvEncoder {
         };
         let pts_ns = original_pts;
 
+        // --- Codec-header inlining (dGPU parity with Jetson) ---
+        //
+        // A non-user-frame buffer with payload on a non-intra-only codec
+        // is a stream-level codec header (e.g. dGPU `nvv4l2av1enc` emits
+        // the AV1 `OBU_SEQUENCE_HEADER` as a standalone buffer before the
+        // first IDR; Jetson's V4L2 encoder inlines it into the first IDR
+        // automatically).  Match the Jetson behavior by stashing the
+        // header bytes and prepending them to the next user frame's
+        // `data`, so callers always see a single correlated `EncodedFrame`
+        // per submitted frame.
+        //
+        // The guard is `!is_user_frame && !is_intra_only && buf_size > 0`:
+        //   - `!is_user_frame`: the pts/dts lookup above already failed,
+        //     so we know this buffer does not correspond to a submitted
+        //     frame.  This prevents misclassification when an encoder
+        //     sets `BufferFlags::HEADER` on a real user frame.
+        //   - `!is_intra_only`: JPEG / PNG / Raw never emit stream headers;
+        //     for them an uncorrelated non-empty buffer is a real
+        //     anomaly and we keep the existing "surface as frame_id=None"
+        //     path (callers already warn on this).
+        //   - `buf_size > 0`: empty buffers are keepalives / flush
+        //     markers, not headers.
+        if !is_user_frame && !is_intra_only && buf_size > 0 {
+            let map = buffer.map_readable().map_err(|e| {
+                EncoderError::PipelineError(format!("Failed to map codec header buffer: {:?}", e))
+            })?;
+            let bytes = map.as_slice();
+            let had_header_flag = buffer.flags().contains(gst::BufferFlags::HEADER);
+            match self.pending_codec_header.as_mut() {
+                Some(existing) => existing.extend_from_slice(bytes),
+                None => self.pending_codec_header = Some(bytes.to_vec()),
+            }
+            debug!(
+                "NvEncoder: stashed codec header ({} bytes, header_flag={}, total pending={}, codec={:?})",
+                bytes.len(),
+                had_header_flag,
+                self.pending_codec_header.as_ref().map(|v| v.len()).unwrap_or(0),
+                self.codec
+            );
+            return Ok(None);
+        }
+
         // --- Output ordering validation ---
         //
         // Checks only apply to user-submitted frames.  Codec header
@@ -758,7 +838,7 @@ impl NvEncoder {
         };
 
         // Extract encoded data.
-        let data = if self.codec == Codec::RawNv12 {
+        let mut data = if self.codec == Codec::RawNv12 {
             let map = buffer.map_readable().map_err(|e| {
                 EncoderError::PipelineError(format!("Failed to map NV12 buffer: {:?}", e))
             })?;
@@ -771,6 +851,24 @@ impl NvEncoder {
             })?;
             map.as_slice().to_vec()
         };
+
+        // Prepend any stashed codec header so the first user frame carries
+        // the sequence header inline (Jetson parity — see stash block above).
+        // Only applies to user frames; intra-only codecs never stash, so
+        // this branch is effectively a no-op for them.
+        if is_user_frame {
+            if let Some(header) = self.pending_codec_header.take() {
+                let header_len = header.len();
+                let mut combined = header;
+                combined.reserve(data.len());
+                combined.extend_from_slice(&data);
+                data = combined;
+                debug!(
+                    "NvEncoder: inlined {} bytes of codec header into frame (frame_id={:?}, codec={:?})",
+                    header_len, frame_id, self.codec
+                );
+            }
+        }
 
         Ok(Some(EncodedFrame {
             frame_id,
@@ -833,6 +931,17 @@ impl NvEncoder {
                 self.codec
             );
             self.intra_submit_fifo.clear();
+        }
+
+        // An orphan codec header at this point means the encoder emitted a
+        // stream header but no user frame followed (e.g. zero-frame source
+        // or an early error).  Benign — no consumer was waiting on it.
+        if let Some(header) = self.pending_codec_header.take() {
+            debug!(
+                "NvEncoder::finish: dropped orphan codec header ({} bytes, codec={:?})",
+                header.len(),
+                self.codec
+            );
         }
 
         debug!("NvEncoder finished, drained {} frames", frames.len());

@@ -558,6 +558,71 @@ fn test_av1_with_rgba_conversion() {
     );
 }
 
+/// Verify that the dGPU AV1 sequence header never surfaces as a
+/// standalone `EncodedFrame` with `frame_id == None`.  Matches Jetson's
+/// V4L2 encoder behavior where the header is inlined into the bitstream.
+///
+/// Pre-fix (dGPU): output could be `N + 1` frames, with one having
+/// `frame_id = None` and ~32 bytes of `OBU_SEQUENCE_HEADER` payload.
+/// Post-fix: exactly `N` frames, all with `frame_id = Some(id)`; any
+/// standalone codec header is stashed and inlined into the next user
+/// frame's `data`.
+///
+/// The test uses the same `Av1DgpuProps` (P1 preset + LowLatency tuning)
+/// that Picasso uses, because that configuration is the one observed to
+/// emit the sequence header as a separate buffer on dGPU.
+#[test]
+#[serial]
+fn test_av1_sequence_header_is_inlined() {
+    init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_av1_sequence_header_is_inlined");
+        return;
+    }
+    const N: u128 = 10;
+    let mut config = EncoderConfig::new(Codec::Av1, 640, 480).format(VideoFormat::RGBA);
+    if !is_jetson() {
+        config = config.properties(EncoderProperties::Av1Dgpu(Av1DgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        }));
+    } else {
+        config = config.properties(EncoderProperties::Av1Jetson(Av1JetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            ..Default::default()
+        }));
+    }
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_dur = 33_333_333u64;
+    for i in 0..N {
+        let shared = encoder.generator().acquire(Some(i)).unwrap();
+        let buf = shared.into_buffer().expect("sole owner");
+        encoder
+            .submit_frame(buf, i, (i as u64 + 1) * frame_dur, Some(frame_dur))
+            .unwrap();
+    }
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+
+    assert_eq!(
+        frames.len() as u128,
+        N,
+        "Expected exactly {N} AV1 frames (no standalone sequence-header frame); got {}",
+        frames.len()
+    );
+
+    for (idx, f) in frames.iter().enumerate() {
+        assert_eq!(f.codec, Codec::Av1);
+        assert!(
+            f.frame_id.is_some(),
+            "frame #{idx} has frame_id=None — codec header was not inlined",
+        );
+        assert!(!f.data.is_empty(), "frame #{idx} has empty data");
+    }
+}
+
 // ─── PTS validation tests ────────────────────────────────────────────────
 
 #[test]

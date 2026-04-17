@@ -318,7 +318,7 @@ fn make_frame_different_sources_are_distinct() {
 use crate::output::ElementOutput;
 use output::OperatorElement;
 
-fn make_element_output(roi_id: Option<i64>, slot: u32) -> ElementOutput {
+fn make_element_output(roi_id: Option<i64>, slot: i64) -> ElementOutput {
     ElementOutput {
         roi_id,
         slot_number: slot,

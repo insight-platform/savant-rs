@@ -3,8 +3,9 @@
 use super::enums::PyTrackState;
 use crate::deepstream::buffer::PySharedBuffer;
 use deepstream_buffers::SharedBuffer;
-use nvtracker::{MiscTrackData, MiscTrackFrame, TrackedObject, TrackerOutput};
+use nvtracker::{TrackedObject, TrackerOutput};
 use pyo3::prelude::*;
+use savant_core::primitives::misc_track::{MiscTrackData, MiscTrackFrame};
 
 #[pyclass(
     name = "TrackedObject",
@@ -16,7 +17,7 @@ pub struct PyTrackedObject {
     #[pyo3(get)]
     pub object_id: u64,
     #[pyo3(get)]
-    pub class_id: i32,
+    pub class_id: i64,
     #[pyo3(get)]
     pub bbox_left: f32,
     #[pyo3(get)]
@@ -32,7 +33,7 @@ pub struct PyTrackedObject {
     #[pyo3(get)]
     pub label: Option<String>,
     #[pyo3(get)]
-    pub slot_number: u32,
+    pub slot_number: i64,
     #[pyo3(get)]
     pub source_id: String,
 }
@@ -63,7 +64,7 @@ impl From<TrackedObject> for PyTrackedObject {
 #[derive(Debug, Clone)]
 pub struct PyMiscTrackFrame {
     #[pyo3(get)]
-    pub frame_num: u32,
+    pub frame_num: i64,
     #[pyo3(get)]
     pub bbox_left: f32,
     #[pyo3(get)]
@@ -75,7 +76,7 @@ pub struct PyMiscTrackFrame {
     #[pyo3(get)]
     pub confidence: f32,
     #[pyo3(get)]
-    pub age: u32,
+    pub age: i64,
     #[pyo3(get)]
     pub state: PyTrackState,
     #[pyo3(get)]
@@ -108,7 +109,7 @@ pub struct PyMiscTrackData {
     #[pyo3(get)]
     pub object_id: u64,
     #[pyo3(get)]
-    pub class_id: u16,
+    pub class_id: i64,
     #[pyo3(get)]
     pub label: Option<String>,
     #[pyo3(get)]
@@ -167,13 +168,8 @@ impl PyTrackerOutput {
 
 impl PyTrackerOutput {
     pub(crate) fn from_rust(o: TrackerOutput) -> Self {
-        let TrackerOutput {
-            buffer,
-            current_tracks,
-            shadow_tracks,
-            terminated_tracks,
-            past_frame_data,
-        } = o;
+        let (buffer, current_tracks, shadow_tracks, terminated_tracks, past_frame_data) =
+            o.into_parts();
         Self {
             buffer,
             current_tracks: current_tracks

@@ -9,12 +9,11 @@ from typing import Callable, Dict, List, Optional, Tuple, Union, final
 
 import numpy as np
 from numpy.typing import NDArray
-from savant_rs.deepstream import SharedBuffer, SavantIdMetaKind, VideoFormat
+from savant_rs.deepstream import MetaClearPolicy, SharedBuffer, SavantIdMetaKind, VideoFormat
 from savant_rs.primitives import VideoFrame
 from savant_rs.primitives.geometry import RBBox
 
 __all__ = [
-    "MetaClearPolicy",
     "ModelInputScaling",
     "DataType",
     "Roi",
@@ -38,26 +37,6 @@ __all__ = [
 ]
 
 # ── Enums ────────────────────────────────────────────────────────────────
-
-@final
-class MetaClearPolicy:
-    """Controls when object metadata is erased from the batch buffer.
-
-    - ``NONE`` -- never clear automatically.
-    - ``BEFORE`` -- clear stale objects before attaching ROI objects (default).
-    - ``AFTER`` -- clear all objects when the output is dropped.
-    - ``BOTH`` -- clear before submission **and** after the output is dropped.
-    """
-
-    NONE: MetaClearPolicy
-    BEFORE: MetaClearPolicy
-    AFTER: MetaClearPolicy
-    BOTH: MetaClearPolicy
-
-    def __eq__(self, other: object) -> bool: ...
-    def __ne__(self, other: object) -> bool: ...
-    def __int__(self) -> int: ...
-    def __hash__(self) -> int: ...
 
 @final
 class ModelInputScaling:

@@ -116,7 +116,10 @@ pub struct NvEncoder { /* private */ }
 ```rust
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
-    pub frame_id: Option<u128>, // None for codec header packets (e.g. AV1 sequence header)
+    pub frame_id: Option<u128>, // Always `Some(id)` for H.264/HEVC/AV1/JPEG/PNG/Raw
+                                // — codec header packets (e.g. AV1 sequence header) are
+                                // inlined into the next user frame by NvEncoder. See
+                                // kb/encoders/caveats.md §8 for the inlining mechanism.
     pub pts_ns: u64,
     pub dts_ns: Option<u64>,
     pub duration_ns: Option<u64>,

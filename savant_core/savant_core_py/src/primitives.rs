@@ -10,6 +10,7 @@ pub mod eos;
 pub mod frame;
 pub mod frame_update;
 pub mod message;
+pub mod misc_track;
 pub mod object;
 pub mod objects_view;
 /// Simple point structure.

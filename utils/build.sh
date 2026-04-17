@@ -148,6 +148,17 @@ fi
 # Add features to wheel filename when SAVANT_FEATURES is set (e.g. savant_rs-1.15.1+gst-cp312-...)
 if [ -n "${SAVANT_FEATURES:-}" ]; then
     FEATURE_SUFFIX=$(echo "$SAVANT_FEATURES" | tr ',' '.')
+    # Append DeepStream version to suffix when building with deepstream feature
+    if echo "$SAVANT_FEATURES" | grep -qw deepstream; then
+        DS_LINK="/opt/nvidia/deepstream/deepstream"
+        if [ -L "$DS_LINK" ]; then
+            DS_VER=$(readlink "$DS_LINK" | sed 's/.*deepstream-//')
+            if [ -n "$DS_VER" ]; then
+                FEATURE_SUFFIX="${FEATURE_SUFFIX}.ds${DS_VER}"
+                echo "Detected DeepStream version: $DS_VER"
+            fi
+        fi
+    fi
     for whl in "$PROJECT_DIR"/dist/savant_rs-*.whl; do
         [ -f "$whl" ] || continue
         base=$(basename "$whl")

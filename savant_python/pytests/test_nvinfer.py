@@ -531,9 +531,13 @@ def test_sealed_deliveries_guard_behavior():
         output = op.as_operator_inference_output()
         assert output is not None
         sealed = output.take_deliveries()
-        assert sealed is not None, "first take_deliveries() must return SealedDeliveries"
+        assert sealed is not None, (
+            "first take_deliveries() must return SealedDeliveries"
+        )
         assert len(sealed) == 1
-        assert not sealed.is_released(), "seal should not be released while output alive"
+        assert not sealed.is_released(), (
+            "seal should not be released while output alive"
+        )
 
         second = output.take_deliveries()
         assert second is None, "second take_deliveries() must return None"
@@ -564,7 +568,11 @@ def test_sealed_deliveries_guard_behavior():
 
     try:
         gen = BufferGenerator(
-            format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
+            format="RGBA",
+            width=W,
+            height=H,
+            gpu_id=0,
+            pool_size=1,
         )
         buf = gen.acquire(id=0)
         view = SurfaceView.from_buffer(buf, cuda_stream=0)

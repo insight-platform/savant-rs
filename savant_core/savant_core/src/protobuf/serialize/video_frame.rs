@@ -2,6 +2,7 @@ use crate::primitives::frame::{
     VideoFrame, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
     VideoFrameTransformation,
 };
+use crate::primitives::misc_track::{MiscTrackCategory, MiscTrackData, MiscTrackFrame, TrackState};
 use crate::primitives::object::VideoObject;
 use crate::primitives::video_codec::VideoCodec;
 use crate::primitives::Attribute;
@@ -89,6 +90,114 @@ fn rust_codec_from_pb(v: i32) -> Result<Option<VideoCodec>, Error> {
     })
 }
 
+// ---- misc-track protobuf helpers ----
+
+fn track_state_to_pb(s: TrackState) -> i32 {
+    match s {
+        TrackState::Empty => generated::TrackState::Empty as i32,
+        TrackState::Active => generated::TrackState::Active as i32,
+        TrackState::Inactive => generated::TrackState::Inactive as i32,
+        TrackState::Tentative => generated::TrackState::Tentative as i32,
+        TrackState::Projected => generated::TrackState::Projected as i32,
+    }
+}
+
+/// Converts an i32 protobuf `TrackState` wire value into `TrackState`.
+/// Returns `Error::UnknownTrackState` when the wire enum value is invalid.
+/// This hard-fails at the message boundary to prevent silent corruption.
+fn track_state_from_pb(v: i32) -> Result<TrackState, Error> {
+    let pb = generated::TrackState::try_from(v).map_err(|e| Error::UnknownTrackState(e.0))?;
+    Ok(match pb {
+        generated::TrackState::Empty => TrackState::Empty,
+        generated::TrackState::Active => TrackState::Active,
+        generated::TrackState::Inactive => TrackState::Inactive,
+        generated::TrackState::Tentative => TrackState::Tentative,
+        generated::TrackState::Projected => TrackState::Projected,
+    })
+}
+
+fn misc_track_category_to_pb(c: MiscTrackCategory) -> i32 {
+    match c {
+        MiscTrackCategory::Shadow => generated::MiscTrackCategory::MiscTrackShadow as i32,
+        MiscTrackCategory::Terminated => generated::MiscTrackCategory::MiscTrackTerminated as i32,
+        MiscTrackCategory::PastFrame => generated::MiscTrackCategory::MiscTrackPastFrame as i32,
+    }
+}
+
+/// Converts an i32 protobuf `MiscTrackCategory` wire value into `MiscTrackCategory`.
+/// Returns `Error::UnknownMiscTrackCategory` when the wire enum value is invalid.
+/// Rejecting unknown values here avoids silent defaulting/data corruption.
+fn misc_track_category_from_pb(v: i32) -> Result<MiscTrackCategory, Error> {
+    let pb = generated::MiscTrackCategory::try_from(v)
+        .map_err(|e| Error::UnknownMiscTrackCategory(e.0))?;
+    Ok(match pb {
+        generated::MiscTrackCategory::MiscTrackShadow => MiscTrackCategory::Shadow,
+        generated::MiscTrackCategory::MiscTrackTerminated => MiscTrackCategory::Terminated,
+        generated::MiscTrackCategory::MiscTrackPastFrame => MiscTrackCategory::PastFrame,
+    })
+}
+
+fn misc_track_frame_to_pb(f: &MiscTrackFrame) -> generated::MiscTrackFrame {
+    generated::MiscTrackFrame {
+        frame_num: f.frame_num,
+        bbox_left: f.bbox_left,
+        bbox_top: f.bbox_top,
+        bbox_width: f.bbox_width,
+        bbox_height: f.bbox_height,
+        confidence: f.confidence,
+        age: f.age,
+        state: track_state_to_pb(f.state),
+        visibility: f.visibility,
+    }
+}
+
+/// Converts protobuf `MiscTrackFrame` into `MiscTrackFrame`.
+/// Validates i32 `state` wire enum and returns `Error::UnknownTrackState` on failure.
+/// Failing fast at deserialization avoids silently mapping bad states.
+fn misc_track_frame_from_pb(f: &generated::MiscTrackFrame) -> Result<MiscTrackFrame, Error> {
+    Ok(MiscTrackFrame {
+        frame_num: f.frame_num,
+        bbox_left: f.bbox_left,
+        bbox_top: f.bbox_top,
+        bbox_width: f.bbox_width,
+        bbox_height: f.bbox_height,
+        confidence: f.confidence,
+        age: f.age,
+        state: track_state_from_pb(f.state)?,
+        visibility: f.visibility,
+    })
+}
+
+fn misc_track_data_to_pb(d: &MiscTrackData) -> generated::MiscTrackData {
+    generated::MiscTrackData {
+        object_id: d.object_id,
+        class_id: d.class_id,
+        label: d.label.clone(),
+        source_id: d.source_id.clone(),
+        category: misc_track_category_to_pb(d.category),
+        frames: d.frames.iter().map(misc_track_frame_to_pb).collect(),
+    }
+}
+
+/// Converts protobuf `MiscTrackData` into `MiscTrackData`.
+/// All numeric fields are `i64` on both wire and domain sides, so only the
+/// two enum fields (`category`, frame-level `state`) can fail — returning a
+/// typed `Error::UnknownMiscTrackCategory` / `Error::UnknownTrackState`.
+fn misc_track_data_from_pb(d: &generated::MiscTrackData) -> Result<MiscTrackData, Error> {
+    Ok(MiscTrackData {
+        object_id: d.object_id,
+        class_id: d.class_id,
+        label: d.label.clone(),
+        source_id: d.source_id.clone(),
+        category: misc_track_category_from_pb(d.category)?,
+        frames: d
+            .frames
+            .iter()
+            .map(misc_track_frame_from_pb)
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
 impl From<&VideoFrameProxy> for generated::VideoFrame {
     fn from(vfp: &VideoFrameProxy) -> Self {
         let bind = vfp.get_inner();
@@ -140,6 +249,11 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
                 .transformations
                 .iter()
                 .map(generated::VideoFrameTransformation::from)
+                .collect(),
+            misc_tracks: video_frame
+                .misc_tracks
+                .iter()
+                .map(misc_track_data_to_pb)
                 .collect(),
         }
     }
@@ -211,6 +325,11 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
             attributes,
             objects,
             max_object_id,
+            misc_tracks: value
+                .misc_tracks
+                .iter()
+                .map(misc_track_data_from_pb)
+                .collect::<Result<Vec<_>, _>>()?,
         })
     }
 }
@@ -290,5 +409,129 @@ mod tests {
             denominator: 90_000,
         };
         assert_eq!(time_base_from_pb(&Some(valid)), (1, 90_000));
+    }
+
+    #[test]
+    fn test_misc_tracks_protobuf_round_trip() {
+        let frame = gen_frame();
+        frame.add_misc_tracks(vec![
+            MiscTrackData {
+                object_id: 42,
+                class_id: 1,
+                label: Some("person".to_string()),
+                source_id: "cam-1".to_string(),
+                category: MiscTrackCategory::Shadow,
+                frames: vec![MiscTrackFrame {
+                    frame_num: 10,
+                    bbox_left: 1.0,
+                    bbox_top: 2.0,
+                    bbox_width: 30.0,
+                    bbox_height: 40.0,
+                    confidence: 0.9,
+                    age: 5,
+                    state: TrackState::Tentative,
+                    visibility: 0.7,
+                }],
+            },
+            MiscTrackData {
+                object_id: 99,
+                class_id: 0,
+                label: None,
+                source_id: "cam-2".to_string(),
+                category: MiscTrackCategory::Terminated,
+                frames: vec![],
+            },
+        ]);
+
+        let serialized = generated::VideoFrame::from(&frame);
+        assert_eq!(serialized.misc_tracks.len(), 2);
+
+        let restored = VideoFrameProxy::try_from(&serialized).unwrap();
+        let tracks = restored.get_misc_tracks();
+        assert_eq!(tracks.len(), 2);
+
+        assert_eq!(tracks[0].object_id, 42);
+        assert_eq!(tracks[0].class_id, 1);
+        assert_eq!(tracks[0].label.as_deref(), Some("person"));
+        assert_eq!(tracks[0].category, MiscTrackCategory::Shadow);
+        assert_eq!(tracks[0].frames.len(), 1);
+        assert_eq!(tracks[0].frames[0].state, TrackState::Tentative);
+
+        assert_eq!(tracks[1].object_id, 99);
+        assert_eq!(tracks[1].category, MiscTrackCategory::Terminated);
+        assert!(tracks[1].label.is_none());
+    }
+
+    #[test]
+    fn test_misc_track_class_id_boundary_round_trip() {
+        // With i64 everywhere, both extrema round-trip losslessly.
+        let frame = gen_frame();
+        frame.add_misc_tracks(vec![
+            MiscTrackData {
+                object_id: 1,
+                class_id: i64::MAX,
+                label: Some("max".to_string()),
+                source_id: "s".to_string(),
+                category: MiscTrackCategory::Shadow,
+                frames: vec![],
+            },
+            MiscTrackData {
+                object_id: 2,
+                class_id: i64::MIN,
+                label: Some("min".to_string()),
+                source_id: "s".to_string(),
+                category: MiscTrackCategory::Shadow,
+                frames: vec![],
+            },
+        ]);
+        let pb = generated::VideoFrame::from(&frame);
+        let restored = VideoFrameProxy::try_from(&pb).unwrap();
+        let tracks = restored.get_misc_tracks();
+        assert_eq!(tracks[0].class_id, i64::MAX);
+        assert_eq!(tracks[1].class_id, i64::MIN);
+    }
+
+    #[test]
+    fn test_misc_track_unknown_track_state() {
+        let mut pb = generated::VideoFrame::from(&gen_frame());
+        pb.misc_tracks = vec![generated::MiscTrackData {
+            class_id: 1,
+            object_id: 1,
+            label: None,
+            source_id: "s".into(),
+            category: 0,
+            frames: vec![generated::MiscTrackFrame {
+                state: 42,
+                frame_num: 0,
+                bbox_left: 0.0,
+                bbox_top: 0.0,
+                bbox_width: 0.0,
+                bbox_height: 0.0,
+                confidence: 0.0,
+                age: 0,
+                visibility: 0.0,
+            }],
+        }];
+        assert!(matches!(
+            VideoFrame::try_from(&pb),
+            Err(Error::UnknownTrackState(42))
+        ));
+    }
+
+    #[test]
+    fn test_misc_track_unknown_category() {
+        let mut pb = generated::VideoFrame::from(&gen_frame());
+        pb.misc_tracks = vec![generated::MiscTrackData {
+            class_id: 1,
+            object_id: 1,
+            label: None,
+            source_id: "s".into(),
+            category: 7,
+            frames: vec![],
+        }];
+        assert!(matches!(
+            VideoFrame::try_from(&pb),
+            Err(Error::UnknownMiscTrackCategory(7))
+        ));
     }
 }

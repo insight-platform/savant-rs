@@ -35,6 +35,10 @@ pub enum Error {
     InvalidVideoFrameParentObject(i64),
     #[error("Failed to convert protobuf enum balue to Rust enum value: {0}")]
     EnumConversionError(i32),
+    #[error("Unknown MiscTrackData.TrackState wire value: {0}")]
+    UnknownTrackState(i32),
+    #[error("Unknown MiscTrackData.MiscTrackCategory wire value: {0}")]
+    UnknownMiscTrackCategory(i32),
     #[error("Failed to convert protobuf message to Rust object: {0}")]
     SerializationError(String),
 }

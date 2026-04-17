@@ -164,7 +164,7 @@ pub struct PyElementOutput {
     shared: SharedOutput,
     element_idx: usize,
     roi_id: Option<i64>,
-    slot_number: u32,
+    slot_number: i64,
     num_tensors: usize,
 }
 
@@ -180,7 +180,7 @@ impl PyElementOutput {
     /// DeepStream surface slot index (`NvDsFrameMeta.batch_id`).  User frame
     /// ids are on ``BatchInferenceOutput.buffer()`` (``SharedBuffer.savant_ids()``).
     #[getter]
-    fn slot_number(&self) -> u32 {
+    fn slot_number(&self) -> i64 {
         self.slot_number
     }
 

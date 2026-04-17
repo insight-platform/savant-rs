@@ -1,7 +1,7 @@
 //! Output types for batch inference results.
 
-use crate::batch_meta_builder::clear_all_frame_objects;
 use crate::nvinfer_types::DataType;
+use deepstream::clear_all_frame_objects;
 use deepstream::InferDims;
 use deepstream_sys::GstBuffer;
 use std::ffi::c_void;
@@ -121,7 +121,7 @@ pub struct ElementOutput {
     /// User frame ids live on the output [`BatchInferenceOutput::buffer`] via
     /// [`SharedBuffer::savant_ids`](deepstream_buffers::SharedBuffer::savant_ids)
     /// (same order as surface slots).
-    pub slot_number: u32,
+    pub slot_number: i64,
     /// Output tensors by layer name.
     pub tensors: Vec<TensorView>,
 }

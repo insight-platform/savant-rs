@@ -13,41 +13,25 @@
 //!    When no ROIs are supplied for a slot a single full-frame sentinel object
 //!    (`unique_component_id = FULL_FRAME_SENTINEL`) is added instead.
 //!
-//! A complementary helper [`clear_all_frame_objects`] removes every
-//! [`NvDsObjectMeta`] from all frames in an existing batch meta; it is called
-//! by [`crate::output::BatchInferenceOutput`] on drop when the policy is
+//! A complementary helper [`deepstream::clear_all_frame_objects`] (re-exported
+//! from the `deepstream` crate) removes every `NvDsObjectMeta` from all frames
+//! in an existing batch meta; it is called by
+//! [`crate::output::BatchInferenceOutput`] on drop when the policy is
 //! [`MetaClearPolicy::After`] or [`MetaClearPolicy::Both`].
 
 use crate::error::{NvInferError, Result};
 use crate::meta_clear_policy::MetaClearPolicy;
 use crate::roi::Roi;
+use deepstream::{clear_all_frame_objects, ensure_nvds_meta_api_registered};
 use deepstream_sys::{
     gst_buffer_add_nvds_meta, gst_buffer_get_nvds_batch_meta, nvds_acquire_frame_meta_from_pool,
     nvds_acquire_obj_meta_from_pool, nvds_add_frame_meta_to_batch, nvds_add_obj_meta_to_frame,
-    nvds_batch_meta_copy_func, nvds_batch_meta_release_func, nvds_clear_obj_meta_list,
-    nvds_create_batch_meta, nvds_meta_api_get_type, GstBuffer, GstNvDsMetaType_NVDS_BATCH_GST_META,
-    NvDsBatchMeta, NvDsFrameMeta,
+    nvds_batch_meta_copy_func, nvds_batch_meta_release_func, nvds_create_batch_meta, GstBuffer,
+    GstNvDsMetaType_NVDS_BATCH_GST_META, NvDsBatchMeta, NvDsFrameMeta,
 };
 use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::ptr;
-use std::sync::Once;
-
-/// Force-initialise the private tag quark inside `libnvdsgst_meta.so`.
-///
-/// `gst_buffer_get_nvds_batch_meta` reads a file-scoped GQuark that is only
-/// set as a side-effect of `nvds_meta_api_get_type()`.  If the API type has
-/// never been registered the quark is still zero (BSS), which triggers:
-///
-/// ```text
-/// GStreamer-CRITICAL **: gst_meta_api_type_has_tag: assertion 'tag != 0' failed
-/// ```
-fn ensure_nvds_meta_api_registered() {
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        unsafe { nvds_meta_api_get_type() };
-    });
-}
 
 /// Sentinel `unique_component_id` written to full-frame synthetic objects
 /// (no explicit ROI supplied for a slot). Callers can inspect this value in
@@ -116,7 +100,7 @@ pub fn attach_batch_meta_with_rois(
         if policy.clear_before() {
             // Clear all existing object metas from every frame so stale objects
             // from previous pipeline stages do not reach nvinfer.
-            clear_frames_objects(existing);
+            unsafe { clear_all_frame_objects(buf_ptr) };
         }
         existing
     } else {
@@ -189,40 +173,6 @@ pub fn attach_batch_meta_with_rois(
     }
 
     Ok(total_dropped)
-}
-
-/// Remove every `NvDsObjectMeta` from every frame in the batch meta attached
-/// to `buf_ptr`.
-///
-/// This is the **after** clearing path called by
-/// [`crate::output::BatchInferenceOutput::drop`] when the policy includes
-/// [`MetaClearPolicy::After`].
-///
-/// # Safety
-/// `buf_ptr` must be a valid, writable `*mut GstBuffer`.
-pub(crate) unsafe fn clear_all_frame_objects(buf_ptr: *mut GstBuffer) {
-    ensure_nvds_meta_api_registered();
-    let batch_meta = gst_buffer_get_nvds_batch_meta(buf_ptr);
-    if batch_meta.is_null() {
-        return;
-    }
-    clear_frames_objects(batch_meta);
-}
-
-/// Iterate the frame meta list of `batch_meta` and call
-/// `nvds_clear_obj_meta_list` on each non-empty frame.
-fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
-    let mut frame_list = unsafe { (*batch_meta).frame_meta_list };
-    while !frame_list.is_null() {
-        let frame_ptr = unsafe { (*frame_list).data as *mut NvDsFrameMeta };
-        if !frame_ptr.is_null() {
-            let obj_list = unsafe { (*frame_ptr).obj_meta_list };
-            if !obj_list.is_null() {
-                unsafe { nvds_clear_obj_meta_list(frame_ptr, obj_list) };
-            }
-        }
-        frame_list = unsafe { (*frame_list).next };
-    }
 }
 
 /// Convert an [`RBBox`] to axis-aligned `(left, top, width, height)` suitable

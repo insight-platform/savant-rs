@@ -3,11 +3,12 @@
 //! These types are registered in the `savant_rs.gstreamer` Python submodule
 //! by `savant_python` when the `gst` feature is enabled.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::prelude::*;
 use savant_gstreamer::codec::Codec;
-use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerError};
+use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput};
 use savant_gstreamer::mp4_muxer::{Mp4Muxer, Mp4MuxerError};
 
 fn muxer_err(e: Mp4MuxerError) -> PyErr {
@@ -323,20 +324,108 @@ impl PyDemuxedPacket {
 }
 
 // ---------------------------------------------------------------------------
+// Mp4DemuxerOutput
+// ---------------------------------------------------------------------------
+
+enum DemuxerOutputVariant {
+    Packet(Py<PyDemuxedPacket>),
+    Eos,
+    Error(String),
+}
+
+/// Callback payload from :class:`Mp4Demuxer`.
+///
+/// Use the ``is_*`` properties to determine the variant, then call the
+/// corresponding ``as_*`` method to get a typed value.
+///
+/// Variants:
+///     - **Packet** — a demuxed :class:`DemuxedPacket`.
+///     - **Eos** — end of stream; all packets have been delivered.
+///     - **Error** — a pipeline error message (string).
+#[pyclass(name = "Mp4DemuxerOutput", module = "savant_rs.gstreamer")]
+pub struct PyMp4DemuxerOutput(DemuxerOutputVariant);
+
+impl PyMp4DemuxerOutput {
+    fn from_rust(py: Python<'_>, output: Mp4DemuxerOutput) -> PyResult<Self> {
+        let variant = match output {
+            Mp4DemuxerOutput::Packet(pkt) => {
+                DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket { inner: pkt })?)
+            }
+            Mp4DemuxerOutput::Eos => DemuxerOutputVariant::Eos,
+            Mp4DemuxerOutput::Error(e) => DemuxerOutputVariant::Error(e.to_string()),
+        };
+        Ok(Self(variant))
+    }
+}
+
+#[pymethods]
+impl PyMp4DemuxerOutput {
+    /// ``True`` if this is a :class:`DemuxedPacket` variant.
+    #[getter]
+    fn is_packet(&self) -> bool {
+        matches!(self.0, DemuxerOutputVariant::Packet(_))
+    }
+
+    /// ``True`` if this is an end-of-stream marker.
+    #[getter]
+    fn is_eos(&self) -> bool {
+        matches!(self.0, DemuxerOutputVariant::Eos)
+    }
+
+    /// ``True`` if this is an error variant.
+    #[getter]
+    fn is_error(&self) -> bool {
+        matches!(self.0, DemuxerOutputVariant::Error(_))
+    }
+
+    /// Downcast to :class:`DemuxedPacket`, or ``None``.
+    fn as_packet(&self, py: Python<'_>) -> Option<Py<PyDemuxedPacket>> {
+        match &self.0 {
+            DemuxerOutputVariant::Packet(p) => Some(p.clone_ref(py)),
+            _ => None,
+        }
+    }
+
+    /// Return the error message string, or ``None``.
+    fn as_error_message(&self) -> Option<&str> {
+        match &self.0 {
+            DemuxerOutputVariant::Error(msg) => Some(msg.as_str()),
+            _ => None,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.0 {
+            DemuxerOutputVariant::Packet(_) => "Mp4DemuxerOutput(Packet)".to_string(),
+            DemuxerOutputVariant::Eos => "Mp4DemuxerOutput(Eos)".to_string(),
+            DemuxerOutputVariant::Error(msg) => format!("Mp4DemuxerOutput(Error({msg}))"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Mp4Demuxer
 // ---------------------------------------------------------------------------
 
-/// Minimal GStreamer pipeline: ``filesrc -> qtdemux -> queue -> appsink``.
+/// Callback-based GStreamer pipeline: ``filesrc -> qtdemux -> queue -> appsink``.
 ///
-/// Reads encoded packets from an MP4 (QuickTime) container and exposes them
-/// as elementary stream payloads with timestamps.
+/// Reads encoded packets from an MP4 (QuickTime) container and delivers them
+/// through the ``result_callback`` supplied at construction.
 ///
 /// When ``parsed=True`` (the default), codec-specific parsers are inserted
 /// so that H.264/HEVC output uses byte-stream (Annex-B) format instead of
 /// container-native AVC/HEV1 length-prefixed NALUs.
 ///
+/// The pipeline starts immediately on construction.  Use :meth:`wait` to
+/// block until all packets have been delivered (EOS) or an error occurs.
+///
+/// **Threading**: the callback fires on GStreamer's internal streaming
+/// thread.  Do **not** call :meth:`finish` from within the callback.
+///
 /// Args:
 ///     input_path (str): Filesystem path to the ``.mp4`` file.
+///     result_callback: ``Callable[[Mp4DemuxerOutput], None]`` invoked for
+///         every packet, EOS, or error.
 ///     parsed (bool): If ``True``, insert parsers for byte-stream output.
 ///         Defaults to ``True``.
 ///
@@ -344,102 +433,126 @@ impl PyDemuxedPacket {
 ///
 ///     from savant_rs.gstreamer import Mp4Demuxer
 ///
-///     demuxer = Mp4Demuxer("/data/clip.mp4")
-///     while True:
-///         pkt = demuxer.pull()
-///         if pkt is None:
-///             break
+///     packets = []
+///     def on_output(out):
+///         if out.is_packet:
+///             packets.append(out.as_packet())
+///
+///     demuxer = Mp4Demuxer("/data/clip.mp4", on_output)
+///     demuxer.wait()
+///     for pkt in packets:
 ///         print(pkt.pts_ns, len(pkt.data))
-///     demuxer.finish()
 #[pyclass(name = "Mp4Demuxer", module = "savant_rs.gstreamer")]
 pub struct PyMp4Demuxer {
-    inner: Mp4Demuxer,
+    inner: Option<Mp4Demuxer>,
 }
 
 #[pymethods]
 impl PyMp4Demuxer {
     #[new]
-    #[pyo3(signature = (input_path, parsed = true))]
-    fn new(input_path: &str, parsed: bool) -> PyResult<Self> {
-        let inner = if parsed {
-            Mp4Demuxer::new_parsed(input_path)
-        } else {
-            Mp4Demuxer::new(input_path)
+    #[pyo3(signature = (input_path, result_callback, parsed = true))]
+    fn new(
+        py: Python<'_>,
+        input_path: &str,
+        result_callback: Py<PyAny>,
+        parsed: bool,
+    ) -> PyResult<Self> {
+        let on_output: Arc<dyn Fn(Mp4DemuxerOutput) + Send + Sync> =
+            Arc::new(move |output: Mp4DemuxerOutput| {
+                Python::attach(|py| {
+                    let py_output = match PyMp4DemuxerOutput::from_rust(py, output) {
+                        Ok(o) => o,
+                        Err(e) => {
+                            log::error!("Mp4Demuxer: failed to wrap output: {e}");
+                            return;
+                        }
+                    };
+                    if let Err(e) = result_callback.call1(py, (py_output,)) {
+                        log::error!("Mp4Demuxer result_callback error: {e}");
+                    }
+                });
+            });
+
+        let input_owned = input_path.to_string();
+        let demuxer = py.detach(move || {
+            if parsed {
+                Mp4Demuxer::new_parsed(&input_owned, move |out| on_output(out))
+            } else {
+                Mp4Demuxer::new(&input_owned, move |out| on_output(out))
+            }
+            .map_err(demuxer_err)
+        })?;
+
+        Ok(Self {
+            inner: Some(demuxer),
+        })
+    }
+
+    /// Block until the demuxer reaches EOS, encounters an error, or
+    /// :meth:`finish` is called.
+    ///
+    /// The GIL is released while waiting so the callback can fire.
+    fn wait(&self, py: Python<'_>) -> PyResult<()> {
+        if let Some(ref inner) = self.inner {
+            py.detach(|| inner.wait());
         }
-        .map_err(demuxer_err)?;
-        Ok(Self { inner })
+        Ok(())
     }
 
-    /// Pull the next demuxed packet (5 s default timeout).
-    ///
-    /// Returns:
-    ///     DemuxedPacket | None: The next packet, or ``None`` on EOS.
-    ///
-    /// Raises:
-    ///     RuntimeError: On pipeline error, timeout, or if already finished.
-    fn pull(&mut self, py: Python<'_>) -> PyResult<Option<PyDemuxedPacket>> {
-        py.detach(|| self.inner.pull().map_err(demuxer_err))
-            .map(|opt| opt.map(|p| PyDemuxedPacket { inner: p }))
-    }
-
-    /// Pull the next demuxed packet with a custom timeout.
+    /// Block until the demuxer finishes or the timeout expires.
     ///
     /// Args:
     ///     timeout_ms (int): Timeout in milliseconds.
     ///
     /// Returns:
-    ///     DemuxedPacket | None: The next packet, or ``None`` on EOS.
-    ///
-    /// Raises:
-    ///     RuntimeError: On pipeline error, timeout, or if already finished.
-    fn pull_timeout(
-        &mut self,
-        py: Python<'_>,
-        timeout_ms: u64,
-    ) -> PyResult<Option<PyDemuxedPacket>> {
-        let timeout = Duration::from_millis(timeout_ms);
-        py.detach(|| self.inner.pull_timeout(timeout).map_err(demuxer_err))
-            .map(|opt| opt.map(|p| PyDemuxedPacket { inner: p }))
-    }
-
-    /// Pull all remaining packets until EOS.
-    ///
-    /// Returns:
-    ///     list[DemuxedPacket]: All remaining packets.
-    ///
-    /// Raises:
-    ///     RuntimeError: On pipeline error or if already finished.
-    fn pull_all(&mut self, py: Python<'_>) -> PyResult<Vec<PyDemuxedPacket>> {
-        py.detach(|| {
-            let mut packets = Vec::new();
-            loop {
-                match self.inner.pull() {
-                    Ok(Some(pkt)) => packets.push(PyDemuxedPacket { inner: pkt }),
-                    Ok(None) => break,
-                    Err(e) => return Err(demuxer_err(e)),
-                }
-            }
-            Ok(packets)
-        })
+    ///     bool: ``True`` if finished, ``False`` on timeout.
+    fn wait_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<bool> {
+        if let Some(ref inner) = self.inner {
+            let timeout = Duration::from_millis(timeout_ms);
+            Ok(py.detach(|| inner.wait_timeout(timeout)))
+        } else {
+            Ok(true)
+        }
     }
 
     /// Auto-detected video codec from the container, or ``None``.
     #[getter]
     fn detected_codec(&self) -> Option<PyCodec> {
-        self.inner.detected_codec().map(|c| c.into())
+        self.inner
+            .as_ref()
+            .and_then(|d| d.detected_codec())
+            .map(|c| c.into())
     }
 
     /// Shut down the demuxer pipeline.
     ///
-    /// Safe to call multiple times.
-    fn finish(&mut self) {
-        self.inner.finish();
+    /// Safe to call multiple times.  After this call, no more callbacks
+    /// will fire.
+    ///
+    /// Must **not** be called from within the ``result_callback``.
+    fn finish(&mut self, py: Python<'_>) {
+        if let Some(mut inner) = self.inner.take() {
+            py.detach(move || inner.finish());
+        }
     }
 
     /// Whether the demuxer has been finalized.
     #[getter]
     fn is_finished(&self) -> bool {
-        self.inner.is_finished()
+        self.inner.as_ref().map(|d| d.is_finished()).unwrap_or(true)
+    }
+}
+
+impl Drop for PyMp4Demuxer {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            // Move the demuxer to a detached thread so that the GC thread
+            // (which holds the GIL) does not block on GStreamer streaming
+            // threads that try to re-acquire the GIL via callbacks.
+            std::thread::spawn(move || {
+                drop(inner);
+            });
+        }
     }
 }
 
@@ -448,6 +561,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodec>()?;
     m.add_class::<PyMp4Muxer>()?;
     m.add_class::<PyDemuxedPacket>()?;
+    m.add_class::<PyMp4DemuxerOutput>()?;
     m.add_class::<PyMp4Demuxer>()?;
     Ok(())
 }

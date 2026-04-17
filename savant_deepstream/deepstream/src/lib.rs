@@ -12,7 +12,7 @@ pub mod object_meta;
 pub mod tracker_meta;
 pub mod user_meta;
 
-pub use batch_meta::BatchMeta;
+pub use batch_meta::{clear_all_frame_objects, ensure_nvds_meta_api_registered, BatchMeta};
 pub use error::DeepStreamError;
 pub use frame_meta::FrameMeta;
 pub use infer_tensor_meta::{InferDims, InferTensorMeta};

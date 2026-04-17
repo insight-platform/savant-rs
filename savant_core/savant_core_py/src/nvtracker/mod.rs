@@ -12,6 +12,8 @@ use pyo3::prelude::*;
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<enums::PyTrackingIdResetMode>()?;
     m.add_class::<enums::PyTrackState>()?;
+    // `MetaClearPolicy` is registered in the shared `savant_rs.deepstream`
+    // submodule; nvtracker imports it from there.
     m.add_class::<config::PyNvTrackerConfig>()?;
     m.add_class::<output::PyTrackedObject>()?;
     m.add_class::<output::PyMiscTrackFrame>()?;

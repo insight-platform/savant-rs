@@ -84,6 +84,8 @@ from picasso_helpers import (
     build_draw_spec,
     build_default_encoder_config as build_encoder_config,
     build_source_spec,
+    poll_until,
+    wait_for_eos,
 )
 
 NUM_FRAMES = 20
@@ -121,7 +123,7 @@ class TestPicassoPipelineEncode:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(3)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(results) > 0, "expected at least one encoded frame"
@@ -160,7 +162,7 @@ class TestPicassoPipelineEncode:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(3)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -177,6 +179,7 @@ class TestPicassoPipelineEncode:
         init_cuda(0)
 
         source_results: dict = {"src-0": [], "src-1": []}
+        eos_sources: set[str] = set()
         lock = threading.Lock()
 
         def on_encoded(output) -> None:
@@ -185,6 +188,10 @@ class TestPicassoPipelineEncode:
                 with lock:
                     if vf.source_id in source_results:
                         source_results[vf.source_id].append(vf)
+            elif output.is_eos:
+                eos = output.as_eos()
+                with lock:
+                    eos_sources.add(eos.source_id)
 
         callbacks = Callbacks(on_encoded_frame=on_encoded)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
@@ -208,7 +215,10 @@ class TestPicassoPipelineEncode:
         for sid in source_results:
             engine.send_eos(sid)
 
-        time.sleep(3)
+        expected_sources = set(source_results.keys())
+        assert poll_until(
+            lambda: expected_sources.issubset(eos_sources), timeout=15
+        ), f"not all EOS received; got {eos_sources}"
         engine.shutdown()
 
         for sid, frames in source_results.items():
@@ -243,7 +253,9 @@ class TestPicassoPipelineEncode:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(2)
+        assert poll_until(
+            lambda: len(eos_received) >= 1, timeout=15
+        ), "EOS not received in time"
         engine.shutdown()
 
         assert len(eos_received) >= 1, "expected EOS delivery"
@@ -278,7 +290,9 @@ class TestPicassoPipelineEncode:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(3)
+        assert wait_for_eos(
+            encoded_results, lock, timeout=15
+        ), "EOS not received in time"
         engine.shutdown()
 
         assert len(render_calls) > 0, "on_render was never called"
@@ -323,7 +337,9 @@ class TestPicassoPipelineBypass:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(3)
+        assert wait_for_eos(
+            bypass_results, lock, timeout=15
+        ), "EOS not received in time"
         engine.shutdown()
 
         frames = [r for r in bypass_results if r.is_video_frame]
@@ -341,9 +357,11 @@ class TestPicassoPipelineDrop:
 
     def test_drop_produces_no_encoded_output(self) -> None:
         results: list = []
+        lock = threading.Lock()
 
         def on_encoded(output) -> None:
-            results.append(output)
+            with lock:
+                results.append(output)
 
         callbacks = Callbacks(on_encoded_frame=on_encoded)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
@@ -359,7 +377,10 @@ class TestPicassoPipelineDrop:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(1)
+        # Drop mode may or may not surface an EOS marker; either way
+        # the pipeline should settle within a second. Poll to avoid a
+        # fixed sleep dominating the test time.
+        poll_until(lambda: any(o.is_eos for o in results), timeout=1.5)
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]

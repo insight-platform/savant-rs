@@ -4,6 +4,7 @@ use crate::json_api::ToSerdeJsonValue;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
 use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::misc_track::{MiscTrackCategory, MiscTrackData, TrackUpdate};
 use crate::primitives::object::private::{
     SealedObjectOperations, SealedWithFrame, SealedWithParent,
 };
@@ -163,6 +164,8 @@ pub struct VideoFrame {
     pub(crate) objects: HashMap<i64, VideoObject>,
     #[builder(setter(skip))]
     pub(crate) max_object_id: i64,
+    #[builder(setter(skip))]
+    pub(crate) misc_tracks: Vec<MiscTrackData>,
 }
 
 const DEFAULT_TRANSFORMATIONS_COUNT: usize = 4;
@@ -195,6 +198,7 @@ impl Default for VideoFrame {
             attributes: Vec::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
             objects: HashMap::with_capacity(DEFAULT_OBJECTS_COUNT),
             max_object_id: 0,
+            misc_tracks: Vec::new(),
         }
     }
 }
@@ -236,6 +240,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.iter().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
                 "objects": objects,
+                "misc_tracks": self.misc_tracks.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
     }
@@ -1292,6 +1297,78 @@ impl VideoFrameProxy {
         }
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Misc-track (shadow / terminated / past-frame) management
+    // -----------------------------------------------------------------------
+
+    /// Append a single misc track to the frame.
+    pub fn add_misc_track(&self, track: MiscTrackData) {
+        let mut inner = trace!(self.inner.write());
+        inner.misc_tracks.push(track);
+    }
+
+    /// Append multiple misc tracks to the frame.
+    pub fn add_misc_tracks(&self, tracks: Vec<MiscTrackData>) {
+        let mut inner = trace!(self.inner.write());
+        inner.misc_tracks.extend(tracks);
+    }
+
+    /// Return a clone of all misc tracks stored on the frame.
+    pub fn get_misc_tracks(&self) -> Vec<MiscTrackData> {
+        let inner = trace!(self.inner.read_recursive());
+        inner.misc_tracks.clone()
+    }
+
+    /// Return clones of misc tracks matching the given category.
+    pub fn get_misc_tracks_by_category(&self, cat: MiscTrackCategory) -> Vec<MiscTrackData> {
+        let inner = trace!(self.inner.read_recursive());
+        inner
+            .misc_tracks
+            .iter()
+            .filter(|t| t.category == cat)
+            .cloned()
+            .collect()
+    }
+
+    /// Remove all misc tracks from the frame.
+    pub fn clear_misc_tracks(&self) {
+        let mut inner = trace!(self.inner.write());
+        inner.misc_tracks.clear();
+    }
+
+    /// Remove misc tracks of the given category from the frame.
+    pub fn clear_misc_tracks_by_category(&self, cat: MiscTrackCategory) {
+        let mut inner = trace!(self.inner.write());
+        inner.misc_tracks.retain(|t| t.category != cat);
+    }
+
+    /// Apply full tracker output to this frame in a single operation.
+    ///
+    /// 1. For each [`TrackUpdate`], the corresponding
+    ///    [`VideoObject`] is looked up by `object_id` and its tracking
+    ///    info (`track_id`, `track_box`) is set. Returns an error if any
+    ///    `object_id` is not found on the frame.
+    /// 2. The frame's misc-track list is **replaced** with `misc_tracks`.
+    pub fn apply_tracking_info(
+        &self,
+        track_updates: Vec<TrackUpdate>,
+        misc_tracks: Vec<MiscTrackData>,
+    ) -> anyhow::Result<()> {
+        let mut inner = trace!(self.inner.write());
+        for tu in &track_updates {
+            let obj = inner.objects.get_mut(&tu.object_id).ok_or_else(|| {
+                anyhow!(
+                    "apply_tracking_info: object_id {} not found on frame",
+                    tu.object_id
+                )
+            })?;
+            obj.track_id = Some(tu.track_id);
+            obj.track_box = Some(tu.track_box.clone());
+        }
+        inner.misc_tracks = misc_tracks;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1846,5 +1923,177 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Misc-track tests
+    // -----------------------------------------------------------------------
+
+    use crate::primitives::misc_track::{
+        MiscTrackCategory, MiscTrackData, MiscTrackFrame, TrackState, TrackUpdate,
+    };
+
+    fn sample_misc_track(cat: MiscTrackCategory) -> MiscTrackData {
+        MiscTrackData {
+            object_id: 42,
+            class_id: 1,
+            label: Some("person".to_string()),
+            source_id: "cam-1".to_string(),
+            category: cat,
+            frames: vec![MiscTrackFrame {
+                frame_num: 0,
+                bbox_left: 10.0,
+                bbox_top: 20.0,
+                bbox_width: 30.0,
+                bbox_height: 40.0,
+                confidence: 0.95,
+                age: 3,
+                state: TrackState::Active,
+                visibility: 0.8,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_misc_track_add_get_clear() {
+        let frame = gen_empty_frame();
+        assert!(frame.get_misc_tracks().is_empty());
+
+        frame.add_misc_track(sample_misc_track(MiscTrackCategory::Shadow));
+        assert_eq!(frame.get_misc_tracks().len(), 1);
+
+        frame.add_misc_tracks(vec![
+            sample_misc_track(MiscTrackCategory::Terminated),
+            sample_misc_track(MiscTrackCategory::PastFrame),
+        ]);
+        assert_eq!(frame.get_misc_tracks().len(), 3);
+
+        frame.clear_misc_tracks();
+        assert!(frame.get_misc_tracks().is_empty());
+    }
+
+    #[test]
+    fn test_misc_track_filter_by_category() {
+        let frame = gen_empty_frame();
+        frame.add_misc_tracks(vec![
+            sample_misc_track(MiscTrackCategory::Shadow),
+            sample_misc_track(MiscTrackCategory::Terminated),
+            sample_misc_track(MiscTrackCategory::Shadow),
+            sample_misc_track(MiscTrackCategory::PastFrame),
+        ]);
+        assert_eq!(
+            frame
+                .get_misc_tracks_by_category(MiscTrackCategory::Shadow)
+                .len(),
+            2
+        );
+        assert_eq!(
+            frame
+                .get_misc_tracks_by_category(MiscTrackCategory::Terminated)
+                .len(),
+            1
+        );
+        assert_eq!(
+            frame
+                .get_misc_tracks_by_category(MiscTrackCategory::PastFrame)
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_misc_track_clear_by_category() {
+        let frame = gen_empty_frame();
+        frame.add_misc_tracks(vec![
+            sample_misc_track(MiscTrackCategory::Shadow),
+            sample_misc_track(MiscTrackCategory::Terminated),
+            sample_misc_track(MiscTrackCategory::PastFrame),
+        ]);
+        frame.clear_misc_tracks_by_category(MiscTrackCategory::Shadow);
+        assert_eq!(frame.get_misc_tracks().len(), 2);
+        assert!(frame
+            .get_misc_tracks_by_category(MiscTrackCategory::Shadow)
+            .is_empty());
+    }
+
+    #[test]
+    fn test_misc_tracks_survive_smart_copy() {
+        let frame = gen_empty_frame();
+        frame.add_misc_track(sample_misc_track(MiscTrackCategory::Shadow));
+        let copy = frame.smart_copy();
+        assert_eq!(copy.get_misc_tracks().len(), 1);
+
+        copy.clear_misc_tracks();
+        assert!(copy.get_misc_tracks().is_empty());
+        assert_eq!(frame.get_misc_tracks().len(), 1);
+    }
+
+    #[test]
+    fn test_misc_tracks_in_json() {
+        use crate::json_api::ToSerdeJsonValue;
+
+        let frame = gen_empty_frame();
+        frame.add_misc_track(sample_misc_track(MiscTrackCategory::Terminated));
+        let json = frame.to_serde_json_value();
+        let tracks = json["misc_tracks"].as_array().unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0]["category"], "Terminated");
+    }
+
+    #[test]
+    fn test_apply_tracking_info() -> anyhow::Result<()> {
+        let frame = gen_frame();
+        let obj = frame.get_object(0).unwrap();
+        assert!(obj.get_track_id().is_none());
+
+        let track_box = RBBox::new(100.0, 200.0, 50.0, 60.0, None);
+        frame.apply_tracking_info(
+            vec![TrackUpdate {
+                object_id: 0,
+                track_id: 777,
+                track_box: track_box.clone(),
+            }],
+            vec![sample_misc_track(MiscTrackCategory::Shadow)],
+        )?;
+
+        let obj = frame.get_object(0).unwrap();
+        assert_eq!(obj.get_track_id(), Some(777));
+        assert!(obj.get_track_box().is_some());
+        assert_eq!(frame.get_misc_tracks().len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_tracking_info_replaces_misc_tracks() -> anyhow::Result<()> {
+        let frame = gen_frame();
+        frame.add_misc_track(sample_misc_track(MiscTrackCategory::PastFrame));
+        assert_eq!(frame.get_misc_tracks().len(), 1);
+
+        frame.apply_tracking_info(
+            vec![],
+            vec![
+                sample_misc_track(MiscTrackCategory::Shadow),
+                sample_misc_track(MiscTrackCategory::Terminated),
+            ],
+        )?;
+        assert_eq!(frame.get_misc_tracks().len(), 2);
+        assert!(frame
+            .get_misc_tracks_by_category(MiscTrackCategory::PastFrame)
+            .is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_tracking_info_missing_object() {
+        let frame = gen_empty_frame();
+        let result = frame.apply_tracking_info(
+            vec![TrackUpdate {
+                object_id: 999,
+                track_id: 1,
+                track_box: RBBox::new(0.0, 0.0, 1.0, 1.0, None),
+            }],
+            vec![],
+        );
+        assert!(result.is_err());
     }
 }

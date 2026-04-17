@@ -482,7 +482,14 @@ fn drain_loop(
                 if let Some(frame) = frame {
                     fill_encoded_frame(frame, encoded, cb);
                 } else if !encoded.data.is_empty() {
-                    error!(
+                    // Stream-level codec headers (e.g. AV1 OBU_SEQUENCE_HEADER)
+                    // are inlined by `NvEncoder` into the next user frame, so
+                    // reaching this branch means the encoder emitted a
+                    // non-empty payload that could not be correlated to any
+                    // pending frame and was not recognised as a codec header.
+                    // This is unexpected; log at warn level as a diagnostic
+                    // safety net (the payload is dropped).
+                    warn!(
                         "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
                         encoded.data.len(),
                         encoded.frame_id
@@ -521,7 +528,8 @@ pub(crate) fn drain_remaining(
                     if let Some(frame) = frame {
                         fill_encoded_frame(frame, encoded, cb);
                     } else if !encoded.data.is_empty() {
-                        error!(
+                        // See comment in `drain_loop` above.
+                        warn!(
                             "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
                             encoded.data.len(),
                             encoded.frame_id

@@ -53,6 +53,35 @@ pub enum NvTrackerOutput {
 - `id: i64`
 - `bbox: RBBox`
 
+## Output data model (numeric widths)
+
+All tracker output ids and counters use `i64` on savant-owned structs.
+DeepStream-native narrow widths (`u16 class_id`, `u32 batch_id`,
+`u32 frame_num`, `u32 age`, `i32 obj.class_id`) are widened **losslessly**
+at the FFI seam inside `extract_tracker_output` / `append_misc_batch`.
+
+`TrackedObject`:
+
+- `object_id: u64`, `class_id: i64`, `slot_number: i64`
+- `bbox_left / top / width / height: f32`
+- `confidence: f32`, `tracker_confidence: f32`
+- `label: Option<String>`, `source_id: String`
+
+`MiscTrackData`:
+
+- `object_id: u64`, `class_id: i64`
+- `label: Option<String>`, `source_id: String`
+- `category: MiscTrackCategory`, `frames: Vec<MiscTrackFrame>`
+
+`MiscTrackFrame`:
+
+- `frame_num: i64`, `age: i64`
+- `bbox_*: f32`, `confidence: f32`, `visibility: f32`
+- `state: TrackState`
+
+See `kb/savant-core/patterns.md` § *Numeric widths on public structs*
+for the cross-crate convention.
+
 ## Config model
 
 `NvTrackerConfig::new(ll_lib_file, ll_config_file)` with defaults for dimensions, channel capacities, timeout and format.

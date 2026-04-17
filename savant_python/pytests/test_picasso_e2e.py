@@ -38,6 +38,9 @@ from picasso_helpers import (
     build_png_encoder_config,
     build_default_encoder_config,
     build_source_spec,
+    poll_until,
+    wait_for_count,
+    wait_for_eos,
 )
 from savant_rs.deepstream import (
     BufferGenerator,
@@ -77,6 +80,7 @@ class TestPngEncode:
         init_cuda(0)
 
         png_bytes: list[bytes] = []
+        eos_event = threading.Event()
         lock = threading.Lock()
 
         def on_encoded(output) -> None:
@@ -85,6 +89,8 @@ class TestPngEncode:
                 if vf.content.is_internal():
                     with lock:
                         png_bytes.append(vf.content.get_data())
+            elif output.is_eos:
+                eos_event.set()
 
         callbacks = Callbacks(on_encoded_frame=on_encoded)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
@@ -118,7 +124,7 @@ class TestPngEncode:
         engine.send_frame("png", frame, buf_ptr)
         engine.send_eos("png")
 
-        time.sleep(3)
+        assert eos_event.wait(timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(png_bytes) >= 1, "expected at least one PNG frame"
@@ -172,7 +178,7 @@ class TestAsyncDrain:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(5)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -226,7 +232,7 @@ class TestAsyncDrain:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(5)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -266,7 +272,7 @@ class TestAsyncDrain:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(15)
+        assert wait_for_eos(results, lock, timeout=30), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -306,7 +312,7 @@ class TestAsyncDrain:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(5)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -373,7 +379,7 @@ class TestHotSwapEncodeParams:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(5)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -400,12 +406,15 @@ class TestConditionalSelectiveRecording:
 
         encoded_frames: list = []
         render_calls: list = []
+        eos_event = threading.Event()
         lock = threading.Lock()
 
         def on_encoded(output) -> None:
             if output.is_video_frame:
                 with lock:
                     encoded_frames.append(output.as_video_frame())
+            elif output.is_eos:
+                eos_event.set()
 
         def on_render(source_id: str, fbo_id: int, w: int, h: int, frame) -> None:
             with lock:
@@ -465,7 +474,7 @@ class TestConditionalSelectiveRecording:
         engine.send_frame("src-0", frame2, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(4)
+        assert eos_event.wait(timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(encoded_frames) >= 2, "expected at least 2 encoded frames"
@@ -542,7 +551,12 @@ class TestMixedCodecs:
         engine.send_eos("drop-src")
         engine.send_eos("encode-src")
 
-        time.sleep(4)
+        assert wait_for_eos(
+            encoded_results, lock, timeout=15
+        ), "encode-src EOS not received in time"
+        assert wait_for_eos(
+            bypass_results, lock, timeout=15
+        ), "bypass EOS not received in time"
         engine.shutdown()
 
         assert len(bypass_results) >= 5
@@ -583,7 +597,9 @@ class TestEncodeEosReencode:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(2)
+        assert wait_for_eos(
+            results, lock, min_eos=1, timeout=15
+        ), "first EOS not received in time"
 
         for i in range(5, 10):
             frame = make_frame("src-0")
@@ -594,7 +610,9 @@ class TestEncodeEosReencode:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(4)
+        assert wait_for_eos(
+            results, lock, min_eos=2, timeout=15
+        ), "second EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -614,6 +632,7 @@ class TestOnGpuMat:
         init_cuda(0)
 
         gpumat_calls: list = []
+        eos_event = threading.Event()
         lock = threading.Lock()
 
         def on_gpumat(
@@ -630,7 +649,11 @@ class TestOnGpuMat:
                     (source_id, data_ptr, pitch, width, height, cuda_stream)
                 )
 
-        callbacks = Callbacks(on_gpumat=on_gpumat)
+        def on_encoded(output) -> None:
+            if output.is_eos:
+                eos_event.set()
+
+        callbacks = Callbacks(on_gpumat=on_gpumat, on_encoded_frame=on_encoded)
         spec = build_source_spec(use_gpumat=True)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", spec)
@@ -646,7 +669,7 @@ class TestOnGpuMat:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(4)
+        assert eos_event.wait(timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(gpumat_calls) >= 3
@@ -662,6 +685,7 @@ class TestOnGpuMat:
         init_cuda(0)
 
         gpumat_calls: list = []
+        eos_event = threading.Event()
         lock = threading.Lock()
 
         def on_gpumat(
@@ -676,7 +700,11 @@ class TestOnGpuMat:
             with lock:
                 gpumat_calls.append((source_id, data_ptr))
 
-        callbacks = Callbacks(on_gpumat=on_gpumat)
+        def on_encoded(output) -> None:
+            if output.is_eos:
+                eos_event.set()
+
+        callbacks = Callbacks(on_gpumat=on_gpumat, on_encoded_frame=on_encoded)
         spec = build_source_spec(use_gpumat=False)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", spec)
@@ -692,7 +720,7 @@ class TestOnGpuMat:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(3)
+        assert eos_event.wait(timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(gpumat_calls) == 0
@@ -710,6 +738,7 @@ class TestOnObjectDrawSpec:
 
         draw_spec_calls: list = []
         encoded_results: list = []
+        eos_event = threading.Event()
         lock = threading.Lock()
 
         def on_object_draw_spec(source_id: str, obj, current_spec) -> None:
@@ -721,6 +750,8 @@ class TestOnObjectDrawSpec:
             if output.is_video_frame:
                 with lock:
                     encoded_results.append(output)
+            elif output.is_eos:
+                eos_event.set()
 
         callbacks = Callbacks(
             on_object_draw_spec=on_object_draw_spec,
@@ -752,7 +783,7 @@ class TestOnObjectDrawSpec:
         engine.send_frame("src-0", frame, buf_ptr)
         engine.send_eos("src-0")
 
-        time.sleep(3)
+        assert eos_event.wait(timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(draw_spec_calls) >= 3
@@ -800,7 +831,12 @@ class TestEvictionKeepFor:
         engine.send_frame("src-0", frame, buf_ptr)
         engine.send_eos("src-0")
 
-        time.sleep(5)
+        # Two eviction callbacks must fire: first returns KeepFor(1s),
+        # second returns Terminate. idle_timeout_secs=1 + keep_for 1s,
+        # so cap wait at ~5s to leave generous slack.
+        assert poll_until(
+            lambda: len(eviction_calls) >= 2, timeout=5.0
+        ), f"expected 2 eviction callbacks, got {len(eviction_calls)}"
         engine.shutdown()
 
         assert len(eviction_calls) == 2
@@ -837,7 +873,12 @@ class TestWatchdog:
         engine.send_frame("src-0", frame1, buf_ptr)
         engine.send_eos("src-0")
 
-        time.sleep(3)
+        # Wait for the first EOS to propagate, then for the watchdog
+        # (idle_timeout_secs=1) to reap the worker.
+        assert wait_for_eos(
+            bypass_results, lock, min_eos=1, timeout=10
+        ), "first EOS not received in time"
+        time.sleep(1.5)  # give watchdog one tick to reap the idle worker
 
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.bypass()))
         frame2 = make_frame("src-0")
@@ -847,7 +888,9 @@ class TestWatchdog:
         engine.send_frame("src-0", frame2, buf_ptr)
         engine.send_eos("src-0")
 
-        time.sleep(3)
+        assert wait_for_eos(
+            bypass_results, lock, min_eos=2, timeout=10
+        ), "second EOS not received in time"
         engine.shutdown()
 
         assert len(bypass_results) >= 2
@@ -898,7 +941,7 @@ class TestFontFamilyHotSwap:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(5)
+        assert wait_for_eos(results, lock, timeout=15), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -916,17 +959,21 @@ class TestSustainedMultiSourceEos:
         init_cuda(0)
 
         source_results: dict = {}
+        eos_sources: set[str] = set()
         lock = threading.Lock()
 
         def on_bypass(output) -> None:
-            if not output.is_video_frame:
-                return
-            frame = output.as_video_frame()
-            with lock:
-                sid = frame.source_id
-                if sid not in source_results:
-                    source_results[sid] = []
-                source_results[sid].append(frame)
+            if output.is_video_frame:
+                frame = output.as_video_frame()
+                with lock:
+                    sid = frame.source_id
+                    if sid not in source_results:
+                        source_results[sid] = []
+                    source_results[sid].append(frame)
+            elif output.is_eos:
+                eos = output.as_eos()
+                with lock:
+                    eos_sources.add(eos.source_id)
 
         callbacks = Callbacks(on_bypass_frame=on_bypass)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
@@ -949,7 +996,9 @@ class TestSustainedMultiSourceEos:
                 engine.send_frame(sid, frame, buf_ptr)
 
         engine.send_eos("s1")
-        time.sleep(0.5)
+        assert poll_until(
+            lambda: "s1" in eos_sources, timeout=10
+        ), "s1 EOS not received"
         for i in range(10, 15):
             for sid in ["s2", "s3", "s4"]:
                 frame = make_frame(sid)
@@ -960,7 +1009,9 @@ class TestSustainedMultiSourceEos:
 
         engine.send_eos("s2")
         engine.send_eos("s3")
-        time.sleep(0.5)
+        assert poll_until(
+            lambda: {"s2", "s3"}.issubset(eos_sources), timeout=10
+        ), "s2/s3 EOS not received"
         for i in range(15, 20):
             for sid in ["s4"]:
                 frame = make_frame(sid)
@@ -970,7 +1021,14 @@ class TestSustainedMultiSourceEos:
                 engine.send_frame(sid, frame, buf_ptr)
 
         engine.send_eos("s4")
-        time.sleep(5)
+
+        def _all_eos_received() -> bool:
+            with lock:
+                return {"s1", "s2", "s3", "s4"}.issubset(eos_sources)
+
+        assert poll_until(
+            _all_eos_received, timeout=20
+        ), f"not all EOS received; got {eos_sources}"
         engine.shutdown()
 
         assert len(source_results.get("s1", [])) >= 10
@@ -1011,7 +1069,7 @@ class TestHighObjectCount:
             engine.send_frame("src-0", frame, buf_ptr)
 
         engine.send_eos("src-0")
-        time.sleep(10)
+        assert wait_for_eos(results, lock, timeout=30), "EOS not received in time"
         engine.shutdown()
 
         video_frames = [o for o in results if o.is_video_frame]
@@ -1064,7 +1122,10 @@ class TestPerSourceIdleTimeout:
         engine.send_frame("slow", frame_slow, make_nvmm_buffer(gen, 1))
         engine.send_eos("slow")
 
-        time.sleep(5)
+        # "fast" has idle_timeout_secs=1; allow up to 5s for eviction to fire.
+        assert poll_until(
+            lambda: "fast" in eviction_sources, timeout=5
+        ), f"'fast' never evicted; got {eviction_sources}"
         engine.shutdown()
 
         assert "fast" in eviction_sources
@@ -1083,12 +1144,15 @@ class TestFrameMetadataPreservation:
         from savant_rs.primitives import AttributeValue
 
         results: list = []
+        eos_event = threading.Event()
         lock = threading.Lock()
 
         def on_encoded(output) -> None:
             if output.is_video_frame:
                 with lock:
                     results.append(output.as_video_frame())
+            elif output.is_eos:
+                eos_event.set()
 
         callbacks = Callbacks(on_encoded_frame=on_encoded)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
@@ -1118,7 +1182,7 @@ class TestFrameMetadataPreservation:
         engine.send_frame("src-0", frame, buf_ptr)
         engine.send_eos("src-0")
 
-        time.sleep(3)
+        assert eos_event.wait(timeout=15), "EOS not received in time"
         engine.shutdown()
 
         assert len(results) >= 1

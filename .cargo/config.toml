@@ -11,3 +11,4 @@ rustflags = ["-C", "target-feature=+fp16"]
 # Running with multiple threads just causes lock contention and spurious
 # "has been running for over 60 seconds" warnings from the test harness.
 RUST_TEST_THREADS = "1"
+SCCACHE_CACHE_SIZE = "2G"

@@ -326,7 +326,7 @@ fn process_inference_output(
         }
     };
 
-    let mut grouped: HashMap<u32, Vec<crate::output::ElementOutput>> = HashMap::new();
+    let mut grouped: HashMap<i64, Vec<crate::output::ElementOutput>> = HashMap::new();
     for elem in elements {
         grouped.entry(elem.slot_number).or_default().push(elem);
     }
@@ -341,7 +341,7 @@ fn process_inference_output(
         .zip(pending.rois.into_iter())
         .enumerate()
     {
-        let raw_elems = grouped.remove(&(slot_idx as u32)).unwrap_or_default();
+        let raw_elems = grouped.remove(&(slot_idx as i64)).unwrap_or_default();
 
         let frame_w = frame.get_width() as f32;
         let frame_h = frame.get_height() as f32;
