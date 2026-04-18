@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 #[pyclass(
     from_py_object,
     name = "Platform",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -66,7 +66,7 @@ impl From<Platform> for PyPlatform {
 #[pyclass(
     from_py_object,
     name = "RateControl",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -129,7 +129,7 @@ impl From<RateControl> for PyRateControl {
 #[pyclass(
     from_py_object,
     name = "H264Profile",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -197,7 +197,7 @@ impl From<H264Profile> for PyH264Profile {
 #[pyclass(
     from_py_object,
     name = "HevcProfile",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -260,7 +260,7 @@ impl From<HevcProfile> for PyHevcProfile {
 #[pyclass(
     from_py_object,
     name = "DgpuPreset",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -343,7 +343,7 @@ impl From<DgpuPreset> for PyDgpuPreset {
 #[pyclass(
     from_py_object,
     name = "TuningPreset",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -411,7 +411,7 @@ impl From<TuningPreset> for PyTuningPreset {
 #[pyclass(
     from_py_object,
     name = "JetsonPresetLevel",
-    module = "savant_rs.picasso",
+    module = "savant_rs.deepstream",
     eq,
     eq_int
 )]
@@ -481,7 +481,11 @@ impl From<JetsonPresetLevel> for PyJetsonPresetLevel {
 
 // ─── PyH264DgpuProps ───────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "H264DgpuProps", module = "savant_rs.picasso")]
+#[pyclass(
+    from_py_object,
+    name = "H264DgpuProps",
+    module = "savant_rs.deepstream"
+)]
 #[derive(Debug, Clone)]
 pub struct PyH264DgpuProps {
     #[pyo3(get, set)]
@@ -614,7 +618,11 @@ impl PyH264DgpuProps {
 
 // ─── PyHevcDgpuProps ───────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "HevcDgpuProps", module = "savant_rs.picasso")]
+#[pyclass(
+    from_py_object,
+    name = "HevcDgpuProps",
+    module = "savant_rs.deepstream"
+)]
 #[derive(Debug, Clone)]
 pub struct PyHevcDgpuProps {
     #[pyo3(get, set)]
@@ -747,7 +755,11 @@ impl PyHevcDgpuProps {
 
 // ─── PyH264JetsonProps ─────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "H264JetsonProps", module = "savant_rs.picasso")]
+#[pyclass(
+    from_py_object,
+    name = "H264JetsonProps",
+    module = "savant_rs.deepstream"
+)]
 #[derive(Debug, Clone)]
 pub struct PyH264JetsonProps {
     #[pyo3(get, set)]
@@ -881,7 +893,11 @@ impl PyH264JetsonProps {
 
 // ─── PyHevcJetsonProps ─────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "HevcJetsonProps", module = "savant_rs.picasso")]
+#[pyclass(
+    from_py_object,
+    name = "HevcJetsonProps",
+    module = "savant_rs.deepstream"
+)]
 #[derive(Debug, Clone)]
 pub struct PyHevcJetsonProps {
     #[pyo3(get, set)]
@@ -999,7 +1015,7 @@ impl PyHevcJetsonProps {
 
 // ─── PyJpegProps ───────────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "JpegProps", module = "savant_rs.picasso")]
+#[pyclass(from_py_object, name = "JpegProps", module = "savant_rs.deepstream")]
 #[derive(Debug, Clone)]
 pub struct PyJpegProps {
     #[pyo3(get, set)]
@@ -1030,7 +1046,7 @@ impl PyJpegProps {
 // ─── PyPngProps ───────────────────────────────────────────────────────
 
 /// PNG encoder properties (`pngenc`, CPU-based, gst-plugins-good).
-#[pyclass(from_py_object, name = "PngProps", module = "savant_rs.picasso")]
+#[pyclass(from_py_object, name = "PngProps", module = "savant_rs.deepstream")]
 #[derive(Debug, Clone)]
 pub struct PyPngProps {
     /// PNG compression level (0–9, default: 6). Higher = smaller file, slower.
@@ -1061,7 +1077,7 @@ impl PyPngProps {
 
 // ─── PyAv1DgpuProps ────────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "Av1DgpuProps", module = "savant_rs.picasso")]
+#[pyclass(from_py_object, name = "Av1DgpuProps", module = "savant_rs.deepstream")]
 #[derive(Debug, Clone)]
 pub struct PyAv1DgpuProps {
     #[pyo3(get, set)]
@@ -1161,7 +1177,11 @@ impl PyAv1DgpuProps {
 
 // ─── PyAv1JetsonProps ──────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "Av1JetsonProps", module = "savant_rs.picasso")]
+#[pyclass(
+    from_py_object,
+    name = "Av1JetsonProps",
+    module = "savant_rs.deepstream"
+)]
 #[derive(Debug, Clone)]
 pub struct PyAv1JetsonProps {
     #[pyo3(get, set)]
@@ -1287,7 +1307,7 @@ impl PyAv1JetsonProps {
 #[pyclass(
     from_py_object,
     name = "EncoderProperties",
-    module = "savant_rs.picasso"
+    module = "savant_rs.deepstream"
 )]
 #[derive(Debug, Clone)]
 pub struct PyEncoderProperties {
@@ -1360,7 +1380,11 @@ impl PyEncoderProperties {
 
 // ─── PyEncoderConfig ───────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "EncoderConfig", module = "savant_rs.picasso")]
+#[pyclass(
+    from_py_object,
+    name = "EncoderConfig",
+    module = "savant_rs.deepstream"
+)]
 #[derive(Debug, Clone)]
 pub struct PyEncoderConfig {
     codec: PyCodec,
@@ -1496,16 +1520,107 @@ impl PyEncoderConfig {
 }
 
 impl PyEncoderConfig {
-    pub(crate) fn to_rust(&self) -> deepstream_encoders::EncoderConfig {
-        let mut cfg =
-            deepstream_encoders::EncoderConfig::new(self.codec.into(), self.width, self.height);
-        cfg.format = self.format.into();
-        cfg.fps_num = self.fps_num;
-        cfg.fps_den = self.fps_den;
-        cfg.gpu_id = self.gpu_id;
-        cfg.mem_type = self.mem_type.into();
-        cfg.encoder_params = self.encoder_params.as_ref().map(|p| p.inner.clone());
-        cfg
+    /// Materialise the Python-side builder state into a runtime
+    /// [`NvEncoderConfig`] that wraps a codec-specific [`EncoderConfig`]
+    /// enum variant with platform-appropriate properties.
+    ///
+    /// Codec dispatch rules:
+    /// * `Codec::H264` → [`EncoderConfig::H264`] with
+    ///   [`H264DgpuProps`] / [`H264JetsonProps`] when `encoder_params`
+    ///   matches the host platform.
+    /// * `Codec::Hevc` → [`EncoderConfig::Hevc`] with
+    ///   [`HevcDgpuProps`] / [`HevcJetsonProps`].
+    /// * `Codec::Av1` → [`EncoderConfig::Av1`] with
+    ///   [`Av1DgpuProps`] / [`Av1JetsonProps`].
+    /// * `Codec::Jpeg` → [`EncoderConfig::Jpeg`] with [`JpegProps`].
+    /// * `Codec::Png` → [`EncoderConfig::Png`] with [`PngProps`].
+    /// * Raw codecs (`RawRgba`/`RawRgb`/`RawNv12`) → [`EncoderConfig`]
+    ///   raw variants with default [`RawProps`].
+    ///
+    /// `encoder_params` of a non-matching platform variant are silently
+    /// ignored; callers are expected to use the helper factories on
+    /// [`PyEncoderProperties`] that correspond to the target platform.
+    pub(crate) fn to_rust(&self) -> deepstream_encoders::NvEncoderConfig {
+        use deepstream_encoders::{EncoderConfig as E, NvEncoderConfig};
+        let codec: Codec = self.codec.into();
+        let format = self.format.into();
+        let fps_num = self.fps_num;
+        let fps_den = self.fps_den;
+        let w = self.width;
+        let h = self.height;
+
+        let params = self.encoder_params.as_ref().map(|p| p.inner.clone());
+
+        let encoder_cfg = match codec {
+            Codec::H264 => {
+                let mut cfg = H264EncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                #[cfg(not(target_arch = "aarch64"))]
+                if let Some(EncoderProperties::H264Dgpu(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                #[cfg(target_arch = "aarch64")]
+                if let Some(EncoderProperties::H264Jetson(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                E::H264(cfg)
+            }
+            Codec::Hevc => {
+                let mut cfg = HevcEncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                #[cfg(not(target_arch = "aarch64"))]
+                if let Some(EncoderProperties::HevcDgpu(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                #[cfg(target_arch = "aarch64")]
+                if let Some(EncoderProperties::HevcJetson(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                E::Hevc(cfg)
+            }
+            Codec::Av1 => {
+                let mut cfg = Av1EncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                #[cfg(not(target_arch = "aarch64"))]
+                if let Some(EncoderProperties::Av1Dgpu(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                #[cfg(target_arch = "aarch64")]
+                if let Some(EncoderProperties::Av1Jetson(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                E::Av1(cfg)
+            }
+            Codec::Jpeg => {
+                let mut cfg = JpegEncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                if let Some(EncoderProperties::Jpeg(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                E::Jpeg(cfg)
+            }
+            Codec::Png => {
+                let mut cfg = PngEncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                if let Some(EncoderProperties::Png(p)) = params {
+                    cfg = cfg.props(p);
+                }
+                E::Png(cfg)
+            }
+            Codec::RawRgba => E::RawRgba(
+                RawEncoderConfig::new(w, h, VideoFormat::RGBA).fps(fps_num, fps_den),
+            ),
+            Codec::RawRgb => {
+                // Raw RGB pseudoencoder uses RGBA-shaped surfaces internally; the
+                // GPU→CPU download layer drops the alpha byte before packaging the
+                // payload. See `savant_deepstream/encoders/src/pipeline.rs`
+                // (`Codec::RawRgb => VideoFormat::RGBA`) for the surface layout.
+                E::RawRgb(RawEncoderConfig::new(w, h, VideoFormat::RGBA).fps(fps_num, fps_den))
+            }
+            Codec::RawNv12 => {
+                E::RawNv12(RawEncoderConfig::new(w, h, VideoFormat::NV12).fps(fps_num, fps_den))
+            }
+            other => panic!(
+                "PyEncoderConfig.to_rust: unsupported codec {other:?} for NvEncoder (Vp8/Vp9 are decode-only)"
+            ),
+        };
+
+        NvEncoderConfig::new(self.gpu_id, encoder_cfg).mem_type(self.mem_type.into())
     }
 }
 

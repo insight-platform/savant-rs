@@ -9,6 +9,7 @@ use deepstream_buffers::{Padding, Rect, SkiaRenderer, TransformConfig};
 use deepstream_encoders::prelude::*;
 use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, DstInset, LetterBoxKind, ScaleSpec};
+use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTransformation,
 };
@@ -22,28 +23,26 @@ use std::time::Duration;
 
 use crate::spec::draw::ObjectDrawSpec;
 
-/// Shared encoder state protected by a mutex so the worker (submit) and
-/// drain threads can access it concurrently.
-pub(crate) type SharedEncoder = Arc<parking_lot::Mutex<NvEncoder>>;
+/// Shared encoder state. The new [`NvEncoder`] uses interior mutability
+/// and exposes an `&self` API, so no external lock is required.
+pub(crate) type SharedEncoder = Arc<NvEncoder>;
 
 /// Shared map of frames submitted to the encoder but not yet drained.
 pub(crate) type SharedPendingFrames = Arc<parking_lot::Mutex<HashMap<u128, VideoFrameProxy>>>;
 
-/// Condvar-based notification sent by the submit side to wake the drain
-/// thread when a new frame has been submitted to the encoder.
-pub(crate) type DrainNotify = Arc<(parking_lot::Mutex<()>, parking_lot::Condvar)>;
-
-/// Handle to the background drain thread that continuously pulls encoded
-/// output from the hardware encoder, independent of frame submission.
+/// Handle to the background drain thread that blocks on
+/// [`NvEncoder::recv_timeout`] and fires callbacks for encoded output.
 pub(crate) struct DrainHandle {
     stop: Arc<AtomicBool>,
-    notify: DrainNotify,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// Poll interval for the drain thread; controls how quickly the thread
+/// reacts to the `stop` flag set by the worker.
+const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
 impl DrainHandle {
-    /// Spawn a drain thread for `source_id` that polls the encoder for
-    /// encoded output and fires callbacks.
+    /// Spawn a drain thread for `source_id`.
     pub(crate) fn spawn(
         source_id: String,
         encoder: SharedEncoder,
@@ -52,9 +51,6 @@ impl DrainHandle {
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = stop.clone();
-        let notify: DrainNotify =
-            Arc::new((parking_lot::Mutex::new(()), parking_lot::Condvar::new()));
-        let notify_clone = notify.clone();
 
         let thread = std::thread::Builder::new()
             .name(format!("picasso-drain-{source_id}"))
@@ -65,27 +61,19 @@ impl DrainHandle {
                     &callbacks,
                     &pending_frames,
                     &stop_flag,
-                    &notify_clone,
                 );
             })
             .expect("failed to spawn drain thread");
 
         Self {
             stop,
-            notify,
             thread: Some(thread),
         }
-    }
-
-    /// Get a clone of the notification handle for waking the drain thread.
-    pub(crate) fn notify(&self) -> DrainNotify {
-        self.notify.clone()
     }
 
     /// Signal the drain thread to stop and wait for it to finish.
     pub(crate) fn stop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        self.notify.1.notify_one();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -98,12 +86,6 @@ impl Drop for DrainHandle {
     }
 }
 
-/// Polling interval when the encoder has no output ready.
-const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(1);
-
-/// Process-global lock that serializes Skia EGL rendering and the
-/// EGL-to-CUDA copy (`render_to_nvbuf`).  Concurrent `SkiaRenderer` GL
-/// contexts on the same GPU corrupt each other's output.
 /// Render-specific options and mutable state.  When provided to
 /// [`process_encode`], Skia overlays are drawn between the GPU transform
 /// and the hardware encode step.
@@ -239,7 +221,7 @@ pub(crate) fn process_encode(
     source_id: &str,
     input: FrameInput,
     transform_config: &TransformConfig,
-    encoder: &SharedEncoder,
+    encoder: &NvEncoder,
     callbacks: &Arc<Callbacks>,
     use_on_gpumat: bool,
     render: Option<&mut RenderOpts<'_>>,
@@ -247,14 +229,13 @@ pub(crate) fn process_encode(
     src_rect: Option<&Rect>,
     callback_order: CallbackInvocationOrder,
     cuda_stream: &CudaStream,
-    drain_notify: Option<&DrainNotify>,
 ) -> Result<(), PicassoError> {
     let (target_w, target_h);
     let shared: deepstream_buffers::SharedBuffer;
 
     {
-        let enc = encoder.lock();
-        let generator = enc.generator();
+        let generator_arc = encoder.generator();
+        let generator = generator_arc.lock();
         target_w = generator.width();
         target_h = generator.height();
 
@@ -362,20 +343,16 @@ pub(crate) fn process_encode(
         )
     })?;
 
-    // Register the frame *before* pushing into GStreamer so the async drain
-    // thread can never pull an encoded buffer whose frame_id is missing from
-    // the map (see drain_loop correlation in this module).
+    // Register the frame *before* submitting to the encoder so the async
+    // drain thread can never pull an encoded buffer whose frame_id is
+    // missing from the map (see drain_loop correlation below).
     pending_frames.lock().insert(frame_id, input.frame);
 
-    let submit_result = encoder.lock().submit_frame(buffer, frame_id, pts, duration);
+    let submit_result = encoder.submit_frame(buffer, frame_id, pts, duration);
 
     if let Err(e) = submit_result {
         pending_frames.lock().remove(&frame_id);
         return Err(PicassoError::Encoder(source_id.to_string(), e.to_string()));
-    }
-
-    if let Some(notify) = drain_notify {
-        notify.1.notify_one();
     }
 
     Ok(())
@@ -449,104 +426,82 @@ fn padding_to_letterbox_kind(padding: Padding) -> LetterBoxKind {
     }
 }
 
-/// Background loop that continuously pulls encoded frames from the encoder.
+/// Background loop that blocks on the encoder's output channel and
+/// dispatches [`NvEncoderOutput`] variants to the appropriate callback.
 ///
-/// Runs until `stop` is set to `true`.  Each drained frame is matched to its
-/// original [`VideoFrameProxy`] via `frame_id` in `pending_frames`.
+/// Runs until:
+/// * `stop` is set (worker stopping the encoder for hot-swap / EOS),
+/// * the encoder emits [`NvEncoderOutput::Eos`], or
+/// * the encoder transitions to a failed state.
 fn drain_loop(
     source_id: &str,
-    encoder: &SharedEncoder,
+    encoder: &NvEncoder,
     callbacks: &Arc<Callbacks>,
     pending_frames: &SharedPendingFrames,
     stop: &AtomicBool,
-    notify: &DrainNotify,
 ) {
     debug!("drain thread started: source={source_id}");
     while !stop.load(Ordering::Acquire) {
-        let encoded = {
-            let mut enc = encoder.lock();
-            match enc.pull_encoded() {
-                Ok(frame) => frame,
-                Err(e) => {
-                    error!("drain error: source={source_id}, err={e}");
-                    None
+        match encoder.recv_timeout(DRAIN_POLL_INTERVAL) {
+            Ok(Some(NvEncoderOutput::Frame(encoded))) => {
+                dispatch_encoded(source_id, encoded, callbacks, pending_frames);
+            }
+            Ok(Some(NvEncoderOutput::SourceEos { source_id: sid })) => {
+                if let Some(cb) = &callbacks.on_encoded_frame {
+                    cb.call(OutputMessage::EndOfStream(EndOfStream::new(&sid)));
                 }
             }
-        };
-
-        if let Some(encoded) = encoded {
-            if let Some(cb) = &callbacks.on_encoded_frame {
-                let frame = encoded
-                    .frame_id
-                    .and_then(|id| pending_frames.lock().remove(&id));
-                if let Some(frame) = frame {
-                    fill_encoded_frame(frame, encoded, cb);
-                } else if !encoded.data.is_empty() {
-                    // Stream-level codec headers (e.g. AV1 OBU_SEQUENCE_HEADER)
-                    // are inlined by `NvEncoder` into the next user frame, so
-                    // reaching this branch means the encoder emitted a
-                    // non-empty payload that could not be correlated to any
-                    // pending frame and was not recognised as a codec header.
-                    // This is unexpected; log at warn level as a diagnostic
-                    // safety net (the payload is dropped).
-                    warn!(
-                        "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
-                        encoded.data.len(),
-                        encoded.frame_id
-                    );
-                } else {
-                    warn!(
-                        "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
-                        encoded.frame_id
-                    );
-                }
+            Ok(Some(NvEncoderOutput::Event(_))) => {
+                // Non-savant events from the encoder are not forwarded;
+                // the picasso output protocol only surfaces VideoFrame
+                // and EndOfStream.
             }
-        } else {
-            let (lock, cvar) = &**notify;
-            let mut guard = lock.lock();
-            cvar.wait_for(&mut guard, DRAIN_POLL_INTERVAL);
+            Ok(Some(NvEncoderOutput::Eos)) => break,
+            Ok(Some(NvEncoderOutput::Error(e))) => {
+                error!("encoder drain error: source={source_id}, err={e}");
+                break;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                error!("encoder recv error: source={source_id}, err={e}");
+                break;
+            }
         }
     }
     debug!("drain thread stopped: source={source_id}");
 }
 
-/// Pull all available encoded frames from the encoder and fire callbacks.
-///
-/// Used during EOS / shutdown after the drain thread has been stopped, so
-/// the caller has exclusive access to the encoder.
-pub(crate) fn drain_remaining(
+/// Route an encoded buffer to the [`OnEncodedFrame`] callback and update
+/// the pending-frames map.  Shared between the drain thread and the
+/// graceful-shutdown path.
+pub(crate) fn dispatch_encoded(
     source_id: &str,
-    encoder: &mut NvEncoder,
+    encoded: EncodedFrame,
     callbacks: &Arc<Callbacks>,
-    pending_frames: &mut HashMap<u128, VideoFrameProxy>,
+    pending_frames: &SharedPendingFrames,
 ) {
-    loop {
-        match encoder.pull_encoded() {
-            Ok(Some(encoded)) => {
-                if let Some(cb) = &callbacks.on_encoded_frame {
-                    let frame = encoded.frame_id.and_then(|id| pending_frames.remove(&id));
-                    if let Some(frame) = frame {
-                        fill_encoded_frame(frame, encoded, cb);
-                    } else if !encoded.data.is_empty() {
-                        // See comment in `drain_loop` above.
-                        warn!(
-                            "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
-                            encoded.data.len(),
-                            encoded.frame_id
-                        );
-                    } else {
-                        warn!(
-                            "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
-                            encoded.frame_id
-                        );
-                    }
-                }
-            }
-            Ok(None) => break,
-            Err(e) => {
-                error!("encode drain error: source={source_id}, err={e}");
-                break;
-            }
+    if let Some(cb) = &callbacks.on_encoded_frame {
+        let frame = encoded
+            .frame_id
+            .and_then(|id| pending_frames.lock().remove(&id));
+        if let Some(frame) = frame {
+            fill_encoded_frame(frame, encoded, cb);
+        } else if !encoded.data.is_empty() {
+            // Stream-level codec headers (e.g. AV1 OBU_SEQUENCE_HEADER)
+            // are inlined by `NvEncoder` into the next user frame, so
+            // reaching this branch means the encoder emitted a
+            // non-empty payload that could not be correlated to any
+            // pending frame and was not recognised as a codec header.
+            warn!(
+                "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
+                encoded.data.len(),
+                encoded.frame_id
+            );
+        } else {
+            warn!(
+                "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
+                encoded.frame_id
+            );
         }
     }
 }

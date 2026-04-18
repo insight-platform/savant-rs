@@ -2,7 +2,7 @@ use crate::callbacks::{Callbacks, StreamResetReason};
 use crate::error::PicassoError;
 use crate::message::{OutputMessage, WorkerMessage};
 use crate::pipeline::encode::{
-    DrainHandle, DrainNotify, RenderOpts, SharedEncoder, SharedPendingFrames,
+    dispatch_encoded, DrainHandle, RenderOpts, SharedEncoder, SharedPendingFrames,
 };
 use crate::pipeline::{bypass, encode, FrameInput};
 use crate::skia::context::DrawContext;
@@ -20,9 +20,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Timeout (ms) given to the hardware encoder to flush remaining frames on
-/// EOS / shutdown / codec hot-swap.
-const ENCODER_DRAIN_TIMEOUT_MS: u64 = 5000;
+/// Timeout given to the hardware encoder to flush remaining frames on
+/// EOS / shutdown / codec hot-swap.  Bounds the idle gap between
+/// successive outputs during [`NvEncoder::graceful_shutdown`].
+const ENCODER_DRAIN_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Handle to a running source worker thread.
 pub struct SourceWorker {
@@ -133,8 +134,6 @@ struct WorkerState {
     pending_frames: SharedPendingFrames,
     /// Background thread that pulls encoded output from the encoder.
     drain_handle: Option<DrainHandle>,
-    /// Notification handle shared with the drain thread.
-    drain_notify: Option<DrainNotify>,
     /// Non-blocking CUDA stream owned by this worker, created alongside
     /// the encoder and destroyed when the encoder is stopped.
     cuda_stream: CudaStream,
@@ -243,7 +242,7 @@ impl WorkerState {
         let gpu_id = encoder_config.gpu_id;
         let mut transform = transform.clone();
         let encoder_config = encoder_config.clone();
-        self.ensure_encoder(&encoder_config);
+        self.ensure_encoder(*encoder_config);
 
         // Override the TransformConfig's CUDA stream with the worker's own stream.
         transform.cuda_stream = self.cuda_stream.clone();
@@ -273,7 +272,6 @@ impl WorkerState {
                 src_rect.as_ref(),
                 self.spec.callback_order,
                 &self.cuda_stream,
-                self.drain_notify.as_ref(),
             ) {
                 error!("encode error: source={}, err={e}", self.source_id);
             }
@@ -281,7 +279,7 @@ impl WorkerState {
     }
 
     /// Create the encoder (and its drain thread) if not already present.
-    fn ensure_encoder(&mut self, config: &deepstream_encoders::EncoderConfig) {
+    fn ensure_encoder(&mut self, config: deepstream_encoders::NvEncoderConfig) {
         if self.encoder.is_some() {
             return;
         }
@@ -305,7 +303,7 @@ impl WorkerState {
         match NvEncoder::new(config) {
             Ok(enc) => {
                 info!("encoder created: source={}", self.source_id);
-                let shared: SharedEncoder = Arc::new(parking_lot::Mutex::new(enc));
+                let shared: SharedEncoder = Arc::new(enc);
                 let drain = DrainHandle::spawn(
                     self.source_id.clone(),
                     shared.clone(),
@@ -313,7 +311,6 @@ impl WorkerState {
                     self.pending_frames.clone(),
                 );
                 self.encoder = Some(shared);
-                self.drain_notify = Some(drain.notify());
                 self.drain_handle = Some(drain);
             }
             Err(e) => {
@@ -325,16 +322,31 @@ impl WorkerState {
         }
     }
 
-    /// Stop the drain thread and flush remaining encoder output.
+    /// Stop the drain thread and flush remaining encoder output via the
+    /// encoder's `graceful_shutdown` path.
     fn stop_encoder(&mut self) {
         if let Some(mut drain) = self.drain_handle.take() {
             drain.stop();
         }
-        self.drain_notify = None;
         if let Some(shared_enc) = self.encoder.take() {
-            let mut enc = shared_enc.lock();
-            let mut pending = self.pending_frames.lock();
-            drain_and_finish(&self.source_id, &mut enc, &self.callbacks, &mut pending);
+            let source_id = self.source_id.clone();
+            let callbacks = self.callbacks.clone();
+            let pending = self.pending_frames.clone();
+            if let Err(e) =
+                shared_enc.graceful_shutdown(Some(ENCODER_DRAIN_TIMEOUT), |out| match out {
+                    deepstream_encoders::NvEncoderOutput::Frame(encoded) => {
+                        dispatch_encoded(&source_id, encoded, &callbacks, &pending);
+                    }
+                    deepstream_encoders::NvEncoderOutput::SourceEos { source_id: sid } => {
+                        if let Some(cb) = &callbacks.on_encoded_frame {
+                            cb.call(OutputMessage::EndOfStream(EndOfStream::new(&sid)));
+                        }
+                    }
+                    _ => {}
+                })
+            {
+                error!("encoder graceful shutdown error: source={source_id}, err={e}");
+            }
         }
         if !self.cuda_stream.is_default() {
             self.cuda_stream = CudaStream::default();
@@ -400,7 +412,6 @@ fn worker_loop(
         draw_ctx,
         pending_frames: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         drain_handle: None,
-        drain_notify: None,
         cuda_stream: CudaStream::default(),
         last_pts_ns: None,
         pts_reset_policy,
@@ -465,46 +476,6 @@ fn worker_loop(
     info!("worker exited: source={source_id}");
 }
 
-fn drain_and_finish(
-    source_id: &str,
-    encoder: &mut NvEncoder,
-    callbacks: &Arc<Callbacks>,
-    pending_frames: &mut HashMap<u128, VideoFrameProxy>,
-) {
-    encode::drain_remaining(source_id, encoder, callbacks, pending_frames);
-    match encoder.finish(Some(ENCODER_DRAIN_TIMEOUT_MS)) {
-        Ok(remaining) => {
-            for encoded in remaining {
-                if let Some(cb) = &callbacks.on_encoded_frame {
-                    let frame = encoded.frame_id.and_then(|id| pending_frames.remove(&id));
-                    if let Some(frame) = frame {
-                        encode::fill_encoded_frame(frame, encoded, cb);
-                    } else if !encoded.data.is_empty() {
-                        // Codec headers are inlined by `NvEncoder` into the
-                        // next user frame (see `drain_loop` comment in
-                        // `pipeline/encode.rs`).  A non-empty uncorrelated
-                        // payload here is unexpected — log as a diagnostic
-                        // safety net.
-                        warn!(
-                            "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
-                            encoded.data.len(),
-                            encoded.frame_id
-                        );
-                    } else {
-                        warn!(
-                            "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
-                            encoded.frame_id
-                        );
-                    }
-                }
-            }
-        }
-        Err(e) => {
-            error!("encoder finish error: source={source_id}, err={e}");
-        }
-    }
-}
-
 fn fire_eos_sentinel(source_id: &str, callbacks: &Arc<Callbacks>) {
     if let Some(cb) = &callbacks.on_encoded_frame {
         cb.call(OutputMessage::EndOfStream(EndOfStream::new(source_id)));
@@ -522,7 +493,11 @@ fn codec_differs(a: &CodecSpec, b: &CodecSpec) -> bool {
         (CodecSpec::Drop, CodecSpec::Drop) => false,
         (CodecSpec::Bypass, CodecSpec::Bypass) => false,
         (CodecSpec::Encode { encoder: ea, .. }, CodecSpec::Encode { encoder: eb, .. }) => {
-            ea.width != eb.width || ea.height != eb.height || ea.codec != eb.codec
+            let ea_enc = &ea.encoder;
+            let eb_enc = &eb.encoder;
+            ea_enc.width() != eb_enc.width()
+                || ea_enc.height() != eb_enc.height()
+                || ea_enc.codec() != eb_enc.codec()
         }
         _ => true,
     }

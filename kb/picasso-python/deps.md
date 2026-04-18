@@ -4,13 +4,16 @@
 
 ### savant_rs.picasso (all picasso types)
 ```python
-from savant_rs.picasso import (
+from savant_rs.deepstream import (
     # Encoder enums
     Platform, RateControl, H264Profile, HevcProfile,
     DgpuPreset, TuningPreset, JetsonPresetLevel,
     # Encoder property structs
     H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
-    JpegProps, PngProps, Av1DgpuProps, EncoderProperties, EncoderConfig,
+    JpegProps, PngProps, Av1DgpuProps, Av1JetsonProps,
+    EncoderProperties, EncoderConfig,
+)
+from savant_rs.picasso import (
     # Spec types
     GeneralSpec, EvictionDecision, ConditionalSpec, ObjectDrawSpec,
     CodecSpec, SourceSpec,
@@ -22,6 +25,13 @@ from savant_rs.picasso import (
     Callbacks, PicassoEngine,
 )
 ```
+
+> **Encoder classes migrated:** As of the encoders-refactoring
+> workstream, the encoder PyO3 bindings (`EncoderConfig`,
+> `EncoderProperties`, per-codec props, `Platform`, `RateControl`,
+> etc.) live in `savant_rs.deepstream` to be symmetric with the
+> decoder bindings. `savant_rs.picasso` now owns only
+> Picasso-specific spec types.
 
 ### savant_rs.deepstream (GPU/transform, required for encode/bypass)
 ```python

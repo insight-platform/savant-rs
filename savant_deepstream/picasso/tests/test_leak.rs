@@ -68,7 +68,7 @@ fn make_nvmm_buffer(gen: &BufferGenerator, frame_id: i64) -> deepstream_buffers:
     deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 
-fn encoder_config(w: u32, h: u32) -> EncoderConfig {
+fn encoder_config(w: u32, h: u32) -> NvEncoderConfig {
     common::make_default_encoder_config(w, h)
 }
 
@@ -331,15 +331,16 @@ fn leak_gpu_encoder_lifecycle_churn() {
 
     // Warm-up: create/destroy a few encoders
     for _ in 0..3 {
-        let mut enc = deepstream_encoders::NvEncoder::new(&cfg).unwrap();
+        let enc = deepstream_encoders::NvEncoder::new(cfg.clone()).unwrap();
         let buf = enc
             .generator()
+            .lock()
             .acquire(Some(0))
             .unwrap()
             .into_buffer()
             .unwrap();
         enc.submit_frame(buf, 0, 0, Some(33_333_333)).unwrap();
-        let _ = enc.finish(Some(3000));
+        let _ = enc.graceful_shutdown(Some(Duration::from_secs(3)), |_| {});
     }
     std::thread::sleep(Duration::from_millis(500));
 
@@ -349,10 +350,11 @@ fn leak_gpu_encoder_lifecycle_churn() {
 
     // Churn: create/destroy 50 encoders, each processing 5 frames
     for i in 0..50 {
-        let mut enc = deepstream_encoders::NvEncoder::new(&cfg).unwrap();
+        let enc = deepstream_encoders::NvEncoder::new(cfg.clone()).unwrap();
         for j in 0..5u128 {
             let buf = enc
                 .generator()
+                .lock()
                 .acquire(Some(j))
                 .unwrap()
                 .into_buffer()
@@ -360,7 +362,7 @@ fn leak_gpu_encoder_lifecycle_churn() {
             let pts = (i as u64 * 5 + j as u64) * 33_333_333;
             enc.submit_frame(buf, j, pts, Some(33_333_333)).unwrap();
         }
-        let _ = enc.finish(Some(3000));
+        let _ = enc.graceful_shutdown(Some(Duration::from_secs(3)), |_| {});
         drop(enc);
     }
     std::thread::sleep(Duration::from_secs(1));
@@ -395,19 +397,20 @@ fn leak_gpu_sustained_encode() {
     cuda_init(0).unwrap();
 
     let cfg = encoder_config(320, 240);
-    let mut enc = deepstream_encoders::NvEncoder::new(&cfg).unwrap();
+    let enc = deepstream_encoders::NvEncoder::new(cfg).unwrap();
 
     // Warm-up: 20 frames
     for i in 0..20u128 {
         let buf = enc
             .generator()
+            .lock()
             .acquire(Some(i))
             .unwrap()
             .into_buffer()
             .unwrap();
         enc.submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
             .unwrap();
-        while let Ok(Some(_)) = enc.pull_encoded() {}
+        while let Ok(Some(_)) = enc.try_recv() {}
     }
     std::thread::sleep(Duration::from_millis(500));
 
@@ -419,13 +422,14 @@ fn leak_gpu_sustained_encode() {
     for i in 20..520u128 {
         let buf = enc
             .generator()
+            .lock()
             .acquire(Some(i))
             .unwrap()
             .into_buffer()
             .unwrap();
         enc.submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
             .unwrap();
-        while let Ok(Some(_)) = enc.pull_encoded() {}
+        while let Ok(Some(_)) = enc.try_recv() {}
     }
     std::thread::sleep(Duration::from_millis(500));
 
@@ -446,7 +450,7 @@ fn leak_gpu_sustained_encode() {
         "RSS grew by {rss_growth} kB (limit {RSS_GROWTH_TOLERANCE_KB}) — possible leak"
     );
 
-    let _ = enc.finish(Some(3000));
+    let _ = enc.graceful_shutdown(Some(Duration::from_secs(3)), |_| {});
 }
 
 // ---------------------------------------------------------------------------

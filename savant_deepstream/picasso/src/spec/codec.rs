@@ -11,8 +11,12 @@ pub enum CodecSpec {
     Bypass,
     /// GPU-transform the frame to a target resolution, optionally render Skia
     /// overlays, then encode.
+    ///
+    /// The `encoder` field carries the full [`NvEncoderConfig`] including
+    /// GPU id, channel capacities, memory type, and the codec-specific
+    /// sub-config.
     Encode {
         transform: TransformConfig,
-        encoder: Box<EncoderConfig>,
+        encoder: Box<NvEncoderConfig>,
     },
 }

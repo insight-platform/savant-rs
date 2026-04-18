@@ -1,7 +1,7 @@
 //! Benchmark exercising the **Picasso** pipeline end-to-end with multiple
 //! concurrent sources.
 //!
-//! Feeds `NUM_FRAMES` FullHD (1920x1080) frames **per source** through
+//! Feeds `num_frames()` FullHD (1920x1080) frames **per source** through
 //! `PicassoEngine` using the `Encode` path with Skia rendering.  Each frame carries 20
 //! detection objects whose bounding boxes, labels and central dots are drawn by
 //! Picasso's internal `ObjectDrawSpec`-driven renderer.  The `on_render`
@@ -33,9 +33,13 @@ fn has_nvjpegenc() -> bool {
     gstreamer::ElementFactory::find("nvjpegenc").is_some()
 }
 
+/// Runtime Jetson/Tegra kernel probe. Prefer this over
+/// `cfg!(target_arch = "aarch64")`: aarch64 also covers non-Jetson ARM
+/// servers. NVENC availability (Orin Nano / dGPU without NVENC) is
+/// handled by [`has_nvenc`], not this function.
 #[allow(dead_code)]
 fn is_jetson() -> bool {
-    cfg!(target_arch = "aarch64")
+    nvidia_gpu_utils::is_jetson_kernel()
 }
 
 use savant_core::draw::{
@@ -54,11 +58,22 @@ use std::time::Instant;
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
-const NUM_FRAMES: u64 = if cfg!(not(target_arch = "aarch64")) {
-    100_000
-} else {
-    10_000
-};
+
+/// Number of frames per source for the throughput bench.
+///
+/// Jetson (all models, Orin Nano included) is RAM-limited and slower,
+/// so we cap at 10K frames. Non-Jetson GPUs (dGPU x86_64 and aarch64
+/// ARM servers like Grace Hopper) get 100K. Detected at runtime via
+/// [`nvidia_gpu_utils::is_jetson_kernel`] — **not** via
+/// `cfg!(target_arch = "aarch64")`, which misclassifies non-Jetson ARM
+/// hosts.
+fn num_frames() -> u64 {
+    if nvidia_gpu_utils::is_jetson_kernel() {
+        10_000
+    } else {
+        100_000
+    }
+}
 const NUM_BOXES: usize = 20;
 const FPS: i32 = 30;
 const FRAME_DURATION_NS: u64 = 1_000_000_000 / FPS as u64;
@@ -529,36 +544,46 @@ fn build_draw_spec() -> ObjectDrawSpec {
     spec
 }
 
-fn build_encoder_config() -> EncoderConfig {
-    if has_nvenc() {
-        if is_jetson() {
-            EncoderConfig::new(Codec::H264, WIDTH, HEIGHT)
-                .format(VideoFormat::RGBA)
-                .fps(FPS, 1)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
-                    preset_level: Some(JetsonPresetLevel::UltraFast),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, WIDTH, HEIGHT)
-                .format(VideoFormat::RGBA)
-                .fps(FPS, 1)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-                    bitrate: Some(4_000_000),
-                    preset: Some(DgpuPreset::P1),
-                    tuning_info: Some(TuningPreset::LowLatency),
-                    iframeinterval: Some(30),
-                    ..Default::default()
-                }))
+fn build_encoder_config() -> NvEncoderConfig {
+    let inner = if has_nvenc() {
+        #[cfg(target_arch = "aarch64")]
+        {
+            EncoderConfig::H264(
+                H264EncoderConfig::new(WIDTH, HEIGHT)
+                    .format(VideoFormat::RGBA)
+                    .fps(FPS, 1)
+                    .props(H264JetsonProps {
+                        preset_level: Some(JetsonPresetLevel::UltraFast),
+                        ..Default::default()
+                    }),
+            )
+        }
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            EncoderConfig::H264(
+                H264EncoderConfig::new(WIDTH, HEIGHT)
+                    .format(VideoFormat::RGBA)
+                    .fps(FPS, 1)
+                    .props(H264DgpuProps {
+                        bitrate: Some(4_000_000),
+                        preset: Some(DgpuPreset::P1),
+                        tuning_info: Some(TuningPreset::LowLatency),
+                        iframeinterval: Some(30),
+                        ..Default::default()
+                    }),
+            )
         }
     } else if has_nvjpegenc() {
-        EncoderConfig::new(Codec::Jpeg, WIDTH, HEIGHT)
-            .format(VideoFormat::RGBA)
-            .fps(FPS, 1)
-            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) }))
+        EncoderConfig::Jpeg(
+            JpegEncoderConfig::new(WIDTH, HEIGHT)
+                .format(VideoFormat::RGBA)
+                .fps(FPS, 1)
+                .props(JpegProps { quality: Some(85) }),
+        )
     } else {
         panic!("No encoder available (NVENC or nvjpegenc required)");
-    }
+    };
+    NvEncoderConfig::new(0, inner).name("skia-pipeline-bench")
 }
 
 fn build_source_spec() -> SourceSpec {
@@ -589,12 +614,17 @@ fn main() {
     }
 
     let num_src = num_sources();
-    let total_frames = NUM_FRAMES * num_src as u64;
+    let frames_per_src = num_frames();
+    let total_frames = frames_per_src * num_src as u64;
 
     println!("=== Picasso Pipeline Benchmark ===");
     println!(
         "Resolution: {}x{}, Frames/source: {}, Sources: {}, Total frames: {}",
-        WIDTH, HEIGHT, NUM_FRAMES, num_src, total_frames,
+        WIDTH, HEIGHT, frames_per_src, num_src, total_frames,
+    );
+    println!(
+        "Platform: jetson_kernel={} (Jetson caps frames/source to 10K due to RAM limits)",
+        is_jetson()
     );
     println!("Mode: Encode with Skia (H.264), FPS: {}", FPS);
 
@@ -675,7 +705,7 @@ fn main() {
     let mut submitted: u64 = 0;
     println!("Starting render+encode loop...\n");
 
-    for i in 0..NUM_FRAMES {
+    for i in 0..frames_per_src {
         let frame_id = (i + 10) as i64;
 
         for (s, sid) in source_ids.iter().enumerate() {
@@ -700,7 +730,7 @@ fn main() {
             let gpu = gpu_mem_mib();
             println!(
                 "frame {:>6}/{} | src {} | enc {:>6} | {:>7.1} fps | bitstream {:>8} KB | RSS {:>5} MB | GPU {} MiB",
-                i + 1, NUM_FRAMES, num_src, total_enc, submit_fps, total_bytes / 1024, rss / 1024, gpu,
+                i + 1, frames_per_src, num_src, total_enc, submit_fps, total_bytes / 1024, rss / 1024, gpu,
             );
             last_report = now;
             last_frame = i;
@@ -721,7 +751,7 @@ fn main() {
 
     println!("\n=== Results ===");
     println!("Sources:            {}", num_src);
-    println!("Frames/source:      {}", NUM_FRAMES);
+    println!("Frames/source:      {}", frames_per_src);
     println!("Total submitted:    {}", submitted);
     println!("Total encoded:      {}", total_encoded);
     println!("Bitstream:          {} KB", total_bytes / 1024);

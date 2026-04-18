@@ -123,13 +123,26 @@ pub enum GpuUtilsError {
 
 /// Returns GPU memory currently used, in MiB.
 ///
-/// - **dGPU (x86_64)**: Uses NVML to query device `gpu_id` (same data as `nvidia-smi --query-gpu=memory.used`).
-/// - **Jetson (aarch64)**: Reads `/proc/meminfo` and returns `(MemTotal - MemAvailable) / 1024` (unified memory).
+/// - **dGPU (x86_64)**: Uses NVML to query device `gpu_id` (same data as
+///   `nvidia-smi --query-gpu=memory.used`).
+/// - **Jetson (aarch64)**: Reads `/proc/meminfo` and returns
+///   `(MemTotal - MemAvailable) / 1024` (unified memory).
+///
+/// # Jetson limitation
+///
+/// On Jetson (Tegra), `NvBufSurface` / CUDA device allocations come from the
+/// **nvmap carveout / dmabuf heap**, which is **not accounted in
+/// `/proc/meminfo::MemAvailable`**. As a result, this function on Jetson only
+/// reflects regular kernel/userspace page allocations and is effectively blind
+/// to GPU buffer memory: empirically, allocating ~800 MiB of RGBA
+/// `NvBufSurface` buffers moves `MemAvailable` by only ~1–2 MiB. Use
+/// `tegrastats` or privileged access to `/sys/kernel/debug/nvmap/…` if you
+/// need accurate Jetson GPU-memory accounting.
 ///
 /// # Errors
 ///
-/// Returns an error if NVML is unavailable (dGPU), `/proc/meminfo` cannot be read (Jetson),
-/// or the platform is not supported.
+/// Returns an error if NVML is unavailable (dGPU), `/proc/meminfo` cannot be
+/// read (Jetson), or the platform is not supported.
 ///
 /// # Example
 ///

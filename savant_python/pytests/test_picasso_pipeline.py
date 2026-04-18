@@ -41,26 +41,28 @@ from savant_rs.draw_spec import (
     PaddingDraw,
 )
 from savant_rs.gstreamer import Codec
-from savant_rs.picasso import (
+from savant_rs.deepstream import (
     Av1DgpuProps,
-    Callbacks,
-    CodecSpec,
     DgpuPreset,
     EncoderConfig,
     EncoderProperties,
-    EvictionDecision,
-    GeneralSpec,
     H264DgpuProps,
     H264JetsonProps,
     HevcDgpuProps,
     HevcJetsonProps,
     JpegProps,
-    ObjectDrawSpec,
-    PicassoEngine,
     Platform,
     RateControl,
-    SourceSpec,
     TuningPreset,
+)
+from savant_rs.picasso import (
+    Callbacks,
+    CodecSpec,
+    EvictionDecision,
+    GeneralSpec,
+    ObjectDrawSpec,
+    PicassoEngine,
+    SourceSpec,
 )
 from savant_rs.primitives import (
     IdCollisionResolutionPolicy,

@@ -6,6 +6,7 @@
 pub mod buffer;
 pub mod config;
 pub mod decoder_config;
+pub mod encoder_config;
 pub mod enums;
 pub mod functions;
 pub mod generators;
@@ -66,5 +67,6 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<skia::PySkiaContext>()?;
     decoder_config::register_decoder_config_classes(m)?;
     inputs::register_inputs_classes(m)?;
+    encoder_config::register_encoder_classes(m)?;
     Ok(())
 }

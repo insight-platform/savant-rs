@@ -1,8 +1,7 @@
+use crate::deepstream::encoder_config::PyEncoderConfig;
 use crate::deepstream::PyTransformConfig;
 use picasso::prelude::CodecSpec;
 use pyo3::prelude::*;
-
-use super::super::encoder::PyEncoderConfig;
 
 /// Describes what to do with each incoming frame for a given source.
 ///

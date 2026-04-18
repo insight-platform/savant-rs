@@ -22,6 +22,8 @@ gstreamer-video = { workspace = true }
 glib = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }

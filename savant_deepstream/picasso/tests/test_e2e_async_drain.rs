@@ -282,7 +282,7 @@ fn e2e_sustained_throughput_no_frame_loss() {
     // Snapshot log length so we only check records emitted during this test.
     let baseline = records.lock().expect("records lock").len();
 
-    let mut streams: Vec<(String, EncoderConfig)> = Vec::new();
+    let mut streams: Vec<(String, NvEncoderConfig)> = Vec::new();
     if has_nvjpegenc() {
         streams.push(("burst-jpeg".to_string(), jpeg_encoder_config(W, H)));
     }

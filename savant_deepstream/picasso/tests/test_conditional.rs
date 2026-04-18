@@ -33,7 +33,7 @@ fn init() {
     let _ = cuda_init(0);
 }
 
-fn make_encoder_config() -> EncoderConfig {
+fn make_encoder_config() -> NvEncoderConfig {
     common::make_default_encoder_config(W, H)
 }
 
