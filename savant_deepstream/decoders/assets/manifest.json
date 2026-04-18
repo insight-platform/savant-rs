@@ -130,7 +130,8 @@
         "turing",
         "ampere",
         "ada",
-        "blackwell"
+        "blackwell",
+        "jetson_orin"
       ],
       "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420,width=320,height=240,framerate=30/1,colorimetry=bt709 ! vp9enc target-bitrate=256000 ! qtmux ! filesink",
       "container": "mp4"
@@ -188,10 +189,9 @@
       "num_frames": 10,
       "fps": 30,
       "supported_platforms": [
-        "blackwell",
-        "jetson_orin"
+        "blackwell"
       ],
-      "unsupported_note": "H.264 4:2:0 10-bit is NOT supported by Turing/Ampere/Ada dGPU NVDEC (4th/5th gen). Supported on Blackwell dGPU NVDEC (6th gen) and Jetson Orin Tegra NVDEC. See NVIDIA Video Decode Support Matrix.",
+      "unsupported_note": "H.264 4:2:0 10-bit (High10) is NOT supported by Turing/Ampere/Ada dGPU NVDEC (4th/5th gen) or by Jetson Orin Tegra NVDEC (H.264 on Jetson Orin is limited to Baseline/Main/High 8-bit). Supported only on Blackwell dGPU NVDEC (6th gen) and Jetson Thor. See NVIDIA Video Decode Support Matrix.",
       "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! x264enc tune=zerolatency bframes=0 bitrate=256 ! h264parse ! qtmux ! filesink",
       "container": "mp4"
     },
@@ -207,10 +207,9 @@
       "num_frames": 10,
       "fps": 30,
       "supported_platforms": [
-        "blackwell",
-        "jetson_orin"
+        "blackwell"
       ],
-      "unsupported_note": "H.264 4:2:0 10-bit is NOT supported by Turing/Ampere/Ada dGPU NVDEC (4th/5th gen). Supported on Blackwell dGPU NVDEC (6th gen) and Jetson Orin Tegra NVDEC. See NVIDIA Video Decode Support Matrix.",
+      "unsupported_note": "H.264 4:2:0 10-bit (High10) is NOT supported by Turing/Ampere/Ada dGPU NVDEC (4th/5th gen) or by Jetson Orin Tegra NVDEC (H.264 on Jetson Orin is limited to Baseline/Main/High 8-bit). Supported only on Blackwell dGPU NVDEC (6th gen) and Jetson Thor. See NVIDIA Video Decode Support Matrix.",
       "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! x264enc bitrate=256 bframes=3 ! h264parse ! qtmux ! filesink",
       "container": "mp4"
     },
@@ -271,7 +270,8 @@
         "turing",
         "ampere",
         "ada",
-        "blackwell"
+        "blackwell",
+        "jetson_orin"
       ],
       "pipeline": "videotestsrc num-buffers=10 ! video/x-raw,format=I420_10LE,width=320,height=240,framerate=30/1,colorimetry=bt2020 ! vp9enc target-bitrate=256000 ! qtmux ! filesink",
       "container": "mp4"

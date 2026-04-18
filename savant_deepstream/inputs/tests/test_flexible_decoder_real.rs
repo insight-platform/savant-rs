@@ -545,21 +545,23 @@ fn test_source_eos_between_codec_changes() {
     let collector = OutputCollector::new();
     let dec = FlexibleDecoder::new(default_config(), collector.callback());
 
-    // Phase 1: H.264.  `source_eos` is a custom downstream event (not a
-    // GStreamer EOS); it sits behind the decoded frames in
-    // `nvv4l2decoder`'s output queue.  On Jetson, the custom event
-    // propagates cleanly through the Tegra `nvv4l2decoder` src pad and
-    // reaches appsink.  On dGPU, the DeepStream `nvv4l2decoder` wraps a
-    // V4L2 driver and does **not** preserve custom downstream events
-    // across its boundary — they are dropped, even during the phase-1
-    // real-EOS drain.  See kb/decoders/caveats.md §12.
+    // Phase 1: H.264.  `source_eos` is a non-serialized custom
+    // downstream event (OOB).  By the `GstVideoDecoder` base-class
+    // contract, non-serialized events take the `forward_immediate`
+    // branch in `sink_event_default` and are pushed straight from the
+    // decoder's sink pad to its src pad, bypassing the per-frame event
+    // queue. This makes the marker reach appsink reliably on *every*
+    // decoder element (nvv4l2decoder on Jetson **and** dGPU, avdec_*,
+    // vaapi*, ...) without requiring a trailing carrier frame.
+    //
+    // See `build_source_eos_event` and `kb/decoders/caveats.md §12`.
     let h264_aus = load_annexb_access_units(h264_entry);
     let h264_count = 4.min(h264_aus.len());
-    let mut all_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
+    let all_uuids = submit_access_units(&dec, &h264_aus, h264_entry, h264_count, 0);
 
     dec.source_eos(SOURCE_ID).unwrap();
     eprintln!(
-        "  phase 1: {} H.264 submitted, source_eos queued",
+        "  phase 1: {} H.264 submitted, source_eos sent",
         all_uuids.len()
     );
 
@@ -569,6 +571,7 @@ fn test_source_eos_between_codec_changes() {
     let hevc_count = 4.min(hevc_aus.len());
     let pts_offset = (h264_count as u64) * 33_333_333;
     let hevc_uuids = submit_access_units(&dec, &hevc_aus, hevc_entry, hevc_count, pts_offset);
+    let mut all_uuids = all_uuids;
     all_uuids.extend(&hevc_uuids);
 
     collector.wait_for(
@@ -576,35 +579,27 @@ fn test_source_eos_between_codec_changes() {
         TIMEOUT,
     );
 
-    // Only assert SourceEos propagation on Jetson, where the custom
-    // event survives the `nvv4l2decoder` boundary.  On dGPU we still
-    // verify the decoder doesn't error out or lose frames.
-    let is_jetson = nvidia_gpu_utils::is_jetson_kernel();
-    if is_jetson {
-        collector.wait_for(
-            |o| matches!(o, CollectedOutput::SourceEos { source_id } if source_id == SOURCE_ID),
-            TIMEOUT,
-        );
-    }
+    collector.wait_for(
+        |o| matches!(o, CollectedOutput::SourceEos { source_id } if source_id == SOURCE_ID),
+        TIMEOUT,
+    );
 
     // Final drain flushes phase-2's tail frames via a real EOS.
     dec.graceful_shutdown().unwrap();
 
     assert_eq!(collector.parameter_change_count(), 1);
-    if is_jetson {
-        assert!(
-            collector.outputs.lock().iter().any(|o| matches!(
-                o,
-                CollectedOutput::SourceEos { source_id } if source_id == SOURCE_ID
-            )),
-            "expected SourceEos for {SOURCE_ID} on Jetson"
-        );
-    }
+    assert!(
+        collector.outputs.lock().iter().any(|o| matches!(
+            o,
+            CollectedOutput::SourceEos { source_id } if source_id == SOURCE_ID
+        )),
+        "expected SourceEos for {SOURCE_ID}"
+    );
     assert_eq!(collector.frame_count(), all_uuids.len());
     assert_eq!(collector.error_count(), 0);
     collector.assert_frame_uuid_coverage(&all_uuids);
 
-    eprintln!("  OK test_source_eos_between_codec_changes (jetson={is_jetson})");
+    eprintln!("  OK test_source_eos_between_codec_changes");
 }
 
 // ═══════════════════════════════════════════════════════════════════
