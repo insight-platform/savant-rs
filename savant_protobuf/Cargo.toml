@@ -11,6 +11,7 @@ keywords = ["savant", "protobuf", "grpc", "streaming"]
 categories = ["encoding", "api-bindings"]
 license.workspace = true
 rust-version.workspace = true
+exclude = ["src/generated.rs"]
 
 [lib]
 name = "savant_protobuf"
