@@ -1,19 +1,25 @@
 [package]
-name = "deepstream"
+name = "savant-deepstream"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Safe Rust wrappers over NVIDIA DeepStream primitives (InferDims, InferTensorMeta, ...)."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "api-bindings", "hardware-support"]
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "deepstream"
+
 [dependencies]
-deepstream-sys = { path = "../deepstream-sys" }
+deepstream_sys = { workspace = true }
 glib = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

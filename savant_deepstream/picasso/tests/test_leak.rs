@@ -6,7 +6,7 @@
 //! `cargo test` cycle — run them explicitly with:
 //!
 //! ```sh
-//! cargo test -p picasso --test test_leak -- --ignored --nocapture
+//! cargo test -p savant-picasso --test test_leak -- --ignored --nocapture
 //! ```
 
 mod common;

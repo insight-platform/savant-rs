@@ -13,7 +13,7 @@ use deepstream_buffers::{
     BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer,
     SurfaceView, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{BatchInferenceOutput, ModelColorFormat, NvInfer, NvInferConfig, Roi};
+use deepstream_nvinfer::{BatchInferenceOutput, ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use savant_core::primitives::RBBox;

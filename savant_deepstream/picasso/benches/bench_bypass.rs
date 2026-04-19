@@ -9,8 +9,8 @@
 //! Run with:
 //!
 //! ```sh
-//! cargo bench -p picasso --bench bench_bypass
-//! BENCH_NUM_SOURCES=8 cargo bench -p picasso --bench bench_bypass
+//! cargo bench -p savant-picasso --bench bench_bypass
+//! BENCH_NUM_SOURCES=8 cargo bench -p savant-picasso --bench bench_bypass
 //! ```
 
 use deepstream_buffers::SurfaceView;

@@ -1,7 +1,7 @@
 //! Convenience re-exports for all commonly used types.
 //!
 //! ```ignore
-//! use nvinfer::prelude::*;
+//! use deepstream_nvinfer::prelude::*;
 //! ```
 
 pub use crate::batching_operator::{

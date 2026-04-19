@@ -13,7 +13,7 @@ use deepstream_buffers::{
     SurfaceView, UniformBatchGenerator, VideoFormat,
 };
 use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
-use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
+use deepstream_nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
@@ -167,7 +167,7 @@ fn stress_no_leak_with_rois() {
         None => return,
     };
 
-    use nvinfer::Roi;
+    use deepstream_nvinfer::Roi;
     use savant_core::primitives::RBBox;
     use std::collections::HashMap;
 

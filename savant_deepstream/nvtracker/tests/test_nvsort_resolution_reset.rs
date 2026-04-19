@@ -1,13 +1,13 @@
 //! NvSORT integration tests for automatic stream state resets.
 //!
-//! Run with: `cargo test -p nvtracker --test test_nvsort_resolution_reset -- --test-threads=1`
+//! Run with: `cargo test -p savant-deepstream-nvtracker --test test_nvsort_resolution_reset -- --test-threads=1`
 
 mod common;
 
 use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, VideoFormat,
 };
-use nvtracker::{
+use deepstream_nvtracker::{
     default_ll_lib_path, NvTracker, NvTrackerConfig, Roi, TrackedFrame, TrackingIdResetMode,
 };
 use savant_core::primitives::RBBox;
@@ -92,7 +92,7 @@ fn read_tracker_yaml_u32(path: &Path, key: &str) -> Option<u32> {
     None
 }
 
-fn id_for_source(out: &nvtracker::TrackerOutput, source: &str) -> Option<u64> {
+fn id_for_source(out: &deepstream_nvtracker::TrackerOutput, source: &str) -> Option<u64> {
     out.current_tracks
         .iter()
         .find(|t| t.source_id == source)

@@ -1,5 +1,5 @@
 [package]
-name = "deepstream_decoders"
+name = "savant-deepstream-decoders"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,13 +8,16 @@ homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "hardware-support"]
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "deepstream_decoders"
+
 [dependencies]
-deepstream_buffers = { path = "../buffers" }
-savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-features = false }
+deepstream_buffers = { workspace = true }
+savant_gstreamer = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }
@@ -29,15 +32,18 @@ crossbeam = { workspace = true }
 
 [dev-dependencies]
 cros-codecs = { workspace = true }
-deepstream_encoders = { path = "../encoders" }
+deepstream_encoders = { workspace = true }
 env_logger = { workspace = true }
 serial_test = { workspace = true }
 criterion = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer" }
+savant_gstreamer = { workspace = true }
 
 [[bench]]
 name = "decoder_bench"
 harness = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

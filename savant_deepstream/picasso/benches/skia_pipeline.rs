@@ -14,8 +14,8 @@
 //! Run with:
 //!
 //! ```sh
-//! cargo bench -p picasso --bench skia_pipeline
-//! BENCH_NUM_SOURCES=8 cargo bench -p picasso --bench skia_pipeline
+//! cargo bench -p savant-picasso --bench skia_pipeline
+//! BENCH_NUM_SOURCES=8 cargo bench -p savant-picasso --bench skia_pipeline
 //! ```
 
 use deepstream_buffers::{BufferGenerator, SurfaceView, TransformConfig};

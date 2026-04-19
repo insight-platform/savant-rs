@@ -10,7 +10,7 @@
 //!
 //! # Running
 //! ```sh
-//! cargo test -p deepstream_encoders --test test_encoder_b_frame_stress -- --nocapture
+//! cargo test -p savant-deepstream-encoders --test test_encoder_b_frame_stress -- --nocapture
 //! ```
 
 mod common;

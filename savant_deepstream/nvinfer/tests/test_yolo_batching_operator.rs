@@ -18,7 +18,7 @@ use common::yolo_test_utils::{
     load_ground_truth, match_detections, tensor_shape, tensor_to_f32_vec, yolo11n_properties,
 };
 use deepstream_buffers::{BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, VideoFormat};
-use nvinfer::{
+use deepstream_nvinfer::{
     BatchFormationResult, ModelColorFormat, ModelInputScaling, NvInferBatchingOperator,
     NvInferBatchingOperatorConfig, NvInferConfig, OperatorOutput, OperatorResultCallback, RoiKind,
 };
@@ -143,7 +143,7 @@ fn test_yolo_batching_operator_mixed_sizes() {
 
     let (tx, rx) = mpsc::channel::<BatchResult>();
 
-    let batch_formation: nvinfer::BatchFormationCallback = Arc::new(|frames| {
+    let batch_formation: deepstream_nvinfer::BatchFormationCallback = Arc::new(|frames| {
         let ids = frames
             .iter()
             .enumerate()

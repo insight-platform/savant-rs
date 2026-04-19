@@ -1,8 +1,12 @@
-[package]
+[[bin]]
 name = "replay"
-description = "Replay Service"
-license = "../LICENSE"
-readme = "../README.md"
+path = "src/main.rs"
+
+[package]
+name = "savant-replay"
+description = "Savant Replay service binary: collect streams and replay them via REST."
+license.workspace = true
+readme.workspace = true
 
 version.workspace = true
 edition.workspace = true
@@ -10,7 +14,7 @@ authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "command-line-utilities"]
 rust-version.workspace = true
 
 [dependencies]

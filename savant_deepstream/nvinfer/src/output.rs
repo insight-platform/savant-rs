@@ -61,7 +61,7 @@ impl TensorView {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use nvinfer::output::TensorView;
+    /// # use deepstream_nvinfer::output::TensorView;
     /// # fn example(tv: &TensorView) {
     /// let floats = tv.as_f32s().expect("float tensor with host data");
     /// println!("first value: {}", floats[0]);

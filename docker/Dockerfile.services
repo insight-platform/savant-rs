@@ -29,15 +29,14 @@ RUN --mount=type=cache,id=svc-main,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build \
     cargo build --release \
-        -p buffer_ng -p router -p retina_rtsp -p replay -p savant_info && \
+    -p savant-buffer-ng -p savant-router -p savant-retina-rtsp -p savant-replay -p savant-info && \
     mkdir -p /opt/build-out/release/deps && \
     cp /tmp/build/release/buffer_ng \
-       /tmp/build/release/router \
-       /tmp/build/release/retina_rtsp \
-       /tmp/build/release/replay \
-       /tmp/build/release/savant_info \
-       /opt/build-out/release/ && \
-    cp /tmp/build/release/deps/*.so /opt/build-out/release/deps/
+    /tmp/build/release/router \
+    /tmp/build/release/retina_rtsp \
+    /tmp/build/release/replay \
+    /tmp/build/release/savant_info \
+    /opt/build-out/release/
 
 # --- extract per-service artifacts ---
 FROM builder-main AS extract-buffer-ng
@@ -75,12 +74,11 @@ RUN --mount=type=bind,source=.,target=/opt/savant-rs \
 RUN --mount=type=cache,id=svc-py314,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build \
-    cargo build --release -p meta_merge -p savant_info && \
+    cargo build --release -p savant-meta-merge -p savant-info && \
     mkdir -p /opt/build-out/release/deps && \
     cp /tmp/build/release/meta_merge \
-       /tmp/build/release/savant_info \
-       /opt/build-out/release/ && \
-    cp /tmp/build/release/deps/*.so /opt/build-out/release/deps/
+    /tmp/build/release/savant_info \
+    /opt/build-out/release/
 
 FROM builder-py314 AS extract-meta-merge
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \

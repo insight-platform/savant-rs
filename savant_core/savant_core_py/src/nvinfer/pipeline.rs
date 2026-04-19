@@ -1,6 +1,6 @@
 //! PyO3 wrapper for the NvInfer inference engine.
 //!
-//! Thin bindings over [`nvinfer::NvInfer`]: submit and pull outputs via
+//! Thin bindings over [`deepstream_nvinfer::NvInfer`]: submit and pull outputs via
 //! [`recv`](PyNvInfer::recv) / [`recv_timeout`](PyNvInfer::recv_timeout) /
 //! [`try_recv`](PyNvInfer::try_recv), matching the Rust API.
 
@@ -9,7 +9,7 @@ use super::output::PyBatchInferenceOutput;
 use super::roi::PyRoi;
 use crate::deepstream::{extract_gst_buffer, PySharedBuffer};
 use gstreamer as gst;
-use nvinfer::{NvInfer, NvInferOutput, Roi};
+use deepstream_nvinfer::{NvInfer, NvInferOutput, Roi};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::Py;
@@ -175,7 +175,7 @@ impl PyNvInferOutput {
 /// Wraps a DeepStream ``nvinfer`` element in an ``appsrc -> [queue] ->
 /// nvinfer -> appsink`` GStreamer pipeline.  Outputs are **pulled** with
 /// [`recv`](Self::recv), [`recv_timeout`](Self::recv_timeout), or
-/// [`try_recv`](Self::try_recv), matching the Rust [`nvinfer::NvInfer`] API.
+/// [`try_recv`](Self::try_recv), matching the Rust [`deepstream_nvinfer::NvInfer`] API.
 ///
 /// Args:
 ///     config (NvInferConfig): Engine configuration.
@@ -232,7 +232,7 @@ impl PyNvInfer {
     /// Block until the next output item is available.
     ///
     /// Raises:
-    ///     RuntimeError: On channel disconnect ([`nvinfer::NvInferError::ChannelDisconnected`]).
+    ///     RuntimeError: On channel disconnect ([`deepstream_nvinfer::NvInferError::ChannelDisconnected`]).
     fn recv(&self, py: Python<'_>) -> PyResult<PyNvInferOutput> {
         let engine = self
             .inner

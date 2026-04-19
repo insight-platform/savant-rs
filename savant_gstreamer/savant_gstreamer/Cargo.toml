@@ -1,5 +1,5 @@
 [package]
-name = "savant_gstreamer"
+name = "savant-gstreamer"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,11 +8,12 @@ homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "api-bindings"]
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
+name = "savant_gstreamer"
 crate-type = ["rlib"]
 
 [dependencies]

@@ -115,7 +115,7 @@ Extra `nvtracker` GObject properties go through `NvTrackerConfig::element_proper
 
 ## Batching operator data flow
 
-`NvTrackerBatchingOperator` wraps `NvTracker` using the same high-level pattern as `nvinfer::NvInferBatchingOperator`:
+`NvTrackerBatchingOperator` wraps `NvTracker` using the same high-level pattern as `deepstream_nvinfer::NvInferBatchingOperator`:
 
 1. `add_frame(VideoFrameProxy, SharedBuffer)` appends to shared
    `deepstream_buffers::BatchState`.

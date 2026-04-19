@@ -369,16 +369,16 @@ use gstreamer as gst;
 
 ```bash
 # All buffers tests (GPU required)
-cargo test -p deepstream_buffers
+cargo test -p savant-deepstream-buffers
 
 # Single test file
-cargo test -p deepstream_buffers --test slot_view
+cargo test -p savant-deepstream-buffers --test slot_view
 
 # Single test
-cargo test -p deepstream_buffers --test slot_view test_uniform_extract_first_slot
+cargo test -p savant-deepstream-buffers --test slot_view test_uniform_extract_first_slot
 
 # With logging
-RUST_LOG=debug cargo test -p deepstream_buffers --test slot_view -- --nocapture
+RUST_LOG=debug cargo test -p savant-deepstream-buffers --test slot_view -- --nocapture
 
 # Python tests (full build cycle)
 SAVANT_FEATURES=deepstream make release install && make sp-pytest
@@ -386,7 +386,7 @@ SAVANT_FEATURES=deepstream make release install && make sp-pytest
 
 ⚠ Do **not** run `cargo test --features deepstream` on the entire workspace —
 the `savant_rs` Python extension crate has linking issues in test mode.
-Always test individual crates: `-p deepstream_buffers`, `-p nvinfer`.
+Always test individual crates: `-p savant-deepstream-buffers`, `-p savant-deepstream-nvinfer`.
 
 ---
 
@@ -528,7 +528,7 @@ Use `from_buffer(&shared, 0)` for input buffers — no `wrap` workaround needed.
 prevents re-registration on recycle.
 
 ```bash
-cargo bench -p deepstream_buffers --bench surface_view_mapping
+cargo bench -p savant-deepstream-buffers --bench surface_view_mapping
 ```
 
 ---

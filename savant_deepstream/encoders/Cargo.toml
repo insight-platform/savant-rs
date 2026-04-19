@@ -1,5 +1,5 @@
 [package]
-name = "deepstream_encoders"
+name = "savant-deepstream-encoders"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,13 +8,16 @@ homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "hardware-support"]
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "deepstream_encoders"
+
 [dependencies]
-deepstream_buffers = { path = "../buffers" }
-savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-features = false }
+deepstream_buffers = { workspace = true }
+savant_gstreamer = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }
@@ -34,3 +37,6 @@ nvidia_gpu_utils = { workspace = true }
 [[bench]]
 name = "encoder_bench"
 harness = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

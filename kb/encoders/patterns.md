@@ -258,8 +258,8 @@ nvidia_gpu_utils = { workspace = true }
 
 ## Build & Test
 ```bash
-cargo fmt -p deepstream_encoders
-cargo clippy -p deepstream_encoders --tests --benches -- -D warnings
-cargo test -p deepstream_encoders -- --test-threads=1
+cargo fmt -p savant-deepstream-encoders
+cargo clippy -p savant-deepstream-encoders --tests --benches -- -D warnings
+cargo test -p savant-deepstream-encoders -- --test-threads=1
 ```
 ⚠ Use `--test-threads=1` or `#[serial]` — GStreamer + CUDA state is process-global.

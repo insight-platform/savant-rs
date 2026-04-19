@@ -130,7 +130,7 @@ If you prefer to build the service from source, you can do so using Docker or Ca
 
    .. code-block:: bash
 
-      cargo build --release -p buffer_ng
+      cargo build --release -p savant-buffer-ng
 
    .. note::
 
@@ -143,7 +143,7 @@ For development purposes, you can run the Buffer NG service directly from the so
 
 .. code-block:: bash
 
-   LOGLEVEL=info cargo run -p buffer_ng services/buffer_ng/assets/configuration.json
+   LOGLEVEL=info cargo run -p savant-buffer-ng services/buffer_ng/assets/configuration.json
 
 This approach is useful when developing custom Python handlers or modifying the service configuration during development.
 

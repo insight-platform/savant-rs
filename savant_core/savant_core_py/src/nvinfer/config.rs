@@ -3,7 +3,7 @@
 use super::enums::{PyModelColorFormat, PyModelInputScaling};
 use crate::deepstream::enums::PyMetaClearPolicy;
 use crate::deepstream::enums::PyVideoFormat;
-use nvinfer::NvInferConfig;
+use deepstream_nvinfer::NvInferConfig;
 use pyo3::prelude::*;
 use savant_gstreamer::VideoFormat;
 use std::collections::HashMap;

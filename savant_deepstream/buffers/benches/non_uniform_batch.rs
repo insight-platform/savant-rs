@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo bench -p deepstream_buffers --bench non_uniform_batch
+//! cargo bench -p savant-deepstream-buffers --bench non_uniform_batch
 //! ```
 
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};

@@ -123,7 +123,7 @@ If you prefer to build the service from source, you can do so using Docker or Ca
 
    .. code-block:: bash
 
-      cargo build --release -p router
+      cargo build --release -p savant-router
 
    .. note::
 
@@ -136,7 +136,7 @@ For development purposes, you can run the Router service directly from the sourc
 
 .. code-block:: bash
 
-   LOGLEVEL=info cargo run -p router services/router/assets/configuration.json
+   LOGLEVEL=info cargo run -p savant-router services/router/assets/configuration.json
 
 This approach is useful when developing custom Python handlers or modifying the service configuration during development.
 

@@ -123,7 +123,7 @@ If you prefer to build the service from source, you can do so using Docker or Ca
 
    .. code-block:: bash
 
-      cargo build --release -p meta_merge
+      cargo build --release -p savant-meta-merge
 
    .. note::
 
@@ -136,7 +136,7 @@ For development purposes, you can run the Meta Merge service directly from the s
 
 .. code-block:: bash
 
-   LOGLEVEL=info cargo run -p meta_merge services/meta_merge/assets/configuration.json
+   LOGLEVEL=info cargo run -p savant-meta-merge services/meta_merge/assets/configuration.json
 
 This approach is useful when developing custom Python handlers or modifying the service configuration during development.
 

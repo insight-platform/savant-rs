@@ -152,7 +152,7 @@ storing this pointer across operations that might free the buffer.
 
 ```bash
 # Rust tests (GPU required)
-cargo test -p deepstream_buffers
+cargo test -p savant-deepstream-buffers
 
 # Python tests (GPU required, full build)
 SAVANT_FEATURES=deepstream make release install && make sp-pytest

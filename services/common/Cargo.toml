@@ -1,16 +1,19 @@
 [package]
-name = "savant_services_common"
+name = "savant-services-common"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Shared utilities for Savant microservices (config, caches, metrics)."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["asynchronous"]
 license.workspace = true
 rust-version.workspace = true
+
+[lib]
+name = "savant_services_common"
 
 [dependencies]
 anyhow = { workspace = true }

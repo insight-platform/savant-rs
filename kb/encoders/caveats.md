@@ -184,7 +184,7 @@ matches the decoder contract verbatim.
 - Use `#[serial]` on integration tests -- GStreamer + CUDA state is
   process-global.
 - Run with `--test-threads=1`:
-  `cargo test -p deepstream_encoders -- --test-threads=1`.
+  `cargo test -p savant-deepstream-encoders -- --test-threads=1`.
 - `gstreamer::init()` is idempotent but must precede any GStreamer
   operation.
 - `cuda_init(0)` must precede any `NvEncoder::new`.

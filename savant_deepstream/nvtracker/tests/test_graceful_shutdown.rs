@@ -3,7 +3,7 @@
 mod common;
 
 use deepstream_buffers::{NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, VideoFormat};
-use nvtracker::{
+use deepstream_nvtracker::{
     default_ll_lib_path, NvTracker, NvTrackerConfig, NvTrackerError, NvTrackerOutput, Roi,
     TrackedFrame, TrackingIdResetMode,
 };

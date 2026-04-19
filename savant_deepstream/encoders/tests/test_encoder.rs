@@ -6,7 +6,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo test -p deepstream_encoders --test test_encoder
+//! cargo test -p savant-deepstream-encoders --test test_encoder
 //! ```
 
 mod common;

@@ -37,7 +37,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo bench -p deepstream_encoders --bench encoder_bench
+//! cargo bench -p savant-deepstream-encoders --bench encoder_bench
 //! ```
 
 use std::sync::Once;

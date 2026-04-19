@@ -15,7 +15,7 @@ members = [
     "services/buffer_ng",
     "services/meta_merge",
     "services/common",
-    "savant_deepstream/deepstream-sys",
+    "savant_deepstream/deepstream_sys",
     "savant_deepstream/deepstream",
     "savant_deepstream/buffers",
     "savant_deepstream/encoders",
@@ -36,17 +36,20 @@ default-members = [
 ]
 
 [workspace.package]
-version = "2.1.0"
+version = "2.1.1"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
-description = "Savant Rust core functions library"
-homepage = "https://github.com/insight-platform/savant-rs"
+# Fallback description; every publishable crate overrides with a specific one.
+description = "Savant: optimized Rust primitives and services for real-time video analytics pipelines."
+homepage = "https://insight-platform.github.io/savant-rs/"
 repository = "https://github.com/insight-platform/savant-rs"
+documentation = "https://docs.rs"
 readme = "README.md"
-keywords = ["computer-vision", "video-processing"]
-categories = ["algorithms", "data-structures", "computer-vision"]
+keywords = ["savant", "video", "streaming", "gstreamer"]
+categories = ["multimedia::video", "algorithms", "data-structures"]
 license = "Apache-2.0"
 rust-version = "1.83"
+include = ["src/**/*", "build.rs", "README.md", "LICENSE", "Cargo.toml"]
 
 [workspace.dependencies]
 actix-ws = "0.3.0"
@@ -147,29 +150,42 @@ pyo3-build-config = "0.28.2"
 rand = "0.9"
 rayon = "1.10"
 regex = "1"
-replaydb = { path = "services/replay/replaydb" }
-replay = { path = "services/replay/replay" }
+replaydb = { path = "services/replay/replaydb", version = "2.1.1", package = "savant-replaydb" }
+replay = { path = "services/replay/replay", version = "2.1.1", package = "savant-replay" }
 reqwest = { version = "0.12.7", default-features = false, features = [
     "rustls-tls-native-roots",
     "json",
 ] }
 retina = "=0.4.15"
-retina_rtsp = { path = "services/retina_rtsp" }
+retina_rtsp = { path = "services/retina_rtsp", version = "2.1.1", package = "savant-retina-rtsp" }
 rocksdb = { version = "0.23", default-features = false, features = [
     "bindgen-runtime",
     "lz4",
 ] }
 ring = "0.17"
 
-savant_etcd = { path = "savant_etcd" }
-savant_core = { path = "savant_core/savant_core" }
-savant_core_py = { path = "savant_core/savant_core_py" }
-savant_protobuf = { path = "savant_protobuf" }
-savant_rs = { path = "savant_python" }
-savant_gstreamer = { path = "savant_gstreamer/savant_gstreamer" }
-deepstream_buffers = { path = "savant_deepstream/buffers" }
-nvidia_gpu_utils = { path = "savant_deepstream/nvidia_gpu_utils" }
-savant_services_common = { path = "services/common" }
+# Savant internal crates — major-only version keeps future bumps to a single edit in
+# [workspace.package].version; the `package =` alias preserves existing `use foo::...` imports
+# while the on-crates.io name becomes the kebab-case savant-* form.
+savant_etcd = { path = "savant_etcd", version = "2.1.1", package = "savant-etcd" }
+savant_core = { path = "savant_core/savant_core", version = "2.1.1", package = "savant-core" }
+savant_core_py = { path = "savant_core/savant_core_py", version = "2.1.1", package = "savant-core-py" }
+savant_protobuf = { path = "savant_protobuf", version = "2.1.1", package = "savant-protobuf" }
+savant_rs = { path = "savant_python", version = "2.1.1", package = "savant-rs" }
+savant_gstreamer = { path = "savant_gstreamer/savant_gstreamer", version = "2.1.1", package = "savant-gstreamer" }
+savant_services_common = { path = "services/common", version = "2.1.1", package = "savant-services-common" }
+
+# DeepStream family
+deepstream_sys = { path = "savant_deepstream/deepstream_sys", version = "2.1.1", package = "savant-deepstream-sys" }
+deepstream = { path = "savant_deepstream/deepstream", version = "2.1.1", package = "savant-deepstream" }
+deepstream_buffers = { path = "savant_deepstream/buffers", version = "2.1.1", package = "savant-deepstream-buffers" }
+deepstream_encoders = { path = "savant_deepstream/encoders", version = "2.1.1", package = "savant-deepstream-encoders" }
+deepstream_decoders = { path = "savant_deepstream/decoders", version = "2.1.1", package = "savant-deepstream-decoders" }
+deepstream_inputs = { path = "savant_deepstream/inputs", version = "2.1.1", package = "savant-deepstream-inputs" }
+deepstream_nvinfer = { path = "savant_deepstream/nvinfer", version = "2.1.1", package = "savant-deepstream-nvinfer" }
+deepstream_nvtracker = { path = "savant_deepstream/nvtracker", version = "2.1.1", package = "savant-deepstream-nvtracker" }
+picasso = { path = "savant_deepstream/picasso", version = "2.1.1", package = "savant-picasso" }
+nvidia_gpu_utils = { path = "savant_deepstream/nvidia_gpu_utils", version = "2.1.1", package = "savant-nvidia-gpu-utils" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

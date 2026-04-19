@@ -8,7 +8,7 @@ This guide reflects the current channel-based API (`submit` + `recv*`), not the 
 use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, VideoFormat,
 };
-use nvtracker::{
+use deepstream_nvtracker::{
     default_ll_lib_path, NvTracker, NvTrackerConfig, NvTrackerOutput, Roi, TrackedFrame,
     TrackingIdResetMode,
 };

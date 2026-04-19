@@ -1,4 +1,4 @@
-//! PyO3 bindings for the [`NvTrackerBatchingOperator`](nvtracker::NvTrackerBatchingOperator).
+//! PyO3 bindings for the [`NvTrackerBatchingOperator`](deepstream_nvtracker::NvTrackerBatchingOperator).
 
 use super::config::PyNvTrackerConfig;
 use super::output::{PyMiscTrackData, PyTrackedObject};
@@ -7,7 +7,7 @@ use crate::deepstream::{extract_gst_buffer, PySharedBuffer};
 use crate::nvinfer::roi::PyRoi;
 use crate::primitives::frame::VideoFrame;
 use deepstream_buffers::SavantIdMetaKind;
-use nvtracker::{
+use deepstream_nvtracker::{
     NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig, SealedDeliveries,
     TrackerBatchFormationCallback, TrackerBatchFormationResult, TrackerOperatorOutput,
     TrackerOperatorTrackingOutput,
@@ -123,7 +123,7 @@ impl PyTrackerBatchFormationResult {
                             .into_iter()
                             .map(|r| {
                                 let roi = r.bind(py).borrow().to_rust();
-                                nvtracker::Roi {
+                                deepstream_nvtracker::Roi {
                                     id: roi.id,
                                     bbox: roi.bbox,
                                 }
@@ -531,7 +531,7 @@ impl PyNvTrackerBatchingOperator {
             })
         });
 
-        let result_cb: nvtracker::TrackerOperatorResultCallback =
+        let result_cb: deepstream_nvtracker::TrackerOperatorResultCallback =
             Box::new(move |output: TrackerOperatorOutput| {
                 Python::attach(|py| {
                     let py_output = PyTrackerOperatorOutput::from_rust(output);

@@ -3,7 +3,7 @@
 use super::enums::PyTrackState;
 use crate::deepstream::buffer::PySharedBuffer;
 use deepstream_buffers::SharedBuffer;
-use nvtracker::{TrackedObject, TrackerOutput};
+use deepstream_nvtracker::{TrackedObject, TrackerOutput};
 use pyo3::prelude::*;
 use savant_core::primitives::misc_track::{MiscTrackData, MiscTrackFrame};
 

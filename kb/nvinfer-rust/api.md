@@ -1,7 +1,7 @@
 # NvInfer Public API
 
 Crate: `nvinfer`  
-Prelude: `use nvinfer::prelude::*;`
+Prelude: `use deepstream_nvinfer::prelude::*;`
 
 ## Core exports
 

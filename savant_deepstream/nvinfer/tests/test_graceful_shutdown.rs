@@ -7,7 +7,7 @@ use deepstream_buffers::{
     VideoFormat,
 };
 use gstreamer as gst;
-use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, NvInferError, NvInferOutput};
+use deepstream_nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, NvInferError, NvInferOutput};
 use serial_test::serial;
 use std::time::Duration;
 

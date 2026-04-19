@@ -13,7 +13,7 @@
 //! Run with:
 //!
 //! ```sh
-//! cargo bench -p picasso --bench bench_hevc_throughput
+//! cargo bench -p savant-picasso --bench bench_hevc_throughput
 //! ```
 
 use criterion::{criterion_group, criterion_main, Criterion};

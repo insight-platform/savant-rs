@@ -1,16 +1,19 @@
 [package]
-name = "savant_etcd"
+name = "savant-etcd"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Async etcd helpers used by the Savant control plane."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
-keywords.workspace = true
-categories.workspace = true
+keywords = ["savant", "etcd", "async", "control-plane"]
+categories = ["database", "asynchronous"]
 license.workspace = true
 rust-version.workspace = true
+
+[lib]
+name = "savant_etcd"
 
 [dependencies]
 log = { workspace = true }

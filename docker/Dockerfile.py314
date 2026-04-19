@@ -28,7 +28,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 RUN --mount=type=cache,id=build-py314,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build \
-    cargo build --release -p savant_info
+    cargo build --release -p savant-info
 
 RUN --mount=type=cache,id=build-py314,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/python314/copy-deps.sh
 

@@ -1,8 +1,8 @@
 [package]
-name = "replaydb"
-description = "Replay Service"
-license = "../LICENSE"
-readme = "../README.md"
+name = "savant-replaydb"
+description = "RocksDB-backed frame/video store used by the Savant Replay service."
+license.workspace = true
+readme.workspace = true
 
 version.workspace = true
 edition.workspace = true
@@ -12,6 +12,9 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
+
+[lib]
+name = "replaydb"
 
 [dependencies]
 

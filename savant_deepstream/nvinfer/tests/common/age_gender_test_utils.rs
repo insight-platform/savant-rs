@@ -7,7 +7,7 @@
 // expected on the others.
 
 use candle_core::{DType, Device, Tensor};
-use nvinfer::{DataType, TensorView};
+use deepstream_nvinfer::{DataType, TensorView};
 use rand::rngs::SmallRng;
 use rand::Rng;
 use std::path::Path;

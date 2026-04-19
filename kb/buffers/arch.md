@@ -61,8 +61,8 @@ savant_deepstream/buffers/
 ## Shared batching state
 
 `deepstream_buffers::BatchState<T>` is the single shared implementation for
-size/time batching queues. `nvinfer::NvInferBatchingOperator` and
-`nvtracker::NvTrackerBatchingOperator` both use this type instead of local
+size/time batching queues. `deepstream_nvinfer::NvInferBatchingOperator` and
+`deepstream_nvtracker::NvTrackerBatchingOperator` both use this type instead of local
 duplicate `state.rs` structs.
 
 ### NvBufSurface C Struct Layout

@@ -11,7 +11,7 @@ use deepstream_buffers::{
     BufferGenerator, ComputeMode, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind,
     SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig};
+use deepstream_nvinfer::{ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig};
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

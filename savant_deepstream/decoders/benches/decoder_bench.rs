@@ -10,7 +10,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo bench -p deepstream_decoders --bench decoder_bench
+//! cargo bench -p savant-deepstream-decoders --bench decoder_bench
 //! ```
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};

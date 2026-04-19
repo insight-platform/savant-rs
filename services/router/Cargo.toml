@@ -1,14 +1,18 @@
-[package]
+[[bin]]
 name = "router"
+path = "src/main.rs"
+
+[package]
+name = "savant-router"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Savant Router service binary: Python-extensible stream routing."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "command-line-utilities"]
 license.workspace = true
 rust-version.workspace = true
 
@@ -23,7 +27,7 @@ pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_core = { workspace = true }
 savant_core_py = { workspace = true }
 savant_rs = { workspace = true }
-savant_services_common = { path = "../common" }
+savant_services_common = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 twelf = { workspace = true }

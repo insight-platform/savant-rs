@@ -7,17 +7,17 @@
 
 use std::collections::HashMap;
 
-use nvinfer::TensorView;
+use deepstream_nvinfer::TensorView;
 use savant_core::primitives::RBBox;
 
 /// Converts a `TensorView` to `Vec<f32>`, handling fp16 and fp32.
 pub fn tensor_to_f32_vec(tv: &TensorView) -> Vec<f32> {
     match tv.data_type {
-        nvinfer::DataType::Half => {
+        deepstream_nvinfer::DataType::Half => {
             let raw: &[half::f16] = unsafe { tv.as_slice() };
             raw.iter().map(|v| v.to_f32()).collect()
         }
-        nvinfer::DataType::Float => {
+        deepstream_nvinfer::DataType::Float => {
             let raw: &[f32] = unsafe { tv.as_slice() };
             raw.to_vec()
         }

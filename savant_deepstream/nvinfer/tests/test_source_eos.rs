@@ -2,7 +2,7 @@
 
 mod common;
 
-use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, NvInferOutput, VideoFormat};
+use deepstream_nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, NvInferOutput, VideoFormat};
 use serial_test::serial;
 use std::time::Duration;
 

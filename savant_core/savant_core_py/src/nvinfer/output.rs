@@ -5,7 +5,7 @@
 //! (`ElementOutput`, `TensorView`) can share the lifetime.
 
 use super::enums::PyDataType;
-use nvinfer::BatchInferenceOutput;
+use deepstream_nvinfer::BatchInferenceOutput;
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};

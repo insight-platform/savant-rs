@@ -1,5 +1,5 @@
 [package]
-name = "deepstream_buffers"
+name = "savant-deepstream-buffers"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,11 +8,12 @@ homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "hardware-support"]
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
+name = "deepstream_buffers"
 crate-type = ["rlib"]
 
 [dependencies]
@@ -53,3 +54,6 @@ harness = false
 [[bench]]
 name = "surface_view_mapping"
 harness = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

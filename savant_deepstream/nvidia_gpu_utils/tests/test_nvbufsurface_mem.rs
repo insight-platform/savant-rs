@@ -1,7 +1,7 @@
 //! Integration test: verify that `gpu_mem_used_mib` reflects GPU memory changes
 //! when allocating and releasing `NvBufSurface` buffers via `deepstream_buffers`.
 //!
-//! Run with: `cargo test -p nvidia_gpu_utils --test test_nvbufsurface_mem -- --nocapture`
+//! Run with: `cargo test -p savant-nvidia-gpu-utils --test test_nvbufsurface_mem -- --nocapture`
 //!
 //! # Jetson (Tegra)
 //!
