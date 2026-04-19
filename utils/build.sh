@@ -55,30 +55,13 @@ export PROJECT_DIR
 PROJECT_DIR=$(pwd)
 echo "Project dir: $PROJECT_DIR"
 
-export RUST_TOOLCHAIN
-RUST_TOOLCHAIN=$(rustup default | awk '{print $1}')
-echo "Rust toolchain: $RUST_TOOLCHAIN"
-
-# debug
-find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep -F "$RUST_TOOLCHAIN"
-
-# Find Rust std directory more securely
-RUST_STD_DIR=$(find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep -F "$RUST_TOOLCHAIN" | head -n1 | xargs -r dirname)
-readonly RUST_STD_DIR
-echo "Rust std dir: $RUST_STD_DIR"
-
-# Set LD_LIBRARY_PATH with proper path handling
-LD_LIBRARY_PATH="${RUST_STD_DIR}:${PROJECT_DIR}/target/${MODE}:${PROJECT_DIR}/target/${MODE}/deps"
-if [ -n "${CARGO_TARGET_DIR:-}" ]; then
-    LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${CARGO_TARGET_DIR}/${MODE}:${CARGO_TARGET_DIR}/${MODE}/deps"
-fi
 # DeepStream runtime libraries (nvinfer, nvdsgst_meta, nvds_meta, etc.)
 DS_LIB_DIR="/opt/nvidia/deepstream/deepstream/lib"
 if [ -d "$DS_LIB_DIR" ]; then
     LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DS_LIB_DIR}"
+    export LD_LIBRARY_PATH
+    echo "Updated LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 fi
-export LD_LIBRARY_PATH
-echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 
 # Build configuration
 CARGO_BUILD_FLAG=""

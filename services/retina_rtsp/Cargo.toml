@@ -7,16 +7,16 @@ name = "retina_rtsp"
 path = "src/main.rs"
 
 [package]
-name = "retina_rtsp"
+name = "savant-retina-rtsp"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Savant RTSP ingestor based on retina + cros-codecs."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "network-programming"]
 license.workspace = true
 rust-version.workspace = true
 

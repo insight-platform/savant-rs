@@ -1,8 +1,7 @@
+use crate::deepstream::encoder_config::PyEncoderConfig;
 use crate::deepstream::PyTransformConfig;
 use picasso::prelude::CodecSpec;
 use pyo3::prelude::*;
-
-use super::super::encoder::PyEncoderConfig;
 
 /// Describes what to do with each incoming frame for a given source.
 ///
@@ -38,15 +37,20 @@ impl PyCodecSpec {
 
     /// GPU-transform the frame to a target resolution, optionally render Skia
     /// overlays, then encode.
+    ///
+    /// Raises ``ValueError`` when the supplied [`PyEncoderConfig`] carries
+    /// ``encoder_params`` whose codec or build-platform variant does not
+    /// match the configured codec / current build target.
     #[staticmethod]
-    fn encode(transform: &PyTransformConfig, encoder: &PyEncoderConfig) -> Self {
+    fn encode(transform: &PyTransformConfig, encoder: &PyEncoderConfig) -> PyResult<Self> {
         let transform_cfg = transform.to_rust();
-        Self {
+        let encoder_cfg = encoder.to_rust()?;
+        Ok(Self {
             inner: CodecSpec::Encode {
                 transform: transform_cfg,
-                encoder: Box::new(encoder.to_rust()),
+                encoder: Box::new(encoder_cfg),
             },
-        }
+        })
     }
 
     /// `True` when this spec drops frames.

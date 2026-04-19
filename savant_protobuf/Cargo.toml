@@ -1,16 +1,19 @@
 [package]
-name = "savant_protobuf"
+name = "savant-protobuf"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Protobuf schema and generated types for Savant inter-process messaging."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
-keywords.workspace = true
-categories.workspace = true
+keywords = ["savant", "protobuf", "grpc", "streaming"]
+categories = ["encoding", "api-bindings"]
 license.workspace = true
 rust-version.workspace = true
+
+[lib]
+name = "savant_protobuf"
 
 [dependencies]
 prost = { workspace = true }

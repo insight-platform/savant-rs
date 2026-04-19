@@ -1,5 +1,5 @@
 [package]
-name = "picasso"
+name = "savant-picasso"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,17 +8,18 @@ homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "rendering"]
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
+name = "picasso"
 crate-type = ["rlib"]
 
 [dependencies]
-savant_core = { path = "../../savant_core/savant_core" }
-deepstream_encoders = { path = "../encoders" }
-deepstream_buffers = { path = "../buffers", features = ["skia"] }
+savant_core = { workspace = true }
+deepstream_encoders = { workspace = true }
+deepstream_buffers = { workspace = true, features = ["skia"] }
 gstreamer = { workspace = true }
 skia-safe = { workspace = true }
 crossbeam = { workspace = true }
@@ -29,7 +30,7 @@ thiserror = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
-deepstream_buffers = { path = "../buffers" }
+deepstream_buffers = { workspace = true }
 env_logger = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
@@ -53,3 +54,6 @@ harness = false
 [[bench]]
 name = "bench_sync_hevc_render"
 harness = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

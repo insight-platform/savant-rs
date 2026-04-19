@@ -216,10 +216,16 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
     };
     let engine = PicassoEngine::new(general, callbacks);
 
-    let enc_config = EncoderConfig::new(Codec::Jpeg, DST_W, DST_H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(95) }));
+    let enc_config = NvEncoderConfig::new(
+        0,
+        EncoderConfig::Jpeg(
+            JpegEncoderConfig::new(DST_W, DST_H)
+                .format(VideoFormat::RGBA)
+                .fps(30, 1)
+                .props(JpegProps { quality: Some(95) }),
+        ),
+    )
+    .name("picasso-letterbox-jpeg");
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -415,10 +421,16 @@ fn letterbox_crop_two_sources_one_engine() {
     let engine = PicassoEngine::new(general, callbacks);
 
     let make_spec = |padding: Padding| -> SourceSpec {
-        let enc_config = EncoderConfig::new(Codec::Jpeg, DST_W, DST_H)
-            .format(VideoFormat::RGBA)
-            .fps(30, 1)
-            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(95) }));
+        let enc_config = NvEncoderConfig::new(
+            0,
+            EncoderConfig::Jpeg(
+                JpegEncoderConfig::new(DST_W, DST_H)
+                    .format(VideoFormat::RGBA)
+                    .fps(30, 1)
+                    .props(JpegProps { quality: Some(95) }),
+            ),
+        )
+        .name("picasso-letterbox-jpeg");
         SourceSpec {
             codec: CodecSpec::Encode {
                 transform: transform_config(padding),

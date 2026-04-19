@@ -1,139 +1,74 @@
-//! B-frame stress tests for the NvEncoder.
+//! B-frame stress tests for [`NvEncoder`].
 //!
-//! Decodes a real-world video (NY City Center, H.264 1080p) and re-encodes it
-//! through every B-frame-capable profile at keyframe-interval 30.  The tests
-//! verify that:
-//!
-//! 1. Output PTS values are **strictly monotonically increasing** – i.e. no
-//!    PTS reordering occurs, proving B-frames were never emitted.
-//! 2. When DTS is present it satisfies **DTS ≤ PTS** for every frame.
-//!
-//! If B-frames were silently enabled, the encoder would internally reorder
-//! frames and the output PTS sequence would *not* be monotonic (the decoder
-//! would see P,B,B,P ordering).
-//!
-//! # Architecture
-//!
-//! Decoding and encoding are done **frame-by-frame** in lockstep.  Each
-//! decoded NVMM buffer is immediately copied into the encoder's own buffer
-//! pool via [`NvEncoder::generator`]'s [`deepstream_buffers::BufferGenerator::transform`]
-//! and then **dropped** so the
-//! decoder's output buffer pool is not exhausted (`nvv4l2decoder` typically
-//! has only 4-8 output buffers).  Encoded output is pulled after every
-//! submit to keep the encoder pipeline flowing (NvEncoder uses a deeper
-//! pool sizing inside [`NvEncoder`] on Jetson for V4L2 video encoders).
-//!
-//! # Requirements
-//!
-//! * GPU with NVENC support and DeepStream installed.
-//! * Internet access to download the test video on first run.
-//!   The file is cached in `/tmp/savant_test_data/`.
-//! * **dGPU (x86_64)**: decoder outputs NVMM NV12; encoders use
-//!   [`H264DgpuProps`] / [`HevcDgpuProps`] (`preset-id`, `aq`, …).
-//! * **Jetson (`aarch64`)**: decoder adds `nvvideoconvert` to NVMM **RGBA** so
-//!   [`SurfaceView`] EGL registration sees pitch-linear frames; encoders use
-//!   [`H264JetsonProps`] / [`HevcJetsonProps`].  Tests that exercise dGPU-only
-//!   properties (`temporalaq`, `aq`, …) skip on Jetson.
+//! Decodes a real-world 1080p H.264 video (NY City Center) and re-encodes
+//! every decoded frame through every B-frame-capable profile.  The
+//! encoder validates output ordering internally (strict PTS monotonicity
+//! and DTS ≤ PTS); any B-frame leakage surfaces as an
+//! [`EncoderError::OutputPtsReordered`] or
+//! [`EncoderError::OutputDtsExceedsPts`] either during `submit_frame` or
+//! `graceful_shutdown`.
 //!
 //! # Running
-//!
 //! ```sh
-//! cargo test -p deepstream_encoders --test test_encoder_b_frame_stress -- --nocapture
+//! cargo test -p savant-deepstream-encoders --test test_encoder_b_frame_stress -- --nocapture
 //! ```
 
-use deepstream_buffers::{ComputeMode, Interpolation, Padding, TransformConfig, VideoFormat};
+mod common;
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+use common::{has_nvenc, init, is_jetson};
+use deepstream_buffers::{ComputeMode, Interpolation, Padding, TransformConfig};
 use deepstream_encoders::prelude::*;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use serial_test::serial;
-use std::path::{Path, PathBuf};
 
-fn has_nvenc() -> bool {
-    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
-}
-
-fn is_jetson() -> bool {
-    cfg!(target_arch = "aarch64")
-}
-
-// ─── Constants ───────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────
 
 const VIDEO_URL: &str =
     "https://eu-central-1.linodeobjects.com/savant-data/demo/ny_city_center.mov";
 const VIDEO_CACHE_DIR: &str = "/tmp/savant_test_data";
 const VIDEO_FILENAME: &str = "ny_city_center.mov";
-
-/// Keyframe interval used for all tests.
 const IFRAME_INTERVAL: u32 = 30;
+const FRAME_DUR_NS: u64 = 33_333_333;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────
+// ─── Asset management ────────────────────────────────────────────────
 
-/// Initialize CUDA and GStreamer once.
-fn init() {
-    let _ = env_logger::try_init();
-    let _ = gst::init();
-    cuda_init(0).expect("CUDA init failed — is a GPU available?");
-}
-
-/// Download the test video if it is not already cached.  Returns the local
-/// path to the `.mov` file.
 fn ensure_video() -> PathBuf {
     let dir = Path::new(VIDEO_CACHE_DIR);
     let path = dir.join(VIDEO_FILENAME);
-
     if path.exists() {
         eprintln!("Video already cached: {}", path.display());
         return path;
     }
-
     std::fs::create_dir_all(dir).expect("Failed to create cache directory");
     eprintln!("Downloading test video from {VIDEO_URL} ...");
-
     let status = std::process::Command::new("curl")
         .args(["-fSL", "--retry", "3", "-o"])
         .arg(&path)
         .arg(VIDEO_URL)
         .status()
         .expect("Failed to invoke curl — is it installed?");
-
-    assert!(
-        status.success(),
-        "curl failed to download {VIDEO_URL} (exit code: {status})"
-    );
-
+    assert!(status.success(), "curl failed to download {VIDEO_URL}");
     eprintln!("Downloaded to {}", path.display());
     path
 }
 
-/// Build a decoder pipeline, probe resolution, then stream-decode +
-/// re-encode through the given encoder configuration.
-///
-/// For each decoded NVMM frame:
-/// 1. `encoder.generator().transform()` copies it into the encoder's buffer pool (GPU→GPU).
-/// 2. The decoded buffer is **dropped immediately** so the decoder's
-///    output pool is not exhausted.
-/// 3. The frame is submitted to the encoder.
-/// 4. Encoded output is drained to keep the encoder pipeline flowing.
-///
-/// The encoder validates output PTS/DTS ordering internally: if B-frames
-/// leak through, `pull_encoded()` or `finish()` will return
-/// `Err(OutputPtsReordered)` / `Err(OutputDtsExceedsPts)`.  This function
-/// propagates those errors via `unwrap`, so a successful return proves no
-/// B-frames were emitted.
-///
-/// Returns `(submitted_count, encoded_count)`.
-fn decode_and_reencode(
-    video_path: &Path,
-    config_fn: &dyn Fn(u32, u32) -> EncoderConfig,
-) -> (usize, usize) {
+// ─── Decode + re-encode driver ───────────────────────────────────────
+
+/// Build the GStreamer decode pipeline, probe the video resolution, and
+/// re-encode each decoded frame through an [`NvEncoder`] created from
+/// `config_fn(width, height)`.  Panics on any PTS/DTS ordering
+/// violation.
+fn decode_and_reencode(video_path: &Path, config_fn: &dyn Fn(u32, u32) -> EncoderConfig) {
     let path_str = video_path.to_str().expect("video path is not valid UTF-8");
 
-    // Build the GStreamer decode pipeline.
-    //
-    // The explicit `d.video_0` pad selection avoids early EOS caused by
-    // an unconnected audio pad on `qtdemux`.
-    // Jetson: decoder NV12 is often not CU_EGL_FRAME_TYPE_PITCH for EGL-CUDA;
-    // convert to NVMM RGBA for [`SurfaceView`] + encoder pool via `transform`.
+    // dGPU gets NV12 directly; Jetson needs an extra nvvideoconvert to
+    // turn NV12 into pitch-linear RGBA so SurfaceView + EGL can register
+    // the slot.
     let after_decoder = if is_jetson() {
         "nvv4l2decoder ! nvvideoconvert compute-hw=1 ! \
          video/x-raw(memory:NVMM),format=RGBA"
@@ -150,10 +85,7 @@ fn decode_and_reencode(
         .expect("Failed to build decode pipeline")
         .dynamic_cast::<gst::Pipeline>()
         .expect("Pipeline cast failed");
-
-    pipeline
-        .set_state(gst::State::Playing)
-        .expect("Failed to start decode pipeline");
+    pipeline.set_state(gst::State::Playing).unwrap();
 
     let appsink = pipeline
         .by_name("sink")
@@ -161,25 +93,21 @@ fn decode_and_reencode(
         .dynamic_cast::<gstreamer_app::AppSink>()
         .expect("appsink cast failed");
 
-    // Pull the first frame to discover resolution.
+    // Probe resolution from the first sample.
     let first_sample = appsink
         .try_pull_sample(gst::ClockTime::from_seconds(15))
         .expect("Failed to pull first decoded frame (timeout)");
-
     let caps = first_sample.caps().expect("First sample has no caps");
     let caps_struct = caps.structure(0).expect("No caps structure");
     let width = caps_struct.get::<i32>("width").expect("No width") as u32;
     let height = caps_struct.get::<i32>("height").expect("No height") as u32;
     eprintln!("Decoded video resolution: {width}×{height}");
 
-    // Create the encoder using the discovered resolution.
     let encoder_config = config_fn(width, height);
-    let mut encoder = NvEncoder::new(&encoder_config).unwrap_or_else(|e| {
-        panic!(
-            "Failed to create encoder (codec={:?}, props={:?}): {e}",
-            encoder_config.codec, encoder_config.encoder_params,
-        );
-    });
+    let nv_config = NvEncoderConfig::new(0, encoder_config)
+        .operation_timeout(Duration::from_secs(5))
+        .name("b_frame_stress");
+    let encoder = NvEncoder::new(nv_config).expect("NvEncoder::new failed");
 
     let transform_cfg = TransformConfig {
         padding: Padding::None,
@@ -189,82 +117,115 @@ fn decode_and_reencode(
         cuda_stream: deepstream_buffers::CudaStream::default(),
     };
 
-    let frame_dur_ns: u64 = 33_333_333; // 30 fps
-    let mut encoded_count: usize = 0;
+    let encoded_count = AtomicUsize::new(0);
     let mut frame_idx: usize = 0;
 
-    // Helper: submit one decoded buffer to the encoder and drain output.
-    //
-    // `pull_encoded()` validates output PTS/DTS ordering internally;
-    // if B-frames leaked through, it returns Err which we propagate.
-    let mut submit_and_drain = |buf_ref: &gst::BufferRef, idx: usize| {
+    // Submit one decoded sample into the encoder, transforming NVMM
+    // → encoder-owned NVMM so the decoder's output pool is not held.
+    let submit_sample = |sample: &gst::Sample, idx: usize| {
+        let buf_ref = sample.buffer().expect("Sample has no buffer");
         let owned = buf_ref.to_owned();
         let src_view = deepstream_buffers::SurfaceView::from_gst_buffer(owned, 0)
             .unwrap_or_else(|e| panic!("SurfaceView failed at frame {idx}: {e}"));
         let enc_buf = encoder
             .generator()
+            .lock()
             .transform_to_buffer(&src_view, &transform_cfg, None)
             .unwrap_or_else(|e| panic!("transform failed at frame {idx}: {e}"));
-
-        let pts = idx as u64 * frame_dur_ns;
+        let pts = idx as u64 * FRAME_DUR_NS;
         encoder
-            .submit_frame(enc_buf, idx as u128, pts, Some(frame_dur_ns))
+            .submit_frame(enc_buf, idx as u128, pts, Some(FRAME_DUR_NS))
             .unwrap_or_else(|e| panic!("submit_frame failed at frame {idx}: {e}"));
-
-        // Drain ready frames — the encoder validates ordering internally.
-        while let Ok(Some(_)) = encoder.pull_encoded() {
-            encoded_count += 1;
+        // Drain ready frames non-blockingly so pool slots are freed.
+        while let Ok(Some(out)) = encoder.try_recv() {
+            match out {
+                NvEncoderOutput::Frame(_) => {
+                    encoded_count.fetch_add(1, Ordering::Relaxed);
+                }
+                NvEncoderOutput::Error(e) => {
+                    panic!("encoder reported error during drain at frame {idx}: {e}")
+                }
+                NvEncoderOutput::Event(_)
+                | NvEncoderOutput::SourceEos { .. }
+                | NvEncoderOutput::Eos => {}
+            }
         }
     };
 
-    // Process the first frame (already pulled above).
-    {
-        let buf = first_sample.buffer().expect("Sample has no buffer");
-        submit_and_drain(buf, frame_idx);
-        frame_idx += 1;
-    }
-    // first_sample is dropped here, returning the buffer to the decoder pool.
+    submit_sample(&first_sample, frame_idx);
+    frame_idx += 1;
+    drop(first_sample);
 
-    // Stream the remaining frames until EOS.
     loop {
-        let sample = match appsink.try_pull_sample(gst::ClockTime::from_seconds(10)) {
-            Some(s) => s,
-            None => break,
+        let Some(sample) = appsink.try_pull_sample(gst::ClockTime::from_seconds(10)) else {
+            break;
         };
-
-        let buf = sample.buffer().expect("Sample has no buffer");
-        submit_and_drain(buf, frame_idx);
+        submit_sample(&sample, frame_idx);
         frame_idx += 1;
-        // sample (and its buffer) is dropped here.
     }
 
-    // Shut down the decoder pipeline.
     let _ = pipeline.set_state(gst::State::Null);
-
     assert!(
         frame_idx >= 30,
         "Expected at least 30 decoded frames, got {frame_idx}"
     );
 
-    // Send EOS and drain remaining encoded frames.
-    // finish() also calls pull_encoded_timeout() internally, which
-    // validates output ordering — any B-frame reordering will Err here.
-    let remaining = encoder.finish(Some(5000)).unwrap_or_else(|e| {
-        panic!(
-            "finish() failed for codec={:?}, props={:?}: {e}",
-            encoder_config.codec, encoder_config.encoder_params,
-        );
-    });
-    encoded_count += remaining.len();
+    // Final drain — graceful_shutdown also validates ordering.
+    encoder
+        .graceful_shutdown(Some(Duration::from_secs(10)), |out| match out {
+            NvEncoderOutput::Frame(_) => {
+                encoded_count.fetch_add(1, Ordering::Relaxed);
+            }
+            NvEncoderOutput::Error(e) => panic!("encoder error during shutdown: {e}"),
+            _ => {}
+        })
+        .expect("graceful_shutdown failed");
 
-    eprintln!("Submitted {frame_idx} frames, encoded {encoded_count} — no B-frame reordering");
-
-    (frame_idx, encoded_count)
+    eprintln!(
+        "Submitted {frame_idx} frames, encoded {} — no B-frame reordering",
+        encoded_count.load(Ordering::Relaxed)
+    );
 }
 
-// ═════════════════════════════════════════════════════════════════════════
-// H.264 stress tests — B-frame-capable profiles
-// ═════════════════════════════════════════════════════════════════════════
+// ─── Config helpers ──────────────────────────────────────────────────
+
+#[cfg(not(target_arch = "aarch64"))]
+fn h264_config(w: u32, h: u32, props: H264DgpuProps) -> EncoderConfig {
+    EncoderConfig::H264(
+        H264EncoderConfig::new(w, h)
+            .format(VideoFormat::NV12)
+            .props(props),
+    )
+}
+
+#[cfg(target_arch = "aarch64")]
+fn h264_config(w: u32, h: u32, props: H264JetsonProps) -> EncoderConfig {
+    EncoderConfig::H264(
+        H264EncoderConfig::new(w, h)
+            .format(VideoFormat::RGBA)
+            .props(props),
+    )
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn hevc_config(w: u32, h: u32, props: HevcDgpuProps) -> EncoderConfig {
+    EncoderConfig::Hevc(
+        HevcEncoderConfig::new(w, h)
+            .format(VideoFormat::NV12)
+            .props(props),
+    )
+}
+
+#[cfg(target_arch = "aarch64")]
+fn hevc_config(w: u32, h: u32, props: HevcJetsonProps) -> EncoderConfig {
+    EncoderConfig::Hevc(
+        HevcEncoderConfig::new(w, h)
+            .format(VideoFormat::RGBA)
+            .props(props),
+    )
+}
+
+// ─── H.264 stress ────────────────────────────────────────────────────
 
 #[test]
 #[serial]
@@ -276,22 +237,29 @@ fn stress_h264_main_profile_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            h264_config(
+                w,
+                h,
+                H264DgpuProps {
                     profile: Some(H264Profile::Main),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            h264_config(
+                w,
+                h,
+                H264JetsonProps {
                     profile: Some(H264Profile::Main),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
@@ -306,29 +274,36 @@ fn stress_h264_high_profile_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            h264_config(
+                w,
+                h,
+                H264DgpuProps {
                     profile: Some(H264Profile::High),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            h264_config(
+                w,
+                h,
+                H264JetsonProps {
                     profile: Some(H264Profile::High),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
 
 #[test]
 #[serial]
-fn stress_h264_high_profile_vbr_p7_no_b_frames() {
+fn stress_h264_high_vbr_no_b_frames() {
     init();
     if !has_nvenc() {
         eprintln!("NVENC not available — skipping");
@@ -336,21 +311,12 @@ fn stress_h264_high_profile_vbr_p7_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
-                    profile: Some(H264Profile::High),
-                    control_rate: Some(RateControl::VariableBitrate),
-                    bitrate: Some(8_000_000),
-                    preset_level: Some(JetsonPresetLevel::Slow),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            h264_config(
+                w,
+                h,
+                H264DgpuProps {
                     profile: Some(H264Profile::High),
                     control_rate: Some(RateControl::VariableBitrate),
                     preset: Some(DgpuPreset::P7),
@@ -358,14 +324,30 @@ fn stress_h264_high_profile_vbr_p7_no_b_frames() {
                     bitrate: Some(8_000_000),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            h264_config(
+                w,
+                h,
+                H264JetsonProps {
+                    profile: Some(H264Profile::High),
+                    control_rate: Some(RateControl::VariableBitrate),
+                    bitrate: Some(8_000_000),
+                    preset_level: Some(JetsonPresetLevel::Slow),
+                    iframeinterval: Some(IFRAME_INTERVAL),
+                    ..Default::default()
+                },
+            )
         }
     });
 }
 
 #[test]
 #[serial]
-fn stress_h264_high_profile_cbr_no_b_frames() {
+fn stress_h264_high_cbr_no_b_frames() {
     init();
     if !has_nvenc() {
         eprintln!("NVENC not available — skipping");
@@ -373,61 +355,33 @@ fn stress_h264_high_profile_cbr_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            h264_config(
+                w,
+                h,
+                H264DgpuProps {
                     profile: Some(H264Profile::High),
                     control_rate: Some(RateControl::ConstantBitrate),
                     bitrate: Some(4_000_000),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-                    profile: Some(H264Profile::High),
-                    control_rate: Some(RateControl::ConstantBitrate),
-                    bitrate: Some(4_000_000),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
+                },
+            )
         }
-    });
-}
-
-#[test]
-#[serial]
-fn stress_h264_main_profile_cqp_no_b_frames() {
-    init();
-    if !has_nvenc() {
-        eprintln!("NVENC not available — skipping");
-        return;
-    }
-    let video = ensure_video();
-    decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            // Jetson V4L2: use fixed-QP via quant-* with rate control off (no CQP enum).
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
-                    profile: Some(H264Profile::Main),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ratecontrol_enable: Some(false),
-                    quant_i_frames: Some(22),
-                    quant_p_frames: Some(26),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-                    profile: Some(H264Profile::Main),
-                    control_rate: Some(RateControl::ConstantQP),
+        #[cfg(target_arch = "aarch64")]
+        {
+            h264_config(
+                w,
+                h,
+                H264JetsonProps {
+                    profile: Some(H264Profile::High),
+                    control_rate: Some(RateControl::ConstantBitrate),
+                    bitrate: Some(4_000_000),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
@@ -442,29 +396,34 @@ fn stress_h264_baseline_profile_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            h264_config(
+                w,
+                h,
+                H264DgpuProps {
                     profile: Some(H264Profile::Baseline),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::H264, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            h264_config(
+                w,
+                h,
+                H264JetsonProps {
                     profile: Some(H264Profile::Baseline),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
 
-// ═════════════════════════════════════════════════════════════════════════
-// HEVC stress tests — B-frame-capable profiles
-// ═════════════════════════════════════════════════════════════════════════
+// ─── HEVC stress ─────────────────────────────────────────────────────
 
 #[test]
 #[serial]
@@ -476,29 +435,36 @@ fn stress_hevc_main_profile_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcDgpuProps {
                     profile: Some(HevcProfile::Main),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcJetsonProps {
                     profile: Some(HevcProfile::Main),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
 
 #[test]
 #[serial]
-fn stress_hevc_main_vbr_p7_hq_no_b_frames() {
+fn stress_hevc_main_vbr_no_b_frames() {
     init();
     if !has_nvenc() {
         eprintln!("NVENC not available — skipping");
@@ -506,21 +472,12 @@ fn stress_hevc_main_vbr_p7_hq_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
-                    profile: Some(HevcProfile::Main),
-                    control_rate: Some(RateControl::VariableBitrate),
-                    bitrate: Some(8_000_000),
-                    preset_level: Some(JetsonPresetLevel::Slow),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcDgpuProps {
                     profile: Some(HevcProfile::Main),
                     control_rate: Some(RateControl::VariableBitrate),
                     preset: Some(DgpuPreset::P7),
@@ -528,7 +485,23 @@ fn stress_hevc_main_vbr_p7_hq_no_b_frames() {
                     bitrate: Some(8_000_000),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcJetsonProps {
+                    profile: Some(HevcProfile::Main),
+                    control_rate: Some(RateControl::VariableBitrate),
+                    bitrate: Some(8_000_000),
+                    preset_level: Some(JetsonPresetLevel::Slow),
+                    iframeinterval: Some(IFRAME_INTERVAL),
+                    ..Default::default()
+                },
+            )
         }
     });
 }
@@ -543,60 +516,33 @@ fn stress_hevc_main_cbr_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcDgpuProps {
                     profile: Some(HevcProfile::Main),
                     control_rate: Some(RateControl::ConstantBitrate),
                     bitrate: Some(6_000_000),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
-                    profile: Some(HevcProfile::Main),
-                    control_rate: Some(RateControl::ConstantBitrate),
-                    bitrate: Some(6_000_000),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
+                },
+            )
         }
-    });
-}
-
-#[test]
-#[serial]
-fn stress_hevc_main_cqp_no_b_frames() {
-    init();
-    if !has_nvenc() {
-        eprintln!("NVENC not available — skipping");
-        return;
-    }
-    let video = ensure_video();
-    decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+        #[cfg(target_arch = "aarch64")]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcJetsonProps {
                     profile: Some(HevcProfile::Main),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ratecontrol_enable: Some(false),
-                    quant_i_frames: Some(22),
-                    quant_p_frames: Some(26),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
-                    profile: Some(HevcProfile::Main),
-                    control_rate: Some(RateControl::ConstantQP),
+                    control_rate: Some(RateControl::ConstantBitrate),
+                    bitrate: Some(6_000_000),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
@@ -611,30 +557,34 @@ fn stress_hevc_main10_profile_no_b_frames() {
     }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcDgpuProps {
                     profile: Some(HevcProfile::Main10),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+                },
+            )
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            hevc_config(
+                w,
+                h,
+                HevcJetsonProps {
                     profile: Some(HevcProfile::Main10),
                     iframeinterval: Some(IFRAME_INTERVAL),
                     ..Default::default()
-                }))
+                },
+            )
         }
     });
 }
 
-// ═════════════════════════════════════════════════════════════════════════
-// H.264 with temporal AQ and adaptive quantization — these can interact
-// with B-frame decisions in some encoder implementations.
-// ═════════════════════════════════════════════════════════════════════════
+// ─── dGPU-only AQ variants ───────────────────────────────────────────
 
 #[test]
 #[serial]
@@ -645,131 +595,30 @@ fn stress_h264_high_temporal_aq_no_b_frames() {
         return;
     }
     if is_jetson() {
-        eprintln!("temporalaq is dGPU-only — skipping on Jetson");
+        eprintln!("temporal_aq is dGPU-only — skipping on Jetson");
         return;
     }
     let video = ensure_video();
+    #[cfg(not(target_arch = "aarch64"))]
     decode_and_reencode(&video, &|w, h| {
-        let props = EncoderProperties::H264Dgpu(H264DgpuProps {
-            profile: Some(H264Profile::High),
-            control_rate: Some(RateControl::VariableBitrate),
-            bitrate: Some(6_000_000),
-            temporal_aq: Some(true),
-            iframeinterval: Some(IFRAME_INTERVAL),
-            ..Default::default()
-        });
-        EncoderConfig::new(Codec::H264, w, h)
-            .format(VideoFormat::NV12)
-            .properties(props)
+        h264_config(
+            w,
+            h,
+            H264DgpuProps {
+                profile: Some(H264Profile::High),
+                control_rate: Some(RateControl::VariableBitrate),
+                bitrate: Some(6_000_000),
+                temporal_aq: Some(true),
+                iframeinterval: Some(IFRAME_INTERVAL),
+                ..Default::default()
+            },
+        )
     });
+    #[cfg(target_arch = "aarch64")]
+    let _ = video;
 }
 
-#[test]
-#[serial]
-fn stress_h264_high_spatial_aq_no_b_frames() {
-    init();
-    if !has_nvenc() {
-        eprintln!("NVENC not available — skipping");
-        return;
-    }
-    if is_jetson() {
-        eprintln!("aq is dGPU-only — skipping on Jetson");
-        return;
-    }
-    let video = ensure_video();
-    decode_and_reencode(&video, &|w, h| {
-        let props = EncoderProperties::H264Dgpu(H264DgpuProps {
-            profile: Some(H264Profile::High),
-            control_rate: Some(RateControl::VariableBitrate),
-            bitrate: Some(6_000_000),
-            aq: Some(15),
-            iframeinterval: Some(IFRAME_INTERVAL),
-            ..Default::default()
-        });
-        EncoderConfig::new(Codec::H264, w, h)
-            .format(VideoFormat::NV12)
-            .properties(props)
-    });
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// HEVC with various presets — higher presets are more likely to try
-// enabling B-frames internally if the element's B-frame property is
-// not explicitly zeroed.
-// ═════════════════════════════════════════════════════════════════════════
-
-#[test]
-#[serial]
-fn stress_hevc_main_p4_low_latency_no_b_frames() {
-    init();
-    if !has_nvenc() {
-        eprintln!("NVENC not available — skipping");
-        return;
-    }
-    let video = ensure_video();
-    decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
-                    profile: Some(HevcProfile::Main),
-                    preset_level: Some(JetsonPresetLevel::Fast),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
-                    profile: Some(HevcProfile::Main),
-                    preset: Some(DgpuPreset::P4),
-                    tuning_info: Some(TuningPreset::LowLatency),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
-        }
-    });
-}
-
-#[test]
-#[serial]
-fn stress_hevc_main_p7_high_quality_no_b_frames() {
-    init();
-    if !has_nvenc() {
-        eprintln!("NVENC not available — skipping");
-        return;
-    }
-    let video = ensure_video();
-    decode_and_reencode(&video, &|w, h| {
-        if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::RGBA)
-                .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
-                    profile: Some(HevcProfile::Main),
-                    preset_level: Some(JetsonPresetLevel::Slow),
-                    bitrate: Some(10_000_000),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
-        } else {
-            EncoderConfig::new(Codec::Hevc, w, h)
-                .format(VideoFormat::NV12)
-                .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
-                    profile: Some(HevcProfile::Main),
-                    preset: Some(DgpuPreset::P7),
-                    tuning_info: Some(TuningPreset::HighQuality),
-                    bitrate: Some(10_000_000),
-                    iframeinterval: Some(IFRAME_INTERVAL),
-                    ..Default::default()
-                }))
-        }
-    });
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// No explicit properties — the encoder's built-in defaults should also
-// produce B-frame-free output because force_disable_b_frames() runs.
-// ═════════════════════════════════════════════════════════════════════════
+// ─── No explicit properties ──────────────────────────────────────────
 
 #[test]
 #[serial]
@@ -782,9 +631,9 @@ fn stress_h264_default_props_no_b_frames() {
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         if is_jetson() {
-            EncoderConfig::new(Codec::H264, w, h).format(VideoFormat::RGBA)
+            EncoderConfig::H264(H264EncoderConfig::new(w, h).format(VideoFormat::RGBA))
         } else {
-            EncoderConfig::new(Codec::H264, w, h).format(VideoFormat::NV12)
+            EncoderConfig::H264(H264EncoderConfig::new(w, h).format(VideoFormat::NV12))
         }
     });
 }
@@ -800,9 +649,9 @@ fn stress_hevc_default_props_no_b_frames() {
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         if is_jetson() {
-            EncoderConfig::new(Codec::Hevc, w, h).format(VideoFormat::RGBA)
+            EncoderConfig::Hevc(HevcEncoderConfig::new(w, h).format(VideoFormat::RGBA))
         } else {
-            EncoderConfig::new(Codec::Hevc, w, h).format(VideoFormat::NV12)
+            EncoderConfig::Hevc(HevcEncoderConfig::new(w, h).format(VideoFormat::NV12))
         }
     });
 }

@@ -6,14 +6,14 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo bench -p nvtracker --bench bench_single_stream
+//! cargo bench -p savant-deepstream-nvtracker --bench bench_single_stream
 //! ```
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use deepstream_buffers::{
     cuda_init, BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, VideoFormat,
 };
-use nvtracker::{
+use deepstream_nvtracker::{
     default_ll_lib_path, NvTracker, NvTrackerConfig, NvTrackerOutput, Result as NvResult, Roi,
     TrackedFrame, TrackerOutput, TrackingIdResetMode,
 };
@@ -115,7 +115,7 @@ fn bench_track_sync(
             NvTrackerOutput::Tracking(t) => return Ok(t),
             NvTrackerOutput::Event(_) => continue,
             NvTrackerOutput::Eos { source_id } => {
-                return Err(nvtracker::NvTrackerError::PipelineError(format!(
+                return Err(deepstream_nvtracker::NvTrackerError::PipelineError(format!(
                     "unexpected EOS: {source_id}"
                 )));
             }

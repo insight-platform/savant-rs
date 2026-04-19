@@ -3,9 +3,9 @@
 //! Note: `PyMetaClearPolicy` lives in `crate::deepstream::enums` since it is
 //! shared with `nvtracker`. Import it from there directly.
 
-use nvinfer::DataType;
-use nvinfer::ModelColorFormat;
-use nvinfer::ModelInputScaling;
+use deepstream_nvinfer::DataType;
+use deepstream_nvinfer::ModelColorFormat;
+use deepstream_nvinfer::ModelInputScaling;
 use pyo3::prelude::*;
 
 /// How input frames are scaled to the model's fixed input dimensions.

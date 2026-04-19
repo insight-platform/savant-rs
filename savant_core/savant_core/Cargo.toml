@@ -1,14 +1,14 @@
 [package]
-name = "savant_core"
+name = "savant-core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Core primitives, converters, and algorithms for the Savant video analytics framework."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
-keywords.workspace = true
-categories.workspace = true
+keywords = ["savant", "video", "analytics", "streaming", "computer-vision"]
+categories = ["multimedia::video", "algorithms", "data-structures"]
 license.workspace = true
 rust-version.workspace = true
 
@@ -60,6 +60,7 @@ uuid = { workspace = true }
 zmq = { workspace = true }
 
 [lib]
+name = "savant_core"
 crate-type = ["rlib"]
 
 [dev-dependencies]
@@ -105,3 +106,7 @@ harness = false
 [[bench]]
 name = "bench_zmq"
 harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

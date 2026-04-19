@@ -45,13 +45,13 @@ The IOU tracker assigns object IDs starting from **0**. Use `Option<u64>` when c
 Run default suite:
 
 ```bash
-cargo test -p nvtracker
+cargo test -p savant-deepstream-nvtracker
 ```
 
 Run E2E IOU tests (use single thread — GStreamer / GPU):
 
 ```bash
-cargo test -p nvtracker --test test_iou_tracker -- --test-threads=1
+cargo test -p savant-deepstream-nvtracker --test test_iou_tracker -- --test-threads=1
 ```
 
 ## Buffer prep (GPU)

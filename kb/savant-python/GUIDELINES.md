@@ -64,7 +64,7 @@ SAVANT_FEATURES=deepstream make sp-pytest
 
 ### Common mistakes to avoid
 - **Do NOT run `maturin develop`** — skips auditwheel repair.
-- **Do NOT run `cargo build -p savant_rs`** — use the Makefile.
+- **Do NOT run `cargo build -p savant-rs`** — use the Makefile.
 - **E2E tests** (nvinfer, picasso) require GPU + DeepStream; auto-skip otherwise.
 
 ## Conventions

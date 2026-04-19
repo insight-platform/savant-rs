@@ -98,9 +98,9 @@ exercise NAL parsing, not the decode pipeline.
 ## Build/Test Commands
 
 ```bash
-cargo fmt -p deepstream_decoders
-cargo clippy -p deepstream_decoders
-cargo test -p deepstream_decoders -- --test-threads=1
+cargo fmt -p savant-deepstream-decoders
+cargo clippy -p savant-deepstream-decoders
+cargo test -p savant-deepstream-decoders -- --test-threads=1
 ```
 
 Use `#[serial]` on integration tests because CUDA + GStreamer are process-global.

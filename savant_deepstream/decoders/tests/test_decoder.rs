@@ -3,25 +3,81 @@ mod common;
 use common::*;
 use deepstream_decoders::prelude::*;
 use deepstream_decoders::NvDecoderExt;
-use deepstream_encoders::{EncoderConfig, NvEncoder};
+use deepstream_encoders::{
+    EncodedFrame, EncoderConfig, H264EncoderConfig, HevcEncoderConfig, JpegEncoderConfig,
+    NvEncoder, NvEncoderConfig, NvEncoderOutput, PngEncoderConfig,
+};
 use serial_test::serial;
 use std::collections::HashSet;
 use std::time::Duration;
 
+// ── New encoder-API adapters ─────────────────────────────────────────
+//
+// `deepstream_encoders` no longer exposes `EncoderConfig::new(codec, w, h)`
+// or `NvEncoder::finish(ms)`; it uses typed per-codec configs plus
+// `NvEncoderConfig` for runtime framework knobs, and `graceful_shutdown`
+// with a callback instead of a `Vec`-returning `finish`. The helpers
+// below adapt the old test call sites to the new API without changing
+// what the tests actually verify.
+
+fn build_encoder_config(codec: Codec, w: u32, h: u32) -> EncoderConfig {
+    match codec {
+        Codec::H264 => EncoderConfig::H264(H264EncoderConfig::new(w, h)),
+        Codec::Hevc => EncoderConfig::Hevc(HevcEncoderConfig::new(w, h)),
+        // JPEG defaults to I420 already; PNG defaults to RGBA.
+        Codec::Jpeg => EncoderConfig::Jpeg(JpegEncoderConfig::new(w, h)),
+        Codec::Png => EncoderConfig::Png(PngEncoderConfig::new(w, h)),
+        other => panic!("unsupported encoder codec in tests: {other:?}"),
+    }
+}
+
+fn build_jpeg_encoder_config(w: u32, h: u32, format: VideoFormat) -> EncoderConfig {
+    EncoderConfig::Jpeg(JpegEncoderConfig::new(w, h).format(format))
+}
+
+fn build_png_encoder_config(w: u32, h: u32, format: VideoFormat) -> EncoderConfig {
+    EncoderConfig::Png(PngEncoderConfig::new(w, h).format(format))
+}
+
+fn make_encoder(enc_cfg: EncoderConfig) -> NvEncoder {
+    let cfg = NvEncoderConfig::new(0, enc_cfg)
+        .operation_timeout(Duration::from_secs(10))
+        .name("decoder-test-encoder");
+    NvEncoder::new(cfg).expect("NvEncoder::new failed")
+}
+
+fn encoder_acquire_buffer(encoder: &NvEncoder, id: u128) -> gstreamer::Buffer {
+    encoder
+        .generator()
+        .lock()
+        .acquire(Some(id))
+        .expect("acquire failed")
+        .into_buffer()
+        .expect("sole owner")
+}
+
+fn drain_encoder_to_frames(encoder: &NvEncoder) -> Vec<EncodedFrame> {
+    let mut frames = Vec::new();
+    encoder
+        .graceful_shutdown(Some(Duration::from_secs(5)), |out| {
+            if let NvEncoderOutput::Frame(f) = out {
+                frames.push(f);
+            }
+        })
+        .expect("graceful_shutdown failed");
+    frames
+}
+
 fn encode_test_frames(codec: Codec, w: u32, h: u32, n: usize) -> Vec<(u128, u64, u64, Vec<u8>)> {
-    let config = EncoderConfig::new(codec, w, h);
-    let mut encoder = NvEncoder::new(&config).expect("encoder creation");
+    let encoder = make_encoder(build_encoder_config(codec, w, h));
     let dur = 33_333_333u64;
     for i in 0..n {
-        let shared = encoder.generator().acquire(Some(i as u128)).unwrap();
-        let buf = shared.into_buffer().unwrap();
+        let buf = encoder_acquire_buffer(&encoder, i as u128);
         encoder
             .submit_frame(buf, i as u128, i as u64 * dur, Some(dur))
             .unwrap();
     }
-    encoder
-        .finish(Some(5000))
-        .unwrap()
+    drain_encoder_to_frames(&encoder)
         .into_iter()
         .map(|f| {
             (
@@ -131,17 +187,15 @@ fn test_e2e_hevc_decode_to_rgba() {
 fn test_e2e_jpeg_decode_to_rgba() {
     init();
     let (w, h) = (320, 240);
-    let config_enc = EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420);
-    let mut encoder = NvEncoder::new(&config_enc).expect("JPEG encoder");
+    let encoder = make_encoder(build_jpeg_encoder_config(w, h, VideoFormat::I420));
     let dur = 33_333_333u64;
     for i in 0..3u128 {
-        let shared = encoder.generator().acquire(Some(i)).unwrap();
-        let buf = shared.into_buffer().unwrap();
+        let buf = encoder_acquire_buffer(&encoder, i);
         encoder
             .submit_frame(buf, i, i as u64 * dur, Some(dur))
             .unwrap();
     }
-    let enc_frames = encoder.finish(Some(5000)).unwrap();
+    let enc_frames = drain_encoder_to_frames(&encoder);
     let config_dec = DecoderConfig::Jpeg(JpegDecoderConfig::gpu());
     let decoder = NvDecoder::new(
         test_decoder_config(0, config_dec),
@@ -189,17 +243,15 @@ fn test_e2e_jpeg_decode_to_rgba() {
 fn test_e2e_jpeg_cpu_decode_to_rgba() {
     init();
     let (w, h) = (320, 240);
-    let config_enc = EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420);
-    let mut encoder = NvEncoder::new(&config_enc).expect("JPEG encoder");
+    let encoder = make_encoder(build_jpeg_encoder_config(w, h, VideoFormat::I420));
     let dur = 33_333_333u64;
     for i in 0..3u128 {
-        let shared = encoder.generator().acquire(Some(i)).unwrap();
-        let buf = shared.into_buffer().unwrap();
+        let buf = encoder_acquire_buffer(&encoder, i);
         encoder
             .submit_frame(buf, i, i as u64 * dur, Some(dur))
             .unwrap();
     }
-    let enc_frames = encoder.finish(Some(5000)).unwrap();
+    let enc_frames = drain_encoder_to_frames(&encoder);
     let config_dec = DecoderConfig::Jpeg(JpegDecoderConfig::cpu());
     let decoder = NvDecoder::new(
         test_decoder_config(0, config_dec),
@@ -245,17 +297,15 @@ fn test_e2e_jpeg_cpu_decode_to_rgba() {
 fn test_e2e_png_decode_to_rgba() {
     init();
     let (w, h) = (64, 48);
-    let config_enc = EncoderConfig::new(Codec::Png, w, h).format(VideoFormat::RGBA);
-    let mut encoder = NvEncoder::new(&config_enc).expect("PNG encoder");
+    let encoder = make_encoder(build_png_encoder_config(w, h, VideoFormat::RGBA));
     let dur = 33_333_333u64;
     for i in 0..2u128 {
-        let shared = encoder.generator().acquire(Some(i)).unwrap();
-        let buf = shared.into_buffer().unwrap();
+        let buf = encoder_acquire_buffer(&encoder, i);
         encoder
             .submit_frame(buf, i, i as u64 * dur, Some(dur))
             .unwrap();
     }
-    let enc_frames = encoder.finish(Some(5000)).unwrap();
+    let enc_frames = drain_encoder_to_frames(&encoder);
     let decoder = NvDecoder::new(
         test_decoder_config(0, DecoderConfig::Png(PngDecoderConfig)),
         make_rgba_pool(w, h),
@@ -688,17 +738,15 @@ fn test_resolution_mismatch_raw_rgba() {
 fn test_graceful_shutdown_returns_valid_rgba() {
     init();
     let (w, h) = (320, 240);
-    let config_enc = EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420);
-    let mut encoder = NvEncoder::new(&config_enc).expect("JPEG encoder");
+    let encoder = make_encoder(build_jpeg_encoder_config(w, h, VideoFormat::I420));
     let dur = 33_333_333u64;
     for i in 0..3u128 {
-        let shared = encoder.generator().acquire(Some(i)).unwrap();
-        let buf = shared.into_buffer().unwrap();
+        let buf = encoder_acquire_buffer(&encoder, i);
         encoder
             .submit_frame(buf, i, i as u64 * dur, Some(dur))
             .unwrap();
     }
-    let enc_frames = encoder.finish(Some(5000)).unwrap();
+    let enc_frames = drain_encoder_to_frames(&encoder);
 
     let config_dec = DecoderConfig::Jpeg(JpegDecoderConfig::gpu());
     let decoder = NvDecoder::new(
@@ -852,17 +900,15 @@ fn test_resolution_mismatch_png() {
     init();
     let (enc_w, enc_h) = (64, 48);
     let (pool_w, pool_h) = (128, 96);
-    let config_enc = EncoderConfig::new(Codec::Png, enc_w, enc_h).format(VideoFormat::RGBA);
-    let mut encoder = NvEncoder::new(&config_enc).expect("PNG encoder");
+    let encoder = make_encoder(build_png_encoder_config(enc_w, enc_h, VideoFormat::RGBA));
     let dur = 33_333_333u64;
     for i in 0..2u128 {
-        let shared = encoder.generator().acquire(Some(i)).unwrap();
-        let buf = shared.into_buffer().unwrap();
+        let buf = encoder_acquire_buffer(&encoder, i);
         encoder
             .submit_frame(buf, i, i as u64 * dur, Some(dur))
             .unwrap();
     }
-    let enc_frames = encoder.finish(Some(5000)).unwrap();
+    let enc_frames = drain_encoder_to_frames(&encoder);
     let decoder = NvDecoder::new(
         test_decoder_config(0, DecoderConfig::Png(PngDecoderConfig)),
         make_rgba_pool(pool_w, pool_h),

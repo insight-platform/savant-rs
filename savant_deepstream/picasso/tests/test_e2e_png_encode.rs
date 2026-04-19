@@ -101,12 +101,18 @@ fn render_png_encoded() -> Vec<u8> {
     };
     let engine = PicassoEngine::new(general, callbacks);
 
-    let enc_config = EncoderConfig::new(Codec::Png, DST_W, DST_H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::Png(PngProps {
-            compression_level: Some(6),
-        }));
+    let enc_config = NvEncoderConfig::new(
+        0,
+        EncoderConfig::Png(
+            PngEncoderConfig::new(DST_W, DST_H)
+                .format(VideoFormat::RGBA)
+                .fps(30, 1)
+                .props(PngProps {
+                    compression_level: Some(6),
+                }),
+        ),
+    )
+    .name("picasso-png-encode");
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {

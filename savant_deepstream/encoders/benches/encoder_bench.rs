@@ -1,23 +1,52 @@
-//! Criterion benchmarks for the NvEncoder.
+//! Criterion benchmarks for the channel-based [`NvEncoder`].
 //!
-//! Measures:
-//! - **creation + 1 frame**: time to construct an `NvEncoder`, submit one
-//!   FullHD frame, call `finish()`, and receive the encoded bitstream.
-//! - **200-frame throughput**: time to encode 200 FullHD frames with a
-//!   pre-created encoder (creation cost excluded from measurement).
+//! Two measurements per codec:
+//! - **creation + 1 frame**: construct an [`NvEncoder`], submit one
+//!   FullHD frame, `graceful_shutdown`, receive the encoded bitstream.
+//! - **200-frame throughput**: encode 200 FullHD frames on a pre-created
+//!   encoder (creation cost excluded via `iter_batched`).
 //!
-//! Codecs: H.264, HEVC, AV1 (low-latency mode) and JPEG.
-//! Benchmarks that need NVENC or nvjpegenc are skipped at runtime when
-//! the hardware is not available.
+//! # Platform awareness
+//!
+//! The benchmark does NOT rely on `target_arch = "aarch64"` as a proxy
+//! for "Jetson". Instead it uses runtime probes from
+//! [`nvidia_gpu_utils`]:
+//!
+//! - **NVENC availability** ([`nvidia_gpu_utils::has_nvenc`]) — correctly
+//!   reports `false` on Jetson Orin Nano and on datacenter dGPUs without
+//!   NVENC (A100, H100, B200, B300, GB200, …). Benchmarks for H.264,
+//!   HEVC and AV1 are skipped at runtime when NVENC is unavailable.
+//! - **nvjpegenc availability** — checked via GStreamer element factory.
+//! - **Jetson kernel / model** ([`nvidia_gpu_utils::is_jetson_kernel`],
+//!   [`nvidia_gpu_utils::jetson_model`]) — used for the platform summary
+//!   line and to pick the matching preset when low-latency tuning
+//!   differs between Jetson and dGPU.
+//!
+//! The RAW (`RawRgba`) and PNG codecs require only CUDA + nvvideoconvert
+//! and therefore run on **every** NVIDIA GPU including A100/H100/B300
+//! and Orin Nano; they broaden coverage on platforms where NVENC and
+//! nvjpegenc are unavailable.
+//!
+//! > Note on compile-time `#[cfg(target_arch = "aarch64")]`: the core
+//! > `deepstream_encoders` API exposes different *property struct types*
+//! > for Jetson (`H264JetsonProps`, …) and dGPU (`H264DgpuProps`, …),
+//! > so `.props(...)` call sites must select the correct type at
+//! > compile time. This is structural and mirrors the decoders crate.
+//! > Crates that cross-compile to aarch64 but run on an ARM dGPU server
+//! > (e.g. Grace Hopper) are out of scope.
 //!
 //! Run with:
 //! ```sh
-//! cargo bench -p deepstream_encoders --bench encoder_bench
+//! cargo bench -p savant-deepstream-encoders --bench encoder_bench
 //! ```
+
+use std::sync::Once;
+use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use deepstream_encoders::prelude::*;
-use std::sync::Once;
+
+// ─── Runtime platform probes ─────────────────────────────────────────
 
 static INIT: Once = Once::new();
 
@@ -25,6 +54,7 @@ fn ensure_init() {
     INIT.call_once(|| {
         gstreamer::init().expect("GStreamer init failed");
         cuda_init(0).expect("CUDA init failed");
+        log_platform_summary();
     });
 }
 
@@ -36,81 +66,127 @@ fn has_nvjpegenc() -> bool {
     gstreamer::ElementFactory::find("nvjpegenc").is_some()
 }
 
-// ---------------------------------------------------------------------------
-// Encoder configurations
-// ---------------------------------------------------------------------------
+fn is_jetson() -> bool {
+    nvidia_gpu_utils::is_jetson_kernel()
+}
+
+fn platform_tag() -> String {
+    nvidia_gpu_utils::gpu_platform_tag(0).unwrap_or_else(|_| "unknown".to_string())
+}
+
+fn log_platform_summary() {
+    eprintln!("──────────────── encoder_bench platform summary ────────────────");
+    eprintln!("  platform tag   : {}", platform_tag());
+    eprintln!("  jetson kernel  : {}", is_jetson());
+    if let Ok(Some(model)) = nvidia_gpu_utils::jetson_model(0) {
+        eprintln!("  jetson model   : {model:?}");
+    }
+    eprintln!("  NVENC available: {}", has_nvenc());
+    eprintln!("  nvjpegenc avail: {}", has_nvjpegenc());
+    eprintln!("  NOTE: Orin Nano and datacenter dGPUs (A100/H100/B200/B300/GB200)");
+    eprintln!("        do not have NVENC; h264/hevc/av1 benches will be skipped.");
+    eprintln!("        RAW and PNG benches run on any CUDA-capable GPU.");
+    eprintln!("────────────────────────────────────────────────────────────────");
+}
+
+// ─── Encoder configurations ──────────────────────────────────────────
+//
+// The `.props(...)` call site must match the compile-time type chosen
+// by `deepstream_encoders::config` (H264JetsonProps on aarch64,
+// H264DgpuProps on x86_64). This is a structural requirement.
 
 fn h264_low_latency_config() -> EncoderConfig {
-    let props = if nvidia_gpu_utils::is_jetson_kernel() {
-        EncoderProperties::H264Jetson(H264JetsonProps {
+    #[cfg(target_arch = "aarch64")]
+    let enc_cfg = H264EncoderConfig::new(1920, 1080)
+        .format(VideoFormat::RGBA)
+        .props(H264JetsonProps {
             preset_level: Some(JetsonPresetLevel::UltraFast),
             ..Default::default()
-        })
-    } else {
-        EncoderProperties::H264Dgpu(H264DgpuProps {
+        });
+    #[cfg(not(target_arch = "aarch64"))]
+    let enc_cfg = H264EncoderConfig::new(1920, 1080)
+        .format(VideoFormat::RGBA)
+        .props(H264DgpuProps {
             preset: Some(DgpuPreset::P1),
             tuning_info: Some(TuningPreset::LowLatency),
             ..Default::default()
-        })
-    };
-    EncoderConfig::new(Codec::H264, 1920, 1080)
-        .format(VideoFormat::RGBA)
-        .properties(props)
+        });
+    EncoderConfig::H264(enc_cfg)
 }
 
 fn hevc_low_latency_config() -> EncoderConfig {
-    let props = if nvidia_gpu_utils::is_jetson_kernel() {
-        EncoderProperties::HevcJetson(HevcJetsonProps {
+    #[cfg(target_arch = "aarch64")]
+    let enc_cfg = HevcEncoderConfig::new(1920, 1080)
+        .format(VideoFormat::RGBA)
+        .props(HevcJetsonProps {
             preset_level: Some(JetsonPresetLevel::UltraFast),
             ..Default::default()
-        })
-    } else {
-        EncoderProperties::HevcDgpu(HevcDgpuProps {
+        });
+    #[cfg(not(target_arch = "aarch64"))]
+    let enc_cfg = HevcEncoderConfig::new(1920, 1080)
+        .format(VideoFormat::RGBA)
+        .props(HevcDgpuProps {
             preset: Some(DgpuPreset::P1),
             tuning_info: Some(TuningPreset::LowLatency),
             ..Default::default()
-        })
-    };
-    EncoderConfig::new(Codec::Hevc, 1920, 1080)
-        .format(VideoFormat::RGBA)
-        .properties(props)
+        });
+    EncoderConfig::Hevc(enc_cfg)
 }
 
 fn av1_low_latency_config() -> EncoderConfig {
-    let props = if nvidia_gpu_utils::is_jetson_kernel() {
-        EncoderProperties::Av1Jetson(Av1JetsonProps {
+    #[cfg(target_arch = "aarch64")]
+    let enc_cfg = Av1EncoderConfig::new(1920, 1080)
+        .format(VideoFormat::RGBA)
+        .props(Av1JetsonProps {
             preset_level: Some(JetsonPresetLevel::UltraFast),
             ..Default::default()
-        })
-    } else {
-        EncoderProperties::Av1Dgpu(Av1DgpuProps {
+        });
+    #[cfg(not(target_arch = "aarch64"))]
+    let enc_cfg = Av1EncoderConfig::new(1920, 1080)
+        .format(VideoFormat::RGBA)
+        .props(Av1DgpuProps {
             preset: Some(DgpuPreset::P1),
             tuning_info: Some(TuningPreset::LowLatency),
             ..Default::default()
-        })
-    };
-    EncoderConfig::new(Codec::Av1, 1920, 1080)
-        .format(VideoFormat::RGBA)
-        .properties(props)
+        });
+    EncoderConfig::Av1(enc_cfg)
 }
 
 fn jpeg_config() -> EncoderConfig {
-    let props = EncoderProperties::Jpeg(JpegProps { quality: Some(85) });
-    EncoderConfig::new(Codec::Jpeg, 1920, 1080)
-        .format(VideoFormat::RGBA)
-        .properties(props)
+    EncoderConfig::Jpeg(
+        JpegEncoderConfig::new(1920, 1080)
+            .format(VideoFormat::RGBA)
+            .props(JpegProps { quality: Some(85) }),
+    )
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+fn png_config() -> EncoderConfig {
+    EncoderConfig::Png(
+        PngEncoderConfig::new(1920, 1080)
+            .format(VideoFormat::RGBA)
+            .props(PngProps {
+                compression_level: Some(1),
+            }),
+    )
+}
 
-/// Acquire a buffer from the encoder's user-facing generator, create a
-/// [`SurfaceView`] (triggers EGL-CUDA registration on Jetson), then
-/// extract the underlying [`gst::Buffer`] for submission.
+fn raw_rgba_config() -> EncoderConfig {
+    EncoderConfig::RawRgba(RawEncoderConfig::new(1920, 1080, VideoFormat::RGBA))
+}
+
+fn make_encoder(encoder_cfg: EncoderConfig) -> NvEncoder {
+    let cfg = NvEncoderConfig::new(0, encoder_cfg)
+        .operation_timeout(Duration::from_secs(10))
+        .name("bench");
+    NvEncoder::new(cfg).expect("NvEncoder::new failed")
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
 fn acquire_frame(encoder: &NvEncoder, id: u128) -> gstreamer::Buffer {
     let shared = encoder
         .generator()
+        .lock()
         .acquire(Some(id))
         .expect("acquire failed");
     // Creating a SurfaceView resolves the CUDA pointer and, on Jetson,
@@ -120,138 +196,152 @@ fn acquire_frame(encoder: &NvEncoder, id: u128) -> gstreamer::Buffer {
     shared.into_buffer().expect("sole owner")
 }
 
-/// Create the encoder, submit one frame, finish, return encoded output.
-fn create_and_encode_one(config: &EncoderConfig) {
-    let mut encoder = NvEncoder::new(config).expect("NvEncoder::new failed");
-
-    let buffer = acquire_frame(&encoder, 0);
-
+fn drain_graceful(encoder: &NvEncoder) -> usize {
+    let mut count = 0usize;
     encoder
-        .submit_frame(buffer, 0, 0, Some(33_333_333))
-        .expect("submit_frame failed");
-
-    let frames = encoder.finish(Some(5000)).expect("finish failed");
-    assert!(!frames.is_empty(), "Expected at least 1 encoded frame");
+        .graceful_shutdown(Some(Duration::from_secs(10)), |out| {
+            if let NvEncoderOutput::Frame(_) = out {
+                count += 1;
+            }
+        })
+        .expect("graceful_shutdown failed");
+    count
 }
 
-// ---------------------------------------------------------------------------
-// Benchmarks: creation + one-frame roundtrip
-// ---------------------------------------------------------------------------
+fn create_and_encode_one(config: EncoderConfig) {
+    let encoder = make_encoder(config);
+    let buf = acquire_frame(&encoder, 0);
+    encoder
+        .submit_frame(buf, 0, 0, Some(33_333_333))
+        .expect("submit_frame failed");
+    let n = drain_graceful(&encoder);
+    assert!(n > 0, "Expected at least 1 encoded frame");
+}
+
+// ─── Creation + one-frame roundtrip ──────────────────────────────────
 
 fn bench_creation_plus_one_frame(c: &mut Criterion) {
     ensure_init();
-
     let mut group = c.benchmark_group("encoder_creation_plus_one_frame");
     group.sample_size(30);
 
     if has_nvenc() {
         group.bench_function("h264_low_latency", |b| {
-            let config = h264_low_latency_config();
-            b.iter(|| create_and_encode_one(&config));
+            b.iter(|| create_and_encode_one(h264_low_latency_config()));
         });
-
         group.bench_function("hevc_low_latency", |b| {
-            let config = hevc_low_latency_config();
-            b.iter(|| create_and_encode_one(&config));
+            b.iter(|| create_and_encode_one(hevc_low_latency_config()));
         });
-
         group.bench_function("av1_low_latency", |b| {
-            let config = av1_low_latency_config();
-            b.iter(|| create_and_encode_one(&config));
+            b.iter(|| create_and_encode_one(av1_low_latency_config()));
         });
     } else {
-        eprintln!("NVENC not available — skipping h264/hevc/av1 benchmarks");
+        eprintln!(
+            "NVENC not available on this GPU — skipping h264/hevc/av1 benches \
+             (expected on Orin Nano and on datacenter dGPUs like A100/H100/B300)"
+        );
     }
 
     if has_nvjpegenc() {
         group.bench_function("jpeg", |b| {
-            let config = jpeg_config();
-            b.iter(|| create_and_encode_one(&config));
+            b.iter(|| create_and_encode_one(jpeg_config()));
         });
     } else {
-        eprintln!("nvjpegenc not available — skipping jpeg benchmark");
+        eprintln!("nvjpegenc not available — skipping jpeg bench");
     }
+
+    // PNG and RAW do not require NVENC/nvjpegenc; they run on every
+    // CUDA-capable GPU, including Orin Nano and A100/H100/B300.
+    group.bench_function("png", |b| {
+        b.iter(|| create_and_encode_one(png_config()));
+    });
+    group.bench_function("raw_rgba", |b| {
+        b.iter(|| create_and_encode_one(raw_rgba_config()));
+    });
 
     group.finish();
 }
 
-// ---------------------------------------------------------------------------
-// Benchmarks: 200-frame throughput (encoder pre-created)
-// ---------------------------------------------------------------------------
+// ─── 200-frame throughput ────────────────────────────────────────────
 
 const THROUGHPUT_FRAMES: u64 = 200;
-const FRAME_DURATION_NS: u64 = 33_333_333; // ~30 fps
+const FRAME_DURATION_NS: u64 = 33_333_333;
 
-/// Encode `THROUGHPUT_FRAMES` frames on a pre-created encoder, draining
-/// output after each submit so slots from [`NvEncoder::generator`] are returned
-/// promptly (pool size is platform-dependent — see `NvEncoder::new`).
-fn encode_n_frames(mut encoder: NvEncoder) {
+fn encode_n_frames(encoder: NvEncoder) {
     for i in 0..THROUGHPUT_FRAMES {
-        let buffer = acquire_frame(&encoder, i as u128);
-
+        let buf = acquire_frame(&encoder, i as u128);
         let pts_ns = i * FRAME_DURATION_NS;
         encoder
-            .submit_frame(buffer, i as u128, pts_ns, Some(FRAME_DURATION_NS))
+            .submit_frame(buf, i as u128, pts_ns, Some(FRAME_DURATION_NS))
             .expect("submit_frame failed");
-
-        while let Ok(Some(_)) = encoder.pull_encoded() {}
+        while let Ok(Some(_)) = encoder.try_recv() {}
     }
-
-    let remaining = encoder.finish(Some(5000)).expect("finish failed");
-    let drained = remaining.len() as u64;
+    let drained = drain_graceful(&encoder) as u64;
     assert!(drained > 0 || THROUGHPUT_FRAMES == 0);
 }
 
 fn bench_200_frame_throughput(c: &mut Criterion) {
     ensure_init();
-
     let mut group = c.benchmark_group("encoder_200_frame_throughput");
     group.sample_size(10);
     group.throughput(criterion::Throughput::Elements(THROUGHPUT_FRAMES));
 
     if has_nvenc() {
         group.bench_function("h264_low_latency", |b| {
-            let config = h264_low_latency_config();
             b.iter_batched(
-                || NvEncoder::new(&config).expect("NvEncoder::new failed"),
+                || make_encoder(h264_low_latency_config()),
                 encode_n_frames,
                 BatchSize::PerIteration,
             );
         });
-
         group.bench_function("hevc_low_latency", |b| {
-            let config = hevc_low_latency_config();
             b.iter_batched(
-                || NvEncoder::new(&config).expect("NvEncoder::new failed"),
+                || make_encoder(hevc_low_latency_config()),
                 encode_n_frames,
                 BatchSize::PerIteration,
             );
         });
-
         group.bench_function("av1_low_latency", |b| {
-            let config = av1_low_latency_config();
             b.iter_batched(
-                || NvEncoder::new(&config).expect("NvEncoder::new failed"),
+                || make_encoder(av1_low_latency_config()),
                 encode_n_frames,
                 BatchSize::PerIteration,
             );
         });
     } else {
-        eprintln!("NVENC not available — skipping h264/hevc/av1 throughput benchmarks");
+        eprintln!(
+            "NVENC not available on this GPU — skipping h264/hevc/av1 throughput \
+             (expected on Orin Nano and on datacenter dGPUs like A100/H100/B300)"
+        );
     }
 
     if has_nvjpegenc() {
         group.bench_function("jpeg", |b| {
-            let config = jpeg_config();
             b.iter_batched(
-                || NvEncoder::new(&config).expect("NvEncoder::new failed"),
+                || make_encoder(jpeg_config()),
                 encode_n_frames,
                 BatchSize::PerIteration,
             );
         });
     } else {
-        eprintln!("nvjpegenc not available — skipping jpeg throughput benchmark");
+        eprintln!("nvjpegenc not available — skipping jpeg throughput");
     }
+
+    // PNG/RAW throughput — always available.
+    group.bench_function("png", |b| {
+        b.iter_batched(
+            || make_encoder(png_config()),
+            encode_n_frames,
+            BatchSize::PerIteration,
+        );
+    });
+    group.bench_function("raw_rgba", |b| {
+        b.iter_batched(
+            || make_encoder(raw_rgba_config()),
+            encode_n_frames,
+            BatchSize::PerIteration,
+        );
+    });
 
     group.finish();
 }

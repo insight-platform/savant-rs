@@ -3,6 +3,10 @@
 /// Errors that can occur during encoder creation or operation.
 #[derive(Debug, thiserror::Error)]
 pub enum EncoderError {
+    /// GStreamer initialization failed.
+    #[error("GStreamer init failed: {0}")]
+    GstInit(String),
+
     /// The requested codec is not supported on this platform.
     #[error("Unsupported codec: {0}")]
     UnsupportedCodec(String),
@@ -47,7 +51,7 @@ pub enum EncoderError {
         pts_ns: u64,
     },
 
-    /// GStreamer pipeline error.
+    /// GStreamer pipeline error (runtime / configuration).
     #[error("GStreamer pipeline error: {0}")]
     PipelineError(String),
 
@@ -59,13 +63,35 @@ pub enum EncoderError {
     #[error("Failed to link GStreamer elements: {0}")]
     LinkFailed(String),
 
-    /// Buffer acquisition failure.
+    /// Buffer acquisition or mapping failure.
+    #[error("Failed to acquire/map buffer: {0}")]
+    BufferError(String),
+
+    /// Legacy alias for [`BufferError`](Self::BufferError).
     #[error("Failed to acquire buffer: {0}")]
     BufferAcquisitionFailed(String),
+
+    /// Encoder is shutting down and cannot accept new input.
+    #[error("Encoder is shutting down and cannot accept new input")]
+    ShuttingDown,
+
+    /// Output channel disconnected — the pipeline drain thread has exited.
+    #[error("Encoder output channel disconnected")]
+    ChannelDisconnected,
+
+    /// Pipeline has entered a terminal failed state.
+    #[error("Encoder pipeline is in failed state")]
+    PipelineFailed,
 
     /// Encoder has already been finalized (EOS sent).
     #[error("Encoder has been finalized (EOS sent), no more frames can be submitted")]
     AlreadyFinalized,
+
+    /// Low-level failure coming from the [`savant_gstreamer::pipeline`]
+    /// framework (state change, feeder / drain thread, watchdog,
+    /// timestamp-order violation, …).
+    #[error("Pipeline framework error: {0}")]
+    FrameworkError(#[from] savant_gstreamer::pipeline::PipelineError),
 
     /// Upstream NvBufSurface error.
     #[error("NvBufSurface error: {0}")]

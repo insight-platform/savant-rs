@@ -16,55 +16,14 @@ mod common;
 use common::*;
 use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use log::{Level, LevelFilter, Log, Metadata, Record};
+use log::Level;
 use picasso::prelude::*;
 use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::test::log_capture::log_records;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-type LogRecords = Arc<Mutex<Vec<(Level, String)>>>;
-
-/// Process-wide log capture.  Stores every emitted record (level + rendered
-/// message) so individual tests can assert presence/absence of specific log
-/// lines.  Installed on first use, replaces `env_logger`, and also echoes
-/// to stderr so cargo's `--nocapture` still shows output.
-struct CapturingLogger {
-    records: LogRecords,
-}
-
-impl Log for CapturingLogger {
-    fn enabled(&self, _metadata: &Metadata) -> bool {
-        true
-    }
-    fn log(&self, record: &Record) {
-        let msg = format!("{}", record.args());
-        if let Ok(mut v) = self.records.lock() {
-            v.push((record.level(), msg.clone()));
-        }
-        eprintln!("[{} {}] {}", record.level(), record.target(), msg);
-    }
-    fn flush(&self) {}
-}
-
-fn log_records() -> LogRecords {
-    static RECORDS: OnceLock<LogRecords> = OnceLock::new();
-    RECORDS
-        .get_or_init(|| {
-            let records: LogRecords = Arc::new(Mutex::new(Vec::new()));
-            let logger = Box::new(CapturingLogger {
-                records: records.clone(),
-            });
-            // May fail if another logger was installed first; in that case
-            // we fall through with an empty record buffer and the absence
-            // assertion degenerates into a no-op (documented in the test).
-            let _ = log::set_boxed_logger(logger);
-            log::set_max_level(LevelFilter::Debug);
-            records
-        })
-        .clone()
-}
 
 /// Counts encoded frames and EOS per `source_id` for multi-source throughput tests.
 struct PerSourceEncodedCb {
@@ -282,7 +241,7 @@ fn e2e_sustained_throughput_no_frame_loss() {
     // Snapshot log length so we only check records emitted during this test.
     let baseline = records.lock().expect("records lock").len();
 
-    let mut streams: Vec<(String, EncoderConfig)> = Vec::new();
+    let mut streams: Vec<(String, NvEncoderConfig)> = Vec::new();
     if has_nvjpegenc() {
         streams.push(("burst-jpeg".to_string(), jpeg_encoder_config(W, H)));
     }

@@ -11,26 +11,6 @@ install -d -m 755 "${TARGET_LIB_DIR}"
 install -d -m 755 "${TARGET_BIN_DIR}"
 install -d -m 755 "${TARGET_ETC_DIR}"
 
-# Find and validate Rust standard library
-RUST_STD_LIB=$(find / -name 'libstd-*.so' -type f -print -quit)
-if [ -z "${RUST_STD_LIB}" ]; then
-    echo "Error: Could not find Rust standard library" >&2
-    exit 1
-fi
-echo "Rust std lib: ${RUST_STD_LIB}"
-
-# Copy files with proper permissions and error checking
-if ! install -m 644 "${RUST_STD_LIB}" "${TARGET_LIB_DIR}/"; then
-    echo "Error: Failed to copy Rust standard library" >&2
-    exit 1
-fi
-
-# Copy dependency libraries
-if ! install -m 644 /opt/build-out/release/deps/*.so "${TARGET_LIB_DIR}/"; then
-    echo "Error: Failed to copy dependency libraries" >&2
-    exit 1
-fi
-
 # Copy binary with executable permissions
 if ! install -m 755 /opt/build-out/release/retina_rtsp "${TARGET_BIN_DIR}/"; then
     echo "Error: Failed to copy retina_rtsp binary" >&2

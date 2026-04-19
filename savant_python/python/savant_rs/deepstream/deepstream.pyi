@@ -78,6 +78,25 @@ __all__ = [
     "nvgstbuf_as_gpu_mat",
     "nvbuf_as_gpu_mat",
     "from_gpumat",
+    # encoder enums
+    "Platform",
+    "RateControl",
+    "H264Profile",
+    "HevcProfile",
+    "DgpuPreset",
+    "TuningPreset",
+    "JetsonPresetLevel",
+    # encoder property structs
+    "H264DgpuProps",
+    "HevcDgpuProps",
+    "H264JetsonProps",
+    "HevcJetsonProps",
+    "JpegProps",
+    "PngProps",
+    "Av1DgpuProps",
+    "Av1JetsonProps",
+    "EncoderProperties",
+    "EncoderConfig",
 ]
 
 # ── Enums ────────────────────────────────────────────────────────────────
@@ -2225,4 +2244,441 @@ class DecoderConfig:
     def with_raw_rgba(self, cfg: RawRgbaDecoderConfig) -> DecoderConfig: ...
     def with_raw_rgb(self, cfg: RawRgbDecoderConfig) -> DecoderConfig: ...
 
+    def __repr__(self) -> str: ...
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Encoder enums
+#
+# Symmetric counterparts to the decoder enums above. Use these to assemble
+# per-codec encoder properties (`H264DgpuProps`, `JpegProps`, etc.) which
+# are then wrapped in `EncoderProperties` and attached to `EncoderConfig`.
+# ═══════════════════════════════════════════════════════════════════════════
+
+@final
+class Platform:
+    DGPU: Platform
+    JETSON: Platform
+
+    @staticmethod
+    def from_name(name: str) -> Platform: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class RateControl:
+    VARIABLE_BITRATE: RateControl
+    CONSTANT_BITRATE: RateControl
+    CONSTANT_QP: RateControl
+
+    @staticmethod
+    def from_name(name: str) -> RateControl: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class H264Profile:
+    BASELINE: H264Profile
+    MAIN: H264Profile
+    HIGH: H264Profile
+    HIGH444: H264Profile
+
+    @staticmethod
+    def from_name(name: str) -> H264Profile: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class HevcProfile:
+    MAIN: HevcProfile
+    MAIN10: HevcProfile
+    FREXT: HevcProfile
+
+    @staticmethod
+    def from_name(name: str) -> HevcProfile: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class DgpuPreset:
+    P1: DgpuPreset
+    P2: DgpuPreset
+    P3: DgpuPreset
+    P4: DgpuPreset
+    P5: DgpuPreset
+    P6: DgpuPreset
+    P7: DgpuPreset
+
+    @staticmethod
+    def from_name(name: str) -> DgpuPreset: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class TuningPreset:
+    HIGH_QUALITY: TuningPreset
+    LOW_LATENCY: TuningPreset
+    ULTRA_LOW_LATENCY: TuningPreset
+    LOSSLESS: TuningPreset
+
+    @staticmethod
+    def from_name(name: str) -> TuningPreset: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class JetsonPresetLevel:
+    DISABLED: JetsonPresetLevel
+    ULTRA_FAST: JetsonPresetLevel
+    FAST: JetsonPresetLevel
+    MEDIUM: JetsonPresetLevel
+    SLOW: JetsonPresetLevel
+
+    @staticmethod
+    def from_name(name: str) -> JetsonPresetLevel: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Per-codec encoder property structs
+# ═══════════════════════════════════════════════════════════════════════════
+
+class H264DgpuProps:
+    bitrate: Optional[int]
+    control_rate: Optional[RateControl]
+    profile: Optional[H264Profile]
+    iframeinterval: Optional[int]
+    idrinterval: Optional[int]
+    preset: Optional[DgpuPreset]
+    tuning_info: Optional[TuningPreset]
+    qp_range: Optional[str]
+    const_qp: Optional[str]
+    init_qp: Optional[str]
+    max_bitrate: Optional[int]
+    vbv_buf_size: Optional[int]
+    vbv_init: Optional[int]
+    cq: Optional[int]
+    aq: Optional[int]
+    temporal_aq: Optional[bool]
+    extended_colorformat: Optional[bool]
+
+    def __init__(
+        self,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[RateControl] = None,
+        profile: Optional[H264Profile] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset: Optional[DgpuPreset] = None,
+        tuning_info: Optional[TuningPreset] = None,
+        qp_range: Optional[str] = None,
+        const_qp: Optional[str] = None,
+        init_qp: Optional[str] = None,
+        max_bitrate: Optional[int] = None,
+        vbv_buf_size: Optional[int] = None,
+        vbv_init: Optional[int] = None,
+        cq: Optional[int] = None,
+        aq: Optional[int] = None,
+        temporal_aq: Optional[bool] = None,
+        extended_colorformat: Optional[bool] = None,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class HevcDgpuProps:
+    bitrate: Optional[int]
+    control_rate: Optional[RateControl]
+    profile: Optional[HevcProfile]
+    iframeinterval: Optional[int]
+    idrinterval: Optional[int]
+    preset: Optional[DgpuPreset]
+    tuning_info: Optional[TuningPreset]
+    qp_range: Optional[str]
+    const_qp: Optional[str]
+    init_qp: Optional[str]
+    max_bitrate: Optional[int]
+    vbv_buf_size: Optional[int]
+    vbv_init: Optional[int]
+    cq: Optional[int]
+    aq: Optional[int]
+    temporal_aq: Optional[bool]
+    extended_colorformat: Optional[bool]
+
+    def __init__(
+        self,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[RateControl] = None,
+        profile: Optional[HevcProfile] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset: Optional[DgpuPreset] = None,
+        tuning_info: Optional[TuningPreset] = None,
+        qp_range: Optional[str] = None,
+        const_qp: Optional[str] = None,
+        init_qp: Optional[str] = None,
+        max_bitrate: Optional[int] = None,
+        vbv_buf_size: Optional[int] = None,
+        vbv_init: Optional[int] = None,
+        cq: Optional[int] = None,
+        aq: Optional[int] = None,
+        temporal_aq: Optional[bool] = None,
+        extended_colorformat: Optional[bool] = None,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class H264JetsonProps:
+    bitrate: Optional[int]
+    control_rate: Optional[RateControl]
+    profile: Optional[H264Profile]
+    iframeinterval: Optional[int]
+    idrinterval: Optional[int]
+    preset_level: Optional[JetsonPresetLevel]
+    peak_bitrate: Optional[int]
+    vbv_size: Optional[int]
+    qp_range: Optional[str]
+    quant_i_frames: Optional[int]
+    quant_p_frames: Optional[int]
+    ratecontrol_enable: Optional[bool]
+    maxperf_enable: Optional[bool]
+    two_pass_cbr: Optional[bool]
+    num_ref_frames: Optional[int]
+    insert_sps_pps: Optional[bool]
+    insert_aud: Optional[bool]
+    insert_vui: Optional[bool]
+    disable_cabac: Optional[bool]
+
+    def __init__(
+        self,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[RateControl] = None,
+        profile: Optional[H264Profile] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset_level: Optional[JetsonPresetLevel] = None,
+        peak_bitrate: Optional[int] = None,
+        vbv_size: Optional[int] = None,
+        qp_range: Optional[str] = None,
+        quant_i_frames: Optional[int] = None,
+        quant_p_frames: Optional[int] = None,
+        ratecontrol_enable: Optional[bool] = None,
+        maxperf_enable: Optional[bool] = None,
+        two_pass_cbr: Optional[bool] = None,
+        num_ref_frames: Optional[int] = None,
+        insert_sps_pps: Optional[bool] = None,
+        insert_aud: Optional[bool] = None,
+        insert_vui: Optional[bool] = None,
+        disable_cabac: Optional[bool] = None,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class HevcJetsonProps:
+    bitrate: Optional[int]
+    control_rate: Optional[RateControl]
+    profile: Optional[HevcProfile]
+    iframeinterval: Optional[int]
+    idrinterval: Optional[int]
+    preset_level: Optional[JetsonPresetLevel]
+    peak_bitrate: Optional[int]
+    vbv_size: Optional[int]
+    qp_range: Optional[str]
+    quant_i_frames: Optional[int]
+    quant_p_frames: Optional[int]
+    ratecontrol_enable: Optional[bool]
+    maxperf_enable: Optional[bool]
+    two_pass_cbr: Optional[bool]
+    num_ref_frames: Optional[int]
+    enable_lossless: Optional[bool]
+
+    def __init__(
+        self,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[RateControl] = None,
+        profile: Optional[HevcProfile] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset_level: Optional[JetsonPresetLevel] = None,
+        peak_bitrate: Optional[int] = None,
+        vbv_size: Optional[int] = None,
+        qp_range: Optional[str] = None,
+        quant_i_frames: Optional[int] = None,
+        quant_p_frames: Optional[int] = None,
+        ratecontrol_enable: Optional[bool] = None,
+        maxperf_enable: Optional[bool] = None,
+        two_pass_cbr: Optional[bool] = None,
+        num_ref_frames: Optional[int] = None,
+        enable_lossless: Optional[bool] = None,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class JpegProps:
+    quality: Optional[int]
+
+    def __init__(self, quality: Optional[int] = None) -> None: ...
+    def __repr__(self) -> str: ...
+
+class PngProps:
+    """PNG encoder properties (CPU-based, ``pngenc`` from gst-plugins-good)."""
+
+    compression_level: Optional[int]
+
+    def __init__(self, compression_level: Optional[int] = None) -> None: ...
+    def __repr__(self) -> str: ...
+
+class Av1DgpuProps:
+    bitrate: Optional[int]
+    control_rate: Optional[RateControl]
+    iframeinterval: Optional[int]
+    idrinterval: Optional[int]
+    preset: Optional[DgpuPreset]
+    tuning_info: Optional[TuningPreset]
+    qp_range: Optional[str]
+    max_bitrate: Optional[int]
+    vbv_buf_size: Optional[int]
+    vbv_init: Optional[int]
+    cq: Optional[int]
+    aq: Optional[int]
+    temporal_aq: Optional[bool]
+
+    def __init__(
+        self,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[RateControl] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset: Optional[DgpuPreset] = None,
+        tuning_info: Optional[TuningPreset] = None,
+        qp_range: Optional[str] = None,
+        max_bitrate: Optional[int] = None,
+        vbv_buf_size: Optional[int] = None,
+        vbv_init: Optional[int] = None,
+        cq: Optional[int] = None,
+        aq: Optional[int] = None,
+        temporal_aq: Optional[bool] = None,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class Av1JetsonProps:
+    bitrate: Optional[int]
+    control_rate: Optional[RateControl]
+    iframeinterval: Optional[int]
+    idrinterval: Optional[int]
+    preset_level: Optional[JetsonPresetLevel]
+    peak_bitrate: Optional[int]
+    vbv_size: Optional[int]
+    qp_range: Optional[str]
+    quant_i_frames: Optional[int]
+    quant_p_frames: Optional[int]
+    quant_b_frames: Optional[int]
+    ratecontrol_enable: Optional[bool]
+    maxperf_enable: Optional[bool]
+    two_pass_cbr: Optional[bool]
+    num_ref_frames: Optional[int]
+    insert_seq_hdr: Optional[bool]
+    tiles: Optional[str]
+
+    def __init__(
+        self,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[RateControl] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset_level: Optional[JetsonPresetLevel] = None,
+        peak_bitrate: Optional[int] = None,
+        vbv_size: Optional[int] = None,
+        qp_range: Optional[str] = None,
+        quant_i_frames: Optional[int] = None,
+        quant_p_frames: Optional[int] = None,
+        quant_b_frames: Optional[int] = None,
+        ratecontrol_enable: Optional[bool] = None,
+        maxperf_enable: Optional[bool] = None,
+        two_pass_cbr: Optional[bool] = None,
+        num_ref_frames: Optional[int] = None,
+        insert_seq_hdr: Optional[bool] = None,
+        tiles: Optional[str] = None,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EncoderProperties (tagged union via factory statics)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class EncoderProperties:
+    @staticmethod
+    def h264_dgpu(props: H264DgpuProps) -> EncoderProperties: ...
+    @staticmethod
+    def h264_jetson(props: H264JetsonProps) -> EncoderProperties: ...
+    @staticmethod
+    def hevc_dgpu(props: HevcDgpuProps) -> EncoderProperties: ...
+    @staticmethod
+    def hevc_jetson(props: HevcJetsonProps) -> EncoderProperties: ...
+    @staticmethod
+    def jpeg(props: JpegProps) -> EncoderProperties: ...
+    @staticmethod
+    def av1_dgpu(props: Av1DgpuProps) -> EncoderProperties: ...
+    @staticmethod
+    def av1_jetson(props: Av1JetsonProps) -> EncoderProperties: ...
+    @staticmethod
+    def png(props: PngProps) -> EncoderProperties: ...
+    def __repr__(self) -> str: ...
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EncoderConfig
+# ═══════════════════════════════════════════════════════════════════════════
+
+class EncoderConfig:
+    """Encoder configuration for the Picasso/NvEncoder pipeline.
+
+    Uses a builder pattern -- chain ``.format(...).fps(...).gpu_id(...)``
+    etc. after construction.
+
+    **Important:** The builder methods ``format()``, ``gpu_id()`` shadow
+    the underlying property setters. At runtime, property assignment
+    (``cfg.gpu_id = 0``) raises ``AttributeError: read-only``.
+    Always use the builder method call form::
+
+        cfg = EncoderConfig(Codec.H264, 1280, 720)
+        cfg.format(VideoFormat.RGBA)   # builder call -- OK
+        cfg.gpu_id(0)                  # builder call -- OK
+        cfg.fps(30, 1)
+        cfg.properties(props)
+    """
+
+    def __init__(self, codec: Codec, width: int, height: int) -> None: ...
+
+    # ── read-only property getters ──
+    # Note: ``format`` and ``gpu_id`` have builder methods with the same
+    # name that shadow the property setter; use the builder call form.
+    @property
+    def fps_num(self) -> int: ...
+    @property
+    def fps_den(self) -> int: ...
+    @property
+    def mem_type(self) -> MemType: ...
+    @property
+    def encoder_params(self) -> Optional[EncoderProperties]: ...
+
+    # ── builder methods (return self for chaining) ──
+    def format(self, fmt: VideoFormat) -> EncoderConfig: ...
+    def fps(self, num: int, den: int) -> EncoderConfig: ...
+    def gpu_id(self, id: int) -> EncoderConfig: ...
+    def properties(self, props: EncoderProperties) -> EncoderConfig: ...
     def __repr__(self) -> str: ...

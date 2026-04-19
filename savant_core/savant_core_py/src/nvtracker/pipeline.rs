@@ -1,6 +1,6 @@
 //! PyO3 wrapper for NvTracker.
 //!
-//! Thin bindings over [`nvtracker::NvTracker`]: submit and pull outputs via
+//! Thin bindings over [`deepstream_nvtracker::NvTracker`]: submit and pull outputs via
 //! [`recv`](PyNvTracker::recv) / [`recv_timeout`](PyNvTracker::recv_timeout) /
 //! [`try_recv`](PyNvTracker::try_recv), matching the Rust API.
 
@@ -10,7 +10,7 @@ use crate::deepstream::enums::{to_rust_id_kind, PySavantIdMetaKind};
 use crate::deepstream::PySharedBuffer;
 use crate::nvinfer::roi::PyRoi;
 use gstreamer as gst;
-use nvtracker::{NvTracker, NvTrackerOutput, Roi as RustRoi, TrackedFrame};
+use deepstream_nvtracker::{NvTracker, NvTrackerOutput, Roi as RustRoi, TrackedFrame};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::Py;

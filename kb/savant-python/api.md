@@ -372,7 +372,9 @@ from savant_rs.picasso import (
     ObjectDrawSpec, CodecSpec, SourceSpec,
     CallbackInvocationOrder,
     PtsResetPolicy, StreamResetReason,
-    # Encoder types
+)
+from savant_rs.deepstream import (
+    # Encoder types (migrated from savant_rs.picasso for symmetry with decoders)
     EncoderConfig, EncoderProperties, H264DgpuProps, HevcDgpuProps, ...
 )
 ```

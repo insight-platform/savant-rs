@@ -216,7 +216,7 @@ pub fn platform_transform_config() -> TransformConfig {
 /// (CUDA context warm-up, memory pool allocation, cuDNN autotuning, etc.),
 /// so this ensures subsequent runs produce stable, comparable results.
 #[allow(dead_code)]
-pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
+pub fn warmup_engine(engine: &deepstream_nvinfer::NvInfer, width: u32, height: u32) {
     use deepstream_buffers::{
         BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, UniformBatchGenerator, VideoFormat,
     };
@@ -261,15 +261,15 @@ pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
 ///
 /// Panics if EOS is received or if too many iterations pass without a result.
 #[allow(dead_code)]
-pub fn recv_inference(engine: &nvinfer::NvInfer) -> nvinfer::output::BatchInferenceOutput {
+pub fn recv_inference(engine: &deepstream_nvinfer::NvInfer) -> deepstream_nvinfer::output::BatchInferenceOutput {
     for _ in 0..64 {
         match engine.recv().expect("recv failed") {
-            nvinfer::NvInferOutput::Inference(output) => return output,
-            nvinfer::NvInferOutput::Event(_) => continue,
-            nvinfer::NvInferOutput::Eos { source_id } => {
+            deepstream_nvinfer::NvInferOutput::Inference(output) => return output,
+            deepstream_nvinfer::NvInferOutput::Event(_) => continue,
+            deepstream_nvinfer::NvInferOutput::Eos { source_id } => {
                 panic!("unexpected EOS while waiting for inference: source_id={source_id}")
             }
-            nvinfer::NvInferOutput::Error(e) => {
+            deepstream_nvinfer::NvInferOutput::Error(e) => {
                 panic!("pipeline error while waiting for inference: {e}")
             }
         }

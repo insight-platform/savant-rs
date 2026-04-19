@@ -44,6 +44,7 @@ from picasso_helpers import (
 )
 from savant_rs.deepstream import (
     BufferGenerator,
+    EncoderConfig,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -54,7 +55,6 @@ from savant_rs.picasso import (
     Callbacks,
     CodecSpec,
     ConditionalSpec,
-    EncoderConfig,
     EvictionDecision,
     GeneralSpec,
     ObjectDrawSpec,

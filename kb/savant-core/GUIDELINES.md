@@ -59,17 +59,17 @@ foundational library powering Savant's video-analytics pipeline.
 
 ```bash
 # Run all tests
-cargo test -p savant_core
+cargo test -p savant-core
 
 # Run a specific test
-cargo test -p savant_core -- test_name
+cargo test -p savant-core -- test_name
 
 # Run benchmarks
-cargo bench -p savant_core
+cargo bench -p savant-core
 
 # Clippy
-cargo clippy -p savant_core -- -D warnings
+cargo clippy -p savant-core -- -D warnings
 
 # Format
-cargo fmt -p savant_core
+cargo fmt -p savant-core
 ```

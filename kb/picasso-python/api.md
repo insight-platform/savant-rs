@@ -185,6 +185,14 @@ Keyed by `(namespace, label)` pair. Uses `ObjectDraw` from `savant_rs.draw_spec`
 ---
 
 ## EncoderConfig
+
+> **Module:** imported from `savant_rs.deepstream` (not
+> `savant_rs.picasso`). The encoder PyO3 bindings were moved to
+> the `deepstream` submodule to be symmetric with the decoder
+> bindings. Picasso consumes `EncoderConfig` via
+> `CodecSpec.encode(transform, encoder)` but no longer re-exports
+> the class.
+
 ```
 SIG: __init__(codec: Codec, width: int, height: int) → None
 ```
@@ -223,7 +231,7 @@ cfg.properties(props)
 ---
 
 ## EncoderProperties
-Factory statics only:
+Factory statics only. Imported from `savant_rs.deepstream`.
 
 | Factory | Args |
 |---|---|
@@ -234,6 +242,7 @@ Factory statics only:
 | `EncoderProperties.jpeg(props: JpegProps)` | JPEG |
 | `EncoderProperties.png(props: PngProps)` | PNG (CPU-based, lossless) |
 | `EncoderProperties.av1_dgpu(props: Av1DgpuProps)` | dGPU AV1 |
+| `EncoderProperties.av1_jetson(props: Av1JetsonProps)` | Jetson AV1 |
 
 ---
 

@@ -3,6 +3,13 @@
 Crate: `deepstream_encoders`
 Prelude: `use deepstream_encoders::prelude::*;`
 
+The encoder public API mirrors `deepstream_decoders` one-to-one: a
+codec-specific configuration enum (`EncoderConfig`), a runtime wrapper
+that carries pipeline-level knobs (`NvEncoderConfig`), a thread-safe
+pipeline handle (`NvEncoder`), and a pull-based output channel
+(`NvEncoderOutput`). See `kb/decoders/api.md` for the symmetric decoder
+API.
+
 ---
 
 ## Codec Enum (from savant_gstreamer, re-exported)
@@ -10,130 +17,169 @@ Prelude: `use deepstream_encoders::prelude::*;`
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Codec {
-    H264,     // nvv4l2h264enc       — NVENC required
-    Hevc,     // nvv4l2h265enc       — NVENC required
-    Jpeg,     // nvjpegenc           — nvjpegenc element required
-    Av1,      // nvv4l2av1enc        — NVENC required, dGPU only
-    Png,      // pngenc (CPU-based)  — always available
-    RawRgba,  // pseudoencoder       — always available
-    RawRgb,   // pseudoencoder       — always available
-    RawNv12,  // pseudoencoder       — always available
+    H264,     // nvv4l2h264enc       -- NVENC required
+    Hevc,     // nvv4l2h265enc       -- NVENC required
+    Jpeg,     // nvjpegenc           -- nvjpegenc element required
+    Av1,      // nvv4l2av1enc        -- NVENC required, dGPU only
+    Png,      // pngenc (CPU-based)  -- always available
+    RawRgba,  // pseudoencoder       -- always available
+    RawRgb,   // pseudoencoder       -- always available
+    RawNv12,  // pseudoencoder       -- always available
 }
 ```
 
-| Method | Signature | Notes |
-|---|---|---|
-| `encoder_element` | `(&self) → &'static str` | GStreamer element name. `"identity"` for Raw. |
-| `parser_element` | `(&self) → &'static str` | GStreamer parser. `"identity"` for PNG/Raw. |
-| `caps_str` | `(&self) → &'static str` | GStreamer caps string |
-| `from_name` | `(name: &str) → Option<Self>` | Case-insensitive parse |
-| `name` | `(&self) → &'static str` | Canonical name |
-| `Display` | format!("{}", codec) | Same as `name()` |
-
-### Codec → element mapping
-| Codec | encoder_element | parser_element | caps_str |
-|---|---|---|---|
-| H264 | nvv4l2h264enc | h264parse | video/x-h264, stream-format=byte-stream |
-| Hevc | nvv4l2h265enc | h265parse | video/x-h265, stream-format=byte-stream |
-| Jpeg | nvjpegenc | jpegparse | image/jpeg |
-| Av1 | nvv4l2av1enc | av1parse | video/x-av1 |
-| Png | pngenc | identity | image/png |
-| RawRgba | identity | identity | video/x-raw,format=RGBA |
-| RawRgb | identity | identity | video/x-raw,format=RGB |
-| RawNv12 | identity | identity | video/x-raw,format=NV12 |
-
-### Codec name ↔ from_name mapping
-| Codec | name() | from_name() accepts |
-|---|---|---|
-| H264 | h264 | h264 |
-| Hevc | hevc | hevc, h265 |
-| Jpeg | jpeg | jpeg |
-| Av1 | av1 | av1 |
-| Png | png | png |
-| RawRgba | raw_rgba | raw_rgba |
-| RawRgb | raw_rgb | raw_rgb |
-| RawNv12 | raw_nv12 | raw_nv12 |
+Codec → element / caps mappings are identical to the decoder KB; see
+`kb/decoders/api.md` for the full table.
 
 ---
 
-## EncoderConfig
+## Core types
+
+- Per-codec configs: `H264EncoderConfig`, `HevcEncoderConfig`,
+  `Av1EncoderConfig`, `JpegEncoderConfig`, `PngEncoderConfig`,
+  `RawEncoderConfig`.
+- Top-level codec enum: `EncoderConfig`.
+- Framework/pipeline settings: `NvEncoderConfig`.
+- Encoder handle: `NvEncoder` (channel-based, interior mutable).
+- Outputs: `NvEncoderOutput` (pull), `EncodedFrame` (encoded payload).
+- Errors: `EncoderError`.
+
+## EncoderConfig (codec-specific enum)
 
 ```rust
-#[derive(Debug, Clone)]
-pub struct EncoderConfig {
-    pub codec: Codec,
-    pub width: u32,
-    pub height: u32,
-    pub format: VideoFormat,        // DEF: NV12
-    pub fps_num: i32,               // DEF: 30
-    pub fps_den: i32,               // DEF: 1
-    pub gpu_id: u32,                // DEF: 0
-    pub mem_type: NvBufSurfaceMemType, // DEF: Default
-    pub encoder_params: Option<EncoderProperties>,  // DEF: None
+pub enum EncoderConfig {
+    H264(H264EncoderConfig),
+    Hevc(HevcEncoderConfig),
+    Av1(Av1EncoderConfig),
+    Jpeg(JpegEncoderConfig),
+    Png(PngEncoderConfig),
+    RawRgba(RawEncoderConfig),
+    RawRgb(RawEncoderConfig),
+    RawNv12(RawEncoderConfig),
 }
 ```
 
-| Method | Signature | Notes |
-|---|---|---|
-| `new` | `(codec: Codec, width: u32, height: u32) → Self` | Builder entry point |
-| `format` | `(self, format: VideoFormat) → Self` | Move semantics — chain in one expression |
-| `fps` | `(self, num: i32, den: i32) → Self` | |
-| `gpu_id` | `(self, gpu_id: u32) → Self` | |
-| `mem_type` | `(self, mem_type: NvBufSurfaceMemType) → Self` | |
-| `properties` | `(self, props: EncoderProperties) → Self` | Variant codec must match config codec |
+Helpers on `EncoderConfig`:
 
-⚠ Builder returns `Self` by value. Chain in one expression.
-⚠ `encoder_params` codec must match `config.codec` — validated at `NvEncoder::new` time.
+- `codec(&self) -> Codec`
+- `width(&self) -> u32`
+- `height(&self) -> u32`
+- `format(&self) -> VideoFormat`
+- `fps(&self) -> (i32, i32)`
+- `to_gst_pairs(&self) -> Vec<(&'static str, String)>`
 
----
+Per-codec structs expose a builder chain:
+
+- `<Codec>EncoderConfig::new(width, height)` (raw: `RawEncoderConfig::new(width, height, format)`)
+- `.format(VideoFormat)` (not available on raw; format is fixed at
+  construction to the codec's pixel layout)
+- `.fps(num, den)`
+- `.props(<Codec>Props)` for platform-aware codec properties
+
+Raw codec configs never take props on their builder; the `RawProps`
+unit struct is used only by the top-level `EncoderProperties` enum.
+
+## NvEncoderConfig (framework/pipeline settings)
+
+```rust
+pub struct NvEncoderConfig {
+    pub name: String,
+    pub gpu_id: u32,
+    pub mem_type: NvBufSurfaceMemType,
+    pub encoder: EncoderConfig,
+    pub input_channel_capacity: usize,
+    pub output_channel_capacity: usize,
+    pub operation_timeout: Duration,
+    pub drain_poll_interval: Duration,
+}
+```
+
+Primary constructor and builder (all return `Self`):
+
+- `NvEncoderConfig::new(gpu_id: u32, encoder: EncoderConfig) -> Self`
+- `.name(impl Into<String>)`
+- `.mem_type(NvBufSurfaceMemType)`
+- `.input_channel_capacity(usize)`
+- `.output_channel_capacity(usize)`
+- `.operation_timeout(Duration)`
+- `.drain_poll_interval(Duration)`
+
+Accessors (`width`, `height`, `codec`, `format`, `fps`) delegate to the
+wrapped `EncoderConfig`. This mirrors `NvDecoderConfig` for decoders.
 
 ## NvEncoder
 
+Primary constructor:
+
+`NvEncoder::new(config: NvEncoderConfig) -> Result<Self, EncoderError>`
+
+Primary methods (all take `&self`; state is interior-mutable behind
+`Arc<Mutex<_>>` so the handle can be cheaply shared with drain
+threads):
+
+- `generator(&self) -> Arc<Mutex<BufferGenerator>>` -- acquire NVMM
+  buffers sized for the encoder input (pool depth 1).
+- `codec(&self) -> Codec`
+- `width(&self) -> u32`, `height(&self) -> u32`
+- `submit_frame(&self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) -> Result<(), EncoderError>`
+- `send_event(&self, event: gst::Event) -> Result<(), EncoderError>`
+- `send_source_eos(&self, source_id: &str) -> Result<(), EncoderError>`
+- `recv(&self) -> Result<NvEncoderOutput, EncoderError>`
+- `recv_timeout(&self, timeout: Duration) -> Result<Option<NvEncoderOutput>, EncoderError>`
+- `try_recv(&self) -> Result<Option<NvEncoderOutput>, EncoderError>`
+- `graceful_shutdown<F>(&self, idle_timeout: Option<Duration>, on_output: F) -> Result<(), EncoderError>`
+  where `F: FnMut(NvEncoderOutput)` -- sends a real EOS, drains every
+  pending frame/event through the callback, then tears the pipeline
+  down.
+- `shutdown(&self) -> Result<(), EncoderError>` -- hard stop without
+  draining.
+
+`NvEncoder` implements `Drop`; `Drop` sends EOS and stops the
+pipeline. Prefer `graceful_shutdown` so callers observe all in-flight
+frames.
+
+## NvEncoderOutput
+
 ```rust
-pub struct NvEncoder { /* private */ }
+pub enum NvEncoderOutput {
+    Frame(EncodedFrame),
+    Event(gst::Event),
+    SourceEos { source_id: String },
+    Eos,
+    Error(EncoderError),
+}
 ```
 
-| Method | Signature | Notes |
-|---|---|---|
-| `new` | `(config: &EncoderConfig) → Result<Self, EncoderError>` | GPU — builds and starts GStreamer pipeline |
-| `generator` | `(&self) → &BufferGenerator` | For acquiring NVMM buffers (wraps `UniformBatchGenerator` with `max_batch_size=1`) |
-| `codec` | `(&self) → Codec` | |
-| `submit_frame` | `(&mut self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) → Result<(), EncoderError>` | PTS must be strictly monotonic. Takes `gst::Buffer` with NvBufSurface memory (e.g. from `generator().acquire().into_buffer()`). |
-| `pull_encoded` | `(&mut self) → Result<Option<EncodedFrame>, EncoderError>` | Non-blocking |
-| `pull_encoded_timeout` | `(&mut self, timeout_ms: u64) → Result<Option<EncodedFrame>, EncoderError>` | Blocking with timeout |
-| `finish` | `(&mut self, drain_timeout_ms: Option<u64>) → Result<Vec<EncodedFrame>, EncoderError>` | Send EOS, drain remaining |
-| `check_error` | `(&self) → Result<(), EncoderError>` | Check pipeline bus |
-
-- Implements `Drop` (sends EOS + stops pipeline).
-- ⚠ `submit_frame` after `finish()` → `AlreadyFinalized`.
-- ⚠ Non-monotonic PTS → `PtsReordered`.
-- ⚠ Pool size is always 1 to prevent NVENC DMA read-after-reclaim.
-
----
+This is the symmetric dual of `NvDecoderOutput`; the variants have
+identical semantics, including in-band delivery of `savant.*`
+custom-downstream events via the generic rescue probe in
+`GstPipeline`.
 
 ## EncodedFrame
 
 ```rust
-#[derive(Debug, Clone)]
 pub struct EncodedFrame {
-    pub frame_id: Option<u128>, // Always `Some(id)` for H.264/HEVC/AV1/JPEG/PNG/Raw
-                                // — codec header packets (e.g. AV1 sequence header) are
-                                // inlined into the next user frame by NvEncoder. See
-                                // kb/encoders/caveats.md §8 for the inlining mechanism.
+    pub frame_id: Option<u128>,
     pub pts_ns: u64,
     pub dts_ns: Option<u64>,
     pub duration_ns: Option<u64>,
-    pub data: Vec<u8>,          // bitstream or tightly-packed pixels (for Raw)
+    pub data: Vec<u8>,
     pub codec: Codec,
-    pub keyframe: bool,         // JPEG/PNG/Raw: always true
+    pub keyframe: bool,
     pub time_base: (i32, i32),  // always (1, 1_000_000_000)
 }
 ```
 
-⚠ For `Codec::RawRgba`: `data.len() == width * height * 4`
-⚠ For `Codec::RawRgb`: `data.len() == width * height * 3`
-⚠ For `Codec::RawNv12`: `data.len() == width * height * 3 / 2` (12-bit YUV 4:2:0)
-⚠ Raw data is tightly-packed (stride padding stripped).
+Raw payload sizes:
+
+- `Codec::RawRgba`: `data.len() == width * height * 4`
+- `Codec::RawRgb`:  `data.len() == width * height * 3`
+- `Codec::RawNv12`: `data.len() == width * height * 3 / 2`
+
+Codec-header-only buffers (e.g. AV1 sequence headers emitted as
+standalone GStreamer buffers) are stashed internally and prepended to
+the next real encoded frame so that callers only ever see complete
+`EncodedFrame`s. See `caveats.md` for the rationale and scope.
 
 ---
 
@@ -157,89 +203,101 @@ pub enum EncoderProperties {
 
 | Method | Signature |
 |---|---|
-| `codec` | `(&self) → Codec` |
-| `platform` | `(&self) → Option<Platform>` — None for JPEG/PNG/Raw |
-| `to_gst_pairs` | `(&self) → Vec<(&'static str, String)>` |
-| `from_pairs` | `(codec: Codec, platform: Platform, pairs: &HashMap<String,String>) → Result<Self, EncoderError>` |
+| `codec` | `(&self) -> Codec` |
+| `platform` | `(&self) -> Option<Platform>` -- None for JPEG/PNG/Raw |
+| `to_gst_pairs` | `(&self) -> Vec<(&'static str, String)>` |
+| `from_pairs` | `(codec: Codec, platform: Platform, pairs: &HashMap<String,String>) -> Result<Self, EncoderError>` |
+
+### Platform-Specific Property Structs
+
+All fields are `Option<T>` and default to `None` (encoder default
+applies). All implement `Debug, Clone, Default`.
+
+- `H264DgpuProps` -- `bitrate`, `control_rate`, `profile`,
+  `iframeinterval`, `idrinterval`, `preset` (DgpuPreset),
+  `tuning_info`, `qp_range`, `const_qp`, `init_qp`, `max_bitrate`,
+  `vbv_buf_size`, `vbv_init`, `cq`, `aq`, `temporal_aq`,
+  `extended_colorformat`
+- `H264JetsonProps` -- `bitrate`, `control_rate`, `profile`,
+  `iframeinterval`, `idrinterval`, `preset_level`, `peak_bitrate`,
+  `vbv_size`, `qp_range`, `quant_i_frames`, `quant_p_frames`,
+  `ratecontrol_enable`, `maxperf_enable`, `two_pass_cbr`,
+  `num_ref_frames`, `insert_sps_pps`, `insert_aud`, `insert_vui`,
+  `disable_cabac`
+- `HevcDgpuProps` / `HevcJetsonProps` -- same shape as H264 variants
+  but with `HevcProfile`
+- `Av1DgpuProps` / `Av1JetsonProps` -- Av1-specific subset
+- `JpegProps` -- `quality` (0-100)
+- `PngProps` -- `compression_level` (0-9, CPU-based `pngenc`)
+- `RawProps` -- unit struct, no tunables
+
+### Helper Enums
+
+- `Platform` -- `Dgpu`, `Jetson` (`from_name`: "dgpu"/"gpu" -> Dgpu;
+  "jetson"/"tegra" -> Jetson)
+- `RateControl` -- `VariableBitrate(0)`, `ConstantBitrate(1)`,
+  `ConstantQP(2)`
+- `H264Profile` -- `Baseline(0)`, `Main(2)`, `High(4)`, `High444(7)`
+- `HevcProfile` -- `Main(0)`, `Main10(1)`, `Frext(3)`
+- `DgpuPreset` -- `P1..P7` (lower = faster, higher = better quality)
+- `TuningPreset` -- `HighQuality`, `LowLatency`, `UltraLowLatency`,
+  `Lossless`
+- `JetsonPresetLevel` -- `Disabled`, `UltraFast`, `Fast`, `Medium`,
+  `Slow`
 
 ---
 
-## Platform-Specific Property Structs
+## Python Bindings
 
-All fields are `Option<T>` — `None` means use encoder default.
-All implement `Debug, Clone, Default`.
+Encoder PyO3 bindings live in `savant_rs.deepstream`, symmetric with
+the decoder bindings (NOT in `savant_rs.picasso`). Typical usage:
 
-### H264DgpuProps (dGPU only)
-Key fields: `bitrate`, `control_rate`, `profile` (H264Profile), `iframeinterval`, `idrinterval`, `preset` (DgpuPreset), `tuning_info` (TuningPreset), `qp_range`, `const_qp`, `init_qp`, `max_bitrate`, `vbv_buf_size`, `vbv_init`, `cq`, `aq`, `temporal_aq`, `extended_colorformat`
+```python
+from savant_rs.deepstream import (
+    EncoderConfig, EncoderProperties,
+    H264DgpuProps, DgpuPreset, TuningPreset, RateControl,
+    VideoFormat,
+)
+from savant_rs.gstreamer import Codec
 
-### H264JetsonProps (Jetson only)
-Key fields: `bitrate`, `control_rate`, `profile` (H264Profile), `iframeinterval`, `idrinterval`, `preset_level` (JetsonPresetLevel), `peak_bitrate`, `vbv_size`, `qp_range`, `quant_i_frames`, `quant_p_frames`, `ratecontrol_enable`, `maxperf_enable`, `two_pass_cbr`, `num_ref_frames`, `insert_sps_pps`, `insert_aud`, `insert_vui`, `disable_cabac`
+props = H264DgpuProps(
+    bitrate=4_000_000,
+    control_rate=RateControl.VARIABLE_BITRATE,
+    preset=DgpuPreset.P3,
+    tuning_info=TuningPreset.LOW_LATENCY,
+)
+cfg = EncoderConfig(Codec.H264, 1920, 1080)
+cfg.format(VideoFormat.NV12)
+cfg.fps(30, 1)
+cfg.gpu_id(0)
+cfg.properties(EncoderProperties.h264_dgpu(props))
+```
 
-### HevcDgpuProps (dGPU only)
-Same structure as H264DgpuProps but with `profile: Option<HevcProfile>`.
-
-### HevcJetsonProps (Jetson only)
-Same as H264JetsonProps but with `profile: Option<HevcProfile>`, `enable_lossless` instead of insert_* fields.
-
-### Av1DgpuProps (dGPU only, NVENC)
-Key fields: `bitrate`, `control_rate`, `iframeinterval`, `idrinterval`, `preset`, `tuning_info`, `qp_range`, `max_bitrate`, `vbv_buf_size`, `vbv_init`, `cq`, `aq`, `temporal_aq`
-
-### Av1JetsonProps (Jetson only)
-Key fields: `bitrate`, `control_rate`, `preset_level` (JetsonPresetLevel), `peak_bitrate`, `vbv_size`, `qp_range`, `iframeinterval`, `idrinterval`
-
-### JpegProps (both platforms)
-Key fields: `quality` (0–100, default 85)
-
-### PngProps (both platforms, CPU-based)
-Key fields: `compression_level` (0–9, default 6)
-
-### RawProps (both platforms, pseudoencoder)
-No configurable properties. `from_pairs` rejects any input.
-
----
-
-## Helper Enums
-
-### Platform
-`Dgpu`, `Jetson`
-- `from_name`: "dgpu"/"gpu"/"discrete" → Dgpu; "jetson"/"tegra" → Jetson
-
-### RateControl
-`VariableBitrate(0)`, `ConstantBitrate(1)`, `ConstantQP(2)`
-- GStreamer values: "0", "1", "2"
-
-### H264Profile
-`Baseline(0)`, `Main(2)`, `High(4)`, `High444(7)`
-
-### HevcProfile
-`Main(0)`, `Main10(1)`, `Frext(3)`
-
-### DgpuPreset
-`P1(1)` through `P7(7)` — lower = faster, higher = better quality
-
-### TuningPreset
-`HighQuality(1)`, `LowLatency(2)`, `UltraLowLatency(3)`, `Lossless(4)`
-
-### JetsonPresetLevel
-`Disabled(0)`, `UltraFast(1)`, `Fast(2)`, `Medium(3)`, `Slow(4)`
+The Python `EncoderConfig` is a thin configuration DSL; its
+`to_rust()` path materialises a full `NvEncoderConfig` (wrapping the
+codec-specific `EncoderConfig` enum variant with platform-aware props)
+for use by Picasso and other consumers.
 
 ---
 
 ## Prelude Re-exports
 
 ```rust
-pub use crate::encoder::NvEncoder;
+pub use crate::config::{
+    Av1EncoderConfig, EncoderConfig, H264EncoderConfig, HevcEncoderConfig,
+    JpegEncoderConfig, NvEncoderConfig, PngEncoderConfig, RawEncoderConfig,
+};
 pub use crate::error::EncoderError;
-pub use crate::{EncodedFrame, EncoderConfig};
+pub use crate::pipeline::{NvEncoder, NvEncoderOutput};
+pub use crate::{EncodedFrame, EncoderProperties};
 pub use savant_gstreamer::Codec;
 pub use deepstream_buffers::{
     cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
     UniformBatchGenerator, VideoFormat,
 };
 pub use crate::properties::{
-    Av1DgpuProps, Av1JetsonProps, DgpuPreset, EncoderProperties, H264DgpuProps,
-    H264JetsonProps, H264Profile, HevcDgpuProps, HevcJetsonProps, HevcProfile,
-    JetsonPresetLevel, JpegProps, Platform, PngProps, RateControl, RawProps,
-    TuningPreset,
+    Av1DgpuProps, Av1JetsonProps, DgpuPreset, H264DgpuProps, H264JetsonProps,
+    H264Profile, HevcDgpuProps, HevcJetsonProps, HevcProfile, JetsonPresetLevel,
+    JpegProps, Platform, PngProps, RateControl, RawProps, TuningPreset,
 };
 ```

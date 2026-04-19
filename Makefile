@@ -120,14 +120,14 @@ core-tests:
 # aborts the rest and fails the make target. GPU-heavy runs may need, e.g.:
 #   env -u DISPLAY EGL_PLATFORM=device make deepstream-tests
 DEEPSTREAM_TEST_CRATES := \
-	deepstream_buffers \
-	deepstream_decoders \
-	deepstream_encoders \
-	deepstream_inputs \
-	nvidia_gpu_utils \
-	nvinfer \
-	nvtracker \
-	picasso
+	savant-deepstream-buffers \
+	savant-deepstream-decoders \
+	savant-deepstream-encoders \
+	savant-deepstream-inputs \
+	savant-nvidia-gpu-utils \
+	savant-deepstream-nvinfer \
+	savant-deepstream-nvtracker \
+	savant-picasso
 
 deepstream-tests:
 	@echo "Running savant_deepstream crate tests (one package per cargo invocation)..."

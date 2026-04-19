@@ -11,7 +11,7 @@ use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
     TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{NvInfer, Roi};
+use deepstream_nvinfer::{NvInfer, Roi};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use savant_core::primitives::RBBox;
@@ -53,12 +53,12 @@ fn identity_engine_fullhd() -> Option<NvInfer> {
         return None;
     }
     let props = common::identity_fullhd_properties();
-    let config = nvinfer::NvInferConfig::new(
+    let config = deepstream_nvinfer::NvInferConfig::new(
         props,
         VideoFormat::RGBA,
         1920,
         1080,
-        nvinfer::ModelColorFormat::RGB,
+        deepstream_nvinfer::ModelColorFormat::RGB,
     );
     let engine = NvInfer::new(config).expect("create identity FullHD NvInfer");
     common::promote_built_engine("identity_fullhd.onnx", 2);

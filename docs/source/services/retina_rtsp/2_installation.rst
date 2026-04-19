@@ -97,7 +97,7 @@ If you prefer to build the service from source, you can do so using Docker or Ca
 
    .. code-block:: bash
 
-      cargo build --release -p retina_rtsp
+      cargo build --release -p savant-retina-rtsp
 
 
    .. note::

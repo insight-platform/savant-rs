@@ -13,7 +13,7 @@
 //! Run with:
 //!
 //! ```sh
-//! cargo bench -p picasso --bench bench_hevc_throughput
+//! cargo bench -p savant-picasso --bench bench_hevc_throughput
 //! ```
 
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -38,9 +38,13 @@ fn has_nvenc() -> bool {
     nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
 }
 
+/// Runtime Jetson/Tegra kernel probe. Prefer this over
+/// `cfg!(target_arch = "aarch64")`: aarch64 also covers non-Jetson ARM
+/// servers. NVENC availability (Orin Nano / dGPU without NVENC) is
+/// handled by [`has_nvenc`], not this function.
 #[allow(dead_code)]
 fn is_jetson() -> bool {
-    cfg!(target_arch = "aarch64")
+    nvidia_gpu_utils::is_jetson_kernel()
 }
 
 const WIDTH: u32 = 1920;
@@ -73,25 +77,25 @@ impl OnEncodedFrame for EncodedSignal {
 }
 
 /// Builds HEVC encoder config for FullHD with low-latency tuning.
-fn hevc_low_latency_encoder_config() -> EncoderConfig {
-    if is_jetson() {
-        EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
-            .format(VideoFormat::RGBA)
-            .fps(FPS, 1)
-            .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
-                preset_level: Some(JetsonPresetLevel::UltraFast),
-                ..Default::default()
-            }))
-    } else {
-        EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
-            .format(VideoFormat::RGBA)
-            .fps(FPS, 1)
-            .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
-                preset: Some(DgpuPreset::P1),
-                tuning_info: Some(TuningPreset::LowLatency),
-                ..Default::default()
-            }))
-    }
+fn hevc_low_latency_encoder_config() -> NvEncoderConfig {
+    #[cfg(target_arch = "aarch64")]
+    let cfg = HevcEncoderConfig::new(WIDTH, HEIGHT)
+        .format(VideoFormat::RGBA)
+        .fps(FPS, 1)
+        .props(HevcJetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            ..Default::default()
+        });
+    #[cfg(not(target_arch = "aarch64"))]
+    let cfg = HevcEncoderConfig::new(WIDTH, HEIGHT)
+        .format(VideoFormat::RGBA)
+        .fps(FPS, 1)
+        .props(HevcDgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        });
+    NvEncoderConfig::new(0, EncoderConfig::Hevc(cfg)).name("picasso-bench")
 }
 
 /// Builds ObjectDrawSpec with bbox, dot, and label for the "det"/"obj" class.

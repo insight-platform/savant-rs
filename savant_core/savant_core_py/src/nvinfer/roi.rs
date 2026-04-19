@@ -1,7 +1,7 @@
 //! PyO3 wrappers for nvinfer Roi and RoiKind.
 
 use crate::primitives::bbox::RBBox;
-use nvinfer::{Roi, RoiKind};
+use deepstream_nvinfer::{Roi, RoiKind};
 use pyo3::prelude::*;
 
 /// A region of interest: an identifier paired with a bounding box.

@@ -10,14 +10,17 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo bench -p deepstream_decoders --bench decoder_bench
+//! cargo bench -p savant-deepstream-decoders --bench decoder_bench
 //! ```
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use deepstream_buffers::NvBufSurfaceMemType;
 use deepstream_decoders::prelude::*;
 use deepstream_decoders::NvDecoderExt;
-use deepstream_encoders::prelude::*;
+use deepstream_encoders::{
+    EncoderConfig, HevcEncoderConfig, JpegEncoderConfig, NvEncoder, NvEncoderConfig,
+    NvEncoderOutput,
+};
 use std::sync::Once;
 use std::time::Duration;
 
@@ -55,49 +58,74 @@ fn bench_rgba_pool(w: u32, h: u32) -> BufferGenerator {
 // Bitstream generation helpers
 // ---------------------------------------------------------------------------
 
+// ── New encoder-API adapters (see test_decoder.rs for rationale) ────
+
+fn make_encoder(enc_cfg: EncoderConfig) -> NvEncoder {
+    let cfg = NvEncoderConfig::new(0, enc_cfg)
+        .operation_timeout(Duration::from_secs(10))
+        .name("decoder-bench-encoder");
+    NvEncoder::new(cfg).expect("NvEncoder::new failed")
+}
+
+fn encoder_acquire_buffer(encoder: &NvEncoder, id: u128) -> gstreamer::Buffer {
+    encoder
+        .generator()
+        .lock()
+        .acquire(Some(id))
+        .expect("acquire failed")
+        .into_buffer()
+        .expect("sole owner")
+}
+
 /// Encode `n` HEVC frames at the given resolution, returning one
 /// Annex-B access unit per frame.
 fn encode_hevc_aus(w: u32, h: u32, n: usize) -> Vec<Vec<u8>> {
-    let config = EncoderConfig::new(Codec::Hevc, w, h);
-    let mut encoder = NvEncoder::new(&config).expect("HEVC NvEncoder creation failed");
+    let encoder = make_encoder(EncoderConfig::Hevc(HevcEncoderConfig::new(w, h)));
     let mut aus = Vec::with_capacity(n);
 
     for i in 0..n {
-        let shared = encoder
-            .generator()
-            .acquire(Some(i as u128))
-            .expect("acquire failed");
-        let buf = shared.into_buffer().expect("into_buffer failed");
+        let buf = encoder_acquire_buffer(&encoder, i as u128);
         let pts = i as u64 * FRAME_DUR_NS;
         encoder
             .submit_frame(buf, i as u128, pts, Some(FRAME_DUR_NS))
             .expect("submit_frame failed");
 
-        while let Ok(Some(f)) = encoder.pull_encoded() {
-            aus.push(f.data);
+        while let Ok(Some(out)) = encoder.try_recv() {
+            if let NvEncoderOutput::Frame(f) = out {
+                aus.push(f.data);
+            }
         }
     }
 
-    let remaining = encoder.finish(Some(5000)).expect("encoder finish failed");
-    aus.extend(remaining.into_iter().map(|f| f.data));
+    encoder
+        .graceful_shutdown(Some(Duration::from_secs(5)), |out| {
+            if let NvEncoderOutput::Frame(f) = out {
+                aus.push(f.data);
+            }
+        })
+        .expect("encoder graceful_shutdown failed");
     aus
 }
 
 /// Encode a single JPEG frame at the given resolution.
 fn encode_jpeg_blob(w: u32, h: u32) -> Vec<u8> {
-    let config = EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420);
-    let mut encoder = NvEncoder::new(&config).expect("JPEG NvEncoder creation failed");
+    let encoder = make_encoder(EncoderConfig::Jpeg(
+        JpegEncoderConfig::new(w, h).format(VideoFormat::I420),
+    ));
 
-    let shared = encoder
-        .generator()
-        .acquire(Some(0))
-        .expect("acquire failed");
-    let buf = shared.into_buffer().expect("into_buffer failed");
+    let buf = encoder_acquire_buffer(&encoder, 0);
     encoder
         .submit_frame(buf, 0, 0, Some(FRAME_DUR_NS))
         .expect("submit_frame failed");
 
-    let frames = encoder.finish(Some(5000)).expect("encoder finish failed");
+    let mut frames = Vec::new();
+    encoder
+        .graceful_shutdown(Some(Duration::from_secs(5)), |out| {
+            if let NvEncoderOutput::Frame(f) = out {
+                frames.push(f);
+            }
+        })
+        .expect("encoder graceful_shutdown failed");
     assert!(!frames.is_empty(), "JPEG encoder produced 0 frames");
     frames.into_iter().next().unwrap().data
 }
@@ -196,7 +224,11 @@ fn bench_hevc_decode(c: &mut Criterion) {
 fn bench_jpeg_decode(c: &mut Criterion) {
     ensure_init();
 
-    if NvEncoder::new(&EncoderConfig::new(Codec::Jpeg, 64, 48).format(VideoFormat::I420)).is_err() {
+    let probe_cfg = NvEncoderConfig::new(
+        0,
+        EncoderConfig::Jpeg(JpegEncoderConfig::new(64, 48).format(VideoFormat::I420)),
+    );
+    if NvEncoder::new(probe_cfg).is_err() {
         eprintln!("skip: JPEG encoding not available — skipping JPEG decode benchmarks");
         return;
     }

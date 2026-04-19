@@ -212,7 +212,7 @@ criterion_group!(benches, bench_something);
 criterion_main!(benches);
 ```
 
-Run: `cargo bench -p savant_core`
+Run: `cargo bench -p savant-core`
 
 ---
 

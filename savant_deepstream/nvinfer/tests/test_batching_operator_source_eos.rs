@@ -3,7 +3,7 @@
 mod common;
 
 use deepstream_buffers::VideoFormat;
-use nvinfer::{
+use deepstream_nvinfer::{
     BatchFormationResult, ModelColorFormat, NvInferBatchingOperator, NvInferBatchingOperatorConfig,
     NvInferConfig, OperatorOutput, OperatorResultCallback, RoiKind,
 };
@@ -36,7 +36,7 @@ fn batching_operator_callback_receives_source_eos() {
         pending_batch_timeout: Duration::from_secs(60),
     };
 
-    let batch_formation: nvinfer::BatchFormationCallback = Arc::new(|frames| {
+    let batch_formation: deepstream_nvinfer::BatchFormationCallback = Arc::new(|frames| {
         let ids = frames
             .iter()
             .map(|_| deepstream_buffers::SavantIdMetaKind::Frame(0))

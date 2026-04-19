@@ -1,4 +1,4 @@
-//! PyO3 bindings for the [`NvInferBatchingOperator`](nvinfer::NvInferBatchingOperator) batching layer.
+//! PyO3 bindings for the [`NvInferBatchingOperator`](deepstream_nvinfer::NvInferBatchingOperator) batching layer.
 
 use super::config::PyNvInferConfig;
 use super::enums::PyDataType;
@@ -11,7 +11,7 @@ use crate::primitives::bbox::RBBox as PyRBBox;
 use crate::primitives::frame::VideoFrame;
 use deepstream_buffers::SavantIdMetaKind;
 use numpy::{PyArray2, PyReadonlyArray2};
-use nvinfer::{
+use deepstream_nvinfer::{
     BatchFormationCallback, BatchFormationResult, NvInferBatchingOperator,
     NvInferBatchingOperatorConfig, OperatorInferenceOutput, OperatorOutput, RoiKind,
     SealedDeliveries,
@@ -283,7 +283,7 @@ pub struct PyOperatorElementOutput {
 }
 
 impl PyOperatorElementOutput {
-    fn get_coordinate_scaler(&self) -> PyResult<nvinfer::CoordinateScaler> {
+    fn get_coordinate_scaler(&self) -> PyResult<deepstream_nvinfer::CoordinateScaler> {
         let guard = self.shared.lock();
         let output = guard.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("OperatorInferenceOutput has been released")
@@ -909,7 +909,7 @@ impl PyNvInferBatchingOperator {
             })
         });
 
-        let result_cb: nvinfer::OperatorResultCallback = Box::new(move |output: OperatorOutput| {
+        let result_cb: deepstream_nvinfer::OperatorResultCallback = Box::new(move |output: OperatorOutput| {
             Python::attach(|py| {
                 let py_output = PyOperatorOutput::from_rust(output);
                 if let Err(e) = result_callback.call1(py, (py_output,)) {

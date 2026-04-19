@@ -1,13 +1,13 @@
 //! IOU tracker integration tests (GPU + DeepStream required).
 //!
-//! Run with: `cargo test -p nvtracker --test test_iou_tracker -- --test-threads=1`
+//! Run with: `cargo test -p savant-deepstream-nvtracker --test test_iou_tracker -- --test-threads=1`
 
 mod common;
 
 use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, VideoFormat,
 };
-use nvtracker::{
+use deepstream_nvtracker::{
     default_ll_lib_path, NvTracker, NvTrackerConfig, Roi, TrackState, TrackedFrame,
     TrackingIdResetMode,
 };

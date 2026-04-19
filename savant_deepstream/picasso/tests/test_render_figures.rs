@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo test -p picasso --test test_render_figures -- --nocapture
+//! cargo test -p savant-picasso --test test_render_figures -- --nocapture
 //! ```
 
 use picasso::skia::common::ResolvedBBox;

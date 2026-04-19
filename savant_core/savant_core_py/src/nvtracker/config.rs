@@ -3,7 +3,7 @@
 use super::enums::PyTrackingIdResetMode;
 use crate::deepstream::enums::PyMetaClearPolicy;
 use crate::deepstream::enums::PyVideoFormat;
-use nvtracker::NvTrackerConfig;
+use deepstream_nvtracker::NvTrackerConfig;
 use pyo3::prelude::*;
 use savant_gstreamer::VideoFormat;
 use std::collections::HashMap;
@@ -52,9 +52,9 @@ impl PyNvTrackerConfig {
         input_format,
         *,
         name = String::new(),
-        tracker_width = nvtracker::config::DEFAULT_TRACKER_WIDTH,
-        tracker_height = nvtracker::config::DEFAULT_TRACKER_HEIGHT,
-        max_batch_size = nvtracker::config::DEFAULT_MAX_BATCH_SIZE,
+        tracker_width = deepstream_nvtracker::config::DEFAULT_TRACKER_WIDTH,
+        tracker_height = deepstream_nvtracker::config::DEFAULT_TRACKER_HEIGHT,
+        max_batch_size = deepstream_nvtracker::config::DEFAULT_MAX_BATCH_SIZE,
         gpu_id = 0u32,
         element_properties = None,
         tracking_id_reset_mode = PyTrackingIdResetMode::None,

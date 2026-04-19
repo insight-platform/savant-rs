@@ -434,10 +434,16 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
     };
     let engine = PicassoEngine::new(general, callbacks);
 
-    let enc_config = EncoderConfig::new(Codec::Jpeg, DST_W, DST_H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(95) }));
+    let enc_config = NvEncoderConfig::new(
+        0,
+        EncoderConfig::Jpeg(
+            JpegEncoderConfig::new(DST_W, DST_H)
+                .format(VideoFormat::RGBA)
+                .fps(30, 1)
+                .props(JpegProps { quality: Some(95) }),
+        ),
+    )
+    .name("picasso-full-jpeg");
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {

@@ -335,7 +335,7 @@ Python exceptions from `recv`, except `RuntimeError` on channel disconnect).
 
 ## NvInfer
 
-Pull-based API matching Rust `nvinfer::NvInfer` (no constructor callback).
+Pull-based API matching Rust `deepstream_nvinfer::NvInfer` (no constructor callback).
 
 ```python
 class NvInfer:

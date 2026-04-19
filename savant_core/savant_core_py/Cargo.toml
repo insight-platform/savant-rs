@@ -1,19 +1,20 @@
 [package]
-name = "savant_core_py"
+name = "savant-core-py"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "PyO3 bindings for savant-core (core types exposed to Python)."
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories.workspace = true
+categories = ["multimedia::video", "api-bindings"]
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["dylib"]
+name = "savant_core_py"
+crate-type = ["rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -35,13 +36,13 @@ savant_services_common = { workspace = true, optional = true }
 gstreamer = { workspace = true, optional = true }
 glib = { workspace = true, optional = true }
 deepstream_buffers = { workspace = true, optional = true }
-deepstream_decoders = { path = "../../savant_deepstream/decoders", optional = true }
-deepstream_encoders = { path = "../../savant_deepstream/encoders", optional = true }
-deepstream_inputs = { path = "../../savant_deepstream/inputs", optional = true }
+deepstream_decoders = { workspace = true, optional = true }
+deepstream_encoders = { workspace = true, optional = true }
+deepstream_inputs = { workspace = true, optional = true }
 nvidia_gpu_utils = { workspace = true, optional = true }
-nvinfer = { path = "../../savant_deepstream/nvinfer", optional = true }
-nvtracker = { path = "../../savant_deepstream/nvtracker", optional = true }
-picasso = { path = "../../savant_deepstream/picasso", optional = true }
+deepstream_nvinfer = { workspace = true, optional = true }
+deepstream_nvtracker = { workspace = true, optional = true }
+picasso = { workspace = true, optional = true }
 skia-safe = { workspace = true, optional = true }
 numpy = { workspace = true, optional = true }
 serde = { workspace = true }
@@ -53,9 +54,22 @@ uuid = { workspace = true }
 [features]
 default = []
 gst = ["savant_gstreamer", "gstreamer", "retina_rtsp", "savant_services_common"]
-deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_decoders", "deepstream_encoders", "deepstream_inputs", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
+deepstream = [
+    "gst",
+    "glib",
+    "deepstream_buffers",
+    "deepstream_buffers/skia",
+    "deepstream_decoders",
+    "deepstream_encoders",
+    "deepstream_inputs",
+    "nvidia_gpu_utils",
+    "deepstream_nvinfer",
+    "deepstream_nvtracker",
+    "picasso",
+    "skia-safe",
+    "numpy",
+]
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
 cbindgen = { workspace = true }
-

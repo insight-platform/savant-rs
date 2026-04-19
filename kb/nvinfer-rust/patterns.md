@@ -42,6 +42,6 @@ Pass `rois = None` to let runtime synthesize per-slot full-frame ROIs from actua
 ## Build/test commands
 
 ```bash
-cargo test -p nvinfer
-cargo bench -p nvinfer --bench nvinfer_bench
+cargo test -p savant-deepstream-nvinfer
+cargo bench -p savant-deepstream-nvinfer --bench nvinfer_bench
 ```

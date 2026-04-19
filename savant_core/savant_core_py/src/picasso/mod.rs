@@ -4,7 +4,6 @@
 //! by `savant_python` when the `deepstream` feature is enabled.
 
 mod callbacks;
-pub(crate) mod encoder;
 mod engine;
 mod error;
 mod message;
@@ -13,9 +12,12 @@ pub(crate) mod spec;
 use pyo3::prelude::*;
 
 /// Register all Picasso Python classes on the given module.
+///
+/// Encoder classes (`EncoderConfig`, `EncoderProperties`, codec-specific
+/// props, `Platform`, etc.) now live in
+/// [`savant_rs.deepstream`](crate::deepstream) to be symmetric with the
+/// decoder bindings.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    encoder::register_encoder_classes(m)?;
-
     m.add_class::<spec::PyGeneralSpec>()?;
     m.add_class::<spec::PyEvictionDecision>()?;
     m.add_class::<spec::PyPtsResetPolicy>()?;
