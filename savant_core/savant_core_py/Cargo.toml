@@ -13,7 +13,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["dylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -53,9 +53,22 @@ uuid = { workspace = true }
 [features]
 default = []
 gst = ["savant_gstreamer", "gstreamer", "retina_rtsp", "savant_services_common"]
-deepstream = ["gst", "glib", "deepstream_buffers", "deepstream_buffers/skia", "deepstream_decoders", "deepstream_encoders", "deepstream_inputs", "nvidia_gpu_utils", "nvinfer", "nvtracker", "picasso", "skia-safe", "numpy"]
+deepstream = [
+    "gst",
+    "glib",
+    "deepstream_buffers",
+    "deepstream_buffers/skia",
+    "deepstream_decoders",
+    "deepstream_encoders",
+    "deepstream_inputs",
+    "nvidia_gpu_utils",
+    "nvinfer",
+    "nvtracker",
+    "picasso",
+    "skia-safe",
+    "numpy",
+]
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
 cbindgen = { workspace = true }
-

@@ -483,6 +483,46 @@ class TestEncoderConfig:
     def test_encoder_properties_av1_dgpu(self) -> None:
         assert EncoderProperties.av1_dgpu(Av1DgpuProps(bitrate=3_000_000)) is not None
 
+    def test_codec_mismatch_raises_value_error(self) -> None:
+        """HEVC props on an H.264 EncoderConfig must fail loudly.
+
+        Regression for the silent-drop bug where ``to_rust()`` would consume
+        mismatched ``encoder_params`` and construct the encoder with defaults,
+        stripping bitrate / profile / preset without any error.
+        """
+        from savant_rs.deepstream import TransformConfig
+        from savant_rs.picasso import CodecSpec
+
+        cfg = EncoderConfig(Codec.H264, 640, 480)
+        cfg.format(VideoFormat.NV12)
+        cfg.fps(30, 1)
+        cfg.properties(EncoderProperties.hevc_dgpu(HevcDgpuProps(bitrate=2_000_000)))
+
+        with pytest.raises(ValueError, match="codec mismatch"):
+            CodecSpec.encode(TransformConfig(), cfg)
+
+    def test_platform_mismatch_raises_value_error(self) -> None:
+        """Jetson props on a dGPU build (and vice versa) must fail loudly."""
+        import platform as _platform
+
+        from savant_rs.deepstream import TransformConfig
+        from savant_rs.picasso import CodecSpec
+
+        is_aarch64 = _platform.machine() == "aarch64"
+
+        cfg = EncoderConfig(Codec.H264, 640, 480)
+        cfg.format(VideoFormat.NV12)
+        cfg.fps(30, 1)
+        if is_aarch64:
+            cfg.properties(
+                EncoderProperties.h264_dgpu(H264DgpuProps(bitrate=2_000_000))
+            )
+        else:
+            cfg.properties(EncoderProperties.h264_jetson(H264JetsonProps()))
+
+        with pytest.raises(ValueError, match="platform mismatch"):
+            CodecSpec.encode(TransformConfig(), cfg)
+
 
 # ─── Platform enum tests ──────────────────────────────────────────────
 

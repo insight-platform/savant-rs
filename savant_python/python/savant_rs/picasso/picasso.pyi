@@ -187,7 +187,13 @@ class CodecSpec:
 
     @staticmethod
     def encode(transform: TransformConfig, encoder: EncoderConfig) -> CodecSpec:
-        """GPU-transform the frame, optionally render Skia overlays, then encode."""
+        """GPU-transform the frame, optionally render Skia overlays, then encode.
+
+        Raises:
+            ValueError: if ``encoder.encoder_params`` is set but its codec or
+                target platform does not match ``encoder.codec`` / the current
+                build target (dGPU vs Jetson).
+        """
         ...
 
     @property

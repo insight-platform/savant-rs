@@ -1537,10 +1537,15 @@ impl PyEncoderConfig {
     /// * Raw codecs (`RawRgba`/`RawRgb`/`RawNv12`) → [`EncoderConfig`]
     ///   raw variants with default [`RawProps`].
     ///
-    /// `encoder_params` of a non-matching platform variant are silently
-    /// ignored; callers are expected to use the helper factories on
-    /// [`PyEncoderProperties`] that correspond to the target platform.
-    pub(crate) fn to_rust(&self) -> deepstream_encoders::NvEncoderConfig {
+    /// `encoder_params` whose codec or target platform does not match the
+    /// configured [`Codec`] and the current build target are rejected with a
+    /// Python `ValueError` so that mistakes such as pairing
+    /// [`HevcDgpuProps`] with an `H264` encoder (or Jetson props on a dGPU
+    /// build) fail loudly instead of silently reverting to defaults.
+    /// Callers are expected to use the helper factories on
+    /// [`PyEncoderProperties`] that correspond to both the target codec and
+    /// the target platform.
+    pub(crate) fn to_rust(&self) -> PyResult<deepstream_encoders::NvEncoderConfig> {
         use deepstream_encoders::{EncoderConfig as E, NvEncoderConfig};
         let codec: Codec = self.codec.into();
         let format = self.format.into();
@@ -1551,9 +1556,48 @@ impl PyEncoderConfig {
 
         let params = self.encoder_params.as_ref().map(|p| p.inner.clone());
 
+        // Validate that, if the user supplied encoder_params, they match both
+        // the configured codec and the platform this binary was built for.
+        // Mirrors the old NvEncoder::new behaviour (EncoderError::InvalidProperty).
+        if let Some(ref props) = params {
+            let props_codec = props.codec();
+            if props_codec != codec {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "EncoderConfig codec mismatch: config.codec = {}, \
+                     but encoder_params is for codec {} \
+                     (variant {}). Use EncoderProperties::{}_* helpers that match \
+                     the configured codec.",
+                    codec.name(),
+                    props_codec.name(),
+                    encoder_props_variant_name(props),
+                    codec.name(),
+                )));
+            }
+            if let Some(props_platform) = props.platform() {
+                #[cfg(not(target_arch = "aarch64"))]
+                let build_platform = Platform::Dgpu;
+                #[cfg(target_arch = "aarch64")]
+                let build_platform = Platform::Jetson;
+                if props_platform != build_platform {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "EncoderConfig platform mismatch: this build targets {}, \
+                         but encoder_params is for {} (variant {}). \
+                         Use the EncoderProperties::*_{} helper that matches \
+                         the build target.",
+                        build_platform.name(),
+                        props_platform.name(),
+                        encoder_props_variant_name(props),
+                        build_platform.name(),
+                    )));
+                }
+            }
+        }
+
         let encoder_cfg = match codec {
             Codec::H264 => {
-                let mut cfg = H264EncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                let mut cfg = H264EncoderConfig::new(w, h)
+                    .format(format)
+                    .fps(fps_num, fps_den);
                 #[cfg(not(target_arch = "aarch64"))]
                 if let Some(EncoderProperties::H264Dgpu(p)) = params {
                     cfg = cfg.props(p);
@@ -1565,7 +1609,9 @@ impl PyEncoderConfig {
                 E::H264(cfg)
             }
             Codec::Hevc => {
-                let mut cfg = HevcEncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                let mut cfg = HevcEncoderConfig::new(w, h)
+                    .format(format)
+                    .fps(fps_num, fps_den);
                 #[cfg(not(target_arch = "aarch64"))]
                 if let Some(EncoderProperties::HevcDgpu(p)) = params {
                     cfg = cfg.props(p);
@@ -1577,7 +1623,9 @@ impl PyEncoderConfig {
                 E::Hevc(cfg)
             }
             Codec::Av1 => {
-                let mut cfg = Av1EncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                let mut cfg = Av1EncoderConfig::new(w, h)
+                    .format(format)
+                    .fps(fps_num, fps_den);
                 #[cfg(not(target_arch = "aarch64"))]
                 if let Some(EncoderProperties::Av1Dgpu(p)) = params {
                     cfg = cfg.props(p);
@@ -1589,22 +1637,26 @@ impl PyEncoderConfig {
                 E::Av1(cfg)
             }
             Codec::Jpeg => {
-                let mut cfg = JpegEncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                let mut cfg = JpegEncoderConfig::new(w, h)
+                    .format(format)
+                    .fps(fps_num, fps_den);
                 if let Some(EncoderProperties::Jpeg(p)) = params {
                     cfg = cfg.props(p);
                 }
                 E::Jpeg(cfg)
             }
             Codec::Png => {
-                let mut cfg = PngEncoderConfig::new(w, h).format(format).fps(fps_num, fps_den);
+                let mut cfg = PngEncoderConfig::new(w, h)
+                    .format(format)
+                    .fps(fps_num, fps_den);
                 if let Some(EncoderProperties::Png(p)) = params {
                     cfg = cfg.props(p);
                 }
                 E::Png(cfg)
             }
-            Codec::RawRgba => E::RawRgba(
-                RawEncoderConfig::new(w, h, VideoFormat::RGBA).fps(fps_num, fps_den),
-            ),
+            Codec::RawRgba => {
+                E::RawRgba(RawEncoderConfig::new(w, h, VideoFormat::RGBA).fps(fps_num, fps_den))
+            }
             Codec::RawRgb => {
                 // Raw RGB pseudoencoder uses RGBA-shaped surfaces internally; the
                 // GPU→CPU download layer drops the alpha byte before packaging the
@@ -1615,12 +1667,33 @@ impl PyEncoderConfig {
             Codec::RawNv12 => {
                 E::RawNv12(RawEncoderConfig::new(w, h, VideoFormat::NV12).fps(fps_num, fps_den))
             }
-            other => panic!(
-                "PyEncoderConfig.to_rust: unsupported codec {other:?} for NvEncoder (Vp8/Vp9 are decode-only)"
-            ),
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "EncoderConfig: unsupported codec {other:?} for NvEncoder \
+                     (Vp8/Vp9 are decode-only)"
+                )));
+            }
         };
 
-        NvEncoderConfig::new(self.gpu_id, encoder_cfg).mem_type(self.mem_type.into())
+        Ok(NvEncoderConfig::new(self.gpu_id, encoder_cfg).mem_type(self.mem_type.into()))
+    }
+}
+
+/// Human-readable name of an [`EncoderProperties`] variant, used for
+/// diagnostic error messages when codec/platform validation fails.
+fn encoder_props_variant_name(p: &EncoderProperties) -> &'static str {
+    match p {
+        EncoderProperties::H264Dgpu(_) => "H264Dgpu",
+        EncoderProperties::H264Jetson(_) => "H264Jetson",
+        EncoderProperties::HevcDgpu(_) => "HevcDgpu",
+        EncoderProperties::HevcJetson(_) => "HevcJetson",
+        EncoderProperties::Jpeg(_) => "Jpeg",
+        EncoderProperties::Av1Dgpu(_) => "Av1Dgpu",
+        EncoderProperties::Av1Jetson(_) => "Av1Jetson",
+        EncoderProperties::Png(_) => "Png",
+        EncoderProperties::RawRgba(_) => "RawRgba",
+        EncoderProperties::RawRgb(_) => "RawRgb",
+        EncoderProperties::RawNv12(_) => "RawNv12",
     }
 }
 
