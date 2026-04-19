@@ -323,20 +323,29 @@ fn bridge_meta_all_same_pts() {
     assert_eq!(frame_ids, expected);
 }
 
-/// Per-PTS eviction correctness is verified by the unit test
-/// `bridge_map_per_pts_eviction` in `lib.rs` (directly exercises the map
-/// logic without GStreamer threading).  This e2e test confirms that
-/// the bridge handles a large number of same-PTS buffers gracefully.
+/// Per-PTS eviction correctness is verified by the deterministic unit
+/// test `bridge_map_per_pts_eviction` in
+/// `savant_gstreamer::pipeline::bridge_meta` (directly exercises the map
+/// logic without GStreamer threading).
+///
+/// This e2e test only confirms that the bridge handles a large number of
+/// same-PTS buffers gracefully — no panics, meta is still attached to
+/// whatever buffers flow through.  It intentionally does NOT assert the
+/// overflow ERROR log fires: `appsrc::push_buffer` is asynchronous, so
+/// upstream captures can interleave with downstream restores once the
+/// BLOCK seal is released, and the deque may never reach
+/// `MAX_ENTRIES_PER_PTS + 1` entries in practice.
 #[test]
 fn bridge_meta_many_same_pts() {
     let seal = Arc::new(ReleaseSeal::new());
     let count = MAX_ENTRIES_PER_PTS + 1; // 33
+    let pts_ns: u64 = 99_000_000_000;
 
     let p = start_pipeline(seal.clone(), count as u32);
-    p.push(make_buffer(0, 99_000_000_000));
+    p.push(make_buffer(0, pts_ns));
     p.wait_for_block();
     for i in 1..count {
-        p.push(make_buffer(i, 99_000_000_000));
+        p.push(make_buffer(i, pts_ns));
     }
     seal.release();
 

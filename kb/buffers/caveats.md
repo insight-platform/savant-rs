@@ -340,6 +340,33 @@ return `Err(self)` when the Arc strong count is > 1. This happens when:
 
 ---
 
+## 21. `bridge_savant_id_meta` — Per-PTS Overflow Is Not E2E-Testable
+
+The bridge's per-PTS overflow guard (`bridge_savant_id_meta_across: per-PTS
+limit (N) exceeded …`) **cannot be asserted from an e2e pipeline test** that
+uses `appsrc → queue → appsink` with a BLOCK probe seal.
+
+Why: `appsrc::push_buffer` is **asynchronous** — it just enqueues the buffer
+into appsrc's internal queue. Capture probes fire on appsrc's streaming
+thread, not the test thread. Once `seal.release()` is called, queue's
+downstream restore probe starts popping entries concurrently with captures
+still landing, so the per-PTS deque can never be forced to
+`MAX_ENTRIES_PER_PTS + 1` deterministically.
+
+The observed symptom is a non-monotonic `existing entries=` log sequence
+— the counter grows, then dips, then grows again — and the overflow ERROR
+log never fires even when pushing `MAX_ENTRIES_PER_PTS + 1` same-PTS buffers.
+
+**Correct test location:** use the deterministic unit test
+`bridge_map_per_pts_eviction` in
+`savant_gstreamer/src/pipeline/bridge_meta.rs`, which drives
+`capture_into_map()` (a `pub(crate)` helper extracted from the capture
+probe) without any GStreamer threading. The e2e test in
+`savant_deepstream/buffers/tests/bridge_meta_e2e.rs::bridge_meta_many_same_pts`
+only asserts graceful handling (frame count, meta integrity).
+
+---
+
 ## 20. Jetson EGL-CUDA Pointer Lifetime in render_to_nvbuf
 
 On Jetson, `render_to_nvbuf` uses `from_glib_none` to temporarily increment

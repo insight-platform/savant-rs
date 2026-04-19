@@ -59,9 +59,9 @@ echo "Project dir: $PROJECT_DIR"
 DS_LIB_DIR="/opt/nvidia/deepstream/deepstream/lib"
 if [ -d "$DS_LIB_DIR" ]; then
     LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DS_LIB_DIR}"
+    export LD_LIBRARY_PATH
+    echo "Updated LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 fi
-export LD_LIBRARY_PATH
-echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 
 # Build configuration
 CARGO_BUILD_FLAG=""

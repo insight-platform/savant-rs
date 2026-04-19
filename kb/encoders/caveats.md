@@ -40,6 +40,29 @@ property struct causes GStreamer element errors.
 JPEG, PNG, RawRgba, RawRgb, RawNv12 are platform-neutral -- no
 branching required.
 
+### 2a) `insert-sps-pps` is Jetson-only
+
+`insert-sps-pps` is a **Jetson-only** property of the L4T
+`nvv4l2h264enc` / `nvv4l2h265enc`.  The dGPU elements with the same
+factory names (NVENC-backed) do not expose it, so
+`set_property_from_str("insert-sps-pps", "1")` will panic with
+`property 'insert-sps-pps' of type 'nvv4l2h264enc' not found`.
+
+Rules inside `pipeline.rs`:
+
+- gate the `insert-sps-pps` property on
+  `nvidia_gpu_utils::is_jetson_kernel()` — never set it unconditionally;
+- on dGPU, rely on `h264parse` / `h265parse` with
+  `config-interval=-1` (already set unconditionally) to rewrite SPS/PPS
+  in front of every keyframe in the byte-stream;
+- keep runtime detection (`is_jetson_kernel`), not
+  `cfg!(target_arch = "aarch64")`, so non-Jetson ARM hosts (Grace Hopper)
+  still use the dGPU path.
+
+The same gating pattern applies to any other L4T-only property you may
+add in the future (e.g. `EnableTwopassCBR`, `num-Ref-Frames` —
+already listed in `H264JetsonProps`).
+
 ## 3) Jetson `nvjpegenc` "Surface not registered" Hang
 
 On Jetson, `nvjpegenc` requires surfaces pinned via its own

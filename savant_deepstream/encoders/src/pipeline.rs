@@ -1040,7 +1040,17 @@ fn build_pipeline_elements(
             apply_encoder_props(&enc, config.to_gst_pairs())?;
             force_disable_b_frames(&enc);
 
-            if matches!(codec, Codec::H264 | Codec::Hevc) {
+            // `insert-sps-pps` is a Jetson-only property of the L4T
+            // `nvv4l2h264enc` / `nvv4l2h265enc`.  The dGPU elements with
+            // the same factory names (NVENC-backed) do not expose it and
+            // will panic in `set_property_from_str`.  On dGPU the
+            // equivalent is achieved via `h264parse` / `h265parse`
+            // `config-interval=-1` below, which rewrites SPS/PPS in front
+            // of every keyframe in the byte-stream.
+            //
+            // Runtime-detected via `is_jetson_kernel` so non-Jetson ARM
+            // hosts (Grace Hopper) still use the dGPU path.
+            if matches!(codec, Codec::H264 | Codec::Hevc) && nvidia_gpu_utils::is_jetson_kernel() {
                 enc.set_property_from_str("insert-sps-pps", "1");
             }
 
