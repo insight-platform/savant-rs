@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, path::PathBuf};
 
 fn glib_arch_include_dir() -> String {
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
@@ -12,9 +12,7 @@ fn glib_arch_include_dir() -> String {
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let src_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
     let gstnvdsmeta_out_path = out_dir.join("gstnvdsmeta.rs");
-    let gstnvdsmeta_module_path = src_dir.join("gstnvdsmeta.rs");
 
     let glib_arch_include = glib_arch_include_dir();
 
@@ -41,16 +39,8 @@ fn main() {
         .generate()
         .expect("Unable to generate bindings");
 
+    // Write bindings into OUT_DIR; lib.rs pulls them in via `include!`.
     bindings
         .write_to_file(&gstnvdsmeta_out_path)
         .expect("Couldn't write bindings!");
-
-    let new_content = fs::read(&gstnvdsmeta_out_path).unwrap();
-    let needs_update = match fs::read(&gstnvdsmeta_module_path) {
-        Ok(existing) => existing != new_content,
-        Err(_) => true,
-    };
-    if needs_update {
-        fs::write(gstnvdsmeta_module_path, new_content).unwrap();
-    }
 }
