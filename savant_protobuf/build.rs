@@ -1,16 +1,16 @@
 extern crate prost_build;
 
+use std::env;
 use std::path::PathBuf;
-use std::{env, fs};
 
 fn main() {
     let proto_path = PathBuf::from("src/savant_rs.proto");
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let src_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
-    let out_path = out_dir.join("protocol.rs");
-    let module_path = src_dir.join("generated.rs");
 
     println!("cargo:rerun-if-changed=src/savant_rs.proto");
+
+    // Honour OUT_DIR so generated sources live in the standard Cargo build
+    // directory and are not written back into the crate's `src/` tree.
+    env::var("OUT_DIR").expect("OUT_DIR must be set by Cargo when running build scripts");
 
     let mut config = prost_build::Config::new();
     config.protoc_arg("--experimental_allow_proto3_optional");
@@ -21,13 +21,4 @@ fn main() {
             &[proto_path.parent().unwrap().to_str().unwrap()],
         )
         .expect("Failed to compile protobuf definitions");
-
-    let new_content = fs::read(&out_path).unwrap();
-    let needs_update = match fs::read(&module_path) {
-        Ok(existing) => existing != new_content,
-        Err(_) => true,
-    };
-    if needs_update {
-        fs::write(module_path, new_content).unwrap();
-    }
 }
