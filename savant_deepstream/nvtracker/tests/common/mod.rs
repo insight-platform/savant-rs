@@ -1,8 +1,10 @@
 //! Shared test setup for nvtracker integration tests.
 
 use deepstream_buffers::{cuda_init, SavantIdMetaKind};
+use deepstream_nvtracker::{
+    NvTracker, NvTrackerError, NvTrackerOutput, Result, TrackedFrame, TrackerOutput,
+};
 use gstreamer as gst;
-use deepstream_nvtracker::{NvTracker, NvTrackerError, NvTrackerOutput, Result, TrackedFrame, TrackerOutput};
 use std::sync::Once;
 
 static INIT: Once = Once::new();

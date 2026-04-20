@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use pyo3::prelude::*;
 use savant_gstreamer::codec::Codec;
-use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput};
+use savant_gstreamer::mp4_demuxer::{
+    DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput, VideoInfo,
+};
 use savant_gstreamer::mp4_muxer::{Mp4Muxer, Mp4MuxerError};
 
 fn muxer_err(e: Mp4MuxerError) -> PyErr {
@@ -327,7 +329,64 @@ impl PyDemuxedPacket {
 // Mp4DemuxerOutput
 // ---------------------------------------------------------------------------
 
+/// Video-stream metadata extracted from the MP4 container at demux time.
+///
+/// Attributes:
+///     codec (Codec): Detected video codec.
+///     width (int): Encoded frame width in pixels.
+///     height (int): Encoded frame height in pixels.
+///     framerate_num (int): Framerate numerator (``0`` if unknown).
+///     framerate_den (int): Framerate denominator (``1`` if unknown).
+///
+/// Dimensions are the **encoded** values - any QuickTime display-orientation
+/// transform is NOT applied here.
+#[pyclass(from_py_object, name = "VideoInfo", module = "savant_rs.gstreamer")]
+#[derive(Debug, Clone, Copy)]
+pub struct PyVideoInfo {
+    inner: VideoInfo,
+}
+
+#[pymethods]
+impl PyVideoInfo {
+    #[getter]
+    fn codec(&self) -> PyCodec {
+        self.inner.codec.into()
+    }
+
+    #[getter]
+    fn width(&self) -> u32 {
+        self.inner.width
+    }
+
+    #[getter]
+    fn height(&self) -> u32 {
+        self.inner.height
+    }
+
+    #[getter]
+    fn framerate_num(&self) -> u32 {
+        self.inner.framerate_num
+    }
+
+    #[getter]
+    fn framerate_den(&self) -> u32 {
+        self.inner.framerate_den
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "VideoInfo(codec={:?}, width={}, height={}, framerate={}/{})",
+            self.inner.codec,
+            self.inner.width,
+            self.inner.height,
+            self.inner.framerate_num,
+            self.inner.framerate_den,
+        )
+    }
+}
+
 enum DemuxerOutputVariant {
+    StreamInfo(Py<PyVideoInfo>),
     Packet(Py<PyDemuxedPacket>),
     Eos,
     Error(String),
@@ -339,6 +398,7 @@ enum DemuxerOutputVariant {
 /// corresponding ``as_*`` method to get a typed value.
 ///
 /// Variants:
+///     - **StreamInfo** - auto-detected :class:`VideoInfo`.
 ///     - **Packet** — a demuxed :class:`DemuxedPacket`.
 ///     - **Eos** — end of stream; all packets have been delivered.
 ///     - **Error** — a pipeline error message (string).
@@ -348,6 +408,9 @@ pub struct PyMp4DemuxerOutput(DemuxerOutputVariant);
 impl PyMp4DemuxerOutput {
     fn from_rust(py: Python<'_>, output: Mp4DemuxerOutput) -> PyResult<Self> {
         let variant = match output {
+            Mp4DemuxerOutput::StreamInfo(info) => {
+                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo { inner: info })?)
+            }
             Mp4DemuxerOutput::Packet(pkt) => {
                 DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket { inner: pkt })?)
             }
@@ -360,6 +423,12 @@ impl PyMp4DemuxerOutput {
 
 #[pymethods]
 impl PyMp4DemuxerOutput {
+    /// ``True`` if this is a :class:`VideoInfo` variant.
+    #[getter]
+    fn is_stream_info(&self) -> bool {
+        matches!(self.0, DemuxerOutputVariant::StreamInfo(_))
+    }
+
     /// ``True`` if this is a :class:`DemuxedPacket` variant.
     #[getter]
     fn is_packet(&self) -> bool {
@@ -386,6 +455,14 @@ impl PyMp4DemuxerOutput {
         }
     }
 
+    /// Downcast to :class:`VideoInfo`, or ``None``.
+    fn as_stream_info(&self, py: Python<'_>) -> Option<Py<PyVideoInfo>> {
+        match &self.0 {
+            DemuxerOutputVariant::StreamInfo(v) => Some(v.clone_ref(py)),
+            _ => None,
+        }
+    }
+
     /// Return the error message string, or ``None``.
     fn as_error_message(&self) -> Option<&str> {
         match &self.0 {
@@ -396,6 +473,7 @@ impl PyMp4DemuxerOutput {
 
     fn __repr__(&self) -> String {
         match &self.0 {
+            DemuxerOutputVariant::StreamInfo(_) => "Mp4DemuxerOutput(StreamInfo)".to_string(),
             DemuxerOutputVariant::Packet(_) => "Mp4DemuxerOutput(Packet)".to_string(),
             DemuxerOutputVariant::Eos => "Mp4DemuxerOutput(Eos)".to_string(),
             DemuxerOutputVariant::Error(msg) => format!("Mp4DemuxerOutput(Error({msg}))"),
@@ -524,6 +602,42 @@ impl PyMp4Demuxer {
             .map(|c| c.into())
     }
 
+    /// Auto-detected video-stream metadata, or ``None`` if caps have not been
+    /// observed yet.
+    #[getter]
+    fn video_info(&self, py: Python<'_>) -> PyResult<Option<Py<PyVideoInfo>>> {
+        self.inner
+            .as_ref()
+            .and_then(|d| d.video_info())
+            .map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .transpose()
+    }
+
+    /// Block until :class:`VideoInfo` is known, the pipeline terminates, or
+    /// the timeout expires.
+    ///
+    /// Args:
+    ///     timeout_ms (int): Timeout in milliseconds.
+    ///
+    /// Returns:
+    ///     Optional[VideoInfo]: ``None`` on timeout or if the pipeline ended
+    ///     before caps were observed.
+    ///
+    /// The GIL is released while waiting.
+    fn wait_for_video_info(
+        &self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Option<Py<PyVideoInfo>>> {
+        let Some(ref inner) = self.inner else {
+            return Ok(None);
+        };
+        let timeout = Duration::from_millis(timeout_ms);
+        let info = py.detach(|| inner.wait_for_video_info(timeout));
+        info.map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .transpose()
+    }
+
     /// Shut down the demuxer pipeline.
     ///
     /// Safe to call multiple times.  After this call, no more callbacks
@@ -560,6 +674,7 @@ impl Drop for PyMp4Demuxer {
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodec>()?;
     m.add_class::<PyMp4Muxer>()?;
+    m.add_class::<PyVideoInfo>()?;
     m.add_class::<PyDemuxedPacket>()?;
     m.add_class::<PyMp4DemuxerOutput>()?;
     m.add_class::<PyMp4Demuxer>()?;

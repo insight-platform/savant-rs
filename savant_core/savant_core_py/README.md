@@ -11,7 +11,7 @@
 - `utils` and `symbol_mapper`: expression evaluation, UUID helpers, `ByteBuffer`, `AtomicCounter`, model/object symbol mapping, and protobuf message load/save helpers.
 - `zmq`: `ReaderConfig`, `WriterConfig`, blocking and non-blocking ZMQ reader/writer classes, and typed result objects for Savant ZeroMQ transport.
 - `telemetry`, `metrics`, and `webserver`: OpenTelemetry initialization, Prometheus metric families, service status endpoints, and attribute KVS helpers.
-- Optional `gst` feature: `gstreamer` and `retina_rtsp` bindings such as `Mp4Muxer`, `Mp4Demuxer`, `RtspSourceGroup`, and `RetinaRtspService`.
+- Optional `gst` feature: `gstreamer` and `retina_rtsp` bindings such as `Mp4Muxer`, `Mp4Demuxer`, `VideoInfo`, `RtspSourceGroup`, and `RetinaRtspService`.
 - Optional `deepstream` feature: `deepstream`, `nvinfer`, `nvtracker`, and `picasso` bindings including `SharedBuffer`, `SurfaceView`, `FlexibleDecoder`, `NvInfer`, `NvInferBatchingOperator`, `NvTracker`, and GPU-oriented encoder/decoder configuration types.
 
 ## Usage

@@ -87,6 +87,50 @@ impl TensorView {
         self.checked_host_slice::<i8>(DataType::Int8, "int8")
     }
 
+    /// Copy host tensor data into a `Vec<f32>`, transparently converting
+    /// from fp16 when needed.
+    ///
+    /// Supports [`DataType::Float`] (zero conversion, cloned into the
+    /// returned `Vec`) and [`DataType::Half`] (each `f16` element is
+    /// widened to `f32`).  Returns [`NvInferError::TensorTypeMismatch`]
+    /// for any other dtype and [`NvInferError::HostDataUnavailable`] when
+    /// the host copy is disabled or the pointer is null.
+    ///
+    /// This is the canonical helper for downstream decoders such as YOLO
+    /// post-processing, which otherwise re-implement the same match.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use deepstream_nvinfer::output::TensorView;
+    /// # fn example(tv: &TensorView) {
+    /// let floats: Vec<f32> = tv.to_f32_vec().expect("fp16/fp32 host tensor");
+    /// assert!(!floats.is_empty());
+    /// # }
+    /// ```
+    pub fn to_f32_vec(&self) -> crate::Result<Vec<f32>> {
+        if !self.host_copy_enabled || self.host_ptr.is_null() || self.byte_length == 0 {
+            return Err(crate::NvInferError::HostDataUnavailable);
+        }
+        match self.data_type {
+            DataType::Float => {
+                // SAFETY: dtype check above guarantees elements are f32;
+                // host_copy_enabled/host_ptr/byte_length were just validated.
+                let raw: &[f32] = unsafe { self.as_slice() };
+                Ok(raw.to_vec())
+            }
+            DataType::Half => {
+                // SAFETY: dtype check above guarantees elements are fp16.
+                let raw: &[half::f16] = unsafe { self.as_slice() };
+                Ok(raw.iter().map(|v| v.to_f32()).collect())
+            }
+            other => Err(crate::NvInferError::TensorTypeMismatch {
+                expected: "float32 or float16",
+                actual: other.name(),
+            }),
+        }
+    }
+
     fn checked_host_slice<T>(
         &self,
         expected_type: DataType,
@@ -309,6 +353,48 @@ mod tests {
             err.to_string().contains("unavailable"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn to_f32_vec_copies_float_tensor() {
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0];
+        let tv = make_tensor(&data, DataType::Float, true);
+        assert_eq!(tv.to_f32_vec().unwrap(), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn to_f32_vec_widens_half_tensor() {
+        let data: Vec<half::f16> = vec![
+            half::f16::from_f32(0.25),
+            half::f16::from_f32(-1.5),
+            half::f16::from_f32(4.0),
+        ];
+        let tv = make_tensor(&data, DataType::Half, true);
+        let out = tv.to_f32_vec().unwrap();
+        assert_eq!(out, vec![0.25, -1.5, 4.0]);
+    }
+
+    #[test]
+    fn to_f32_vec_rejects_unsupported_dtype() {
+        let data: Vec<i32> = vec![1, 2, 3];
+        let tv = make_tensor(&data, DataType::Int32, true);
+        let err = tv.to_f32_vec().unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("expected float32 or float16"),
+            "unexpected error: {msg}"
+        );
+        assert!(msg.contains("got int32"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn to_f32_vec_fails_when_host_copy_disabled() {
+        let data: Vec<f32> = vec![1.0];
+        let tv = make_tensor(&data, DataType::Float, false);
+        assert!(matches!(
+            tv.to_f32_vec().unwrap_err(),
+            crate::NvInferError::HostDataUnavailable
+        ));
     }
 
     #[test]

@@ -6,8 +6,8 @@
 // crate pulls in; only some binaries `use` these items, so `dead_code` is
 // expected on the others.
 
-use candle_core::{DType, Device, Tensor};
-use deepstream_nvinfer::{DataType, TensorView};
+use candle_core::{Device, Tensor};
+use deepstream_nvinfer::TensorView;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use std::path::Path;
@@ -68,18 +68,16 @@ pub fn load_face_images(dir: &Path, face_w: u32, face_h: u32) -> Vec<(String, Ve
 }
 
 /// Build a candle tensor from a nvinfer [`TensorView`], handling fp16 and fp32.
+///
+/// Delegates the dtype demux to [`TensorView::to_f32_vec`] so the canonical
+/// conversion lives in the nvinfer crate; age/gender tensors are tiny
+/// (101 and 2 elements respectively), so the extra `Vec<f32>` allocation
+/// for fp16 inputs is negligible.
 pub fn to_candle_tensor(tv: &TensorView, shape: &[usize]) -> candle_core::Result<Tensor> {
-    match tv.data_type {
-        DataType::Half => {
-            let raw: &[half::f16] = unsafe { tv.as_slice() };
-            Tensor::from_slice(raw, shape, &Device::Cpu)?.to_dtype(DType::F32)
-        }
-        DataType::Float => {
-            let raw: &[f32] = unsafe { tv.as_slice() };
-            Tensor::from_slice(raw, shape, &Device::Cpu)
-        }
-        other => panic!("unsupported tensor dtype: {other:?}"),
-    }
+    let data = tv
+        .to_f32_vec()
+        .unwrap_or_else(|e| panic!("to_candle_tensor: {e}"));
+    Tensor::from_slice(&data, shape, &Device::Cpu)
 }
 
 /// Decode age: weighted sum of 101 class probabilities.

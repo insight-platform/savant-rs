@@ -148,8 +148,9 @@ fn run_detect_mp4_demuxed(entry: &AssetEntry) {
     let mp4_path = assets_dir().join(&entry.file);
     let mp4_str = mp4_path.to_str().unwrap();
 
-    let (packets, detected_codec) = Mp4Demuxer::demux_all(mp4_str)
-        .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
+    let (packets, info) = Mp4Demuxer::demux_all(mp4_str)
+        .unwrap_or_else(|e| panic!("demuxer failed on {mp4_path:?}: {e}"));
+    let detected_codec = info.map(|i| i.codec);
 
     assert!(
         !packets.is_empty(),
@@ -267,8 +268,9 @@ fn run_rap_mp4_demuxed(entry: &AssetEntry) {
     let mp4_path = assets_dir().join(&entry.file);
     let mp4_str = mp4_path.to_str().unwrap();
 
-    let (packets, detected_codec) = Mp4Demuxer::demux_all(mp4_str)
-        .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
+    let (packets, info) = Mp4Demuxer::demux_all(mp4_str)
+        .unwrap_or_else(|e| panic!("demuxer failed on {mp4_path:?}: {e}"));
+    let detected_codec = info.map(|i| i.codec);
 
     let codec = detected_codec.unwrap_or_else(|| panic!("{}: no codec", entry.file));
 

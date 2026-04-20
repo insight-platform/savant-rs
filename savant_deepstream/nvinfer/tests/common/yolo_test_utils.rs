@@ -11,18 +11,12 @@ use deepstream_nvinfer::TensorView;
 use savant_core::primitives::RBBox;
 
 /// Converts a `TensorView` to `Vec<f32>`, handling fp16 and fp32.
+///
+/// Thin wrapper over [`TensorView::to_f32_vec`] that panics on unsupported
+/// dtypes — integration tests assume a well-formed fp16/fp32 output tensor.
 pub fn tensor_to_f32_vec(tv: &TensorView) -> Vec<f32> {
-    match tv.data_type {
-        deepstream_nvinfer::DataType::Half => {
-            let raw: &[half::f16] = unsafe { tv.as_slice() };
-            raw.iter().map(|v| v.to_f32()).collect()
-        }
-        deepstream_nvinfer::DataType::Float => {
-            let raw: &[f32] = unsafe { tv.as_slice() };
-            raw.to_vec()
-        }
-        other => panic!("unsupported tensor dtype: {other:?}"),
-    }
+    tv.to_f32_vec()
+        .unwrap_or_else(|e| panic!("tensor_to_f32_vec: {e}"))
 }
 
 /// Gets shape as `Vec<usize>` from a TensorView.

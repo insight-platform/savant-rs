@@ -9,7 +9,9 @@ use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SurfaceView, UniformBatchGenerator,
     VideoFormat,
 };
-use deepstream_nvinfer::{CoordinateScaler, ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig};
+use deepstream_nvinfer::{
+    CoordinateScaler, ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig,
+};
 use savant_core::converters::{NmsKind, YoloDetectionConverter, YoloFormat};
 use serial_test::serial;
 use std::collections::HashMap;

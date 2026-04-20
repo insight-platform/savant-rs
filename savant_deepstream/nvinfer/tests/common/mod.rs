@@ -38,16 +38,16 @@ pub fn engines_dir() -> PathBuf {
 /// After NvInfer creation, move the auto-generated engine file (written
 /// by DeepStream next to the ONNX model) into the platform-specific cache
 /// directory so that subsequent runs find it via `model-engine-file`.
+///
+/// Delegates to [`deepstream_nvinfer::engine_cache::promote_built_engine`].
 pub fn promote_built_engine(onnx_stem: &str, batch_size: u32) {
     let engine_name = format!("{}_b{}_gpu0_fp16.engine", onnx_stem, batch_size);
     let auto_path = assets_dir().join(&engine_name);
     let cached_path = engines_dir().join(&engine_name);
-    if auto_path.exists() && !cached_path.exists() {
-        std::fs::rename(&auto_path, &cached_path).unwrap_or_else(|_| {
-            std::fs::copy(&auto_path, &cached_path).expect("copy engine to platform cache");
-            std::fs::remove_file(&auto_path).ok();
-        });
-        eprintln!("  [cache] promoted {engine_name} to platform cache");
+    match deepstream_nvinfer::engine_cache::promote_built_engine(&auto_path, &cached_path) {
+        Ok(true) => eprintln!("  [cache] promoted {engine_name} to platform cache"),
+        Ok(false) => {}
+        Err(e) => eprintln!("  [cache] promotion failed for {engine_name}: {e}"),
     }
 }
 
@@ -261,7 +261,9 @@ pub fn warmup_engine(engine: &deepstream_nvinfer::NvInfer, width: u32, height: u
 ///
 /// Panics if EOS is received or if too many iterations pass without a result.
 #[allow(dead_code)]
-pub fn recv_inference(engine: &deepstream_nvinfer::NvInfer) -> deepstream_nvinfer::output::BatchInferenceOutput {
+pub fn recv_inference(
+    engine: &deepstream_nvinfer::NvInfer,
+) -> deepstream_nvinfer::output::BatchInferenceOutput {
     for _ in 0..64 {
         match engine.recv().expect("recv failed") {
             deepstream_nvinfer::NvInferOutput::Inference(output) => return output,

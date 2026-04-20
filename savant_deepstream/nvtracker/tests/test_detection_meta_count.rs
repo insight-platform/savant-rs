@@ -6,9 +6,9 @@ use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
     TransformConfig, UniformBatchGenerator, VideoFormat,
 };
+use deepstream_nvtracker::{attach_detection_meta, Roi};
 use deepstream_sys::{gst_buffer_get_nvds_batch_meta, NvDsFrameMeta};
 use gstreamer as gst;
-use deepstream_nvtracker::{attach_detection_meta, Roi};
 use savant_core::primitives::RBBox;
 use serial_test::serial;
 

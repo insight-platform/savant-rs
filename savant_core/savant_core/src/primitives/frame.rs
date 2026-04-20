@@ -1345,29 +1345,37 @@ impl VideoFrameProxy {
 
     /// Apply full tracker output to this frame in a single operation.
     ///
-    /// 1. For each [`TrackUpdate`], the corresponding
-    ///    [`VideoObject`] is looked up by `object_id` and its tracking
-    ///    info (`track_id`, `track_box`) is set. Returns an error if any
-    ///    `object_id` is not found on the frame.
+    /// 1. For each [`TrackUpdate`], the corresponding [`VideoObject`]
+    ///    is looked up by `object_id`:
+    ///    - If found, its `track_id` and `track_box` are set.
+    ///    - If **not** found, the [`TrackUpdate`] is moved into the
+    ///      returned vec so the caller can route it (log via
+    ///      [`std::fmt::Display`], increment a metric, dead-letter,
+    ///      alert…).  No new object is synthesized.
     /// 2. The frame's misc-track list is **replaced** with `misc_tracks`.
+    ///
+    /// Returns the vec of unmatched [`TrackUpdate`]s (empty on the
+    /// happy path).  The method is silent by design — `Result` is
+    /// retained only for the lock-acquisition error surfaced by
+    /// [`trace!`].
     pub fn apply_tracking_info(
         &self,
         track_updates: Vec<TrackUpdate>,
         misc_tracks: Vec<MiscTrackData>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<TrackUpdate>> {
         let mut inner = trace!(self.inner.write());
-        for tu in &track_updates {
-            let obj = inner.objects.get_mut(&tu.object_id).ok_or_else(|| {
-                anyhow!(
-                    "apply_tracking_info: object_id {} not found on frame",
-                    tu.object_id
-                )
-            })?;
-            obj.track_id = Some(tu.track_id);
-            obj.track_box = Some(tu.track_box.clone());
+        let mut unmatched: Vec<TrackUpdate> = Vec::new();
+        for tu in track_updates {
+            match inner.objects.get_mut(&tu.object_id) {
+                Some(obj) => {
+                    obj.track_id = Some(tu.track_id);
+                    obj.track_box = Some(tu.track_box.clone());
+                }
+                None => unmatched.push(tu),
+            }
         }
         inner.misc_tracks = misc_tracks;
-        Ok(())
+        Ok(unmatched)
     }
 }
 
@@ -2047,14 +2055,11 @@ mod tests {
         assert!(obj.get_track_id().is_none());
 
         let track_box = RBBox::new(100.0, 200.0, 50.0, 60.0, None);
-        frame.apply_tracking_info(
-            vec![TrackUpdate {
-                object_id: 0,
-                track_id: 777,
-                track_box: track_box.clone(),
-            }],
+        let unmatched = frame.apply_tracking_info(
+            vec![TrackUpdate::new(0, 777, track_box.clone())],
             vec![sample_misc_track(MiscTrackCategory::Shadow)],
         )?;
+        assert!(unmatched.is_empty());
 
         let obj = frame.get_object(0).unwrap();
         assert_eq!(obj.get_track_id(), Some(777));
@@ -2069,13 +2074,14 @@ mod tests {
         frame.add_misc_track(sample_misc_track(MiscTrackCategory::PastFrame));
         assert_eq!(frame.get_misc_tracks().len(), 1);
 
-        frame.apply_tracking_info(
+        let unmatched = frame.apply_tracking_info(
             vec![],
             vec![
                 sample_misc_track(MiscTrackCategory::Shadow),
                 sample_misc_track(MiscTrackCategory::Terminated),
             ],
         )?;
+        assert!(unmatched.is_empty());
         assert_eq!(frame.get_misc_tracks().len(), 2);
         assert!(frame
             .get_misc_tracks_by_category(MiscTrackCategory::PastFrame)
@@ -2084,16 +2090,50 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_tracking_info_missing_object() {
+    fn test_apply_tracking_info_returns_unmatched() -> anyhow::Result<()> {
         let frame = gen_empty_frame();
-        let result = frame.apply_tracking_info(
-            vec![TrackUpdate {
-                object_id: 999,
-                track_id: 1,
-                track_box: RBBox::new(0.0, 0.0, 1.0, 1.0, None),
-            }],
+        let unmatched = frame.apply_tracking_info(
+            vec![TrackUpdate::new(
+                999,
+                1,
+                RBBox::new(0.0, 0.0, 1.0, 1.0, None),
+            )],
             vec![],
-        );
-        assert!(result.is_err());
+        )?;
+        assert_eq!(unmatched.len(), 1);
+        assert_eq!(unmatched[0].object_id, 999);
+        assert_eq!(unmatched[0].track_id, 1);
+        // No phantom object synthesized.
+        assert!(frame.get_all_objects().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_tracking_info_mixed_present_and_missing() -> anyhow::Result<()> {
+        let frame = gen_frame();
+        let before = frame.get_all_objects().len();
+        let track_box = RBBox::new(10.0, 20.0, 30.0, 40.0, None);
+
+        let unmatched = frame.apply_tracking_info(
+            vec![
+                TrackUpdate::new(0, 100, track_box.clone()),
+                TrackUpdate::new(999, 42, RBBox::new(0.0, 0.0, 1.0, 1.0, None)),
+            ],
+            vec![],
+        )?;
+
+        // Existing object 0 updated.
+        let obj = frame.get_object(0).unwrap();
+        assert_eq!(obj.get_track_id(), Some(100));
+        assert!(obj.get_track_box().is_some());
+
+        // Missing one returned verbatim.
+        assert_eq!(unmatched.len(), 1);
+        assert_eq!(unmatched[0].object_id, 999);
+        assert_eq!(unmatched[0].track_id, 42);
+
+        // Object count unchanged — no synthesis.
+        assert_eq!(frame.get_all_objects().len(), before);
+        Ok(())
     }
 }

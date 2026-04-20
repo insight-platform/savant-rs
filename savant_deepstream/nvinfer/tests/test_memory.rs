@@ -12,8 +12,8 @@ use deepstream_buffers::{
     BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer,
     SurfaceView, UniformBatchGenerator, VideoFormat,
 };
-use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
 use deepstream_nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
+use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
 use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;

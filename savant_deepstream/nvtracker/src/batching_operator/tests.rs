@@ -207,6 +207,7 @@ fn frame_output_contains_per_frame_groups() {
             label: Some("car".to_string()),
             slot_number: 0,
             source_id: "cam-a".to_string(),
+            misc_obj_info: [0; 4],
         }],
         shadow_tracks: vec![MiscTrackData {
             object_id: 1,

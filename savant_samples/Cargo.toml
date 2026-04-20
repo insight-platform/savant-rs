@@ -1,0 +1,40 @@
+[package]
+name = "savant-samples"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "End-to-end Rust samples that exercise the savant-rs DeepStream pipeline (decode -> infer -> track -> render -> encode)."
+
+[lib]
+name = "savant_samples"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cars-demo"
+path = "src/bin/cars_demo.rs"
+
+[dependencies]
+deepstream_inputs = { workspace = true }
+deepstream_decoders = { workspace = true }
+deepstream_nvinfer = { workspace = true }
+deepstream_nvtracker = { workspace = true }
+deepstream_encoders = { workspace = true }
+deepstream_buffers = { workspace = true }
+picasso = { workspace = true }
+savant_core = { workspace = true }
+savant_gstreamer = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+crossbeam = { workspace = true }
+gstreamer = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }

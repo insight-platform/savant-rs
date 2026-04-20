@@ -1556,20 +1556,33 @@ impl VideoFrame {
     /// Apply full tracker output to this frame in a single operation.
     ///
     /// For each :class:`TrackUpdate`, sets ``track_id`` and ``track_box``
-    /// on the corresponding :class:`VideoObject`.  Then replaces the frame's
+    /// on the corresponding :class:`VideoObject`.  If the ``object_id``
+    /// does not match any existing object on the frame, the update is
+    /// **returned in the result list** — no new :class:`VideoObject` is
+    /// synthesized, nothing is logged.  Then replaces the frame's
     /// misc-track list with ``misc_tracks``.
+    ///
+    /// :returns: the list of unmatched :class:`TrackUpdate`\ s (empty on
+    ///     the happy path) so the caller can log / count / dead-letter
+    ///     them.  Each :class:`TrackUpdate` has a readable ``__repr__``
+    ///     / ``__str__`` backed by the Rust ``Display`` impl.
     pub fn apply_tracking_info(
         &self,
         track_updates: Vec<crate::primitives::misc_track::TrackUpdate>,
         misc_tracks: Vec<crate::primitives::misc_track::MiscTrackData>,
-    ) -> PyResult<()> {
+    ) -> PyResult<Vec<crate::primitives::misc_track::TrackUpdate>> {
         use savant_core::primitives::misc_track::{
             MiscTrackData as CoreData, TrackUpdate as CoreUpdate,
         };
         let updates: Vec<CoreUpdate> = track_updates.iter().map(CoreUpdate::from).collect();
         let tracks: Vec<CoreData> = misc_tracks.iter().map(CoreData::from).collect();
-        self.0
+        let unmatched = self
+            .0
             .apply_tracking_info(updates, tracks)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(unmatched
+            .iter()
+            .map(crate::primitives::misc_track::TrackUpdate::from)
+            .collect())
     }
 }

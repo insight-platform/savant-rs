@@ -303,7 +303,7 @@ pub fn demux_mp4_to_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
     let mp4_path = assets_dir().join(&entry.file);
     let mp4_str = mp4_path.to_str().unwrap();
 
-    let (packets, _codec) = Mp4Demuxer::demux_all_parsed(mp4_str)
+    let (packets, _info) = Mp4Demuxer::demux_all_parsed(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
 
     assert!(

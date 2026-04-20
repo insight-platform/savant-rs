@@ -115,9 +115,9 @@ fn bench_track_sync(
             NvTrackerOutput::Tracking(t) => return Ok(t),
             NvTrackerOutput::Event(_) => continue,
             NvTrackerOutput::Eos { source_id } => {
-                return Err(deepstream_nvtracker::NvTrackerError::PipelineError(format!(
-                    "unexpected EOS: {source_id}"
-                )));
+                return Err(deepstream_nvtracker::NvTrackerError::PipelineError(
+                    format!("unexpected EOS: {source_id}"),
+                ));
             }
             NvTrackerOutput::Error(e) => return Err(e),
         }

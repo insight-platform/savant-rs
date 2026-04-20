@@ -7,6 +7,7 @@
 pub mod batch_meta_builder;
 pub mod batching_operator;
 pub mod config;
+pub mod engine_cache;
 pub mod error;
 pub mod meta_clear_policy;
 pub mod model_color_format;
