@@ -2,7 +2,7 @@
 name = "savant-replaydb"
 description = "RocksDB-backed frame/video store used by the Savant Replay service."
 license.workspace = true
-readme.workspace = true
+readme = "README.md"
 
 version.workspace = true
 edition.workspace = true
