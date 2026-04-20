@@ -82,6 +82,14 @@ pub struct NvTracker {
     config: NvTrackerConfig,
     policy: MetaClearPolicy,
     next_pts: AtomicU64,
+    /// Serializes the `fetch_add(next_pts) + prepare_batch +
+    /// finalize_batch_buffer + input_tx.send` sequence inside
+    /// [`Self::submit`] so that concurrent submitters cannot deliver
+    /// buffers to the pipeline feeder thread out of PTS order and trip
+    /// its [`PtsPolicy::StrictPts`] guard.  Same rationale as
+    /// `NvInfer::submit_mutex` — see that field's documentation for
+    /// details.
+    submit_mutex: Mutex<()>,
     source_lru: Mutex<LruCache<u32, String>>,
     frame_counters: Mutex<HashMap<u32, i32>>,
     last_source_dims: Mutex<HashMap<u32, (u32, u32)>>,
@@ -199,6 +207,7 @@ impl NvTracker {
             config,
             policy,
             next_pts: AtomicU64::new(0),
+            submit_mutex: Mutex::new(()),
             source_lru: Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)),
             frame_counters: Mutex::new(HashMap::new()),
             last_source_dims: Mutex::new(HashMap::new()),
@@ -209,6 +218,18 @@ impl NvTracker {
     /// Submit a batch of frames for tracking.
     ///
     /// Blocks if the input channel is full (backpressure).
+    ///
+    /// # Concurrency
+    ///
+    /// Safe to call from multiple threads; the
+    /// [`NvTrackerBatchingOperator`](crate::NvTrackerBatchingOperator) does
+    /// so from both its `add_frame` path and its internal timer thread.
+    /// The `fetch_add(next_pts) + prepare_batch + finalize_batch_buffer +
+    /// input_tx.send` window is serialized by [`Self::submit_mutex`] — the
+    /// pipeline feeder thread enforces [`PtsPolicy::StrictPts`] and must
+    /// see buffers in PTS-increasing order.  See the matching comment on
+    /// `NvInfer::submit` for the full failure scenario this guards
+    /// against.
     pub fn submit(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
         {
             let p = self.pipeline.lock();
@@ -219,6 +240,7 @@ impl NvTracker {
                 return Err(NvTrackerError::PipelineFailed);
             }
         }
+        let _submit_guard = self.submit_mutex.lock();
         let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
         let buffer = self.finalize_batch_buffer(batch, &slots, &input_pts, pts)?;

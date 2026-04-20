@@ -28,6 +28,18 @@ pub(super) struct SubmitContext {
     pub(super) failed: Arc<AtomicBool>,
     /// When true, [`Self::submit_batch`] rejects; [`Self::submit_batch_for_graceful_flush`] still runs.
     pub(super) draining: Arc<AtomicBool>,
+    /// Serialises the entire `drain → build → submit` window so that the
+    /// order in which frames leave [`BatchState`] is also the order in which
+    /// they enter [`NvInfer::submit`] (and therefore the order in which the
+    /// internal GStreamer pipeline timestamps them).
+    ///
+    /// Without this lock, `add_frame` and the timer thread can each drain
+    /// disjoint frames under the short-held `state` lock, release it, and
+    /// then race inside `nvinfer.submit`.  The thread that wins the race
+    /// gets the earlier internal PTS, which inverts the downstream order
+    /// when `add_frame`'s frame is the newer one.  The symptom surfaces at
+    /// the next pipeline stage as a PTS backward jump.
+    pub(super) submit_lock: Mutex<()>,
 }
 
 impl SubmitContext {
@@ -53,6 +65,13 @@ impl SubmitContext {
         if respect_draining && self.draining.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorShutdown);
         }
+
+        // Hold `submit_lock` for the whole critical section.  This ensures
+        // that `state.take()`, `next_batch_id.fetch_add`, `pending_batches`
+        // insertion, and `nvinfer.submit` happen atomically with respect to
+        // other callers of `submit_batch_impl` — preserving the video-PTS
+        // order of frames as they enter the downstream pipeline.
+        let _submit_guard = self.submit_lock.lock();
 
         let frames = {
             let mut st = self.state.lock();

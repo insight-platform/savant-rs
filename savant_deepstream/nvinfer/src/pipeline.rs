@@ -58,6 +58,20 @@ pub struct NvInfer {
     _config_file: NamedTempFile,
     /// Monotonic counter used as PTS for internal pipeline correlation.
     next_pts: AtomicU64,
+    /// Serializes the `fetch_add(next_pts) + prepare_buffer + input_tx.send`
+    /// sequence inside [`Self::submit`].
+    ///
+    /// `next_pts` alone is not enough because [`prepare_buffer`] and
+    /// [`Sender::send`] are lengthy, non-atomic steps: with two concurrent
+    /// submitters, thread A can `fetch_add → 291`, be preempted mid
+    /// `prepare_buffer`, let thread B `fetch_add → 292` + finish `send` first,
+    /// and then deliver its 291 buffer after 292 — producing the very
+    /// [`PipelineError::TimestampOrderViolation`] the feeder thread enforces
+    /// via [`PtsPolicy::StrictPts`].  The `NvInferBatchingOperator` calls
+    /// `submit` from both the `add_frame` path (user thread) and the timer
+    /// thread, so this race is reachable in practice — see the regression
+    /// test in `pipeline.rs` tests.
+    submit_mutex: Mutex<()>,
     /// When and whether to clear object metas.
     policy: MetaClearPolicy,
     /// Whether D2H tensor copy is enabled.
@@ -142,6 +156,7 @@ impl NvInfer {
             pipeline: Mutex::new(gst_pipeline),
             _config_file: config_file,
             next_pts: AtomicU64::new(0),
+            submit_mutex: Mutex::new(()),
             policy,
             host_copy_enabled,
         })
@@ -158,6 +173,21 @@ impl NvInfer {
     /// receives a region to process.
     ///
     /// Blocks if the input channel is full (backpressure).
+    ///
+    /// # Concurrency
+    ///
+    /// This method is safe to call from multiple threads — the
+    /// [`NvInferBatchingOperator`](crate::NvInferBatchingOperator) actually
+    /// does: both `add_frame` (user thread) and the internal timer thread
+    /// reach this code path.  The feeder thread behind the GStreamer
+    /// pipeline enforces [`PtsPolicy::StrictPts`] (monotonically increasing
+    /// PTS) and fails the pipeline on the first violation, so the
+    /// `fetch_add(next_pts) + prepare_buffer + input_tx.send` sequence must
+    /// appear atomic w.r.t. other submitters.  We hold
+    /// [`Self::submit_mutex`] for that full window; without it, a thread
+    /// that wins `fetch_add` can still lose the `send` race and deliver
+    /// buffers out of PTS order, crashing the pipeline with
+    /// `Timestamp order violation (StrictPts)`.
     pub fn submit(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) -> Result<()> {
         {
             let p = self.pipeline.lock();
@@ -168,12 +198,14 @@ impl NvInfer {
                 return Err(NvInferError::PipelineFailed);
             }
         }
-        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let batch = batch.into_buffer().map_err(|_| {
             NvInferError::PipelineError(
                 "SharedBuffer has outstanding references; cannot take exclusive ownership".into(),
             )
         })?;
+
+        let _submit_guard = self.submit_mutex.lock();
+        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let buffer = self.prepare_buffer(batch, rois, pts)?;
         self.input_tx
             .send(PipelineInput::Buffer(buffer))

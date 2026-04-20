@@ -7,11 +7,19 @@
 //!
 //! To avoid the ~20-second TensorRT build every run, the serialized engine
 //! produced on first invocation is cached under
-//! `savant_samples/assets/cache/yolo11n/` and reused thereafter.  The
-//! `model-engine-file` property is set so nvinfer picks up the cached
+//! `savant_samples/assets/cache/yolo11n/<platform_tag>/` and reused
+//! thereafter.  The `<platform_tag>` segment (e.g. `ada`,
+//! `orin_nano_8gb`) is required because TensorRT plan files are only
+//! valid on the platform they were built on — loading a plan built on a
+//! different architecture or TRT version fails with
+//! `Platform specific tag mismatch detected`, which forces DeepStream to
+//! rebuild the engine from ONNX on every run.  See
+//! [`crate::assets::engine_cache_dir`] for the layout rationale.
+//!
+//! The `model-engine-file` property is set so nvinfer picks up the cached
 //! engine when it exists; [`promote_yolo11n_engine`] moves the freshly-
 //! built engine into the cache after the first `NvInferBatchingOperator::new`
-//! call.
+//! call (replacing any stale plan that was found to be incompatible).
 
 use anyhow::Result;
 use deepstream_buffers::VideoFormat;
@@ -71,8 +79,12 @@ fn engine_filename(gpu_id: u32) -> String {
 }
 
 /// Absolute path of the cached TensorRT engine (may not yet exist).
+///
+/// The returned path lives under the platform-specific cache directory
+/// (`savant_samples/assets/cache/yolo11n/<platform_tag>/`) — see
+/// [`assets::engine_cache_dir`].
 pub fn yolo11n_engine_cache_path(gpu_id: u32) -> Result<PathBuf> {
-    Ok(assets::engine_cache_dir(MODEL_NAME)?.join(engine_filename(gpu_id)))
+    Ok(assets::engine_cache_dir(MODEL_NAME, gpu_id)?.join(engine_filename(gpu_id)))
 }
 
 /// Build the nvinfer property map for YOLO-11n.

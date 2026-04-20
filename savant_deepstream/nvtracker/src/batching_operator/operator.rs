@@ -57,6 +57,7 @@ impl NvTrackerBatchingOperator {
             shutdown_flag: shutdown_flag.clone(),
             failed: failed.clone(),
             draining: draining.clone(),
+            submit_lock: Mutex::new(()),
         });
 
         let drain_nvtracker = nvtracker;

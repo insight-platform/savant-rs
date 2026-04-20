@@ -33,8 +33,8 @@ curl -L -o savant_samples/assets/ny_city_center.mov \
 ## Running
 
 ```bash
-cargo run --release --bin cars-demo -- \
-  --input savant_samples/assets/ny_city_center.mov \
+cargo run --release -p savant-samples --bin cars-demo -- \
+  --input assets/ny_city_center.mov \
   --output /tmp/ny_city_center.out.mp4 \
   --gpu 0
 ```

@@ -26,6 +26,17 @@ pub(super) struct SubmitContext {
     pub(super) shutdown_flag: Arc<AtomicBool>,
     pub(super) failed: Arc<AtomicBool>,
     pub(super) draining: Arc<AtomicBool>,
+    /// Serialises the entire `drain → build → submit` window so frames
+    /// enter [`NvTracker::submit`] in the same order they were drained
+    /// from [`BatchState`].
+    ///
+    /// Without this lock, `add_frame` and the timer thread can each drain
+    /// disjoint frames under the short-held `state` lock, release it, and
+    /// then race inside `nvtracker.submit`.  The thread that wins the race
+    /// assigns the earlier internal PTS, inverting the downstream order
+    /// whenever `add_frame`'s frame is the newer one.  The symptom surfaces
+    /// at the next stage as a PTS backward jump.
+    pub(super) submit_lock: Mutex<()>,
 }
 
 impl SubmitContext {
@@ -50,6 +61,10 @@ impl SubmitContext {
         if respect_draining && self.draining.load(Ordering::Acquire) {
             return Err(NvTrackerError::OperatorShutdown);
         }
+
+        // Hold `submit_lock` for the whole critical section.  See the field
+        // docs on [`SubmitContext::submit_lock`] for the rationale.
+        let _submit_guard = self.submit_lock.lock();
 
         let frames = {
             let mut st = self.state.lock();

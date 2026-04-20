@@ -507,12 +507,7 @@ fn decode_thread(
             return;
         }
         match &out {
-            FlexibleDecoderOutput::Frame { frame, .. } => {
-                log::debug!(
-                    "[decode] frame uuid={:032x} pts={}ms",
-                    frame.get_uuid_u128(),
-                    frame.get_pts() / 1_000_000
-                );
+            FlexibleDecoderOutput::Frame { .. } => {
                 if let Some(sealed) = out.take_delivery() {
                     tick_stage(&stage_cb, 1, 0);
                     if tx_cb.send(sealed).is_err() {
@@ -678,11 +673,6 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
             Ok(sealed) => {
                 // Decoder SealedDelivery carries a single frame/buffer pair.
                 if let Some((frame, buffer)) = sealed.unseal() {
-                    log::debug!(
-                        "[infer] submit frame uuid={:032x} pts={}ms",
-                        frame.get_uuid_u128(),
-                        frame.get_pts() / 1_000_000
-                    );
                     if let Err(e) = operator.add_frame(frame, buffer) {
                         log::error!("[infer] add_frame failed: {e}");
                         fatal.store(true, Ordering::Release);
@@ -769,7 +759,6 @@ fn tracker_thread(
             Ok(sealed) => {
                 let pairs = sealed.unseal();
                 for (frame, buffer) in pairs {
-                    log::debug!("[track] submit frame pts={}ms", frame.get_pts() / 1_000_000);
                     if let Err(e) = operator.add_frame(frame, buffer) {
                         log::error!("[track] add_frame failed: {e}");
                         fatal.store(true, Ordering::Release);
@@ -950,7 +939,6 @@ fn render_thread(
 
                     let view = SurfaceView::from_buffer(&buffer, 0)
                         .map_err(|e| anyhow!("SurfaceView::from_buffer: {e}"))?;
-                    log::debug!("[render] send frame pts={}ms", frame.get_pts() / 1_000_000);
                     if let Err(e) = picasso.send_frame(&source_id, frame, view, None) {
                         log::error!("[render] send_frame failed: {e}");
                         fatal.store(true, Ordering::Release);

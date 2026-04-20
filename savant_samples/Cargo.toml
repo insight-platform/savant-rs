@@ -24,6 +24,7 @@ deepstream_nvinfer = { workspace = true }
 deepstream_nvtracker = { workspace = true }
 deepstream_encoders = { workspace = true }
 deepstream_buffers = { workspace = true }
+nvidia_gpu_utils = { workspace = true }
 picasso = { workspace = true }
 savant_core = { workspace = true }
 savant_gstreamer = { workspace = true }

@@ -1369,7 +1369,7 @@ impl VideoFrameProxy {
             match inner.objects.get_mut(&tu.object_id) {
                 Some(obj) => {
                     obj.track_id = Some(tu.track_id);
-                    obj.track_box = Some(tu.track_box.clone());
+                    obj.track_box = Some(tu.track_box);
                 }
                 None => unmatched.push(tu),
             }
