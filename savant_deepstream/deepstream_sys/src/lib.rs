@@ -7,7 +7,9 @@
 #![allow(non_camel_case_types)]
 #![allow(warnings)]
 
-pub mod gstnvdsmeta;
+pub mod gstnvdsmeta {
+    include!(concat!(env!("OUT_DIR"), "/gstnvdsmeta.rs"));
+}
 
 // Re-export main types
 pub use gstnvdsmeta::*;
