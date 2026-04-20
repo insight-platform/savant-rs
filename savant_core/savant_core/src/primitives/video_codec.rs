@@ -48,7 +48,7 @@ impl VideoCodec {
         }
     }
 
-    /// Canonical wire / JSON name (matches [`savant_gstreamer::Codec::name`] where both exist).
+    /// Canonical wire / JSON name.
     pub const fn name(self) -> &'static str {
         match self {
             Self::H264 => "h264",
@@ -64,6 +64,72 @@ impl VideoCodec {
             Self::RawNv12 => "raw_nv12",
         }
     }
+
+    /// Return the GStreamer encoder element name for this codec.
+    ///
+    /// Hardware encoders are returned for H.264 / HEVC / AV1 / JPEG.
+    /// `Png` uses the CPU-based `pngenc`; `SwJpeg` uses the CPU-based `jpegenc`.
+    /// Variants that have no GStreamer encoder (raw pixel formats, VP8, VP9)
+    /// return `"identity"` so they can be plumbed through a pipeline as
+    /// pass-through.
+    pub const fn encoder_element(self) -> &'static str {
+        match self {
+            Self::H264 => "nvv4l2h264enc",
+            Self::Hevc => "nvv4l2h265enc",
+            Self::Jpeg => "nvjpegenc",
+            Self::SwJpeg => "jpegenc",
+            Self::Av1 => "nvv4l2av1enc",
+            Self::Png => "pngenc",
+            Self::Vp8 | Self::Vp9 | Self::RawRgba | Self::RawRgb | Self::RawNv12 => "identity",
+        }
+    }
+
+    /// Return the GStreamer decoder element name for this codec.
+    ///
+    /// Hardware decoders are used for H.264 / HEVC / AV1 / VP8 / VP9 / JPEG.
+    /// `Png` uses the CPU-based `pngdec`; `SwJpeg` uses the CPU-based `jpegdec`.
+    /// Raw pixel formats return `"identity"`.
+    pub const fn decoder_element(self) -> &'static str {
+        match self {
+            Self::H264 | Self::Hevc | Self::Vp8 | Self::Vp9 | Self::Av1 => "nvv4l2decoder",
+            Self::Jpeg => "nvjpegdec",
+            Self::SwJpeg => "jpegdec",
+            Self::Png => "pngdec",
+            Self::RawRgba | Self::RawRgb | Self::RawNv12 => "identity",
+        }
+    }
+
+    /// Return the GStreamer parser element name for this codec.
+    ///
+    /// Codecs without a GStreamer parser (raw pixel formats, PNG, VP8, VP9)
+    /// return `"identity"` as a pass-through.
+    pub const fn parser_element(self) -> &'static str {
+        match self {
+            Self::H264 => "h264parse",
+            Self::Hevc => "h265parse",
+            Self::Jpeg | Self::SwJpeg => "jpegparse",
+            Self::Av1 => "av1parse",
+            Self::Png | Self::Vp8 | Self::Vp9 | Self::RawRgba | Self::RawRgb | Self::RawNv12 => {
+                "identity"
+            }
+        }
+    }
+
+    /// Return the GStreamer caps string for an encoded bitstream of this codec.
+    pub const fn caps_str(self) -> &'static str {
+        match self {
+            Self::H264 => "video/x-h264, stream-format=byte-stream",
+            Self::Hevc => "video/x-h265, stream-format=byte-stream",
+            Self::Jpeg | Self::SwJpeg => "image/jpeg",
+            Self::Av1 => "video/x-av1",
+            Self::Png => "image/png",
+            Self::Vp8 => "video/x-vp8",
+            Self::Vp9 => "video/x-vp9",
+            Self::RawRgba => "video/x-raw,format=RGBA",
+            Self::RawRgb => "video/x-raw,format=RGB",
+            Self::RawNv12 => "video/x-raw,format=NV12",
+        }
+    }
 }
 
 impl fmt::Display for VideoCodec {
@@ -77,5 +143,106 @@ impl FromStr for VideoCodec {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_name(s).ok_or_else(|| format!("unknown video codec: {s}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL_CODECS: &[VideoCodec] = &[
+        VideoCodec::H264,
+        VideoCodec::Hevc,
+        VideoCodec::Jpeg,
+        VideoCodec::SwJpeg,
+        VideoCodec::Av1,
+        VideoCodec::Png,
+        VideoCodec::Vp8,
+        VideoCodec::Vp9,
+        VideoCodec::RawRgba,
+        VideoCodec::RawRgb,
+        VideoCodec::RawNv12,
+    ];
+
+    #[test]
+    fn from_name_roundtrip_covers_all_variants() {
+        for &codec in ALL_CODECS {
+            assert_eq!(VideoCodec::from_name(codec.name()), Some(codec));
+        }
+        assert_eq!(VideoCodec::from_name("H264"), Some(VideoCodec::H264));
+        assert_eq!(VideoCodec::from_name("h265"), Some(VideoCodec::Hevc));
+        assert_eq!(VideoCodec::from_name("avc"), Some(VideoCodec::H264));
+        assert_eq!(VideoCodec::from_name(""), None);
+    }
+
+    #[test]
+    fn encoder_element_mapping() {
+        assert_eq!(VideoCodec::H264.encoder_element(), "nvv4l2h264enc");
+        assert_eq!(VideoCodec::Hevc.encoder_element(), "nvv4l2h265enc");
+        assert_eq!(VideoCodec::Jpeg.encoder_element(), "nvjpegenc");
+        assert_eq!(VideoCodec::SwJpeg.encoder_element(), "jpegenc");
+        assert_eq!(VideoCodec::Av1.encoder_element(), "nvv4l2av1enc");
+        assert_eq!(VideoCodec::Png.encoder_element(), "pngenc");
+        assert_eq!(VideoCodec::Vp8.encoder_element(), "identity");
+        assert_eq!(VideoCodec::Vp9.encoder_element(), "identity");
+        assert_eq!(VideoCodec::RawRgba.encoder_element(), "identity");
+        assert_eq!(VideoCodec::RawRgb.encoder_element(), "identity");
+        assert_eq!(VideoCodec::RawNv12.encoder_element(), "identity");
+    }
+
+    #[test]
+    fn decoder_element_mapping() {
+        assert_eq!(VideoCodec::H264.decoder_element(), "nvv4l2decoder");
+        assert_eq!(VideoCodec::Hevc.decoder_element(), "nvv4l2decoder");
+        assert_eq!(VideoCodec::Vp8.decoder_element(), "nvv4l2decoder");
+        assert_eq!(VideoCodec::Vp9.decoder_element(), "nvv4l2decoder");
+        assert_eq!(VideoCodec::Av1.decoder_element(), "nvv4l2decoder");
+        assert_eq!(VideoCodec::Jpeg.decoder_element(), "nvjpegdec");
+        assert_eq!(VideoCodec::SwJpeg.decoder_element(), "jpegdec");
+        assert_eq!(VideoCodec::Png.decoder_element(), "pngdec");
+        assert_eq!(VideoCodec::RawRgba.decoder_element(), "identity");
+        assert_eq!(VideoCodec::RawRgb.decoder_element(), "identity");
+        assert_eq!(VideoCodec::RawNv12.decoder_element(), "identity");
+    }
+
+    #[test]
+    fn parser_element_mapping() {
+        assert_eq!(VideoCodec::H264.parser_element(), "h264parse");
+        assert_eq!(VideoCodec::Hevc.parser_element(), "h265parse");
+        assert_eq!(VideoCodec::Jpeg.parser_element(), "jpegparse");
+        assert_eq!(VideoCodec::SwJpeg.parser_element(), "jpegparse");
+        assert_eq!(VideoCodec::Av1.parser_element(), "av1parse");
+        for &codec in &[
+            VideoCodec::Png,
+            VideoCodec::Vp8,
+            VideoCodec::Vp9,
+            VideoCodec::RawRgba,
+            VideoCodec::RawRgb,
+            VideoCodec::RawNv12,
+        ] {
+            assert_eq!(codec.parser_element(), "identity");
+        }
+    }
+
+    #[test]
+    fn caps_str_mapping() {
+        assert!(VideoCodec::H264.caps_str().contains("h264"));
+        assert!(VideoCodec::Hevc.caps_str().contains("h265"));
+        assert_eq!(VideoCodec::Jpeg.caps_str(), "image/jpeg");
+        assert_eq!(VideoCodec::SwJpeg.caps_str(), "image/jpeg");
+        assert_eq!(VideoCodec::Av1.caps_str(), "video/x-av1");
+        assert_eq!(VideoCodec::Png.caps_str(), "image/png");
+        assert_eq!(VideoCodec::Vp8.caps_str(), "video/x-vp8");
+        assert_eq!(VideoCodec::Vp9.caps_str(), "video/x-vp9");
+        assert_eq!(VideoCodec::RawRgba.caps_str(), "video/x-raw,format=RGBA");
+        assert_eq!(VideoCodec::RawRgb.caps_str(), "video/x-raw,format=RGB");
+        assert_eq!(VideoCodec::RawNv12.caps_str(), "video/x-raw,format=NV12");
+    }
+
+    #[test]
+    fn display_matches_name() {
+        for &codec in ALL_CODECS {
+            assert_eq!(format!("{codec}"), codec.name());
+        }
     }
 }

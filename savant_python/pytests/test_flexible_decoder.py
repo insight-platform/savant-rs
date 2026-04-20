@@ -56,9 +56,9 @@ def _make_frame(
     pts: int = 0,
     keyframe: bool = True,
 ) -> VideoFrame:
-    from savant_rs.primitives import VideoFrameCodec
+    from savant_rs.primitives import Codec
 
-    codec_enum = VideoFrameCodec.from_name(codec)
+    codec_enum = Codec.from_name(codec)
     return VideoFrame(
         source_id=source_id,
         fps=(30, 1),

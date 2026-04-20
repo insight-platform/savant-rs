@@ -147,3 +147,31 @@ Every Python-visible class and function has a corresponding `.pyi` stub:
 
 **Rule**: When a class/function signature changes in `savant_core_py`, the
 corresponding `.pyi` file in `savant_python/python/savant_rs/` MUST be updated.
+
+## Breaking API Changes
+
+### `Codec` collapse (2026-04)
+
+The two separate codec enums — `savant_rs.primitives.VideoFrameCodec` and
+`savant_rs.gstreamer.Codec` — were unified into a **single** class named
+`Codec`, exposed from both `savant_rs.primitives` and `savant_rs.gstreamer`
+so that
+
+```python
+from savant_rs.primitives import Codec as A
+from savant_rs.gstreamer import Codec as B
+assert A is B
+```
+
+holds.  The unified enum includes the `SwJpeg` variant (previously only on
+`VideoFrameCodec`) for the software JPEG decode path.
+
+Migration:
+
+| Before                                           | After             |
+|--------------------------------------------------|-------------------|
+| `from savant_rs.primitives import VideoFrameCodec` | `from savant_rs.primitives import Codec` |
+| `Codec.HEVC` / `Codec.JPEG` / `Codec.RAW_RGBA` … | `Codec.Hevc` / `Codec.Jpeg` / `Codec.RawRgba` … |
+
+Rust-side, `savant_gstreamer::Codec` was deleted and all consumers now use
+`savant_core::primitives::video_codec::VideoCodec`.

@@ -10,7 +10,7 @@
 //! `OnRender` callback captures the canvas pixels after internal object
 //! drawing.
 //!
-//! **GPU JPEG-encoder path** – Same setup but with `Codec::Jpeg`.  The
+//! **GPU JPEG-encoder path** – Same setup but with `VideoCodec::Jpeg`.  The
 //! encoded JPEG frame is captured from `OnEncodedFrame`.
 //!
 //! All images are saved to `CARGO_TARGET_TMPDIR/compare/` for manual
@@ -388,7 +388,7 @@ fn render_gpu() -> Vec<u8> {
 }
 
 // -----------------------------------------------------------------------
-// GPU JPEG-encoder path (Picasso pipeline with Codec::Jpeg)
+// GPU JPEG-encoder path (Picasso pipeline with VideoCodec::Jpeg)
 // -----------------------------------------------------------------------
 
 struct JpegCapture {

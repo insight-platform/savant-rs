@@ -11,7 +11,7 @@
 //! [`NvDecoder::recv`] / [`NvDecoder::recv_timeout`] / [`NvDecoder::try_recv`].
 
 use crate::config::{DecoderConfig, JpegBackend, NvDecoderConfig};
-use crate::{Codec, DecodedFrame, DecoderError, VideoFormat};
+use crate::{DecodedFrame, DecoderError, VideoCodec, VideoFormat};
 use crossbeam::channel::{self, Receiver, Sender};
 use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMeta, SavantIdMetaKind, SharedBuffer,
@@ -94,7 +94,7 @@ pub struct NvDecoder {
     pool: Arc<Mutex<BufferGenerator>>,
     transform_config: TransformConfig,
     gpu_id: u32,
-    codec: Codec,
+    codec: VideoCodec,
     draining: AtomicBool,
     is_shut_down: AtomicBool,
     finalized: AtomicBool,
@@ -196,7 +196,7 @@ impl NvDecoder {
     }
 
     /// The codec this decoder was configured for.
-    pub fn codec(&self) -> Codec {
+    pub fn codec(&self) -> VideoCodec {
         self.codec
     }
 
@@ -649,7 +649,7 @@ fn validate_config(config: &DecoderConfig, gpu_id: u32) -> Result<(), DecoderErr
     let codec = config.codec();
     if matches!(
         codec,
-        Codec::H264 | Codec::Hevc | Codec::Vp8 | Codec::Vp9 | Codec::Av1
+        VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Vp8 | VideoCodec::Vp9 | VideoCodec::Av1
     ) && gst::ElementFactory::find("nvv4l2decoder").is_none()
     {
         return Err(DecoderError::NvdecNotAvailable {
@@ -806,10 +806,10 @@ fn apply_v4l2_props(
     Ok(())
 }
 
-// ── Codec classification ────────────────────────────────────────────
+// ── VideoCodec classification ────────────────────────────────────────────
 
-fn is_raw_format(codec: Codec) -> bool {
-    matches!(codec, Codec::RawRgba | Codec::RawRgb)
+fn is_raw_format(codec: VideoCodec) -> bool {
+    matches!(codec, VideoCodec::RawRgba | VideoCodec::RawRgb)
 }
 
 fn is_image_decode(config: &DecoderConfig) -> bool {
@@ -820,10 +820,14 @@ fn is_image_decode(config: &DecoderConfig) -> bool {
     }
 }
 
-fn is_intra_only(codec: Codec) -> bool {
+fn is_intra_only(codec: VideoCodec) -> bool {
     matches!(
         codec,
-        Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+        VideoCodec::Jpeg
+            | VideoCodec::SwJpeg
+            | VideoCodec::Png
+            | VideoCodec::RawRgba
+            | VideoCodec::RawRgb
     )
 }
 
@@ -856,7 +860,7 @@ fn raw_upload_frame(
     pts_ns: u64,
     dts_ns: Option<u64>,
     duration_ns: Option<u64>,
-    codec: Codec,
+    codec: VideoCodec,
 ) -> Result<DecodedFrame, DecoderError> {
     let expected_len = (width * height * expected_bpp) as usize;
     if data.len() != expected_len {
@@ -915,7 +919,7 @@ fn image_decode_and_upload(
     pts_ns: u64,
     dts_ns: Option<u64>,
     duration_ns: Option<u64>,
-    codec: Codec,
+    codec: VideoCodec,
     gpu_id: u32,
     aux_pool: &Mutex<Option<BufferGenerator>>,
 ) -> Result<DecodedFrame, DecoderError> {

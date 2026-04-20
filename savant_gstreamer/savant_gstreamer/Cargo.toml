@@ -26,6 +26,7 @@ lazy_static = { workspace = true }
 log = { workspace = true }
 lru = { workspace = true }
 parking_lot = { workspace = true }
+savant_core = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

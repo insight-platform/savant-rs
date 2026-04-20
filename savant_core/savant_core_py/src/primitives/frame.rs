@@ -233,10 +233,15 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
     }
 }
 
-/// Video codec on a :class:`VideoFrame` (includes ``SwJpeg`` for software JPEG).
-#[pyclass(from_py_object, eq, eq_int, frozen)]
+/// Video codec tag used on :class:`VideoFrame` and by
+/// :class:`savant_rs.gstreamer.Mp4Muxer` / :class:`Mp4Demuxer`.
+///
+/// Registered under both ``savant_rs.primitives`` and
+/// ``savant_rs.gstreamer`` as ``Codec`` — the two exports refer to the
+/// same class, so equality and ``isinstance`` work across modules.
+#[pyclass(from_py_object, name = "Codec", eq, eq_int, frozen)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum VideoFrameCodec {
+pub enum PyVideoCodec {
     H264,
     Hevc,
     Jpeg,
@@ -250,54 +255,63 @@ pub enum VideoFrameCodec {
     RawNv12,
 }
 
-impl From<VideoFrameCodec> for rust::VideoCodec {
-    fn from(value: VideoFrameCodec) -> Self {
+impl From<PyVideoCodec> for rust::VideoCodec {
+    fn from(value: PyVideoCodec) -> Self {
         match value {
-            VideoFrameCodec::H264 => rust::VideoCodec::H264,
-            VideoFrameCodec::Hevc => rust::VideoCodec::Hevc,
-            VideoFrameCodec::Jpeg => rust::VideoCodec::Jpeg,
-            VideoFrameCodec::SwJpeg => rust::VideoCodec::SwJpeg,
-            VideoFrameCodec::Av1 => rust::VideoCodec::Av1,
-            VideoFrameCodec::Png => rust::VideoCodec::Png,
-            VideoFrameCodec::Vp8 => rust::VideoCodec::Vp8,
-            VideoFrameCodec::Vp9 => rust::VideoCodec::Vp9,
-            VideoFrameCodec::RawRgba => rust::VideoCodec::RawRgba,
-            VideoFrameCodec::RawRgb => rust::VideoCodec::RawRgb,
-            VideoFrameCodec::RawNv12 => rust::VideoCodec::RawNv12,
+            PyVideoCodec::H264 => rust::VideoCodec::H264,
+            PyVideoCodec::Hevc => rust::VideoCodec::Hevc,
+            PyVideoCodec::Jpeg => rust::VideoCodec::Jpeg,
+            PyVideoCodec::SwJpeg => rust::VideoCodec::SwJpeg,
+            PyVideoCodec::Av1 => rust::VideoCodec::Av1,
+            PyVideoCodec::Png => rust::VideoCodec::Png,
+            PyVideoCodec::Vp8 => rust::VideoCodec::Vp8,
+            PyVideoCodec::Vp9 => rust::VideoCodec::Vp9,
+            PyVideoCodec::RawRgba => rust::VideoCodec::RawRgba,
+            PyVideoCodec::RawRgb => rust::VideoCodec::RawRgb,
+            PyVideoCodec::RawNv12 => rust::VideoCodec::RawNv12,
         }
     }
 }
 
-impl From<rust::VideoCodec> for VideoFrameCodec {
+impl From<rust::VideoCodec> for PyVideoCodec {
     fn from(value: rust::VideoCodec) -> Self {
         match value {
-            rust::VideoCodec::H264 => VideoFrameCodec::H264,
-            rust::VideoCodec::Hevc => VideoFrameCodec::Hevc,
-            rust::VideoCodec::Jpeg => VideoFrameCodec::Jpeg,
-            rust::VideoCodec::SwJpeg => VideoFrameCodec::SwJpeg,
-            rust::VideoCodec::Av1 => VideoFrameCodec::Av1,
-            rust::VideoCodec::Png => VideoFrameCodec::Png,
-            rust::VideoCodec::Vp8 => VideoFrameCodec::Vp8,
-            rust::VideoCodec::Vp9 => VideoFrameCodec::Vp9,
-            rust::VideoCodec::RawRgba => VideoFrameCodec::RawRgba,
-            rust::VideoCodec::RawRgb => VideoFrameCodec::RawRgb,
-            rust::VideoCodec::RawNv12 => VideoFrameCodec::RawNv12,
+            rust::VideoCodec::H264 => PyVideoCodec::H264,
+            rust::VideoCodec::Hevc => PyVideoCodec::Hevc,
+            rust::VideoCodec::Jpeg => PyVideoCodec::Jpeg,
+            rust::VideoCodec::SwJpeg => PyVideoCodec::SwJpeg,
+            rust::VideoCodec::Av1 => PyVideoCodec::Av1,
+            rust::VideoCodec::Png => PyVideoCodec::Png,
+            rust::VideoCodec::Vp8 => PyVideoCodec::Vp8,
+            rust::VideoCodec::Vp9 => PyVideoCodec::Vp9,
+            rust::VideoCodec::RawRgba => PyVideoCodec::RawRgba,
+            rust::VideoCodec::RawRgb => PyVideoCodec::RawRgb,
+            rust::VideoCodec::RawNv12 => PyVideoCodec::RawNv12,
         }
     }
 }
 
 #[pymethods]
-impl VideoFrameCodec {
+impl PyVideoCodec {
+    /// Parse a codec from a string name.
+    ///
+    /// Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
+    /// ``jpeg``, ``swjpeg``, ``av1``, ``png``, ``vp8``, ``vp9``,
+    /// ``raw_rgba``, ``raw_rgb``, ``raw_nv12``.
     #[staticmethod]
     pub fn from_name(name: &str) -> PyResult<Self> {
         rust::VideoCodec::from_name(name.trim())
             .map(Into::into)
-            .ok_or_else(|| PyValueError::new_err(format!("Unknown video frame codec: '{name}'")))
+            .ok_or_else(|| PyValueError::new_err(format!("Unknown video codec: '{name}'")))
     }
 
-    /// Canonical wire name (e.g. ``\"hevc\"``, ``\"swjpeg\"``).
+    /// Canonical wire name (e.g. ``"hevc"``, ``"swjpeg"``).
     pub fn name(&self) -> &'static str {
         rust::VideoCodec::from(*self).name()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Codec.{:?}", self)
     }
 }
 
@@ -677,7 +691,7 @@ impl VideoFrame {
         height: i64,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod,
-        codec: Option<VideoFrameCodec>,
+        codec: Option<PyVideoCodec>,
         keyframe: Option<bool>,
         time_base: (i64, i64),
         pts: i64,
@@ -916,12 +930,12 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_codec(&self) -> Option<VideoFrameCodec> {
+    pub fn get_codec(&self) -> Option<PyVideoCodec> {
         self.0.get_codec().map(Into::into)
     }
 
     #[setter]
-    pub fn set_codec(&mut self, codec: Option<VideoFrameCodec>) {
+    pub fn set_codec(&mut self, codec: Option<PyVideoCodec>) {
         self.0.set_codec(codec.map(Into::into));
     }
 

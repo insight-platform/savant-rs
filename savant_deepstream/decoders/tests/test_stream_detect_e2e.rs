@@ -15,10 +15,10 @@ use common::*;
 use deepstream_decoders::prelude::*;
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
 
-fn codec_from_str(s: &str) -> Option<Codec> {
+fn codec_from_str(s: &str) -> Option<VideoCodec> {
     match s {
-        "h264" => Some(Codec::H264),
-        "hevc" => Some(Codec::Hevc),
+        "h264" => Some(VideoCodec::H264),
+        "hevc" => Some(VideoCodec::Hevc),
         _ => None,
     }
 }
@@ -167,7 +167,7 @@ fn run_detect_mp4_demuxed(entry: &AssetEntry) {
     for (i, pkt) in packets.iter().enumerate() {
         if let Some(cfg) = detect_stream_config(codec, &pkt.data) {
             match (codec, &cfg) {
-                (Codec::H264, DecoderConfig::H264(c)) => {
+                (VideoCodec::H264, DecoderConfig::H264(c)) => {
                     assert_eq!(
                         c.stream_format,
                         H264StreamFormat::Avc,
@@ -189,7 +189,7 @@ fn run_detect_mp4_demuxed(entry: &AssetEntry) {
                         entry.file
                     );
                 }
-                (Codec::Hevc, DecoderConfig::Hevc(c)) => {
+                (VideoCodec::Hevc, DecoderConfig::Hevc(c)) => {
                     assert_eq!(
                         c.stream_format,
                         HevcStreamFormat::Hvc1,

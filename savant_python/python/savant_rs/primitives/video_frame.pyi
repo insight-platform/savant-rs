@@ -14,7 +14,7 @@ __all__ = [
     "ExternalFrame",
     "VideoFrameContent",
     "VideoFrameTranscodingMethod",
-    "VideoFrameCodec",
+    "Codec",
     "VideoFrameTransformation",
     "VideoFrame",
     "VideoFrameUpdate",
@@ -63,8 +63,12 @@ class VideoFrameTranscodingMethod(Enum):
     Copy: ...
     Encoded: ...
 
-class VideoFrameCodec(Enum):
-    """Codec carried on a :class:`VideoFrame` (includes ``SwJpeg``)."""
+class Codec(Enum):
+    """Unified video codec enum.
+
+    The same class is re-exported from :mod:`savant_rs.gstreamer` so that
+    ``savant_rs.primitives.Codec is savant_rs.gstreamer.Codec``.
+    """
 
     H264: ...
     Hevc: ...
@@ -78,7 +82,7 @@ class VideoFrameCodec(Enum):
     RawRgb: ...
     RawNv12: ...
     @staticmethod
-    def from_name(name: str) -> VideoFrameCodec: ...
+    def from_name(name: str) -> Codec: ...
     def name(self) -> str: ...
 
 class TrackState:
@@ -218,7 +222,7 @@ class VideoFrame:
         height: int,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod = VideoFrameTranscodingMethod.Copy,
-        codec: Optional[VideoFrameCodec] = None,
+        codec: Optional[Codec] = None,
         keyframe: Optional[bool] = None,
         time_base: Tuple[int, int] = (1, 1_000_000),
         pts: int = 0,
@@ -269,9 +273,9 @@ class VideoFrame:
     @transcoding_method.setter
     def transcoding_method(self, transcoding_method: VideoFrameTranscodingMethod): ...
     @property
-    def codec(self) -> Optional[VideoFrameCodec]: ...
+    def codec(self) -> Optional[Codec]: ...
     @codec.setter
-    def codec(self, codec: Optional[VideoFrameCodec]): ...
+    def codec(self, codec: Optional[Codec]): ...
     @property
     def keyframe(self) -> Optional[bool]: ...
     @keyframe.setter

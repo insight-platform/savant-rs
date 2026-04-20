@@ -6,7 +6,6 @@ use parking_lot::Mutex;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::gstreamer_frame_time::FrameClockNs;
 use savant_core::primitives::video_codec::VideoCodec;
-use savant_gstreamer::Codec;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -29,7 +28,7 @@ pub(crate) type ActivatedDecoder = (Arc<NvDecoder>, JoinHandle<()>, Arc<AtomicBo
 ///
 /// The lifetime `'a` allows the closure to borrow from the calling context
 /// (e.g. capturing `&self` in [`super::FlexibleDecoder::submit`]).
-pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, Codec, i64, i64, &VideoFrameProxy) -> Result<ActivatedDecoder, String>
+pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, VideoCodec, i64, i64, &VideoFrameProxy) -> Result<ActivatedDecoder, String>
     + 'a;
 
 /// Packet buffered during H.264/HEVC stream detection.
@@ -56,7 +55,7 @@ pub(crate) enum DecoderState {
         decoder: Arc<NvDecoder>,
         worker_join: Option<JoinHandle<()>>,
         worker_stop: Arc<AtomicBool>,
-        gst_codec: Codec,
+        gst_codec: VideoCodec,
         video_codec: VideoCodec,
         width: i64,
         height: i64,

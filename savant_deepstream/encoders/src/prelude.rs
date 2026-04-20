@@ -17,8 +17,8 @@ pub use crate::error::EncoderError;
 pub use crate::pipeline::{NvEncoder, NvEncoderOutput};
 pub use crate::{EncodedFrame, EncoderProperties};
 
-// Codec (re-exported from savant_gstreamer).
-pub use savant_gstreamer::Codec;
+// Codec (re-exported from savant_core).
+pub use savant_core::primitives::video_codec::VideoCodec;
 
 // NvBufSurface utilities (re-exported from deepstream_buffers).
 pub use deepstream_buffers::{

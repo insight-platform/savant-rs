@@ -39,7 +39,7 @@
 
 ## 8) Stream Format Detection
 
-- `detect_stream_config` only supports `Codec::H264` and `Codec::Hevc`.
+- `detect_stream_config` only supports `VideoCodec::H264` and `VideoCodec::Hevc`.
   All other codecs return `None`.
 - For length-prefixed (AVCC/HVCC) detection to succeed, the access unit
   must contain in-band parameter sets: SPS + PPS for H264, VPS + SPS + PPS

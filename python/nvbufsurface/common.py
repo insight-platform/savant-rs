@@ -175,7 +175,7 @@ def build_encoder_properties(
                 iframeinterval=30,
             )
         )
-    elif codec == Codec.HEVC:
+    elif codec == Codec.Hevc:
         if _IS_JETSON:
             return EncoderProperties.hevc_jetson(
                 HevcJetsonProps(
@@ -196,7 +196,7 @@ def build_encoder_properties(
                 iframeinterval=30,
             )
         )
-    elif codec == Codec.AV1:
+    elif codec == Codec.Av1:
         if _IS_JETSON:
             return EncoderProperties.av1_jetson(
                 Av1JetsonProps(
@@ -215,7 +215,7 @@ def build_encoder_properties(
                 iframeinterval=30,
             )
         )
-    elif codec == Codec.JPEG:
+    elif codec == Codec.Jpeg:
         return EncoderProperties.jpeg(JpegProps(quality=quality or 85))
     else:
         return None

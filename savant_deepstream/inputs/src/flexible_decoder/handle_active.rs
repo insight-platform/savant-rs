@@ -3,7 +3,6 @@
 use crate::codec_resolve::CodecResolve;
 use deepstream_decoders::NvDecoder;
 use savant_core::primitives::video_codec::VideoCodec;
-use savant_gstreamer::Codec;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -46,7 +45,7 @@ pub(crate) fn handle_active(
     decoder: Arc<NvDecoder>,
     worker_join: Option<JoinHandle<()>>,
     worker_stop: Arc<AtomicBool>,
-    active_gst_codec: Codec,
+    active_gst_codec: VideoCodec,
     active_video_codec: VideoCodec,
     active_width: i64,
     active_height: i64,

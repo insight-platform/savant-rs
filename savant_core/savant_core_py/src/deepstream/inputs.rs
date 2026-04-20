@@ -3,7 +3,7 @@
 use crate::deepstream::buffer::PySharedBuffer;
 use crate::deepstream::decoder_config::PyDecoderConfig;
 use crate::deepstream::enums::PyVideoFormat;
-use crate::gstreamer::PyCodec;
+use crate::primitives::frame::PyVideoCodec;
 use crate::primitives::frame::VideoFrame;
 use deepstream_decoders::DecoderConfig;
 use deepstream_inputs::flexible_decoder::{
@@ -147,7 +147,7 @@ impl PyDecoderParameters {
 #[pymethods]
 impl PyDecoderParameters {
     #[getter]
-    fn codec(&self) -> PyCodec {
+    fn codec(&self) -> PyVideoCodec {
         self.0.codec.into()
     }
 
@@ -248,7 +248,7 @@ pub struct PyDecodedFrame {
     pts_ns: u64,
     dts_ns: Option<u64>,
     duration_ns: Option<u64>,
-    codec: PyCodec,
+    codec: PyVideoCodec,
     format: PyVideoFormat,
     has_buffer: bool,
 }
@@ -286,7 +286,7 @@ impl PyDecodedFrame {
         self.duration_ns
     }
     #[getter]
-    fn codec(&self) -> PyCodec {
+    fn codec(&self) -> PyVideoCodec {
         self.codec
     }
     #[getter]

@@ -5,7 +5,6 @@ use deepstream_decoders::{
     RawRgbaDecoderConfig, Vp8DecoderConfig, Vp9DecoderConfig,
 };
 use savant_core::primitives::video_codec::VideoCodec;
-use savant_gstreamer::Codec;
 
 /// Encapsulates the two-phase detection logic for codecs whose
 /// [`DecoderConfig`] depends on bitstream parameters (SPS/PPS).
@@ -15,22 +14,26 @@ use savant_gstreamer::Codec;
 /// [`detect_config`](Self::detect_config) to extract the actual config.
 #[derive(Debug, Clone, Copy)]
 pub struct DetectionStrategy {
-    codec: Codec,
+    codec: VideoCodec,
 }
 
 impl DetectionStrategy {
     /// Strategy for H.264 (AVC) bitstreams.
     pub fn h264() -> Self {
-        Self { codec: Codec::H264 }
+        Self {
+            codec: VideoCodec::H264,
+        }
     }
 
     /// Strategy for H.265 (HEVC) bitstreams.
     pub fn hevc() -> Self {
-        Self { codec: Codec::Hevc }
+        Self {
+            codec: VideoCodec::Hevc,
+        }
     }
 
     /// The underlying GStreamer codec tag.
-    pub fn codec(&self) -> Codec {
+    pub fn codec(&self) -> VideoCodec {
         self.codec
     }
 
@@ -147,7 +150,7 @@ mod tests {
     #[test]
     fn h264_needs_detection() {
         match resolve("h264", 0, 0).unwrap() {
-            CodecResolve::NeedDetection(strategy) => assert_eq!(strategy.codec(), Codec::H264),
+            CodecResolve::NeedDetection(strategy) => assert_eq!(strategy.codec(), VideoCodec::H264),
             _ => panic!(),
         }
     }
@@ -155,7 +158,7 @@ mod tests {
     #[test]
     fn hevc_needs_detection() {
         match resolve("hevc", 0, 0).unwrap() {
-            CodecResolve::NeedDetection(strategy) => assert_eq!(strategy.codec(), Codec::Hevc),
+            CodecResolve::NeedDetection(strategy) => assert_eq!(strategy.codec(), VideoCodec::Hevc),
             _ => panic!(),
         }
     }

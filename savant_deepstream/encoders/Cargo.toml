@@ -17,6 +17,7 @@ name = "deepstream_encoders"
 
 [dependencies]
 deepstream_buffers = { workspace = true }
+savant_core = { workspace = true }
 savant_gstreamer = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 gstreamer = { workspace = true }

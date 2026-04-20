@@ -62,13 +62,13 @@ class TestCodecValues:
         assert Codec.H264 is not None
 
     def test_hevc(self):
-        assert Codec.HEVC is not None
+        assert Codec.Hevc is not None
 
     def test_jpeg(self):
-        assert Codec.JPEG is not None
+        assert Codec.Jpeg is not None
 
     def test_av1(self):
-        assert Codec.AV1 is not None
+        assert Codec.Av1 is not None
 
 
 @requires_gst_feature
@@ -80,19 +80,19 @@ class TestCodecFromName:
         assert Codec.from_name("H264") == Codec.H264
 
     def test_hevc(self):
-        assert Codec.from_name("hevc") == Codec.HEVC
+        assert Codec.from_name("hevc") == Codec.Hevc
 
     def test_h265_alias(self):
-        assert Codec.from_name("h265") == Codec.HEVC
+        assert Codec.from_name("h265") == Codec.Hevc
 
     def test_jpeg(self):
-        assert Codec.from_name("jpeg") == Codec.JPEG
+        assert Codec.from_name("jpeg") == Codec.Jpeg
 
     def test_av1(self):
-        assert Codec.from_name("av1") == Codec.AV1
+        assert Codec.from_name("av1") == Codec.Av1
 
     def test_unknown_raises(self):
-        with pytest.raises(ValueError, match="Unknown codec"):
+        with pytest.raises(ValueError, match="Unknown (?:video )?codec"):
             Codec.from_name("nonexistent_codec")
 
 
@@ -102,13 +102,13 @@ class TestCodecName:
         assert Codec.H264.name() == "h264"
 
     def test_hevc_name(self):
-        assert Codec.HEVC.name() == "hevc"
+        assert Codec.Hevc.name() == "hevc"
 
     def test_jpeg_name(self):
-        assert Codec.JPEG.name() == "jpeg"
+        assert Codec.Jpeg.name() == "jpeg"
 
     def test_av1_name(self):
-        assert Codec.AV1.name() == "av1"
+        assert Codec.Av1.name() == "av1"
 
 
 @requires_gst_feature
@@ -117,7 +117,7 @@ class TestCodecRepr:
         assert "H264" in repr(Codec.H264)
 
     def test_repr_hevc(self):
-        assert "HEVC" in repr(Codec.HEVC)
+        assert "Hevc" in repr(Codec.Hevc)
 
 
 # ── Mp4Muxer construction ────────────────────────────────────────────────
@@ -140,7 +140,7 @@ class TestConstruction:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
             path = f.name
         try:
-            muxer = Mp4Muxer(Codec.HEVC, path)
+            muxer = Mp4Muxer(Codec.Hevc, path)
             muxer.finish()
         finally:
             os.unlink(path)
@@ -198,7 +198,7 @@ class TestConstruction:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
             path = f.name
         try:
-            muxer = Mp4Muxer(Codec.HEVC, path, fps_num=60, fps_den=1)
+            muxer = Mp4Muxer(Codec.Hevc, path, fps_num=60, fps_den=1)
             muxer.finish()
         finally:
             os.unlink(path)
@@ -270,7 +270,7 @@ class TestPushAndFinish:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
             path = f.name
         try:
-            muxer = Mp4Muxer(Codec.HEVC, path)
+            muxer = Mp4Muxer(Codec.Hevc, path)
             muxer.push(bytes(32), pts_ns=0)
             muxer.finish()
         finally:
@@ -307,7 +307,7 @@ class TestFinalization:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
             path = f.name
         try:
-            muxer = Mp4Muxer(Codec.HEVC, path)
+            muxer = Mp4Muxer(Codec.Hevc, path)
             assert not muxer.is_finished
             muxer.finish()
             assert muxer.is_finished

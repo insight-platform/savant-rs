@@ -46,7 +46,7 @@ pub enum EncoderError {
 | Variant | Trigger |
 |---|---|
 | `NvencNotAvailable` | `NvEncoder::new()` when codec is H264/HEVC/AV1 and `nvidia_gpu_utils::has_nvenc(gpu_id)` returns false. Orin Nano, some datacenter GPUs. |
-| `UnsupportedCodec` | `EncoderProperties::from_pairs(Codec::Av1, Platform::Jetson, _)` — AV1 not on Jetson. |
+| `UnsupportedCodec` | `EncoderProperties::from_pairs(VideoCodec::Av1, Platform::Jetson, _)` — AV1 not on Jetson. |
 | `InvalidProperty` | Wrong property for codec/platform, or `encoder_params` codec mismatch, or PNG with non-RGBA format, or RawProps given properties. |
 | `PtsReordered` | `submit_frame` when pts_ns <= last submitted PTS. |
 | `OutputPtsReordered` | `pull_encoded*` when output PTS < last output PTS (B-frame reordering). |
@@ -64,7 +64,7 @@ pub enum EncoderError {
 ```rust
 // Only testable on hardware without NVENC (Orin Nano):
 if !has_nvenc() {
-    let config = EncoderConfig::new(Codec::H264, 320, 240);
+    let config = EncoderConfig::new(VideoCodec::H264, 320, 240);
     match NvEncoder::new(&config) {
         Err(EncoderError::NvencNotAvailable { .. }) => {}
         other => panic!("Expected NvencNotAvailable, got {:?}", other),
@@ -88,7 +88,7 @@ assert!(matches!(result, Err(EncoderError::AlreadyFinalized)));
 
 ### Codec mismatch in properties
 ```rust
-let config = EncoderConfig::new(Codec::H264, 640, 480)
+let config = EncoderConfig::new(VideoCodec::H264, 640, 480)
     .properties(EncoderProperties::HevcDgpu(HevcDgpuProps::default()));
 assert!(NvEncoder::new(&config).is_err());
 ```

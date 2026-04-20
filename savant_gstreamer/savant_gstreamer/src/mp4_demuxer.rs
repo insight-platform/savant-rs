@@ -27,7 +27,7 @@ use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use thiserror::Error;
 
-use crate::codec::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 
 /// A single demuxed elementary stream packet.
 #[derive(Debug, Clone)]
@@ -45,7 +45,7 @@ pub struct DemuxedPacket {
 /// metadata is NOT applied.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VideoInfo {
-    pub codec: Codec,
+    pub codec: VideoCodec,
     pub width: u32,
     pub height: u32,
     /// Framerate numerator. `0` if the container does not advertise a rate.
@@ -103,7 +103,7 @@ pub enum Mp4DemuxerOutput {
 pub struct Mp4Demuxer {
     pipeline: gst::Pipeline,
     finished: Arc<AtomicBool>,
-    detected_codec: Arc<Mutex<Option<Codec>>>,
+    detected_codec: Arc<Mutex<Option<VideoCodec>>>,
     video_info: Arc<Mutex<Option<VideoInfo>>>,
     info_pair: Arc<(Mutex<bool>, Condvar)>,
     stream_info_fired: Arc<AtomicBool>,
@@ -187,7 +187,7 @@ impl Mp4Demuxer {
 
         // Shared state
         let on_output = Arc::new(on_output);
-        let detected_codec: Arc<Mutex<Option<Codec>>> = Arc::new(Mutex::new(None));
+        let detected_codec: Arc<Mutex<Option<VideoCodec>>> = Arc::new(Mutex::new(None));
         let video_info: Arc<Mutex<Option<VideoInfo>>> = Arc::new(Mutex::new(None));
         let stream_info_fired = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
@@ -375,7 +375,7 @@ impl Mp4Demuxer {
 
     /// Auto-detected video codec from the container, or `None` if no sample
     /// has been processed yet.
-    pub fn detected_codec(&self) -> Option<Codec> {
+    pub fn detected_codec(&self) -> Option<VideoCodec> {
         *self.detected_codec.lock().unwrap()
     }
 
@@ -537,7 +537,7 @@ fn video_info_from_caps(caps: &gst::CapsRef) -> Option<VideoInfo> {
 /// Try to detect and emit stream info from caps exactly once.
 fn maybe_emit_stream_info_from_caps<F>(
     caps: Option<&gst::CapsRef>,
-    detected_codec: &Mutex<Option<Codec>>,
+    detected_codec: &Mutex<Option<VideoCodec>>,
     video_info: &Mutex<Option<VideoInfo>>,
     stream_info_fired: &AtomicBool,
     info_pair: &(Mutex<bool>, Condvar),
@@ -585,7 +585,7 @@ fn maybe_emit_stream_info_from_caps<F>(
 /// `detected_codec` on the first sample with caps.
 fn sample_to_packet<F>(
     sample: gst::Sample,
-    detected_codec: &Mutex<Option<Codec>>,
+    detected_codec: &Mutex<Option<VideoCodec>>,
     video_info: &Mutex<Option<VideoInfo>>,
     stream_info_fired: &AtomicBool,
     info_pair: &(Mutex<bool>, Condvar),
@@ -630,17 +630,17 @@ where
     })
 }
 
-/// Map GStreamer caps to a [`Codec`] value.
-fn codec_from_caps(caps: &gst::CapsRef) -> Option<Codec> {
+/// Map GStreamer caps to a [`VideoCodec`] value.
+fn codec_from_caps(caps: &gst::CapsRef) -> Option<VideoCodec> {
     let s = caps.structure(0)?;
     match s.name().as_str() {
-        "video/x-h264" => Some(Codec::H264),
-        "video/x-h265" => Some(Codec::Hevc),
-        "video/x-av1" => Some(Codec::Av1),
-        "video/x-vp8" => Some(Codec::Vp8),
-        "video/x-vp9" => Some(Codec::Vp9),
-        "image/jpeg" => Some(Codec::Jpeg),
-        "image/png" => Some(Codec::Png),
+        "video/x-h264" => Some(VideoCodec::H264),
+        "video/x-h265" => Some(VideoCodec::Hevc),
+        "video/x-av1" => Some(VideoCodec::Av1),
+        "video/x-vp8" => Some(VideoCodec::Vp8),
+        "video/x-vp9" => Some(VideoCodec::Vp9),
+        "image/jpeg" => Some(VideoCodec::Jpeg),
+        "image/png" => Some(VideoCodec::Png),
         _ => None,
     }
 }
@@ -741,7 +741,7 @@ mod tests {
     ];
 
     fn make_h264_mp4(path: &str, num_frames: usize) {
-        let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
         let duration_ns = 33_333_333u64;
         for i in 0..num_frames {
             muxer
@@ -766,12 +766,12 @@ mod tests {
         let vp9 = gst::Caps::from_str("video/x-vp9").unwrap();
         let jpeg = gst::Caps::from_str("image/jpeg").unwrap();
 
-        assert_eq!(codec_from_caps(&h264), Some(Codec::H264));
-        assert_eq!(codec_from_caps(&hevc), Some(Codec::Hevc));
-        assert_eq!(codec_from_caps(&av1), Some(Codec::Av1));
-        assert_eq!(codec_from_caps(&vp8), Some(Codec::Vp8));
-        assert_eq!(codec_from_caps(&vp9), Some(Codec::Vp9));
-        assert_eq!(codec_from_caps(&jpeg), Some(Codec::Jpeg));
+        assert_eq!(codec_from_caps(&h264), Some(VideoCodec::H264));
+        assert_eq!(codec_from_caps(&hevc), Some(VideoCodec::Hevc));
+        assert_eq!(codec_from_caps(&av1), Some(VideoCodec::Av1));
+        assert_eq!(codec_from_caps(&vp8), Some(VideoCodec::Vp8));
+        assert_eq!(codec_from_caps(&vp9), Some(VideoCodec::Vp9));
+        assert_eq!(codec_from_caps(&jpeg), Some(VideoCodec::Jpeg));
     }
 
     #[test]
@@ -786,7 +786,7 @@ mod tests {
         let path = "/tmp/test_demuxer_corrupt.mp4";
         let _ = std::fs::remove_file(path);
 
-        let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
         muxer.finish().unwrap();
 
         let err = Mp4Demuxer::demux_all(path).unwrap_err();
@@ -803,7 +803,7 @@ mod tests {
         make_h264_mp4(path, 3);
         let (_packets, info) = Mp4Demuxer::demux_all_parsed(path).unwrap();
         let info = info.expect("video info expected");
-        assert_eq!(info.codec, Codec::H264);
+        assert_eq!(info.codec, VideoCodec::H264);
         assert!(info.width > 0);
         assert!(info.height > 0);
 
@@ -848,7 +848,7 @@ mod tests {
         let path = "/tmp/test_demuxer_video_info_corrupt.mp4";
         let _ = std::fs::remove_file(path);
 
-        let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
         muxer.finish().unwrap();
 
         let demuxer = Mp4Demuxer::new(path, |_| {}).unwrap();

@@ -10,7 +10,7 @@ use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use thiserror::Error;
 
-use crate::codec::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 
 // ---------------------------------------------------------------------------
 // Error
@@ -53,7 +53,7 @@ impl Mp4Muxer {
     /// * `fps_num`     – framerate numerator.
     /// * `fps_den`     – framerate denominator.
     pub fn new(
-        codec: Codec,
+        codec: VideoCodec,
         output_path: &str,
         fps_num: i32,
         fps_den: i32,
@@ -220,7 +220,7 @@ mod tests {
         let path = "/tmp/test_muxer_lifecycle_h264.mp4";
         let _ = fs::remove_file(path);
 
-        let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
 
         // Push some minimal H.264 data (SPS/PPS + IDR — just raw bytes for the test;
         // the parser will handle malformed data gracefully enough for a lifecycle test).
@@ -249,7 +249,7 @@ mod tests {
         let path = "/tmp/test_muxer_lifecycle_hevc.mp4";
         let _ = fs::remove_file(path);
 
-        let mut muxer = Mp4Muxer::new(Codec::Hevc, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::Hevc, path, 30, 1).unwrap();
         assert!(!muxer.is_finished());
         muxer.finish().unwrap();
         assert!(muxer.is_finished());
@@ -264,7 +264,7 @@ mod tests {
         let path = "/tmp/test_push_after_finish.mp4";
         let _ = fs::remove_file(path);
 
-        let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
         muxer.finish().unwrap();
 
         let result = muxer.push(&[0u8; 16], 0, None, None);

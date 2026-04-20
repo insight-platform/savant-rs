@@ -1,12 +1,18 @@
 """Type stubs for ``savant_rs.gstreamer`` submodule.
 
-The ``Codec``, ``Mp4Muxer``, ``Mp4Demuxer``, and ``DemuxedPacket`` classes
-are only available when ``savant_rs`` is built with the ``gst`` Cargo feature.
+The ``Mp4Muxer``, ``Mp4Demuxer``, and ``DemuxedPacket`` classes are only
+available when ``savant_rs`` is built with the ``gst`` Cargo feature.
+
+``Codec`` is the same class as :class:`savant_rs.primitives.Codec` —
+re-exported here for convenience so existing ``from savant_rs.gstreamer
+import Codec`` imports keep working.
 """
 
 from __future__ import annotations
 
 from typing import Callable, Optional, Union, final
+
+from savant_rs.primitives import Codec
 
 __all__ = [
     "FlowResult",
@@ -47,61 +53,8 @@ class InvocationReason:
 
 # ── Available with gst feature ───────────────────────────────────────────
 
-@final
-class Codec:
-    """Video codec identifier (requires ``gst`` feature).
-
-    - ``H264``     — H.264 / AVC.
-    - ``HEVC``     — H.265 / HEVC.
-    - ``JPEG``     — Motion JPEG.
-    - ``AV1``      — AV1.
-    - ``PNG``      — PNG (CPU-based, lossless).
-    - ``VP8``      — VP8.
-    - ``VP9``      — VP9.
-    - ``RAW_RGBA`` — Raw RGBA pixel data (no encoding).
-    - ``RAW_RGB``  — Raw RGB pixel data (no encoding).
-    - ``RAW_NV12`` — Raw NV12 pixel data (no encoding).
-    """
-
-    H264: Codec
-    HEVC: Codec
-    JPEG: Codec
-    AV1: Codec
-    PNG: Codec
-    VP8: Codec
-    VP9: Codec
-    RAW_RGBA: Codec
-    RAW_RGB: Codec
-    RAW_NV12: Codec
-
-    @staticmethod
-    def from_name(name: str) -> Codec:
-        """Parse a codec from a string name.
-
-        Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-        ``jpeg``, ``av1``, ``png``, ``vp8``, ``vp9``,
-        ``raw_rgba``, ``raw_rgb``, ``raw_nv12``.
-
-        Args:
-            name: Codec name.
-
-        Returns:
-            The parsed codec.
-
-        Raises:
-            ValueError: If the name is not recognized.
-        """
-        ...
-
-    def name(self) -> str:
-        """Return the canonical name of this codec (e.g. ``"hevc"``)."""
-        ...
-
-    def __eq__(self, other: object) -> bool: ...
-    def __ne__(self, other: object) -> bool: ...
-    def __int__(self) -> int: ...
-    def __hash__(self) -> int: ...
-    def __repr__(self) -> str: ...
+# ``Codec`` is imported from :mod:`savant_rs.primitives` above; see
+# :class:`savant_rs.primitives.Codec` for the full enum definition.
 
 class Mp4Muxer:
     """Minimal GStreamer pipeline: ``appsrc -> parser -> qtmux -> filesink``

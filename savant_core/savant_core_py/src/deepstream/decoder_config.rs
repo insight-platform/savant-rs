@@ -18,7 +18,7 @@
 //! Platform-specific methods / getters are compiled in only on the
 //! matching target.
 
-use crate::gstreamer::PyCodec;
+use crate::primitives::frame::PyVideoCodec;
 #[cfg(not(target_arch = "aarch64"))]
 use deepstream_decoders::CudadecMemtype;
 use deepstream_decoders::{
@@ -810,7 +810,7 @@ impl PyDecoderConfig {
     // ── query ────────────────────────────────────────────────────────
 
     /// The codec of the wrapped config.
-    fn codec(&self) -> PyCodec {
+    fn codec(&self) -> PyVideoCodec {
         self.0.codec().into()
     }
 

@@ -59,7 +59,6 @@ use savant_core::primitives::frame::{
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerOutput, VideoInfo};
 use savant_gstreamer::mp4_muxer::Mp4Muxer;
-use savant_gstreamer::Codec;
 
 #[cfg(not(target_arch = "aarch64"))]
 use deepstream_encoders::properties::H264DgpuProps;
@@ -81,7 +80,7 @@ use crate::cars_tracking::detections::{
     build_result_callback as build_infer_callback, build_yolo_converter, InferResultReceiver,
     InferResultSender, InferStats,
 };
-use crate::cars_tracking::draw::build_vehicle_draw_spec;
+use crate::cars_tracking::draw::{attach_frame_id_overlay, build_vehicle_draw_spec};
 use crate::cars_tracking::model::{build_nvinfer_config, promote_yolo11n_engine};
 use crate::cars_tracking::tracker::{
     self, build_batch_formation as build_tracker_batch_formation,
@@ -625,7 +624,7 @@ fn make_decode_frame(source_id: &str, pkt: &DemuxedPacket, info: &VideoInfo) -> 
         info.height as i64,
         VideoFrameContent::None,
         VideoFrameTranscodingMethod::Copy,
-        Some(VideoCodec::H264),
+        Some(info.codec),
         Some(pkt.is_keyframe),
         (1, 1_000_000_000),
         pkt.pts_ns as i64,
@@ -919,6 +918,14 @@ fn render_thread(
 ) -> Result<()> {
     log::info!("[render] starting source_id={source_id}");
     let mut source_spec_set = false;
+    // Monotonically increasing per-frame counter rendered as the
+    // top-left `frame #N` badge.  Attaching the overlay here — after
+    // inference and tracking — keeps the synthetic object invisible to
+    // both the inference batch formation (`RoiKind::FullFrame`) and the
+    // tracker batch formation (which filters by
+    // `DETECTION_NAMESPACE`); see
+    // [`crate::cars_tracking::draw::attach_frame_id_overlay`].
+    let mut frame_counter: u64 = 0;
     loop {
         match rx.recv() {
             Ok(sealed) => {
@@ -935,6 +942,11 @@ fn render_thread(
                             .map_err(|e| anyhow!("set_source_spec: {e}"))?;
                         source_spec_set = true;
                     }
+
+                    if let Err(e) = attach_frame_id_overlay(&frame, frame_counter) {
+                        log::warn!("[render] attach_frame_id_overlay failed: {e}");
+                    }
+                    frame_counter = frame_counter.wrapping_add(1);
 
                     let view = SurfaceView::from_buffer(&buffer, 0)
                         .map_err(|e| anyhow!("SurfaceView::from_buffer: {e}"))?;
@@ -1033,7 +1045,7 @@ fn mux_thread(
     _stats: Arc<PipelineStats>,
 ) -> Result<()> {
     log::info!("[mux] starting output={output} fps={fps_num}/{fps_den}");
-    let mut muxer = Mp4Muxer::new(Codec::H264, &output, fps_num, fps_den)
+    let mut muxer = Mp4Muxer::new(VideoCodec::H264, &output, fps_num, fps_den)
         .map_err(|e| anyhow!("Mp4Muxer::new: {e}"))?;
 
     loop {
@@ -1072,6 +1084,29 @@ fn mux_thread(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// `make_decode_frame` must propagate `VideoInfo::codec` onto the
+    /// resulting `VideoFrameProxy` — otherwise `FlexibleDecoderPool`
+    /// resolves the wrong codec for non-H.264 containers.
+    #[test]
+    fn make_decode_frame_forwards_info_codec() {
+        let info = VideoInfo {
+            codec: VideoCodec::Hevc,
+            width: 1920,
+            height: 1080,
+            framerate_num: 30,
+            framerate_den: 1,
+        };
+        let pkt = DemuxedPacket {
+            data: Vec::new(),
+            pts_ns: 0,
+            dts_ns: None,
+            duration_ns: None,
+            is_keyframe: true,
+        };
+        let frame = make_decode_frame("src", &pkt, &info);
+        assert_eq!(frame.get_codec(), Some(VideoCodec::Hevc));
+    }
 
     /// Integration guard: the orchestrator must fail fast when the input
     /// file is missing, before touching GStreamer / CUDA.

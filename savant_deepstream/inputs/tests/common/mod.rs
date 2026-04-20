@@ -14,7 +14,6 @@ use savant_core::primitives::frame::{
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer};
-use savant_gstreamer::Codec;
 use serde::Deserialize;
 use std::io::Cursor;
 use std::path::PathBuf;
@@ -93,25 +92,10 @@ pub fn asset_supported_on_platform(entry: &AssetEntry, platform_tag: &str) -> bo
         .any(|t| manifest_tag_matches_platform(t, platform_tag))
 }
 
-// ── Codec mapping ───────────────────────────────────────────────────
+// ── VideoCodec mapping ───────────────────────────────────────────────────
 
 pub fn codec_name_to_video_codec(name: &str) -> Option<VideoCodec> {
     VideoCodec::from_name(name)
-}
-
-pub fn gst_codec_to_video_codec(c: Codec) -> VideoCodec {
-    match c {
-        Codec::H264 => VideoCodec::H264,
-        Codec::Hevc => VideoCodec::Hevc,
-        Codec::Jpeg => VideoCodec::Jpeg,
-        Codec::Vp8 => VideoCodec::Vp8,
-        Codec::Vp9 => VideoCodec::Vp9,
-        Codec::Av1 => VideoCodec::Av1,
-        Codec::Png => VideoCodec::Png,
-        Codec::RawRgba => VideoCodec::RawRgba,
-        Codec::RawRgb => VideoCodec::RawRgb,
-        Codec::RawNv12 => VideoCodec::RawNv12,
-    }
 }
 
 // ── Frame construction ──────────────────────────────────────────────
@@ -147,16 +131,16 @@ pub fn make_video_frame_ns(
 
 // ── Annex-B NALU parsing (via cros-codecs) ──────────────────────────
 
-pub fn split_annexb_nalus(data: &[u8], codec: Codec) -> Vec<Vec<u8>> {
+pub fn split_annexb_nalus(data: &[u8], codec: VideoCodec) -> Vec<Vec<u8>> {
     let mut cur = Cursor::new(data);
     let mut out = Vec::new();
     match codec {
-        Codec::H264 => {
+        VideoCodec::H264 => {
             while let Ok(nalu) = H264Nalu::next(&mut cur) {
                 out.push(nalu.data.into_owned());
             }
         }
-        Codec::Hevc => {
+        VideoCodec::Hevc => {
             while let Ok(nalu) = H265Nalu::next(&mut cur) {
                 out.push(nalu.data.into_owned());
             }
@@ -166,10 +150,10 @@ pub fn split_annexb_nalus(data: &[u8], codec: Codec) -> Vec<Vec<u8>> {
     out
 }
 
-pub fn is_vcl_nalu(codec: Codec, nalu: &[u8]) -> bool {
+pub fn is_vcl_nalu(codec: VideoCodec, nalu: &[u8]) -> bool {
     let mut c = Cursor::new(nalu);
     match codec {
-        Codec::H264 => {
+        VideoCodec::H264 => {
             if let Ok(n) = H264Nalu::next(&mut c) {
                 matches!(
                     n.header.type_,
@@ -183,7 +167,7 @@ pub fn is_vcl_nalu(codec: Codec, nalu: &[u8]) -> bool {
                 false
             }
         }
-        Codec::Hevc => {
+        VideoCodec::Hevc => {
             if let Ok(n) = H265Nalu::next(&mut c) {
                 matches!(
                     n.header.type_,
@@ -228,20 +212,20 @@ pub fn is_vcl_nalu(codec: Codec, nalu: &[u8]) -> bool {
     }
 }
 
-pub fn is_aud_nalu(codec: Codec, nalu: &[u8]) -> bool {
+pub fn is_aud_nalu(codec: VideoCodec, nalu: &[u8]) -> bool {
     let mut c = Cursor::new(nalu);
     match codec {
-        Codec::H264 => H264Nalu::next(&mut c)
+        VideoCodec::H264 => H264Nalu::next(&mut c)
             .map(|n| matches!(n.header.type_, H264NaluType::AuDelimiter))
             .unwrap_or(false),
-        Codec::Hevc => H265Nalu::next(&mut c)
+        VideoCodec::Hevc => H265Nalu::next(&mut c)
             .map(|n| matches!(n.header.type_, H265NaluType::AudNut))
             .unwrap_or(false),
         _ => false,
     }
 }
 
-pub fn group_nalus_to_access_units(codec: Codec, nalus: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+pub fn group_nalus_to_access_units(codec: VideoCodec, nalus: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
     let has_aud = nalus.iter().any(|n| is_aud_nalu(codec, n));
     if has_aud {
         let mut out = Vec::new();
@@ -320,8 +304,8 @@ pub fn demux_mp4_to_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
 
 fn demuxed_to_annexb_aus(entry: &AssetEntry, packets: &[DemuxedPacket]) -> Vec<AccessUnit> {
     let gst_codec = match entry.codec.as_str() {
-        "h264" => Codec::H264,
-        "hevc" => Codec::Hevc,
+        "h264" => VideoCodec::H264,
+        "hevc" => VideoCodec::Hevc,
         _ => unreachable!(),
     };
     let mut bytestream = Vec::new();
@@ -361,8 +345,8 @@ fn packets_to_access_units(packets: &[DemuxedPacket]) -> Vec<AccessUnit> {
 /// Load a raw Annex-B file and split into access units.
 pub fn load_annexb_access_units(entry: &AssetEntry) -> Vec<AccessUnit> {
     let gst_codec = match entry.codec.as_str() {
-        "h264" => Codec::H264,
-        "hevc" => Codec::Hevc,
+        "h264" => VideoCodec::H264,
+        "hevc" => VideoCodec::Hevc,
         _ => panic!(
             "load_annexb_access_units: unsupported codec {}",
             entry.codec
@@ -401,13 +385,13 @@ pub enum CollectedOutput {
         proxy_uuid: u128,
         frame_id: Option<u128>,
         pts_ns: u64,
-        codec: Codec,
+        codec: VideoCodec,
     },
     ParameterChange {
-        old_codec: Codec,
+        old_codec: VideoCodec,
         old_w: i64,
         old_h: i64,
-        new_codec: Codec,
+        new_codec: VideoCodec,
         new_w: i64,
         new_h: i64,
     },

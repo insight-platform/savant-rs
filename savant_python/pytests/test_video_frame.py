@@ -15,7 +15,7 @@ from savant_rs.primitives import (
     ObjectUpdatePolicy,
     VideoFrame,
     VideoFrameBatch,
-    VideoFrameCodec,
+    Codec,
     VideoFrameContent,
     VideoFrameTranscodingMethod,
     VideoFrameTransformation,
@@ -150,14 +150,14 @@ class TestVideoFrameConstruction:
             height=480,
             content=VideoFrameContent.internal(b"\x00"),
             transcoding_method=VideoFrameTranscodingMethod.Encoded,
-            codec=VideoFrameCodec.H264,
+            codec=Codec.H264,
             keyframe=True,
             time_base=(1, 90000),
             pts=12345,
             dts=12340,
             duration=3600,
         )
-        assert f.codec == VideoFrameCodec.H264
+        assert f.codec == Codec.H264
         assert f.keyframe is True
         assert f.time_base == (1, 90000)
         assert f.pts == 12345
@@ -217,8 +217,8 @@ class TestVideoFrameProperties:
         frame.transcoding_method = VideoFrameTranscodingMethod.Encoded
         assert frame.transcoding_method == VideoFrameTranscodingMethod.Encoded
 
-        frame.codec = VideoFrameCodec.Hevc
-        assert frame.codec == VideoFrameCodec.Hevc
+        frame.codec = Codec.Hevc
+        assert frame.codec == Codec.Hevc
 
         frame.keyframe = True
         assert frame.keyframe is True
