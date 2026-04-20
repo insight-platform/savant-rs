@@ -28,7 +28,9 @@ thiserror = { workspace = true }
 nvml-wrapper = { workspace = true }
 
 [dev-dependencies]
-deepstream_buffers = { workspace = true }
+# Path-only (no `version`) so this dev-dep is stripped from the published
+# manifest, avoiding a publish-time cycle with `savant-deepstream-buffers`.
+deepstream_buffers = { path = "../buffers", package = "savant-deepstream-buffers" }
 gstreamer = { workspace = true }
 serial_test = { workspace = true }
 

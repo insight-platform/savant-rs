@@ -41,7 +41,9 @@ skia = ["dep:skia-safe", "dep:gl"]
 env_logger = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true }
-nvidia_gpu_utils = { workspace = true }
+# Path-only (no `version`) so this dev-dep is stripped from the published
+# manifest, avoiding a publish-time cycle with `savant-nvidia-gpu-utils`.
+nvidia_gpu_utils = { path = "../nvidia_gpu_utils", package = "savant-nvidia-gpu-utils" }
 criterion = { workspace = true }
 serial_test = { workspace = true }
 rand = { workspace = true }

@@ -16,8 +16,8 @@ savant-gstreamer
 savant-deepstream-sys
 savant-deepstream
 # --- deepstream buffers & GPU utils ---
-savant-deepstream-buffers
 savant-nvidia-gpu-utils
+savant-deepstream-buffers
 # --- deepstream codecs ---
 savant-deepstream-encoders
 savant-deepstream-decoders
