@@ -19,9 +19,9 @@ use savant_gstreamer::pipeline::{
     build_source_eos_event, parse_source_eos_event, set_element_property, GstPipeline,
     PipelineConfig, PipelineInput, PipelineOutput, PtsPolicy,
 };
+use savant_gstreamer::submit_gate::SubmitGate;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tempfile::NamedTempFile;
 
@@ -56,8 +56,28 @@ pub struct NvInfer {
     pipeline: Mutex<GstPipeline>,
     #[allow(dead_code)]
     _config_file: NamedTempFile,
-    /// Monotonic counter used as PTS for internal pipeline correlation.
-    next_pts: AtomicU64,
+    /// Serialises the `next_pts + prepare_buffer + input_tx.send` sequence
+    /// inside [`Self::submit`], and owns the monotonic PTS counter it
+    /// protects.
+    ///
+    /// The feeder thread behind the GStreamer pipeline enforces
+    /// [`PtsPolicy::StrictPts`] and fails the pipeline on the first
+    /// violation.  [`prepare_buffer`] and [`Sender::send`] are lengthy,
+    /// non-atomic steps: with two concurrent submitters, thread A can
+    /// read pts `291`, be preempted mid `prepare_buffer`, let thread B
+    /// read pts `292` + finish `send` first, and then deliver its 291
+    /// buffer after 292 — producing the very
+    /// [`PipelineError::TimestampOrderViolation`] the feeder enforces.
+    /// The [`NvInferBatchingOperator`](crate::NvInferBatchingOperator)
+    /// calls `submit` from both the `add_frame` path (user thread) and
+    /// the timer thread, so this race is reachable in practice.
+    ///
+    /// Housing the counter inside [`SubmitGate`] makes "you cannot
+    /// advance the PTS without holding the gate" a compile-time
+    /// guarantee — the type system forbids a sibling `AtomicU64` +
+    /// `Mutex<()>` pattern that would read as lock-free but in fact
+    /// require the sibling lock.
+    submit_gate: SubmitGate,
     /// When and whether to clear object metas.
     policy: MetaClearPolicy,
     /// Whether D2H tensor copy is enabled.
@@ -141,7 +161,7 @@ impl NvInfer {
             output_rx,
             pipeline: Mutex::new(gst_pipeline),
             _config_file: config_file,
-            next_pts: AtomicU64::new(0),
+            submit_gate: SubmitGate::new(),
             policy,
             host_copy_enabled,
         })
@@ -158,6 +178,20 @@ impl NvInfer {
     /// receives a region to process.
     ///
     /// Blocks if the input channel is full (backpressure).
+    ///
+    /// # Concurrency
+    ///
+    /// This method is safe to call from multiple threads — the
+    /// [`NvInferBatchingOperator`](crate::NvInferBatchingOperator) actually
+    /// does: both `add_frame` (user thread) and the internal timer thread
+    /// reach this code path.  The feeder thread behind the GStreamer
+    /// pipeline enforces [`PtsPolicy::StrictPts`] (monotonically increasing
+    /// PTS) and fails the pipeline on the first violation, so the
+    /// `next_pts + prepare_buffer + input_tx.send` sequence must appear
+    /// atomic w.r.t. other submitters.  We run the whole window inside
+    /// [`SubmitGate::submit_with`]; the gate owns the monotonic counter
+    /// and advances it only after a successful commit, so the counter
+    /// assignment and the channel push share one critical section.
     pub fn submit(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) -> Result<()> {
         {
             let p = self.pipeline.lock();
@@ -168,17 +202,21 @@ impl NvInfer {
                 return Err(NvInferError::PipelineFailed);
             }
         }
-        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
         let batch = batch.into_buffer().map_err(|_| {
             NvInferError::PipelineError(
                 "SharedBuffer has outstanding references; cannot take exclusive ownership".into(),
             )
         })?;
-        let buffer = self.prepare_buffer(batch, rois, pts)?;
-        self.input_tx
-            .send(PipelineInput::Buffer(buffer))
-            .map_err(|_| NvInferError::ChannelDisconnected)?;
-        Ok(())
+
+        self.submit_gate.submit_with(|next_pts| {
+            let pts = *next_pts;
+            *next_pts += 1;
+            let buffer = self.prepare_buffer(batch, rois, pts)?;
+            self.input_tx
+                .send(PipelineInput::Buffer(buffer))
+                .map_err(|_| NvInferError::ChannelDisconnected)?;
+            Ok(())
+        })
     }
 
     /// Send a logical per-source EOS marker downstream.

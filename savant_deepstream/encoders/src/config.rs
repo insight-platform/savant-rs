@@ -21,7 +21,7 @@
 use std::time::Duration;
 
 use deepstream_buffers::{NvBufSurfaceMemType, VideoFormat};
-use savant_gstreamer::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 
 #[cfg(not(target_arch = "aarch64"))]
 use crate::properties::{Av1DgpuProps, H264DgpuProps, HevcDgpuProps};
@@ -372,16 +372,16 @@ pub enum EncoderConfig {
 }
 
 impl EncoderConfig {
-    pub fn codec(&self) -> Codec {
+    pub fn codec(&self) -> VideoCodec {
         match self {
-            Self::H264(_) => Codec::H264,
-            Self::Hevc(_) => Codec::Hevc,
-            Self::Av1(_) => Codec::Av1,
-            Self::Jpeg(_) => Codec::Jpeg,
-            Self::Png(_) => Codec::Png,
-            Self::RawRgba(_) => Codec::RawRgba,
-            Self::RawRgb(_) => Codec::RawRgb,
-            Self::RawNv12(_) => Codec::RawNv12,
+            Self::H264(_) => VideoCodec::H264,
+            Self::Hevc(_) => VideoCodec::Hevc,
+            Self::Av1(_) => VideoCodec::Av1,
+            Self::Jpeg(_) => VideoCodec::Jpeg,
+            Self::Png(_) => VideoCodec::Png,
+            Self::RawRgba(_) => VideoCodec::RawRgba,
+            Self::RawRgb(_) => VideoCodec::RawRgb,
+            Self::RawNv12(_) => VideoCodec::RawNv12,
         }
     }
 

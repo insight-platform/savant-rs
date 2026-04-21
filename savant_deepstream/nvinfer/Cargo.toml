@@ -29,11 +29,11 @@ thiserror = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 tempfile = { workspace = true }
+half = { workspace = true }
 
 [dev-dependencies]
 candle-core = { workspace = true }
 cudarc = { workspace = true }
-half = { workspace = true }
 criterion = { workspace = true }
 env_logger = { workspace = true }
 image = { workspace = true }

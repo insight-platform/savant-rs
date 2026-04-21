@@ -172,9 +172,9 @@ pub struct EncodedFrame {
 
 Raw payload sizes:
 
-- `Codec::RawRgba`: `data.len() == width * height * 4`
-- `Codec::RawRgb`:  `data.len() == width * height * 3`
-- `Codec::RawNv12`: `data.len() == width * height * 3 / 2`
+- `VideoCodec::RawRgba`: `data.len() == width * height * 4`
+- `VideoCodec::RawRgb`:  `data.len() == width * height * 3`
+- `VideoCodec::RawNv12`: `data.len() == width * height * 3 / 2`
 
 Codec-header-only buffers (e.g. AV1 sequence headers emitted as
 standalone GStreamer buffers) are stashed internally and prepended to
@@ -290,7 +290,7 @@ pub use crate::config::{
 pub use crate::error::EncoderError;
 pub use crate::pipeline::{NvEncoder, NvEncoderOutput};
 pub use crate::{EncodedFrame, EncoderProperties};
-pub use savant_gstreamer::Codec;
+pub use savant_core::primitives::video_codec::VideoCodec;
 pub use deepstream_buffers::{
     cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
     UniformBatchGenerator, VideoFormat,

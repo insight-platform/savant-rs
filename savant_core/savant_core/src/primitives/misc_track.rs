@@ -136,6 +136,57 @@ pub struct TrackUpdate {
     pub track_box: RBBox,
 }
 
+impl TrackUpdate {
+    /// Create a tracking update to be applied to a
+    /// [`VideoObject`](super::object::VideoObject) on a
+    /// [`VideoFrameProxy`](super::frame::VideoFrameProxy) by
+    /// [`VideoFrameProxy::apply_tracking_info`](super::frame::VideoFrameProxy::apply_tracking_info).
+    ///
+    /// * `object_id` — the id of the existing
+    ///   [`VideoObject`](super::object::VideoObject) on the frame
+    ///   whose `track_id` / `track_box` should be set.  If no object
+    ///   with that id exists on the frame the update is returned to
+    ///   the caller as part of the `unmatched` vec.
+    /// * `track_id` — the tracker-assigned stable id for the track
+    ///   the object belongs to.
+    /// * `track_box` — the tracker-refined bounding box in the frame
+    ///   coordinate system (center-x, center-y, width, height — see
+    ///   [`RBBox::new`](super::RBBox::new)).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use savant_core::primitives::misc_track::TrackUpdate;
+    /// use savant_core::primitives::RBBox;
+    ///
+    /// let update = TrackUpdate::new(7, 42, RBBox::new(10.0, 20.0, 30.0, 40.0, None));
+    /// assert_eq!(update.object_id, 7);
+    /// assert_eq!(update.track_id, 42);
+    /// ```
+    pub fn new(object_id: i64, track_id: i64, track_box: RBBox) -> Self {
+        Self {
+            object_id,
+            track_id,
+            track_box,
+        }
+    }
+}
+
+impl std::fmt::Display for TrackUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TrackUpdate{{ object_id={}, track_id={}, track_box=cx={:.2},cy={:.2},w={:.2},h={:.2} }}",
+            self.object_id,
+            self.track_id,
+            self.track_box.get_xc(),
+            self.track_box.get_yc(),
+            self.track_box.get_width(),
+            self.track_box.get_height(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +246,30 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let back: TrackState = serde_json::from_str(&json).unwrap();
         assert_eq!(s, back);
+    }
+
+    #[test]
+    fn track_update_new_populates_all_fields() {
+        let bbox = RBBox::new(10.0, 20.0, 30.0, 40.0, None);
+        let u = TrackUpdate::new(7, 42, bbox);
+        assert_eq!(u.object_id, 7);
+        assert_eq!(u.track_id, 42);
+        assert_eq!(u.track_box.get_xc(), 10.0);
+        assert_eq!(u.track_box.get_yc(), 20.0);
+        assert_eq!(u.track_box.get_width(), 30.0);
+        assert_eq!(u.track_box.get_height(), 40.0);
+    }
+
+    #[test]
+    fn track_update_display_round_trip() {
+        let u = TrackUpdate::new(7, 42, RBBox::new(1.5, 2.5, 10.0, 20.0, None));
+        let s = format!("{}", u);
+        assert!(s.contains("object_id=7"), "got: {s}");
+        assert!(s.contains("track_id=42"), "got: {s}");
+        assert!(s.contains("w=10.00"), "got: {s}");
+        assert!(s.contains("h=20.00"), "got: {s}");
+        assert!(s.contains("cx=1.50"), "got: {s}");
+        assert!(s.contains("cy=2.50"), "got: {s}");
     }
 
     #[test]

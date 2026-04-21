@@ -99,9 +99,9 @@ def _make_frame(
     pts: int = 0,
     keyframe: bool = True,
 ) -> VideoFrame:
-    from savant_rs.primitives import VideoFrameCodec
+    from savant_rs.primitives import Codec
 
-    codec_enum = VideoFrameCodec.from_name(codec)
+    codec_enum = Codec.from_name(codec)
     return VideoFrame(
         source_id=source_id,
         fps=(30, 1),
@@ -255,7 +255,7 @@ class TestTypedVariants:
 class TestDecoderConfigRoundTrip:
     def test_codec_query(self):
         dc = DecoderConfig.from_jpeg(JpegDecoderConfig.gpu())
-        assert dc.codec() == Codec.JPEG
+        assert dc.codec() == Codec.Jpeg
         dc = DecoderConfig.from_h264(H264DecoderConfig(H264StreamFormat.AVC))
         assert dc.codec() == Codec.H264
 
@@ -288,7 +288,7 @@ class TestDecoderConfigRoundTrip:
         else:
             new_inner = new_inner.with_low_latency_mode(True)
         dc2 = dc.with_vp9(new_inner)
-        assert dc2.codec() == Codec.VP9
+        assert dc2.codec() == Codec.Vp9
         rt = dc2.as_vp9()
         assert rt is not None
         if IS_JETSON:
@@ -355,7 +355,7 @@ class TestCallbackInvocation:
 
         assert len(invocations) >= 1, f"callback never invoked; results: {results}"
         codec, src = invocations[0]
-        assert codec == Codec.JPEG
+        assert codec == Codec.Jpeg
         assert src == "cam-cb"
 
     def test_callback_customizes_jpeg_backend(self):

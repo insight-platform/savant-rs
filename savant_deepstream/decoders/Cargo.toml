@@ -17,6 +17,7 @@ name = "deepstream_decoders"
 
 [dependencies]
 deepstream_buffers = { workspace = true }
+savant_core = { workspace = true }
 savant_gstreamer = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 gstreamer = { workspace = true }
@@ -37,6 +38,7 @@ env_logger = { workspace = true }
 serial_test = { workspace = true }
 criterion = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
+savant_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 savant_gstreamer = { workspace = true }

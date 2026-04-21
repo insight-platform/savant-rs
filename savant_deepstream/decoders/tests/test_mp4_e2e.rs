@@ -14,7 +14,7 @@ fn run_mp4_e2e(entry: &AssetEntry) {
     let config = decoder_config_for_codec(&entry.codec)
         .unwrap_or_else(|| panic!("unsupported codec in manifest: {}", entry.codec));
 
-    let (demuxed_packets, _codec) = Mp4Demuxer::demux_all_parsed(mp4_str)
+    let (demuxed_packets, _info) = Mp4Demuxer::demux_all_parsed(mp4_str)
         .unwrap_or_else(|e| panic!("demuxer failed for {}: {e}", entry.file));
 
     let decoder = NvDecoder::new(

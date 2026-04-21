@@ -32,10 +32,10 @@ use savant_gstreamer::pipeline::{
     build_source_eos_event, parse_source_eos_event, set_element_property, AppsrcPadProbe,
     GstPipeline, PipelineConfig, PipelineInput, PipelineOutput, PtsPolicy,
 };
+use savant_gstreamer::submit_gate::SubmitGate;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 extern "C" {
@@ -81,7 +81,17 @@ pub struct NvTracker {
     pipeline: Mutex<GstPipeline>,
     config: NvTrackerConfig,
     policy: MetaClearPolicy,
-    next_pts: AtomicU64,
+    /// Serialises the `next_pts + prepare_batch + finalize_batch_buffer +
+    /// input_tx.send` sequence inside [`Self::submit`] and owns the
+    /// monotonic PTS counter it protects.
+    ///
+    /// Same rationale as `NvInfer::submit_gate` — see the doc there for
+    /// the full failure scenario this guards against.  Housing the
+    /// counter inside [`SubmitGate`] makes it impossible to observe or
+    /// advance the PTS without holding the gate, which is exactly the
+    /// invariant a `Mutex<()>` + sibling `AtomicU64` pair would only
+    /// enforce by convention.
+    submit_gate: SubmitGate,
     source_lru: Mutex<LruCache<u32, String>>,
     frame_counters: Mutex<HashMap<u32, i32>>,
     last_source_dims: Mutex<HashMap<u32, (u32, u32)>>,
@@ -198,7 +208,7 @@ impl NvTracker {
             pipeline: Mutex::new(gst_pipeline),
             config,
             policy,
-            next_pts: AtomicU64::new(0),
+            submit_gate: SubmitGate::new(),
             source_lru: Mutex::new(LruCache::new(SOURCE_LRU_CAPACITY)),
             frame_counters: Mutex::new(HashMap::new()),
             last_source_dims: Mutex::new(HashMap::new()),
@@ -209,6 +219,18 @@ impl NvTracker {
     /// Submit a batch of frames for tracking.
     ///
     /// Blocks if the input channel is full (backpressure).
+    ///
+    /// # Concurrency
+    ///
+    /// Safe to call from multiple threads; the
+    /// [`NvTrackerBatchingOperator`](crate::NvTrackerBatchingOperator) does
+    /// so from both its `add_frame` path and its internal timer thread.
+    /// The `next_pts + prepare_batch + finalize_batch_buffer +
+    /// input_tx.send` window runs inside [`SubmitGate::submit_with`] —
+    /// the pipeline feeder thread enforces [`PtsPolicy::StrictPts`] and
+    /// must see buffers in PTS-increasing order.  See the matching
+    /// comment on `NvInfer::submit` for the full failure scenario this
+    /// guards against.
     pub fn submit(&self, frames: &[TrackedFrame], ids: Vec<SavantIdMetaKind>) -> Result<()> {
         {
             let p = self.pipeline.lock();
@@ -219,13 +241,16 @@ impl NvTracker {
                 return Err(NvTrackerError::PipelineFailed);
             }
         }
-        let pts = self.next_pts.fetch_add(1, Ordering::Relaxed);
-        let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
-        let buffer = self.finalize_batch_buffer(batch, &slots, &input_pts, pts)?;
-        self.input_tx
-            .send(PipelineInput::Buffer(buffer))
-            .map_err(|_| NvTrackerError::ChannelDisconnected)?;
-        Ok(())
+        self.submit_gate.submit_with(|next_pts| {
+            let pts = *next_pts;
+            *next_pts += 1;
+            let (batch, slots, input_pts) = self.prepare_batch(frames, ids)?;
+            let buffer = self.finalize_batch_buffer(batch, &slots, &input_pts, pts)?;
+            self.input_tx
+                .send(PipelineInput::Buffer(buffer))
+                .map_err(|_| NvTrackerError::ChannelDisconnected)?;
+            Ok(())
+        })
     }
 
     /// Block until the next output is available.

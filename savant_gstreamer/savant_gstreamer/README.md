@@ -9,7 +9,7 @@
 - `GstBuffer` is a shared `gst::Buffer` wrapper with helpers for PTS, DTS, duration, flags, offsets, deep copies, memory inspection, and `SavantIdMeta` attachment or removal.
 - `id_meta::SavantIdMeta` and `SavantIdMetaKind` define a custom `GstMeta` used to carry Savant frame or batch identifiers through a pipeline.
 - `mp4_muxer::Mp4Muxer` builds a minimal `appsrc -> parser -> qtmux -> filesink` pipeline for writing encoded packets into MP4.
-- `mp4_demuxer::{Mp4Demuxer, DemuxedPacket, Mp4DemuxerOutput}` builds a `filesrc -> qtdemux -> queue -> appsink` pipeline and emits elementary-stream packets with PTS, DTS, duration, and keyframe information.
+- `mp4_demuxer::{Mp4Demuxer, DemuxedPacket, Mp4DemuxerOutput, VideoInfo}` builds a `filesrc -> qtdemux -> queue -> appsink` pipeline, emits elementary-stream packets with PTS, DTS, duration, and keyframe information, and exposes container-level `VideoInfo` (codec, encoded width/height, framerate) via the new `Mp4DemuxerOutput::StreamInfo` variant and the `Mp4Demuxer::video_info()` / `wait_for_video_info()` accessors.
 - `pipeline::{GstPipeline, PipelineConfig, PipelineInput, PipelineOutput, PtsPolicy}` provides a reusable bounded-channel pipeline runner around `appsrc` and `appsink`, with timeout handling, event forwarding, metadata bridging, and orderly EOS or shutdown behavior.
 - `pipeline::bridge_meta::bridge_savant_id_meta_across` preserves `SavantIdMeta` across elements that allocate fresh output buffers, such as hardware encoders.
 - `pipeline::source_eos::{build_source_eos_event, parse_source_eos_event}` helps encode and decode per-source EOS custom events.

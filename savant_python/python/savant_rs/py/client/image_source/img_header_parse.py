@@ -6,14 +6,14 @@ from typing import BinaryIO, Tuple, Union
 
 import magic
 
-from savant_rs.primitives import VideoFrameCodec
+from savant_rs.primitives import Codec
 
 PATTERN = re.compile(r"(?<=, )(?P<width>\d+)( x |x)(?P<height>\d+)")
 
 
 def get_image_size_codec(
     file: Union[str, PathLike, BinaryIO],
-) -> Tuple[int, int, VideoFrameCodec]:
+) -> Tuple[int, int, Codec]:
     """Get JPEG or PNG image width and height by parsing the file header.
 
     :param file: Path to an image file or a file handle
@@ -29,9 +29,9 @@ def get_image_size_codec(
         raise ValueError("File path or file handle is expected.")
 
     if magic_out.startswith("JPEG image data"):
-        codec = VideoFrameCodec.Jpeg
+        codec = Codec.Jpeg
     elif magic_out.startswith("PNG image data"):
-        codec = VideoFrameCodec.Png
+        codec = Codec.Png
     else:
         raise ValueError("Not a JPEG or PNG file.")
 

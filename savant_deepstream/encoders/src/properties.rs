@@ -6,7 +6,7 @@
 //!
 //! # Variants
 //!
-//! | Variant | Codec | Platform | GStreamer element |
+//! | Variant | VideoCodec | Platform | GStreamer element |
 //! |---|---|---|---|
 //! | [`H264Dgpu`](H264DgpuProps) | H.264 | dGPU | `nvv4l2h264enc` |
 //! | [`H264Jetson`](H264JetsonProps) | H.264 | Jetson | `nvv4l2h264enc` |
@@ -21,7 +21,7 @@
 //! | [`RawNv12`](RawProps) | Raw NV12 | — | pseudoencoder |
 
 use crate::error::EncoderError;
-use savant_gstreamer::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 use std::collections::HashMap;
 
 // ─── Key normalization ─────────────────────────────────────────────────
@@ -1050,7 +1050,7 @@ impl JpegProps {
 
 /// Raw frame download properties (pseudoencoder, no configurable properties).
 ///
-/// Used with [`Codec::RawRgba`], [`Codec::RawRgb`] and [`Codec::RawNv12`]
+/// Used with [`VideoCodec::RawRgba`], [`VideoCodec::RawRgb`] and [`VideoCodec::RawNv12`]
 /// to download GPU frames
 /// to CPU memory as tightly-packed pixel data.
 #[derive(Debug, Clone, Default)]
@@ -1320,7 +1320,7 @@ impl Av1JetsonProps {
 ///     ..Default::default()
 /// });
 ///
-/// assert_eq!(props.codec(), savant_gstreamer::Codec::Hevc);
+/// assert_eq!(props.codec(), savant_core::primitives::video_codec::VideoCodec::Hevc);
 /// ```
 #[derive(Debug, Clone)]
 pub enum EncoderProperties {
@@ -1350,16 +1350,16 @@ pub enum EncoderProperties {
 
 impl EncoderProperties {
     /// The codec this variant is for.
-    pub fn codec(&self) -> Codec {
+    pub fn codec(&self) -> VideoCodec {
         match self {
-            Self::H264Dgpu(_) | Self::H264Jetson(_) => Codec::H264,
-            Self::HevcDgpu(_) | Self::HevcJetson(_) => Codec::Hevc,
-            Self::Jpeg(_) => Codec::Jpeg,
-            Self::Av1Dgpu(_) | Self::Av1Jetson(_) => Codec::Av1,
-            Self::Png(_) => Codec::Png,
-            Self::RawRgba(_) => Codec::RawRgba,
-            Self::RawRgb(_) => Codec::RawRgb,
-            Self::RawNv12(_) => Codec::RawNv12,
+            Self::H264Dgpu(_) | Self::H264Jetson(_) => VideoCodec::H264,
+            Self::HevcDgpu(_) | Self::HevcJetson(_) => VideoCodec::Hevc,
+            Self::Jpeg(_) => VideoCodec::Jpeg,
+            Self::Av1Dgpu(_) | Self::Av1Jetson(_) => VideoCodec::Av1,
+            Self::Png(_) => VideoCodec::Png,
+            Self::RawRgba(_) => VideoCodec::RawRgba,
+            Self::RawRgb(_) => VideoCodec::RawRgb,
+            Self::RawNv12(_) => VideoCodec::RawNv12,
         }
     }
 
@@ -1401,29 +1401,35 @@ impl EncoderProperties {
     ///
     /// For JPEG, `platform` is ignored.
     pub fn from_pairs(
-        codec: Codec,
+        codec: VideoCodec,
         platform: Platform,
         pairs: &HashMap<String, String>,
     ) -> Result<Self, EncoderError> {
         match (codec, platform) {
-            (Codec::H264, Platform::Dgpu) => Ok(Self::H264Dgpu(H264DgpuProps::from_pairs(pairs)?)),
-            (Codec::H264, Platform::Jetson) => {
+            (VideoCodec::H264, Platform::Dgpu) => {
+                Ok(Self::H264Dgpu(H264DgpuProps::from_pairs(pairs)?))
+            }
+            (VideoCodec::H264, Platform::Jetson) => {
                 Ok(Self::H264Jetson(H264JetsonProps::from_pairs(pairs)?))
             }
-            (Codec::Hevc, Platform::Dgpu) => Ok(Self::HevcDgpu(HevcDgpuProps::from_pairs(pairs)?)),
-            (Codec::Hevc, Platform::Jetson) => {
+            (VideoCodec::Hevc, Platform::Dgpu) => {
+                Ok(Self::HevcDgpu(HevcDgpuProps::from_pairs(pairs)?))
+            }
+            (VideoCodec::Hevc, Platform::Jetson) => {
                 Ok(Self::HevcJetson(HevcJetsonProps::from_pairs(pairs)?))
             }
-            (Codec::Jpeg, _) => Ok(Self::Jpeg(JpegProps::from_pairs(pairs)?)),
-            (Codec::Png, _) => Ok(Self::Png(PngProps::from_pairs(pairs)?)),
-            (Codec::Av1, Platform::Dgpu) => Ok(Self::Av1Dgpu(Av1DgpuProps::from_pairs(pairs)?)),
-            (Codec::Av1, Platform::Jetson) => {
+            (VideoCodec::Jpeg, _) => Ok(Self::Jpeg(JpegProps::from_pairs(pairs)?)),
+            (VideoCodec::Png, _) => Ok(Self::Png(PngProps::from_pairs(pairs)?)),
+            (VideoCodec::Av1, Platform::Dgpu) => {
+                Ok(Self::Av1Dgpu(Av1DgpuProps::from_pairs(pairs)?))
+            }
+            (VideoCodec::Av1, Platform::Jetson) => {
                 Ok(Self::Av1Jetson(Av1JetsonProps::from_pairs(pairs)?))
             }
-            (Codec::RawRgba, _) => Ok(Self::RawRgba(RawProps::from_pairs(pairs)?)),
-            (Codec::RawRgb, _) => Ok(Self::RawRgb(RawProps::from_pairs(pairs)?)),
-            (Codec::RawNv12, _) => Ok(Self::RawNv12(RawProps::from_pairs(pairs)?)),
-            (Codec::Vp8 | Codec::Vp9, _) => {
+            (VideoCodec::RawRgba, _) => Ok(Self::RawRgba(RawProps::from_pairs(pairs)?)),
+            (VideoCodec::RawRgb, _) => Ok(Self::RawRgb(RawProps::from_pairs(pairs)?)),
+            (VideoCodec::RawNv12, _) => Ok(Self::RawNv12(RawProps::from_pairs(pairs)?)),
+            (VideoCodec::Vp8 | VideoCodec::Vp9 | VideoCodec::SwJpeg, _) => {
                 Err(EncoderError::UnsupportedCodec(codec.name().to_string()))
             }
         }
@@ -1582,16 +1588,16 @@ mod tests {
         let mut m = HashMap::new();
         m.insert("bitrate".into(), "5000000".into());
 
-        let props = EncoderProperties::from_pairs(Codec::Hevc, Platform::Dgpu, &m).unwrap();
-        assert_eq!(props.codec(), Codec::Hevc);
+        let props = EncoderProperties::from_pairs(VideoCodec::Hevc, Platform::Dgpu, &m).unwrap();
+        assert_eq!(props.codec(), VideoCodec::Hevc);
         assert_eq!(props.platform(), Some(Platform::Dgpu));
     }
 
     #[test]
     fn test_av1_jetson_supported() {
         let m = HashMap::new();
-        let props = EncoderProperties::from_pairs(Codec::Av1, Platform::Jetson, &m).unwrap();
-        assert_eq!(props.codec(), Codec::Av1);
+        let props = EncoderProperties::from_pairs(VideoCodec::Av1, Platform::Jetson, &m).unwrap();
+        assert_eq!(props.codec(), VideoCodec::Av1);
         assert_eq!(props.platform(), Some(Platform::Jetson));
     }
 
@@ -1600,36 +1606,36 @@ mod tests {
     #[test]
     fn test_encoder_properties_codec() {
         let p = EncoderProperties::H264Dgpu(H264DgpuProps::default());
-        assert_eq!(p.codec(), Codec::H264);
+        assert_eq!(p.codec(), VideoCodec::H264);
         assert_eq!(p.platform(), Some(Platform::Dgpu));
 
         let p = EncoderProperties::HevcJetson(HevcJetsonProps::default());
-        assert_eq!(p.codec(), Codec::Hevc);
+        assert_eq!(p.codec(), VideoCodec::Hevc);
         assert_eq!(p.platform(), Some(Platform::Jetson));
 
         let p = EncoderProperties::Jpeg(JpegProps::default());
-        assert_eq!(p.codec(), Codec::Jpeg);
+        assert_eq!(p.codec(), VideoCodec::Jpeg);
         assert_eq!(p.platform(), None);
 
         let p = EncoderProperties::Png(PngProps::default());
-        assert_eq!(p.codec(), Codec::Png);
+        assert_eq!(p.codec(), VideoCodec::Png);
         assert_eq!(p.platform(), None);
     }
 
     #[test]
     fn test_encoder_properties_raw() {
         let p = EncoderProperties::RawRgba(RawProps);
-        assert_eq!(p.codec(), Codec::RawRgba);
+        assert_eq!(p.codec(), VideoCodec::RawRgba);
         assert_eq!(p.platform(), None);
         assert!(p.to_gst_pairs().is_empty());
 
         let p = EncoderProperties::RawRgb(RawProps);
-        assert_eq!(p.codec(), Codec::RawRgb);
+        assert_eq!(p.codec(), VideoCodec::RawRgb);
         assert_eq!(p.platform(), None);
         assert!(p.to_gst_pairs().is_empty());
 
         let p = EncoderProperties::RawNv12(RawProps);
-        assert_eq!(p.codec(), Codec::RawNv12);
+        assert_eq!(p.codec(), VideoCodec::RawNv12);
         assert_eq!(p.platform(), None);
         assert!(p.to_gst_pairs().is_empty());
     }
@@ -1637,28 +1643,28 @@ mod tests {
     #[test]
     fn test_raw_from_pairs_empty() {
         let m = HashMap::new();
-        let props = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m).unwrap();
-        assert_eq!(props.codec(), Codec::RawRgba);
-        let props = EncoderProperties::from_pairs(Codec::RawNv12, Platform::Dgpu, &m).unwrap();
-        assert_eq!(props.codec(), Codec::RawNv12);
+        let props = EncoderProperties::from_pairs(VideoCodec::RawRgba, Platform::Dgpu, &m).unwrap();
+        assert_eq!(props.codec(), VideoCodec::RawRgba);
+        let props = EncoderProperties::from_pairs(VideoCodec::RawNv12, Platform::Dgpu, &m).unwrap();
+        assert_eq!(props.codec(), VideoCodec::RawNv12);
     }
 
     #[test]
     fn test_raw_from_pairs_rejects_properties() {
         let mut m = HashMap::new();
         m.insert("quality".into(), "85".into());
-        let result = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m);
+        let result = EncoderProperties::from_pairs(VideoCodec::RawRgba, Platform::Dgpu, &m);
         assert!(result.is_err());
-        let result = EncoderProperties::from_pairs(Codec::RawNv12, Platform::Dgpu, &m);
+        let result = EncoderProperties::from_pairs(VideoCodec::RawNv12, Platform::Dgpu, &m);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_vp8_vp9_from_pairs_unsupported() {
         let m = HashMap::new();
-        let vp8 = EncoderProperties::from_pairs(Codec::Vp8, Platform::Dgpu, &m);
+        let vp8 = EncoderProperties::from_pairs(VideoCodec::Vp8, Platform::Dgpu, &m);
         assert!(matches!(vp8, Err(EncoderError::UnsupportedCodec(_))));
-        let vp9 = EncoderProperties::from_pairs(Codec::Vp9, Platform::Dgpu, &m);
+        let vp9 = EncoderProperties::from_pairs(VideoCodec::Vp9, Platform::Dgpu, &m);
         assert!(matches!(vp9, Err(EncoderError::UnsupportedCodec(_))));
     }
 

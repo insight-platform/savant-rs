@@ -1,4 +1,4 @@
-use savant_gstreamer::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 use std::time::Duration;
 
 /// CUDA memory type exposed by the `nvv4l2decoder` element via its
@@ -503,17 +503,20 @@ pub enum DecoderConfig {
 }
 
 impl DecoderConfig {
-    pub fn codec(&self) -> Codec {
+    pub fn codec(&self) -> VideoCodec {
         match self {
-            Self::H264(_) => Codec::H264,
-            Self::Hevc(_) => Codec::Hevc,
-            Self::Vp8(_) => Codec::Vp8,
-            Self::Vp9(_) => Codec::Vp9,
-            Self::Av1(_) => Codec::Av1,
-            Self::Jpeg(_) => Codec::Jpeg,
-            Self::Png(_) => Codec::Png,
-            Self::RawRgba(_) => Codec::RawRgba,
-            Self::RawRgb(_) => Codec::RawRgb,
+            Self::H264(_) => VideoCodec::H264,
+            Self::Hevc(_) => VideoCodec::Hevc,
+            Self::Vp8(_) => VideoCodec::Vp8,
+            Self::Vp9(_) => VideoCodec::Vp9,
+            Self::Av1(_) => VideoCodec::Av1,
+            Self::Jpeg(cfg) => match cfg.backend {
+                JpegBackend::Gpu => VideoCodec::Jpeg,
+                JpegBackend::Cpu => VideoCodec::SwJpeg,
+            },
+            Self::Png(_) => VideoCodec::Png,
+            Self::RawRgba(_) => VideoCodec::RawRgba,
+            Self::RawRgb(_) => VideoCodec::RawRgb,
         }
     }
 }

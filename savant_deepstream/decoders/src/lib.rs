@@ -19,7 +19,7 @@ pub use stream_detect::{detect_stream_config, is_random_access_point};
 pub use deepstream_buffers::{
     cuda_init, BufferGenerator, SharedBuffer, SurfaceView, TransformConfig, VideoFormat,
 };
-pub use savant_gstreamer::Codec;
+pub use savant_core::primitives::video_codec::VideoCodec;
 
 #[derive(Debug)]
 pub struct DecodedFrame {
@@ -30,6 +30,6 @@ pub struct DecodedFrame {
     /// Decoded RGBA buffer.  Wrapped in `Option` so downstream can `.take()`
     /// the buffer for delivery without consuming the entire frame.
     pub buffer: Option<SharedBuffer>,
-    pub codec: Codec,
+    pub codec: VideoCodec,
     pub format: VideoFormat,
 }

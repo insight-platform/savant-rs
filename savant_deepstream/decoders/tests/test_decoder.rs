@@ -20,13 +20,13 @@ use std::time::Duration;
 // below adapt the old test call sites to the new API without changing
 // what the tests actually verify.
 
-fn build_encoder_config(codec: Codec, w: u32, h: u32) -> EncoderConfig {
+fn build_encoder_config(codec: VideoCodec, w: u32, h: u32) -> EncoderConfig {
     match codec {
-        Codec::H264 => EncoderConfig::H264(H264EncoderConfig::new(w, h)),
-        Codec::Hevc => EncoderConfig::Hevc(HevcEncoderConfig::new(w, h)),
+        VideoCodec::H264 => EncoderConfig::H264(H264EncoderConfig::new(w, h)),
+        VideoCodec::Hevc => EncoderConfig::Hevc(HevcEncoderConfig::new(w, h)),
         // JPEG defaults to I420 already; PNG defaults to RGBA.
-        Codec::Jpeg => EncoderConfig::Jpeg(JpegEncoderConfig::new(w, h)),
-        Codec::Png => EncoderConfig::Png(PngEncoderConfig::new(w, h)),
+        VideoCodec::Jpeg => EncoderConfig::Jpeg(JpegEncoderConfig::new(w, h)),
+        VideoCodec::Png => EncoderConfig::Png(PngEncoderConfig::new(w, h)),
         other => panic!("unsupported encoder codec in tests: {other:?}"),
     }
 }
@@ -68,7 +68,12 @@ fn drain_encoder_to_frames(encoder: &NvEncoder) -> Vec<EncodedFrame> {
     frames
 }
 
-fn encode_test_frames(codec: Codec, w: u32, h: u32, n: usize) -> Vec<(u128, u64, u64, Vec<u8>)> {
+fn encode_test_frames(
+    codec: VideoCodec,
+    w: u32,
+    h: u32,
+    n: usize,
+) -> Vec<(u128, u64, u64, Vec<u8>)> {
     let encoder = make_encoder(build_encoder_config(codec, w, h));
     let dur = 33_333_333u64;
     for i in 0..n {
@@ -99,7 +104,7 @@ fn test_e2e_h264_decode_to_rgba() {
         return;
     }
     let (w, h) = (320, 240);
-    let packets = encode_test_frames(Codec::H264, w, h, 5);
+    let packets = encode_test_frames(VideoCodec::H264, w, h, 5);
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
     let decoder = NvDecoder::new(
         test_decoder_config(0, config),
@@ -145,7 +150,7 @@ fn test_e2e_hevc_decode_to_rgba() {
         return;
     }
     let (w, h) = (320, 240);
-    let packets = encode_test_frames(Codec::Hevc, w, h, 5);
+    let packets = encode_test_frames(VideoCodec::Hevc, w, h, 5);
     let config = DecoderConfig::Hevc(HevcDecoderConfig::new(HevcStreamFormat::ByteStream));
     let decoder = NvDecoder::new(
         test_decoder_config(0, config),
@@ -440,7 +445,7 @@ fn test_dos_garbage_mid_stream_h264() {
         identity_transform_config(),
     )
     .unwrap();
-    let valid_packets = encode_test_frames(Codec::H264, w, h, 3);
+    let valid_packets = encode_test_frames(VideoCodec::H264, w, h, 3);
     for (fid, pts, dur, data) in &valid_packets {
         decoder
             .submit_packet(data, *fid, *pts, Some(*pts), Some(*dur))
@@ -567,7 +572,7 @@ fn test_raw_upload_accepts_non_monotonic_pts() {
 fn test_pipeline_rejects_non_monotonic_pts_async() {
     init();
     let (w, h) = (320, 240);
-    let frames = encode_test_frames(Codec::H264, w, h, 3);
+    let frames = encode_test_frames(VideoCodec::H264, w, h, 3);
     assert!(!frames.is_empty(), "need at least one encoded frame");
 
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
@@ -670,7 +675,7 @@ fn test_raw_rgb_codec_identity() {
     drain_decoder(&decoder, |f| {
         assert_eq!(
             f.codec,
-            Codec::RawRgb,
+            VideoCodec::RawRgb,
             "expected RawRgb codec, got {:?}",
             f.codec
         );
@@ -798,7 +803,7 @@ fn test_graceful_shutdown_h264_valid_rgba() {
     }
     let (w, h) = (320, 240);
     let num_frames = 5;
-    let packets = encode_test_frames(Codec::H264, w, h, num_frames);
+    let packets = encode_test_frames(VideoCodec::H264, w, h, num_frames);
 
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
     let decoder = NvDecoder::new(
@@ -849,7 +854,7 @@ fn test_graceful_shutdown_h264_after_partial_drain() {
     }
     let (w, h) = (320, 240);
     let num_frames = 10;
-    let packets = encode_test_frames(Codec::H264, w, h, num_frames);
+    let packets = encode_test_frames(VideoCodec::H264, w, h, num_frames);
 
     let config = DecoderConfig::H264(H264DecoderConfig::new(H264StreamFormat::ByteStream));
     let decoder = NvDecoder::new(

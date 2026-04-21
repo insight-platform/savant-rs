@@ -16,6 +16,7 @@ use gstreamer as gst;
 pub use savant_core::primitives::misc_track::{
     MiscTrackCategory, MiscTrackData, MiscTrackFrame, TrackState,
 };
+use savant_core::primitives::{misc_track::TrackUpdate, RBBox};
 
 /// One object in the current frame list (`NvDsObjectMeta` after tracking).
 #[derive(Debug, Clone)]
@@ -31,6 +32,77 @@ pub struct TrackedObject {
     pub label: Option<String>,
     pub slot_number: i64,
     pub source_id: String,
+    /// Raw `NvDsObjectMeta::misc_obj_info` payload as seen after the
+    /// tracker.  Slot `[0]` is the input [`crate::Roi::id`] that the
+    /// detection-meta stage stamped before tracking; the DeepStream
+    /// `NvMultiObjectTracker` preserves it intact for current-frame
+    /// tracked objects (verified by `tests/test_iou_tracker.rs ::
+    /// test_misc_obj_info_zero_preserves_roi_id_iou`), which makes it
+    /// the canonical channel for mapping tracker output back to the
+    /// caller-side detection id — no IoU reconciliation required.
+    /// Prefer [`TrackedObject::input_roi_id`] for this use case.
+    ///
+    /// Slots `[1..=3]` are reserved by DeepStream and may contain
+    /// tracker-specific state; do not rely on any particular meaning.
+    pub misc_obj_info: [i64; 4],
+}
+
+impl TrackedObject {
+    /// Caller-defined [`crate::Roi::id`] that produced this tracked
+    /// object, recovered from `misc_obj_info[0]`.
+    ///
+    /// Use this to pair a [`TrackedObject`] back to the
+    /// `savant_core::primitives::VideoObject` (or any other caller-side
+    /// datum) whose id was stamped into the `Roi` that fed the tracker,
+    /// e.g. when building `savant_core::primitives::misc_track::TrackUpdate`s
+    /// for `VideoFrameProxy::apply_tracking_info`.
+    #[inline]
+    pub fn input_roi_id(&self) -> i64 {
+        self.misc_obj_info[0]
+    }
+
+    /// Convert this [`TrackedObject`] into a [`TrackUpdate`] ready to be
+    /// passed to [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info).
+    ///
+    /// This is the single source of truth for the
+    /// [`TrackedObject`] → [`TrackUpdate`] mapping used by the
+    /// `TrackerOperatorFrameOutput::apply_to_frame` bridge.
+    ///
+    /// Field mapping:
+    /// * `object_id` ← [`Self::input_roi_id`] — the id of the
+    ///   pre-tracker ROI (i.e. the `VideoObject::id` on the frame),
+    ///   round-tripped through `misc_obj_info[0]` per the tracker's
+    ///   preservation contract.
+    /// * `track_id` ← the tracker-assigned stable object id
+    ///   (`self.object_id` cast to `i64`).
+    /// * `track_box` ← `RBBox::new(cx, cy, w, h, None)` where
+    ///   `cx = bbox_left + bbox_width / 2` and
+    ///   `cy = bbox_top  + bbox_height / 2`.
+    ///   DeepStream nvtracker emits top-left + width/height in frame
+    ///   pixels; [`RBBox`] / [`TrackUpdate::track_box`] is
+    ///   center-x/center-y/width/height so we translate the origin
+    ///   here, in one place.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Pseudo-code (TrackedObject construction is internal).
+    /// let update = tracked_object.to_track_update();
+    /// frame.apply_tracking_info(vec![update], vec![])?;
+    /// ```
+    pub fn to_track_update(&self) -> TrackUpdate {
+        TrackUpdate::new(
+            self.input_roi_id(),
+            self.object_id as i64,
+            RBBox::new(
+                self.bbox_left + self.bbox_width / 2.0,
+                self.bbox_top + self.bbox_height / 2.0,
+                self.bbox_width,
+                self.bbox_height,
+                None,
+            ),
+        )
+    }
 }
 
 /// Output of one successful [`crate::pipeline::NvTracker::submit`] → [`crate::pipeline::NvTracker::recv`] cycle.
@@ -156,6 +228,7 @@ pub fn extract_tracker_output(
                 label: obj.label().unwrap_or(None),
                 slot_number: slot_number as i64,
                 source_id: source_id.clone(),
+                misc_obj_info: obj.misc_obj_info(),
             });
         }
     }
@@ -205,5 +278,46 @@ impl Drop for TrackerOutput {
         unsafe {
             deepstream::clear_all_frame_objects(ptr);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_tracked_object(input_roi_id: i64, object_id: u64) -> TrackedObject {
+        TrackedObject {
+            object_id,
+            class_id: 0,
+            bbox_left: 10.0,
+            bbox_top: 20.0,
+            bbox_width: 30.0,
+            bbox_height: 40.0,
+            confidence: 0.9,
+            tracker_confidence: 0.8,
+            label: None,
+            slot_number: 0,
+            source_id: String::from("s"),
+            misc_obj_info: [input_roi_id, 0, 0, 0],
+        }
+    }
+
+    #[test]
+    fn tracked_object_to_track_update_roundtrip() {
+        let t = sample_tracked_object(7, 42);
+        let u = t.to_track_update();
+        assert_eq!(u.object_id, 7);
+        assert_eq!(u.track_id, 42);
+        assert_eq!(u.track_box.get_xc(), 25.0); // 10 + 30/2
+        assert_eq!(u.track_box.get_yc(), 40.0); // 20 + 40/2
+        assert_eq!(u.track_box.get_width(), 30.0);
+        assert_eq!(u.track_box.get_height(), 40.0);
+    }
+
+    #[test]
+    fn tracked_object_input_roi_id_matches_slot_zero() {
+        let t = sample_tracked_object(999, 1);
+        assert_eq!(t.input_roi_id(), 999);
+        assert_eq!(t.misc_obj_info[0], 999);
     }
 }

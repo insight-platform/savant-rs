@@ -23,7 +23,7 @@ use cros_codecs::codec::h265::parser::Parser as H265Parser;
 use crate::config::{
     DecoderConfig, H264DecoderConfig, H264StreamFormat, HevcDecoderConfig, HevcStreamFormat,
 };
-use savant_gstreamer::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 
 type H264ParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
@@ -32,7 +32,7 @@ type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
 ///
 /// Returns [`Some(DecoderConfig)`] with the correct stream format and, for length-prefixed
 /// formats (AVCC / `hvc1`), the constructed `codec_data`. Returns [`None`] when:
-/// - `codec` is not [`Codec::H264`] or [`Codec::Hevc`]
+/// - `codec` is not [`VideoCodec::H264`] or [`VideoCodec::Hevc`]
 /// - the prefix is neither Annex-B nor a valid 4-byte length-prefixed layout
 /// - length-prefixed H.264 without both SPS and PPS
 /// - length-prefixed HEVC without VPS, SPS, and PPS, or SPS parsing fails
@@ -43,10 +43,10 @@ type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
 ///
 /// ```no_run
 /// use deepstream_decoders::{detect_stream_config, DecoderConfig, H264StreamFormat};
-/// use savant_gstreamer::Codec;
+/// use savant_core::primitives::video_codec::VideoCodec;
 ///
 /// let au: &[u8] = &[0, 0, 0, 1, 0x67, 0x42, 0x00, 0x0A]; // SPS-like NAL after SC
-/// let cfg = detect_stream_config(Codec::H264, au).expect("annex-b");
+/// let cfg = detect_stream_config(VideoCodec::H264, au).expect("annex-b");
 /// match cfg {
 ///     DecoderConfig::H264(c) => assert_eq!(c.stream_format, H264StreamFormat::ByteStream),
 ///     _ => panic!("expected H264"),
@@ -57,16 +57,16 @@ type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
 ///
 /// ```
 /// use deepstream_decoders::detect_stream_config;
-/// use savant_gstreamer::Codec;
+/// use savant_core::primitives::video_codec::VideoCodec;
 ///
-/// assert!(detect_stream_config(Codec::Vp9, &[0, 0, 0, 1, 0x09]).is_none());
+/// assert!(detect_stream_config(VideoCodec::Vp9, &[0, 0, 0, 1, 0x09]).is_none());
 /// ```
 ///
 /// Length-prefixed H.264 with SPS and PPS (4-byte big-endian lengths):
 ///
 /// ```no_run
 /// use deepstream_decoders::{detect_stream_config, DecoderConfig, H264StreamFormat};
-/// use savant_gstreamer::Codec;
+/// use savant_core::primitives::video_codec::VideoCodec;
 ///
 /// let sps = [0x67u8, 0x42, 0x00, 0x0A, 0xFF];
 /// let pps = [0x68u8, 0xCE, 0x3C, 0x80];
@@ -75,7 +75,7 @@ type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
 ///     au.extend_from_slice(&(nal.len() as u32).to_be_bytes());
 ///     au.extend_from_slice(nal);
 /// }
-/// let cfg = detect_stream_config(Codec::H264, &au).unwrap();
+/// let cfg = detect_stream_config(VideoCodec::H264, &au).unwrap();
 /// match cfg {
 ///     DecoderConfig::H264(c) => {
 ///         assert_eq!(c.stream_format, H264StreamFormat::Avc);
@@ -84,10 +84,10 @@ type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
 ///     _ => panic!("expected H264"),
 /// }
 /// ```
-pub fn detect_stream_config(codec: Codec, data: &[u8]) -> Option<DecoderConfig> {
+pub fn detect_stream_config(codec: VideoCodec, data: &[u8]) -> Option<DecoderConfig> {
     match codec {
-        Codec::H264 => detect_h264(data),
-        Codec::Hevc => detect_hevc(data),
+        VideoCodec::H264 => detect_h264(data),
+        VideoCodec::Hevc => detect_hevc(data),
         _ => None,
     }
 }
@@ -113,7 +113,7 @@ pub fn detect_stream_config(codec: Codec, data: &[u8]) -> Option<DecoderConfig> 
 ///
 /// ```no_run
 /// use deepstream_decoders::is_random_access_point;
-/// use savant_gstreamer::Codec;
+/// use savant_core::primitives::video_codec::VideoCodec;
 ///
 /// let sps = [0x67u8, 0x42, 0x00, 0x0A, 0xFF];
 /// let pps = [0x68u8, 0xCE, 0x3C, 0x80];
@@ -123,26 +123,31 @@ pub fn detect_stream_config(codec: Codec, data: &[u8]) -> Option<DecoderConfig> 
 ///     au.extend_from_slice(&[0, 0, 0, 1]);
 ///     au.extend_from_slice(nal);
 /// }
-/// assert!(is_random_access_point(Codec::H264, &au));
+/// assert!(is_random_access_point(VideoCodec::H264, &au));
 /// ```
 ///
 /// Unsupported video codecs:
 ///
 /// ```
 /// use deepstream_decoders::is_random_access_point;
-/// use savant_gstreamer::Codec;
+/// use savant_core::primitives::video_codec::VideoCodec;
 ///
-/// assert!(!is_random_access_point(Codec::Vp9, &[0, 0, 0, 1, 0x9A]));
+/// assert!(!is_random_access_point(VideoCodec::Vp9, &[0, 0, 0, 1, 0x9A]));
 /// ```
-pub fn is_random_access_point(codec: Codec, data: &[u8]) -> bool {
+pub fn is_random_access_point(codec: VideoCodec, data: &[u8]) -> bool {
     if data.is_empty() {
         return false;
     }
     match codec {
-        Codec::H264 => is_h264_rap(data),
-        Codec::Hevc => is_hevc_rap(data),
-        Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12 => true,
-        Codec::Vp8 | Codec::Vp9 | Codec::Av1 => false,
+        VideoCodec::H264 => is_h264_rap(data),
+        VideoCodec::Hevc => is_hevc_rap(data),
+        VideoCodec::Jpeg
+        | VideoCodec::SwJpeg
+        | VideoCodec::Png
+        | VideoCodec::RawRgba
+        | VideoCodec::RawRgb
+        | VideoCodec::RawNv12 => true,
+        VideoCodec::Vp8 | VideoCodec::Vp9 | VideoCodec::Av1 => false,
     }
 }
 
@@ -598,7 +603,7 @@ mod tests {
     #[test]
     fn test_annexb_h264_4byte_sc() {
         let au = prepend_sc(&minimal_h264_sps());
-        let c = detect_stream_config(Codec::H264, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::H264, &au).unwrap();
         match c {
             DecoderConfig::H264(cfg) => {
                 assert_eq!(cfg.stream_format, H264StreamFormat::ByteStream);
@@ -612,7 +617,7 @@ mod tests {
     fn test_annexb_h264_3byte_sc() {
         let mut au = vec![0, 0, 1];
         au.extend_from_slice(&minimal_h264_sps());
-        let c = detect_stream_config(Codec::H264, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::H264, &au).unwrap();
         match c {
             DecoderConfig::H264(cfg) => assert_eq!(cfg.stream_format, H264StreamFormat::ByteStream),
             _ => panic!(),
@@ -623,7 +628,7 @@ mod tests {
     fn test_annexb_h264_idr_only() {
         let idr = vec![0x65, 0x88, 0x84, 0x00];
         let au = prepend_sc(&idr);
-        let c = detect_stream_config(Codec::H264, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::H264, &au).unwrap();
         match c {
             DecoderConfig::H264(cfg) => assert_eq!(cfg.stream_format, H264StreamFormat::ByteStream),
             _ => panic!(),
@@ -647,7 +652,7 @@ mod tests {
             minimal_h264_sps().as_slice(),
             minimal_h264_pps().as_slice(),
         ]);
-        let c = detect_stream_config(Codec::H264, &au).expect("avc");
+        let c = detect_stream_config(VideoCodec::H264, &au).expect("avc");
         match c {
             DecoderConfig::H264(cfg) => assert_eq!(cfg.stream_format, H264StreamFormat::Avc),
             _ => panic!(),
@@ -663,7 +668,7 @@ mod tests {
             minimal_h264_pps().as_slice(),
             idr.as_slice(),
         ]);
-        assert!(is_random_access_point(Codec::H264, &au));
+        assert!(is_random_access_point(VideoCodec::H264, &au));
     }
 
     #[test]
@@ -674,7 +679,7 @@ mod tests {
             minimal_h264_pps().as_slice(),
             idr.as_slice(),
         ]);
-        let c = detect_stream_config(Codec::H264, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::H264, &au).unwrap();
         match c {
             DecoderConfig::H264(cfg) => {
                 assert_eq!(cfg.stream_format, H264StreamFormat::Avc);
@@ -692,20 +697,20 @@ mod tests {
     #[test]
     fn test_avcc_h264_sps_only_no_pps() {
         let au = len_prefixed(&[minimal_h264_sps().as_slice()]);
-        assert!(detect_stream_config(Codec::H264, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &au).is_none());
     }
 
     #[test]
     fn test_avcc_h264_pps_only_no_sps() {
         let au = len_prefixed(&[minimal_h264_pps().as_slice()]);
-        assert!(detect_stream_config(Codec::H264, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &au).is_none());
     }
 
     #[test]
     fn test_avcc_h264_idr_only() {
         let idr = vec![0x65, 0x88, 0x84, 0x00];
         let au = len_prefixed(&[idr.as_slice()]);
-        assert!(detect_stream_config(Codec::H264, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &au).is_none());
     }
 
     #[test]
@@ -718,7 +723,7 @@ mod tests {
             minimal_h264_pps().as_slice(),
             pps2.as_slice(),
         ]);
-        let c = detect_stream_config(Codec::H264, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::H264, &au).unwrap();
         match c {
             DecoderConfig::H264(cfg) => {
                 let cd = cfg.codec_data.unwrap();
@@ -730,59 +735,59 @@ mod tests {
 
     #[test]
     fn test_unsupported_codec_vp8() {
-        assert!(detect_stream_config(Codec::Vp8, &[0, 0, 0, 1, 0x9A]).is_none());
+        assert!(detect_stream_config(VideoCodec::Vp8, &[0, 0, 0, 1, 0x9A]).is_none());
     }
 
     #[test]
     fn test_unsupported_codec_vp9() {
-        assert!(detect_stream_config(Codec::Vp9, &[0, 0, 0, 1]).is_none());
+        assert!(detect_stream_config(VideoCodec::Vp9, &[0, 0, 0, 1]).is_none());
     }
 
     #[test]
     fn test_unsupported_codec_jpeg() {
-        assert!(detect_stream_config(Codec::Jpeg, &[0xFF, 0xD8]).is_none());
+        assert!(detect_stream_config(VideoCodec::Jpeg, &[0xFF, 0xD8]).is_none());
     }
 
     #[test]
     fn test_empty_data() {
-        assert!(detect_stream_config(Codec::H264, &[]).is_none());
-        assert!(detect_stream_config(Codec::Hevc, &[]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[]).is_none());
+        assert!(detect_stream_config(VideoCodec::Hevc, &[]).is_none());
     }
 
     #[test]
     fn test_one_byte() {
-        assert!(detect_stream_config(Codec::H264, &[0x42]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[0x42]).is_none());
     }
 
     #[test]
     fn test_two_bytes() {
-        assert!(detect_stream_config(Codec::H264, &[0, 0]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[0, 0]).is_none());
     }
 
     #[test]
     fn test_three_bytes_not_sc() {
-        assert!(detect_stream_config(Codec::H264, &[0, 0, 2]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[0, 0, 2]).is_none());
     }
 
     #[test]
     fn test_four_bytes_almost_sc() {
-        assert!(detect_stream_config(Codec::H264, &[0, 0, 0, 2]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[0, 0, 0, 2]).is_none());
     }
 
     #[test]
     fn test_length_prefix_zero() {
-        assert!(detect_stream_config(Codec::H264, &[0, 0, 0, 0]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[0, 0, 0, 0]).is_none());
     }
 
     #[test]
     fn test_length_prefix_exceeds_data() {
         let au = vec![0, 0, 0, 10, 1, 2, 3];
-        assert!(detect_stream_config(Codec::H264, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &au).is_none());
     }
 
     #[test]
     fn test_garbage_data() {
-        assert!(detect_stream_config(Codec::H264, &[0xDE, 0xAD, 0xBE, 0xEF]).is_none());
+        assert!(detect_stream_config(VideoCodec::H264, &[0xDE, 0xAD, 0xBE, 0xEF]).is_none());
     }
 
     #[test]
@@ -827,7 +832,7 @@ mod tests {
     fn test_annexb_hevc_4byte_sc() {
         let mut au = prepend_sc(&hevc_vps());
         au.extend_from_slice(&prepend_sc(&hevc_sps()));
-        let c = detect_stream_config(Codec::Hevc, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::Hevc, &au).unwrap();
         match c {
             DecoderConfig::Hevc(cfg) => assert_eq!(cfg.stream_format, HevcStreamFormat::ByteStream),
             _ => panic!(),
@@ -838,7 +843,7 @@ mod tests {
     fn test_annexb_hevc_3byte_sc() {
         let mut au = vec![0, 0, 1];
         au.extend_from_slice(&hevc_sps());
-        let c = detect_stream_config(Codec::Hevc, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::Hevc, &au).unwrap();
         match c {
             DecoderConfig::Hevc(cfg) => assert_eq!(cfg.stream_format, HevcStreamFormat::ByteStream),
             _ => panic!(),
@@ -849,7 +854,7 @@ mod tests {
     fn test_annexb_hevc_idr_only() {
         let idr = vec![0x26, 0x01, 0xAF, 0x09, 0x40];
         let au = prepend_sc(&idr);
-        let c = detect_stream_config(Codec::Hevc, &au).unwrap();
+        let c = detect_stream_config(VideoCodec::Hevc, &au).unwrap();
         match c {
             DecoderConfig::Hevc(cfg) => assert_eq!(cfg.stream_format, HevcStreamFormat::ByteStream),
             _ => panic!(),
@@ -872,7 +877,7 @@ mod tests {
             hevc_sps().as_slice(),
             hevc_pps().as_slice(),
         ]);
-        let c = detect_stream_config(Codec::Hevc, &au).expect("hvc1");
+        let c = detect_stream_config(VideoCodec::Hevc, &au).expect("hvc1");
         match c {
             DecoderConfig::Hevc(cfg) => assert_eq!(cfg.stream_format, HevcStreamFormat::Hvc1),
             _ => panic!(),
@@ -888,7 +893,7 @@ mod tests {
             hevc_pps().as_slice(),
             idr.as_slice(),
         ]);
-        let c = detect_stream_config(Codec::Hevc, &au).expect("hvcc");
+        let c = detect_stream_config(VideoCodec::Hevc, &au).expect("hvcc");
         match c {
             DecoderConfig::Hevc(cfg) => {
                 assert_eq!(cfg.stream_format, HevcStreamFormat::Hvc1);
@@ -907,7 +912,7 @@ mod tests {
             hevc_pps().as_slice(),
             vec![0x26, 0x01, 0x02].as_slice(),
         ]);
-        assert!(detect_stream_config(Codec::Hevc, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::Hevc, &au).is_none());
     }
 
     #[test]
@@ -917,7 +922,7 @@ mod tests {
             hevc_pps().as_slice(),
             vec![0x26, 0x01, 0x02].as_slice(),
         ]);
-        assert!(detect_stream_config(Codec::Hevc, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::Hevc, &au).is_none());
     }
 
     #[test]
@@ -927,13 +932,13 @@ mod tests {
             hevc_sps().as_slice(),
             vec![0x26, 0x01, 0x02].as_slice(),
         ]);
-        assert!(detect_stream_config(Codec::Hevc, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::Hevc, &au).is_none());
     }
 
     #[test]
     fn test_hvcc_hevc_idr_only() {
         let au = len_prefixed(&[vec![0x26, 0x01, 0x02, 0x03].as_slice()]);
-        assert!(detect_stream_config(Codec::Hevc, &au).is_none());
+        assert!(detect_stream_config(VideoCodec::Hevc, &au).is_none());
     }
 
     #[test]
@@ -941,7 +946,7 @@ mod tests {
         // Type SPS (0x67) but truncated RBSP — still enough for profile/level bytes in AVCC
         let bad_sps = vec![0x67, 0x42, 0x00];
         let au = len_prefixed(&[bad_sps.as_slice(), minimal_h264_pps().as_slice()]);
-        let c = detect_stream_config(Codec::H264, &au);
+        let c = detect_stream_config(VideoCodec::H264, &au);
         assert!(c.is_none());
     }
 
@@ -981,14 +986,14 @@ mod tests {
             minimal_h264_pps().as_slice(),
             idr.as_slice(),
         ]);
-        assert!(is_random_access_point(Codec::H264, &au));
+        assert!(is_random_access_point(VideoCodec::H264, &au));
     }
 
     #[test]
     fn test_rap_h264_annexb_idr_only() {
         let idr = vec![0x65, 0x88, 0x84, 0x00];
         let au = prepend_sc(&idr);
-        assert!(!is_random_access_point(Codec::H264, &au));
+        assert!(!is_random_access_point(VideoCodec::H264, &au));
     }
 
     #[test]
@@ -999,7 +1004,7 @@ mod tests {
             minimal_h264_pps().as_slice(),
             slice.as_slice(),
         ]);
-        assert!(!is_random_access_point(Codec::H264, &au));
+        assert!(!is_random_access_point(VideoCodec::H264, &au));
     }
 
     #[test]
@@ -1010,14 +1015,14 @@ mod tests {
             minimal_h264_pps().as_slice(),
             idr.as_slice(),
         ]);
-        assert!(is_random_access_point(Codec::H264, &au));
+        assert!(is_random_access_point(VideoCodec::H264, &au));
     }
 
     #[test]
     fn test_rap_h264_len_prefixed_idr_only() {
         let idr = vec![0x65, 0x88, 0x84, 0x00];
         let au = len_prefixed(&[idr.as_slice()]);
-        assert!(!is_random_access_point(Codec::H264, &au));
+        assert!(!is_random_access_point(VideoCodec::H264, &au));
     }
 
     #[test]
@@ -1027,14 +1032,14 @@ mod tests {
         au.extend_from_slice(&prepend_sc(&hevc_sps()));
         au.extend_from_slice(&prepend_sc(&hevc_pps()));
         au.extend_from_slice(&prepend_sc(&idr));
-        assert!(is_random_access_point(Codec::Hevc, &au));
+        assert!(is_random_access_point(VideoCodec::Hevc, &au));
     }
 
     #[test]
     fn test_rap_hevc_annexb_idr_only() {
         let idr = vec![0x26, 0x01, 0xAF, 0x09, 0x40];
         let au = prepend_sc(&idr);
-        assert!(!is_random_access_point(Codec::Hevc, &au));
+        assert!(!is_random_access_point(VideoCodec::Hevc, &au));
     }
 
     #[test]
@@ -1044,7 +1049,7 @@ mod tests {
         au.extend_from_slice(&prepend_sc(&hevc_sps()));
         au.extend_from_slice(&prepend_sc(&hevc_pps()));
         au.extend_from_slice(&prepend_sc(&cra));
-        assert!(is_random_access_point(Codec::Hevc, &au));
+        assert!(is_random_access_point(VideoCodec::Hevc, &au));
     }
 
     #[test]
@@ -1053,39 +1058,45 @@ mod tests {
         let mut au = prepend_sc(&hevc_sps());
         au.extend_from_slice(&prepend_sc(&hevc_pps()));
         au.extend_from_slice(&prepend_sc(&idr));
-        assert!(!is_random_access_point(Codec::Hevc, &au));
+        assert!(!is_random_access_point(VideoCodec::Hevc, &au));
     }
 
     #[test]
     fn test_rap_jpeg_png_raw_nonempty() {
-        assert!(is_random_access_point(Codec::Jpeg, &[0xFF, 0xD8, 0xFF]));
         assert!(is_random_access_point(
-            Codec::Png,
+            VideoCodec::Jpeg,
+            &[0xFF, 0xD8, 0xFF]
+        ));
+        assert!(is_random_access_point(
+            VideoCodec::Png,
             &[0x89, 0x50, 0x4E, 0x47]
         ));
-        assert!(is_random_access_point(Codec::RawRgba, &[0; 4]));
-        assert!(is_random_access_point(Codec::RawRgb, &[0; 3]));
-        assert!(is_random_access_point(Codec::RawNv12, &[0; 2]));
+        assert!(is_random_access_point(VideoCodec::RawRgba, &[0; 4]));
+        assert!(is_random_access_point(VideoCodec::RawRgb, &[0; 3]));
+        assert!(is_random_access_point(VideoCodec::RawNv12, &[0; 2]));
     }
 
     #[test]
     fn test_rap_jpeg_png_empty() {
-        assert!(!is_random_access_point(Codec::Jpeg, &[]));
-        assert!(!is_random_access_point(Codec::Png, &[]));
-        assert!(!is_random_access_point(Codec::RawRgba, &[]));
+        assert!(!is_random_access_point(VideoCodec::Jpeg, &[]));
+        assert!(!is_random_access_point(VideoCodec::Png, &[]));
+        assert!(!is_random_access_point(VideoCodec::RawRgba, &[]));
     }
 
     #[test]
     fn test_rap_vp8_vp9_av1_false() {
-        assert!(!is_random_access_point(Codec::Vp8, &[0, 0, 0, 1, 0x9A]));
-        assert!(!is_random_access_point(Codec::Vp9, &[0, 0, 0, 1]));
-        assert!(!is_random_access_point(Codec::Av1, &[0, 0, 0, 1]));
+        assert!(!is_random_access_point(
+            VideoCodec::Vp8,
+            &[0, 0, 0, 1, 0x9A]
+        ));
+        assert!(!is_random_access_point(VideoCodec::Vp9, &[0, 0, 0, 1]));
+        assert!(!is_random_access_point(VideoCodec::Av1, &[0, 0, 0, 1]));
     }
 
     #[test]
     fn test_rap_empty_h264_hevc() {
-        assert!(!is_random_access_point(Codec::H264, &[]));
-        assert!(!is_random_access_point(Codec::Hevc, &[]));
+        assert!(!is_random_access_point(VideoCodec::H264, &[]));
+        assert!(!is_random_access_point(VideoCodec::Hevc, &[]));
     }
 
     #[test]
@@ -1097,6 +1108,6 @@ mod tests {
             hevc_pps().as_slice(),
             idr.as_slice(),
         ]);
-        assert!(is_random_access_point(Codec::Hevc, &au));
+        assert!(is_random_access_point(VideoCodec::Hevc, &au));
     }
 }

@@ -44,7 +44,7 @@ use savant_gstreamer::pipeline::{
 
 use crate::config::{EncoderConfig, NvEncoderConfig};
 use crate::error::EncoderError;
-use crate::{Codec, EncodedFrame, VideoFormat};
+use crate::{EncodedFrame, VideoCodec, VideoFormat};
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -134,8 +134,8 @@ pub struct NvEncoder {
     /// NVMM buffer pool for user-facing frames (the format the caller
     /// renders into; see `config.format()`).
     generator: Arc<Mutex<BufferGenerator>>,
-    /// Codec used by this encoder.
-    codec: Codec,
+    /// VideoCodec used by this encoder.
+    codec: VideoCodec,
     /// User-facing video format (format callers render in).
     user_format: VideoFormat,
     /// Runtime flags.
@@ -218,7 +218,7 @@ impl NvEncoder {
         // uses the Jetson path for PNG/RAW/JPEG (pool=1); H264/HEVC/AV1
         // are unreachable there because `has_nvenc()` is false.
         let pool_size: u32 = if nvidia_gpu_utils::is_jetson_kernel()
-            && matches!(codec, Codec::H264 | Codec::Hevc | Codec::Av1)
+            && matches!(codec, VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1)
         {
             4
         } else {
@@ -242,19 +242,25 @@ impl NvEncoder {
         // (RGBA → NV12 / I420) via NvBufSurfTransform.  Only applies to
         // HW encoders; PNG and raw pseudoencoders use nvvideoconvert
         // in-pipeline because they need CPU-mappable memory downstream.
-        let is_png = codec == Codec::Png;
-        let is_raw = matches!(codec, Codec::RawRgba | Codec::RawRgb | Codec::RawNv12);
+        let is_png = codec == VideoCodec::Png;
+        let is_raw = matches!(
+            codec,
+            VideoCodec::RawRgba | VideoCodec::RawRgb | VideoCodec::RawNv12
+        );
         let native_format = match codec {
-            Codec::Jpeg => VideoFormat::I420,
-            Codec::Png => VideoFormat::RGBA,
-            Codec::RawRgba => VideoFormat::RGBA,
-            Codec::RawRgb => VideoFormat::RGBA,
-            Codec::RawNv12 => VideoFormat::NV12,
+            VideoCodec::Jpeg => VideoFormat::I420,
+            VideoCodec::Png => VideoFormat::RGBA,
+            VideoCodec::RawRgba => VideoFormat::RGBA,
+            VideoCodec::RawRgb => VideoFormat::RGBA,
+            VideoCodec::RawNv12 => VideoFormat::NV12,
             _ => VideoFormat::NV12,
         };
         let needs_convert = !is_png
             && !is_raw
-            && matches!(codec, Codec::H264 | Codec::Hevc | Codec::Av1 | Codec::Jpeg)
+            && matches!(
+                codec,
+                VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1 | VideoCodec::Jpeg
+            )
             && user_format != native_format;
 
         let convert_ctx = if needs_convert {
@@ -341,7 +347,7 @@ impl NvEncoder {
     }
 
     /// The codec this encoder was configured for.
-    pub fn codec(&self) -> Codec {
+    pub fn codec(&self) -> VideoCodec {
         self.codec
     }
 
@@ -408,7 +414,11 @@ impl NvEncoder {
         );
         if matches!(
             self.codec,
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12
+            VideoCodec::Jpeg
+                | VideoCodec::Png
+                | VideoCodec::RawRgba
+                | VideoCodec::RawRgb
+                | VideoCodec::RawNv12
         ) {
             self.intra_submit_fifo.lock().push_back(frame_id);
         }
@@ -678,7 +688,11 @@ impl NvEncoder {
 
         let is_intra_only = matches!(
             self.codec,
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12
+            VideoCodec::Jpeg
+                | VideoCodec::Png
+                | VideoCodec::RawRgba
+                | VideoCodec::RawRgb
+                | VideoCodec::RawNv12
         );
         let buf_size = buffer.size() as u64;
 
@@ -738,7 +752,7 @@ impl NvEncoder {
         };
         let pts_ns = original_pts;
 
-        // ── Codec-header stashing (Jetson parity) ────────────────────
+        // ── VideoCodec-header stashing (Jetson parity) ────────────────────
         //
         // A non-user-frame buffer with payload on a non-intra-only codec
         // is a stream-level codec header (e.g. dGPU `nvv4l2av1enc`
@@ -805,16 +819,20 @@ impl NvEncoder {
         let final_duration = duration_ns.or(orig_duration);
 
         let keyframe = match self.codec {
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb | Codec::RawNv12 => true,
+            VideoCodec::Jpeg
+            | VideoCodec::Png
+            | VideoCodec::RawRgba
+            | VideoCodec::RawRgb
+            | VideoCodec::RawNv12 => true,
             _ => !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
         };
 
-        let mut data = if self.codec == Codec::RawNv12 {
+        let mut data = if self.codec == VideoCodec::RawNv12 {
             let map = buffer.map_readable().map_err(|e| {
                 EncoderError::PipelineError(format!("Failed to map NV12 buffer: {e:?}"))
             })?;
             map.as_slice().to_vec()
-        } else if matches!(self.codec, Codec::RawRgba | Codec::RawRgb) {
+        } else if matches!(self.codec, VideoCodec::RawRgba | VideoCodec::RawRgb) {
             extract_raw_pixels(&buffer, self.codec)?
         } else {
             let map = buffer
@@ -911,14 +929,14 @@ fn set_timestamps(
 /// any stride padding using `gst_video::VideoMeta` when present.  Falls
 /// back to assuming unpadded rows of `width * bpp` when the meta is
 /// absent.
-fn extract_raw_pixels(buffer: &gst::Buffer, codec: Codec) -> Result<Vec<u8>, EncoderError> {
+fn extract_raw_pixels(buffer: &gst::Buffer, codec: VideoCodec) -> Result<Vec<u8>, EncoderError> {
     // We don't have access to caps on the drain-side buffer, so rely on
     // GstVideoMeta (which elements attach when stride != default).  The
     // raw pipeline is appsrc → nvvideoconvert → capsfilter → appsink;
     // dimensions and format are fixed by the capsfilter.
     let bpp = match codec {
-        Codec::RawRgba => 4usize,
-        Codec::RawRgb => 3usize,
+        VideoCodec::RawRgba => 4usize,
+        VideoCodec::RawRgb => 3usize,
         _ => unreachable!("extract_raw_pixels only for raw RGB/RGBA"),
     };
 
@@ -957,18 +975,18 @@ fn validate_config(config: &NvEncoderConfig) -> Result<(), EncoderError> {
     let codec = config.encoder.codec();
     let user_format = config.encoder.format();
 
-    if matches!(codec, Codec::Vp8 | Codec::Vp9) {
+    if matches!(codec, VideoCodec::Vp8 | VideoCodec::Vp9) {
         return Err(EncoderError::UnsupportedCodec(codec.name().to_string()));
     }
 
-    if codec == Codec::Png && user_format != VideoFormat::RGBA {
+    if codec == VideoCodec::Png && user_format != VideoFormat::RGBA {
         return Err(EncoderError::InvalidProperty {
             name: "format".into(),
             reason: "PNG encoder requires VideoFormat::RGBA".into(),
         });
     }
 
-    if matches!(codec, Codec::H264 | Codec::Hevc | Codec::Av1) {
+    if matches!(codec, VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1) {
         let has_nvenc = nvidia_gpu_utils::has_nvenc(config.gpu_id).unwrap_or(false);
         if !has_nvenc {
             return Err(EncoderError::NvencNotAvailable {
@@ -1004,7 +1022,7 @@ fn build_pipeline_elements(
     // NV12 caps path to reuse `nvmm_caps_gst` without a full pool.
     let appsrc_caps = if has_convert_ctx {
         let native_format = match codec {
-            Codec::Jpeg => VideoFormat::I420,
+            VideoCodec::Jpeg => VideoFormat::I420,
             _ => VideoFormat::NV12,
         };
         let temp = BufferGenerator::builder(native_format, config.width(), config.height())
@@ -1019,12 +1037,12 @@ fn build_pipeline_elements(
 
     // ── Element chain ───────────────────────────────────────────────
     let elements = match codec {
-        Codec::H264 | Codec::Hevc | Codec::Av1 | Codec::Jpeg => {
+        VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1 | VideoCodec::Jpeg => {
             let (enc_factory, parse_factory) = match codec {
-                Codec::H264 => ("nvv4l2h264enc", "h264parse"),
-                Codec::Hevc => ("nvv4l2h265enc", "h265parse"),
-                Codec::Av1 => ("nvv4l2av1enc", "av1parse"),
-                Codec::Jpeg => ("nvjpegenc", "jpegparse"),
+                VideoCodec::H264 => ("nvv4l2h264enc", "h264parse"),
+                VideoCodec::Hevc => ("nvv4l2h265enc", "h265parse"),
+                VideoCodec::Av1 => ("nvv4l2av1enc", "av1parse"),
+                VideoCodec::Jpeg => ("nvjpegenc", "jpegparse"),
                 _ => unreachable!(),
             };
 
@@ -1050,12 +1068,14 @@ fn build_pipeline_elements(
             //
             // Runtime-detected via `is_jetson_kernel` so non-Jetson ARM
             // hosts (Grace Hopper) still use the dGPU path.
-            if matches!(codec, Codec::H264 | Codec::Hevc) && nvidia_gpu_utils::is_jetson_kernel() {
+            if matches!(codec, VideoCodec::H264 | VideoCodec::Hevc)
+                && nvidia_gpu_utils::is_jetson_kernel()
+            {
                 enc.set_property_from_str("insert-sps-pps", "1");
             }
 
             let parse = make_elem(parse_factory, "parse")?;
-            if matches!(codec, Codec::H264 | Codec::Hevc) {
+            if matches!(codec, VideoCodec::H264 | VideoCodec::Hevc) {
                 parse.set_property("config-interval", -1i32);
             }
 
@@ -1067,7 +1087,7 @@ fn build_pipeline_elements(
             // Runtime-detected via `is_jetson_kernel` so non-Jetson ARM
             // hosts (Grace Hopper) use the dGPU path.
             let pre_enc: Option<gst::Element> =
-                if nvidia_gpu_utils::is_jetson_kernel() && codec == Codec::Jpeg {
+                if nvidia_gpu_utils::is_jetson_kernel() && codec == VideoCodec::Jpeg {
                     let conv = make_elem("nvvideoconvert", "pre_enc_conv")?;
                     conv.set_property("disable-passthrough", true);
                     Some(conv)
@@ -1083,18 +1103,18 @@ fn build_pipeline_elements(
             elems.push(parse);
             elems
         }
-        Codec::Png => {
+        VideoCodec::Png => {
             // appsrc (NVMM) → nvvideoconvert (GPU→CPU RGBA) → pngenc
             let conv = make_elem("nvvideoconvert", "nvconv")?;
             let enc = make_elem("pngenc", "enc")?;
             apply_encoder_props(&enc, config.to_gst_pairs())?;
             vec![conv, enc]
         }
-        Codec::RawRgba | Codec::RawRgb | Codec::RawNv12 => {
+        VideoCodec::RawRgba | VideoCodec::RawRgb | VideoCodec::RawNv12 => {
             let raw_format = match codec {
-                Codec::RawRgba => "RGBA",
-                Codec::RawRgb => "RGB",
-                Codec::RawNv12 => "NV12",
+                VideoCodec::RawRgba => "RGBA",
+                VideoCodec::RawRgb => "RGB",
+                VideoCodec::RawNv12 => "NV12",
                 _ => unreachable!(),
             };
             let conv = make_elem("nvvideoconvert", "nvconv")?;
@@ -1116,7 +1136,12 @@ fn build_pipeline_elements(
                 .map_err(|_| EncoderError::ElementCreationFailed("capsfilter".into()))?;
             vec![conv, capsfilter]
         }
-        Codec::Vp8 | Codec::Vp9 => unreachable!("VP8/VP9 are decode-only"),
+        VideoCodec::Vp8 | VideoCodec::Vp9 => unreachable!("VP8/VP9 are decode-only"),
+        // `EncoderConfig` has no `SwJpeg` variant, so `config.codec()` can
+        // never return `SwJpeg`. Software JPEG is a decoder-only concept.
+        VideoCodec::SwJpeg => {
+            unreachable!("SwJpeg is decode-only; EncoderConfig cannot produce VideoCodec::SwJpeg")
+        }
     };
 
     Ok((elements, appsrc_caps))

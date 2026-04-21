@@ -11,6 +11,7 @@ use deepstream_decoders::{
 use parking_lot::Mutex;
 use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy};
 use savant_core::primitives::gstreamer_frame_time::frame_clock_ns;
+use savant_core::primitives::video_codec::VideoCodec;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -488,7 +489,7 @@ impl FlexibleDecoder {
     fn activate(
         &self,
         decoder_config: DecoderConfig,
-        gst_codec: savant_gstreamer::Codec,
+        gst_codec: VideoCodec,
         width: i64,
         height: i64,
         frame: &VideoFrameProxy,

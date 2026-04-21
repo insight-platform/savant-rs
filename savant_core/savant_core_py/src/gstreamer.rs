@@ -2,14 +2,22 @@
 //!
 //! These types are registered in the `savant_rs.gstreamer` Python submodule
 //! by `savant_python` when the `gst` feature is enabled.
+//!
+//! The :class:`Codec` Python class is re-exported from
+//! :mod:`savant_rs.primitives` (see [`crate::primitives::frame::PyVideoCodec`])
+//! so both modules expose the *same* object.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::prelude::*;
-use savant_gstreamer::codec::Codec;
-use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput};
+use savant_core::primitives::video_codec::VideoCodec;
+use savant_gstreamer::mp4_demuxer::{
+    DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput, VideoInfo,
+};
 use savant_gstreamer::mp4_muxer::{Mp4Muxer, Mp4MuxerError};
+
+use crate::primitives::frame::PyVideoCodec;
 
 fn muxer_err(e: Mp4MuxerError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
@@ -19,164 +27,36 @@ fn demuxer_err(e: Mp4DemuxerError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
 }
 
-/// Python enum for video codecs.
-///
-/// - ``H264``     — H.264 / AVC.
-/// - ``HEVC``     — H.265 / HEVC.
-/// - ``JPEG``     — Motion JPEG.
-/// - ``AV1``      — AV1.
-/// - ``PNG``      — PNG (CPU-based, lossless).
-/// - ``VP8``      — VP8.
-/// - ``VP9``      — VP9.
-/// - ``RAW_RGBA`` — Raw RGBA pixel data (no encoding).
-/// - ``RAW_RGB``  — Raw RGB pixel data (no encoding).
-/// - ``RAW_NV12`` — Raw NV12 pixel data (no encoding).
-#[pyclass(
-    from_py_object,
-    name = "Codec",
-    module = "savant_rs.gstreamer",
-    eq,
-    eq_int
-)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PyCodec {
-    #[pyo3(name = "H264")]
-    H264 = 0,
-    #[pyo3(name = "HEVC")]
-    Hevc = 1,
-    #[pyo3(name = "JPEG")]
-    Jpeg = 2,
-    #[pyo3(name = "AV1")]
-    Av1 = 3,
-    #[pyo3(name = "PNG")]
-    Png = 4,
-    #[pyo3(name = "VP8")]
-    Vp8 = 5,
-    #[pyo3(name = "VP9")]
-    Vp9 = 6,
-    #[pyo3(name = "RAW_RGBA")]
-    RawRgba = 7,
-    #[pyo3(name = "RAW_RGB")]
-    RawRgb = 8,
-    #[pyo3(name = "RAW_NV12")]
-    RawNv12 = 9,
-}
-
-#[pymethods]
-impl PyCodec {
-    /// Parse a codec from a string name.
-    ///
-    /// Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-    /// ``jpeg``, ``av1``, ``png``, ``vp8``, ``vp9``,
-    /// ``raw_rgba``, ``raw_rgb``, ``raw_nv12``.
-    ///
-    /// Args:
-    ///     name (str): Codec name.
-    ///
-    /// Returns:
-    ///     Codec: The parsed codec.
-    ///
-    /// Raises:
-    ///     ValueError: If the name is not recognized.
-    #[staticmethod]
-    fn from_name(name: &str) -> PyResult<Self> {
-        match Codec::from_name(name) {
-            Some(c) => Ok(c.into()),
-            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown codec: '{}'. Expected one of: h264, hevc, h265, jpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12",
-                name
-            ))),
-        }
-    }
-
-    /// Return the canonical name of this codec.
-    fn name(&self) -> &'static str {
-        let c: Codec = (*self).into();
-        c.name()
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "Codec.{}",
-            match self {
-                PyCodec::H264 => "H264",
-                PyCodec::Hevc => "HEVC",
-                PyCodec::Jpeg => "JPEG",
-                PyCodec::Av1 => "AV1",
-                PyCodec::Png => "PNG",
-                PyCodec::Vp8 => "VP8",
-                PyCodec::Vp9 => "VP9",
-                PyCodec::RawRgba => "RAW_RGBA",
-                PyCodec::RawRgb => "RAW_RGB",
-                PyCodec::RawNv12 => "RAW_NV12",
-            }
-        )
-    }
-}
-
-impl From<PyCodec> for Codec {
-    fn from(c: PyCodec) -> Self {
-        match c {
-            PyCodec::H264 => Codec::H264,
-            PyCodec::Hevc => Codec::Hevc,
-            PyCodec::Jpeg => Codec::Jpeg,
-            PyCodec::Av1 => Codec::Av1,
-            PyCodec::Png => Codec::Png,
-            PyCodec::Vp8 => Codec::Vp8,
-            PyCodec::Vp9 => Codec::Vp9,
-            PyCodec::RawRgba => Codec::RawRgba,
-            PyCodec::RawRgb => Codec::RawRgb,
-            PyCodec::RawNv12 => Codec::RawNv12,
-        }
-    }
-}
-
-impl From<Codec> for PyCodec {
-    fn from(c: Codec) -> Self {
-        match c {
-            Codec::H264 => PyCodec::H264,
-            Codec::Hevc => PyCodec::Hevc,
-            Codec::Jpeg => PyCodec::Jpeg,
-            Codec::Av1 => PyCodec::Av1,
-            Codec::Png => PyCodec::Png,
-            Codec::Vp8 => PyCodec::Vp8,
-            Codec::Vp9 => PyCodec::Vp9,
-            Codec::RawRgba => PyCodec::RawRgba,
-            Codec::RawRgb => PyCodec::RawRgb,
-            Codec::RawNv12 => PyCodec::RawNv12,
-        }
-    }
-}
-
-/// Extract a [`Codec`] from a Python object.
+/// Extract a [`VideoCodec`] from a Python object.
 ///
 /// Accepts:
-/// 1. A `PyCodec` enum value (from this module).
-/// 2. A `str` codec name (e.g. `"hevc"`).
+/// 1. A [`PyVideoCodec`] (the unified ``Codec`` enum exposed in both
+///    ``savant_rs.primitives`` and ``savant_rs.gstreamer``).
+/// 2. A `str` codec name (e.g. ``"hevc"``).
 /// 3. Any object with a `.name()` method returning a codec name string
-///    (e.g. a `Codec` instance from a *different* extension module).
-pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
-    if let Ok(py_codec) = ob.extract::<PyCodec>() {
+///    (e.g. a ``Codec`` instance from a *different* extension module).
+pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<VideoCodec> {
+    if let Ok(py_codec) = ob.extract::<PyVideoCodec>() {
         return Ok(py_codec.into());
     }
     if let Ok(s) = ob.extract::<String>() {
-        return Codec::from_name(&s).ok_or_else(|| {
+        return VideoCodec::from_name(&s).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12"
+                "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, swjpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12"
             ))
         });
     }
     if let Ok(name_val) = ob.call_method0("name") {
         if let Ok(s) = name_val.extract::<String>() {
-            return Codec::from_name(&s).ok_or_else(|| {
+            return VideoCodec::from_name(&s).ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err(format!(
-                    "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12"
+                    "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, swjpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12"
                 ))
             });
         }
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "Expected a Codec enum value or a codec name string (h264, hevc, h265, jpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12)",
+        "Expected a Codec enum value or a codec name string (h264, hevc, h265, jpeg, swjpeg, av1, png, vp8, vp9, raw_rgba, raw_rgb, raw_nv12)",
     ))
 }
 
@@ -197,7 +77,7 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 ///
 ///     from savant_rs.gstreamer import Mp4Muxer, Codec
 ///
-///     muxer = Mp4Muxer(Codec.HEVC, "/tmp/out.mp4", fps_num=30)
+///     muxer = Mp4Muxer(Codec.Hevc, "/tmp/out.mp4", fps_num=30)
 ///     muxer.push(b"\\x00\\x00\\x00\\x01...", pts_ns=0,
 ///                dts_ns=0, duration_ns=33_333_333)
 ///     muxer.finish()
@@ -327,7 +207,64 @@ impl PyDemuxedPacket {
 // Mp4DemuxerOutput
 // ---------------------------------------------------------------------------
 
+/// Video-stream metadata extracted from the MP4 container at demux time.
+///
+/// Attributes:
+///     codec (Codec): Detected video codec.
+///     width (int): Encoded frame width in pixels.
+///     height (int): Encoded frame height in pixels.
+///     framerate_num (int): Framerate numerator (``0`` if unknown).
+///     framerate_den (int): Framerate denominator (``1`` if unknown).
+///
+/// Dimensions are the **encoded** values - any QuickTime display-orientation
+/// transform is NOT applied here.
+#[pyclass(from_py_object, name = "VideoInfo", module = "savant_rs.gstreamer")]
+#[derive(Debug, Clone, Copy)]
+pub struct PyVideoInfo {
+    inner: VideoInfo,
+}
+
+#[pymethods]
+impl PyVideoInfo {
+    #[getter]
+    fn codec(&self) -> PyVideoCodec {
+        self.inner.codec.into()
+    }
+
+    #[getter]
+    fn width(&self) -> u32 {
+        self.inner.width
+    }
+
+    #[getter]
+    fn height(&self) -> u32 {
+        self.inner.height
+    }
+
+    #[getter]
+    fn framerate_num(&self) -> u32 {
+        self.inner.framerate_num
+    }
+
+    #[getter]
+    fn framerate_den(&self) -> u32 {
+        self.inner.framerate_den
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "VideoInfo(codec={:?}, width={}, height={}, framerate={}/{})",
+            self.inner.codec,
+            self.inner.width,
+            self.inner.height,
+            self.inner.framerate_num,
+            self.inner.framerate_den,
+        )
+    }
+}
+
 enum DemuxerOutputVariant {
+    StreamInfo(Py<PyVideoInfo>),
     Packet(Py<PyDemuxedPacket>),
     Eos,
     Error(String),
@@ -339,6 +276,7 @@ enum DemuxerOutputVariant {
 /// corresponding ``as_*`` method to get a typed value.
 ///
 /// Variants:
+///     - **StreamInfo** - auto-detected :class:`VideoInfo`.
 ///     - **Packet** — a demuxed :class:`DemuxedPacket`.
 ///     - **Eos** — end of stream; all packets have been delivered.
 ///     - **Error** — a pipeline error message (string).
@@ -348,6 +286,9 @@ pub struct PyMp4DemuxerOutput(DemuxerOutputVariant);
 impl PyMp4DemuxerOutput {
     fn from_rust(py: Python<'_>, output: Mp4DemuxerOutput) -> PyResult<Self> {
         let variant = match output {
+            Mp4DemuxerOutput::StreamInfo(info) => {
+                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo { inner: info })?)
+            }
             Mp4DemuxerOutput::Packet(pkt) => {
                 DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket { inner: pkt })?)
             }
@@ -360,6 +301,12 @@ impl PyMp4DemuxerOutput {
 
 #[pymethods]
 impl PyMp4DemuxerOutput {
+    /// ``True`` if this is a :class:`VideoInfo` variant.
+    #[getter]
+    fn is_stream_info(&self) -> bool {
+        matches!(self.0, DemuxerOutputVariant::StreamInfo(_))
+    }
+
     /// ``True`` if this is a :class:`DemuxedPacket` variant.
     #[getter]
     fn is_packet(&self) -> bool {
@@ -386,6 +333,14 @@ impl PyMp4DemuxerOutput {
         }
     }
 
+    /// Downcast to :class:`VideoInfo`, or ``None``.
+    fn as_stream_info(&self, py: Python<'_>) -> Option<Py<PyVideoInfo>> {
+        match &self.0 {
+            DemuxerOutputVariant::StreamInfo(v) => Some(v.clone_ref(py)),
+            _ => None,
+        }
+    }
+
     /// Return the error message string, or ``None``.
     fn as_error_message(&self) -> Option<&str> {
         match &self.0 {
@@ -396,6 +351,7 @@ impl PyMp4DemuxerOutput {
 
     fn __repr__(&self) -> String {
         match &self.0 {
+            DemuxerOutputVariant::StreamInfo(_) => "Mp4DemuxerOutput(StreamInfo)".to_string(),
             DemuxerOutputVariant::Packet(_) => "Mp4DemuxerOutput(Packet)".to_string(),
             DemuxerOutputVariant::Eos => "Mp4DemuxerOutput(Eos)".to_string(),
             DemuxerOutputVariant::Error(msg) => format!("Mp4DemuxerOutput(Error({msg}))"),
@@ -517,11 +473,47 @@ impl PyMp4Demuxer {
 
     /// Auto-detected video codec from the container, or ``None``.
     #[getter]
-    fn detected_codec(&self) -> Option<PyCodec> {
+    fn detected_codec(&self) -> Option<PyVideoCodec> {
         self.inner
             .as_ref()
             .and_then(|d| d.detected_codec())
             .map(|c| c.into())
+    }
+
+    /// Auto-detected video-stream metadata, or ``None`` if caps have not been
+    /// observed yet.
+    #[getter]
+    fn video_info(&self, py: Python<'_>) -> PyResult<Option<Py<PyVideoInfo>>> {
+        self.inner
+            .as_ref()
+            .and_then(|d| d.video_info())
+            .map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .transpose()
+    }
+
+    /// Block until :class:`VideoInfo` is known, the pipeline terminates, or
+    /// the timeout expires.
+    ///
+    /// Args:
+    ///     timeout_ms (int): Timeout in milliseconds.
+    ///
+    /// Returns:
+    ///     Optional[VideoInfo]: ``None`` on timeout or if the pipeline ended
+    ///     before caps were observed.
+    ///
+    /// The GIL is released while waiting.
+    fn wait_for_video_info(
+        &self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Option<Py<PyVideoInfo>>> {
+        let Some(ref inner) = self.inner else {
+            return Ok(None);
+        };
+        let timeout = Duration::from_millis(timeout_ms);
+        let info = py.detach(|| inner.wait_for_video_info(timeout));
+        info.map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .transpose()
     }
 
     /// Shut down the demuxer pipeline.
@@ -557,9 +549,14 @@ impl Drop for PyMp4Demuxer {
 }
 
 /// Register the GStreamer Python classes on the given module.
+///
+/// The unified :class:`Codec` enum ([`PyVideoCodec`]) is also re-exported
+/// here so that `savant_rs.gstreamer.Codec` continues to resolve to the
+/// same class as `savant_rs.primitives.Codec`.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyCodec>()?;
+    m.add_class::<PyVideoCodec>()?;
     m.add_class::<PyMp4Muxer>()?;
+    m.add_class::<PyVideoInfo>()?;
     m.add_class::<PyDemuxedPacket>()?;
     m.add_class::<PyMp4DemuxerOutput>()?;
     m.add_class::<PyMp4Demuxer>()?;

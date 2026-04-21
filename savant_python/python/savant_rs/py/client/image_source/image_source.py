@@ -5,7 +5,7 @@ from typing import Any, BinaryIO, List, Optional, Tuple, TypeVar, Union
 from savant_rs.primitives import (
     AttributeValue,
     VideoFrame,
-    VideoFrameCodec,
+    Codec,
     VideoFrameContent,
     VideoFrameUpdate,
 )

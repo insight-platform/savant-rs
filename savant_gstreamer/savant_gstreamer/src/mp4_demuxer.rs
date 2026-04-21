@@ -4,9 +4,12 @@
 //! as elementary stream payloads with timestamps through a user-supplied
 //! callback.
 //!
-//! All output (packets, EOS, errors) is delivered through [`Mp4DemuxerOutput`]
-//! via the callback provided at construction.  Callbacks fire on GStreamer's
-//! streaming thread.
+//! What it delivers through [`Mp4DemuxerOutput`]:
+//! - [`VideoInfo`] (once, before first packet, when caps are known),
+//! - encoded [`DemuxedPacket`] payloads,
+//! - EOS / errors.
+//!
+//! Callbacks fire on GStreamer's streaming thread.
 //!
 //! # Threading
 //!
@@ -24,7 +27,7 @@ use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use thiserror::Error;
 
-use crate::codec::Codec;
+use savant_core::primitives::video_codec::VideoCodec;
 
 /// A single demuxed elementary stream packet.
 #[derive(Debug, Clone)]
@@ -34,6 +37,21 @@ pub struct DemuxedPacket {
     pub dts_ns: Option<u64>,
     pub duration_ns: Option<u64>,
     pub is_keyframe: bool,
+}
+
+/// Video-stream metadata extracted from container caps at demux time.
+///
+/// Dimensions are the **encoded** width/height — QuickTime display-orientation
+/// metadata is NOT applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VideoInfo {
+    pub codec: VideoCodec,
+    pub width: u32,
+    pub height: u32,
+    /// Framerate numerator. `0` if the container does not advertise a rate.
+    pub framerate_num: u32,
+    /// Framerate denominator. `1` if the container does not advertise a rate.
+    pub framerate_den: u32,
 }
 
 /// Errors that can occur during demuxing.
@@ -60,6 +78,9 @@ pub enum Mp4DemuxerError {
 /// Callback payload delivered by [`Mp4Demuxer`].
 #[derive(Debug)]
 pub enum Mp4DemuxerOutput {
+    /// Fires exactly once, before the first `Packet`. May be absent if the
+    /// pipeline errors before caps are known.
+    StreamInfo(VideoInfo),
     /// A demuxed packet from the container.
     Packet(DemuxedPacket),
     /// End of stream — all packets have been delivered.
@@ -72,6 +93,8 @@ pub enum Mp4DemuxerOutput {
 ///
 /// Reads encoded packets from an MP4 (QuickTime) container and delivers
 /// them through the `on_output` callback provided at construction.
+/// Use [`video_info`](Self::video_info) / [`wait_for_video_info`](Self::wait_for_video_info)
+/// to read stream metadata discovered from caps.
 ///
 /// # Threading
 ///
@@ -80,7 +103,10 @@ pub enum Mp4DemuxerOutput {
 pub struct Mp4Demuxer {
     pipeline: gst::Pipeline,
     finished: Arc<AtomicBool>,
-    detected_codec: Arc<Mutex<Option<Codec>>>,
+    detected_codec: Arc<Mutex<Option<VideoCodec>>>,
+    video_info: Arc<Mutex<Option<VideoInfo>>>,
+    info_pair: Arc<(Mutex<bool>, Condvar)>,
+    stream_info_fired: Arc<AtomicBool>,
     done_pair: Arc<(Mutex<bool>, Condvar)>,
 }
 
@@ -159,18 +185,34 @@ impl Mp4Demuxer {
             .static_pad("sink")
             .ok_or_else(|| Mp4DemuxerError::ElementCreation("queue sink pad missing".into()))?;
 
+        // Shared state
+        let on_output = Arc::new(on_output);
+        let detected_codec: Arc<Mutex<Option<VideoCodec>>> = Arc::new(Mutex::new(None));
+        let video_info: Arc<Mutex<Option<VideoInfo>>> = Arc::new(Mutex::new(None));
+        let stream_info_fired = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let info_pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let done_pair = Arc::new((Mutex::new(false), Condvar::new()));
+
         // Dynamic pad linking (qtdemux -> parser? -> queue)
         let linked_video_pad = Arc::new(AtomicBool::new(false));
         let linked_video_pad_closure = linked_video_pad.clone();
         let pipeline_for_pad = pipeline.clone();
+        let on_output_pad = on_output.clone();
+        let detected_codec_pad = detected_codec.clone();
+        let video_info_pad = video_info.clone();
+        let stream_info_fired_pad = stream_info_fired.clone();
+        let info_pair_pad = info_pair.clone();
         demux.connect_pad_added(move |_demux, src_pad| {
             if linked_video_pad_closure.load(Ordering::SeqCst) {
                 return;
             }
 
-            let codec_name = src_pad
+            let caps = src_pad
                 .current_caps()
-                .or_else(|| Some(src_pad.query_caps(None)))
+                .or_else(|| Some(src_pad.query_caps(None)));
+            let codec_name = caps
+                .as_ref()
                 .and_then(|caps| caps.structure(0).map(|s| s.name().to_string()));
 
             let is_video = codec_name
@@ -179,6 +221,15 @@ impl Mp4Demuxer {
             if !is_video {
                 return;
             }
+
+            maybe_emit_stream_info_from_caps(
+                caps.as_ref().map(|c| c.as_ref()),
+                &detected_codec_pad,
+                &video_info_pad,
+                &stream_info_fired_pad,
+                &info_pair_pad,
+                on_output_pad.as_ref(),
+            );
 
             if queue_sink_pad.is_linked() {
                 return;
@@ -203,21 +254,19 @@ impl Mp4Demuxer {
             .dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| Mp4DemuxerError::ElementCreation("appsink cast failed".into()))?;
 
-        // Shared state
-        let on_output = Arc::new(on_output);
-        let detected_codec: Arc<Mutex<Option<Codec>>> = Arc::new(Mutex::new(None));
-        let finished = Arc::new(AtomicBool::new(false));
-        let done_pair = Arc::new((Mutex::new(false), Condvar::new()));
-
         // Appsink callbacks (fire on GStreamer streaming thread)
         {
             let on_output_sample = on_output.clone();
             let detected_codec = detected_codec.clone();
+            let video_info_sample = video_info.clone();
+            let stream_info_fired_sample = stream_info_fired.clone();
             let finished_sample = finished.clone();
+            let info_pair_sample = info_pair.clone();
             let done_pair_sample = done_pair.clone();
 
             let on_output_eos = on_output.clone();
             let finished_eos = finished.clone();
+            let info_pair_eos = info_pair.clone();
             let done_pair_eos = done_pair.clone();
 
             appsink.set_callbacks(
@@ -227,7 +276,14 @@ impl Mp4Demuxer {
                             return Err(gst::FlowError::Eos);
                         }
                         let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                        match sample_to_packet(sample, &detected_codec) {
+                        match sample_to_packet(
+                            sample,
+                            &detected_codec,
+                            &video_info_sample,
+                            &stream_info_fired_sample,
+                            &info_pair_sample,
+                            on_output_sample.as_ref(),
+                        ) {
                             Ok(pkt) => {
                                 on_output_sample(Mp4DemuxerOutput::Packet(pkt));
                                 Ok(gst::FlowSuccess::Ok)
@@ -235,6 +291,7 @@ impl Mp4Demuxer {
                             Err(e) => {
                                 if !finished_sample.swap(true, Ordering::SeqCst) {
                                     on_output_sample(Mp4DemuxerOutput::Error(e));
+                                    signal_info_done(&info_pair_sample);
                                     signal_done(&done_pair_sample);
                                 }
                                 Err(gst::FlowError::Error)
@@ -244,6 +301,7 @@ impl Mp4Demuxer {
                     .eos(move |_| {
                         if !finished_eos.swap(true, Ordering::SeqCst) {
                             on_output_eos(Mp4DemuxerOutput::Eos);
+                            signal_info_done(&info_pair_eos);
                             signal_done(&done_pair_eos);
                         }
                     })
@@ -255,6 +313,7 @@ impl Mp4Demuxer {
         if let Some(bus) = pipeline.bus() {
             let on_output_err = on_output.clone();
             let finished_bus = finished.clone();
+            let info_pair_bus = info_pair.clone();
             let done_pair_bus = done_pair.clone();
 
             bus.set_sync_handler(move |_, msg| {
@@ -268,6 +327,7 @@ impl Mp4Demuxer {
                             msg: e.error().to_string(),
                             debug: e.debug().unwrap_or_default().to_string(),
                         }));
+                        signal_info_done(&info_pair_bus);
                         signal_done(&done_pair_bus);
                     }
                     return gst::BusSyncReply::Drop;
@@ -286,6 +346,9 @@ impl Mp4Demuxer {
             pipeline,
             finished,
             detected_codec,
+            video_info,
+            info_pair,
+            stream_info_fired,
             done_pair,
         })
     }
@@ -312,8 +375,46 @@ impl Mp4Demuxer {
 
     /// Auto-detected video codec from the container, or `None` if no sample
     /// has been processed yet.
-    pub fn detected_codec(&self) -> Option<Codec> {
+    pub fn detected_codec(&self) -> Option<VideoCodec> {
         *self.detected_codec.lock().unwrap()
+    }
+
+    /// Returns `VideoInfo` if it has already been observed on the source pad
+    /// caps. Non-blocking.
+    ///
+    /// ```no_run
+    /// use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let (_packets, info) = Mp4Demuxer::demux_all_parsed("/tmp/input.mp4")?;
+    /// if let Some(info) = info {
+    ///     println!("codec={:?}, {}x{}", info.codec, info.width, info.height);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn video_info(&self) -> Option<VideoInfo> {
+        *self.video_info.lock().unwrap()
+    }
+
+    /// Block until `VideoInfo` is known, the pipeline terminates, or the
+    /// timeout expires. Returns the info or `None` on timeout / early
+    /// termination without caps.
+    pub fn wait_for_video_info(&self, timeout: Duration) -> Option<VideoInfo> {
+        if self.stream_info_fired.load(Ordering::SeqCst) {
+            return self.video_info();
+        }
+        let (lock, cvar) = &*self.info_pair;
+        let (guard, _) = cvar
+            .wait_timeout_while(lock.lock().unwrap(), timeout, |known_or_done| {
+                !*known_or_done
+            })
+            .unwrap();
+        if !*guard {
+            return None;
+        }
+        drop(guard);
+        self.video_info()
     }
 
     /// Stop the pipeline and release resources.
@@ -328,6 +429,7 @@ impl Mp4Demuxer {
         let was_finished = self.finished.swap(true, Ordering::SeqCst);
         let _ = self.pipeline.set_state(gst::State::Null);
         if !was_finished {
+            signal_info_done(&self.info_pair);
             signal_done(&self.done_pair);
         }
     }
@@ -340,32 +442,33 @@ impl Mp4Demuxer {
 
     /// Convenience: demux all packets from an MP4 file (raw container-format).
     ///
-    /// Returns `(packets, detected_codec)`.
+    /// Breaking change: returns `(packets, video_info)` instead of codec-only metadata.
     pub fn demux_all(
         input_path: &str,
-    ) -> Result<(Vec<DemuxedPacket>, Option<Codec>), Mp4DemuxerError> {
+    ) -> Result<(Vec<DemuxedPacket>, Option<VideoInfo>), Mp4DemuxerError> {
         Self::demux_all_inner(input_path, false)
     }
 
     /// Convenience: demux all packets from an MP4 file (parsed/byte-stream).
     ///
-    /// Returns `(packets, detected_codec)`.
+    /// Breaking change: returns `(packets, video_info)` instead of codec-only metadata.
     pub fn demux_all_parsed(
         input_path: &str,
-    ) -> Result<(Vec<DemuxedPacket>, Option<Codec>), Mp4DemuxerError> {
+    ) -> Result<(Vec<DemuxedPacket>, Option<VideoInfo>), Mp4DemuxerError> {
         Self::demux_all_inner(input_path, true)
     }
 
     fn demux_all_inner(
         input_path: &str,
         parsed: bool,
-    ) -> Result<(Vec<DemuxedPacket>, Option<Codec>), Mp4DemuxerError> {
+    ) -> Result<(Vec<DemuxedPacket>, Option<VideoInfo>), Mp4DemuxerError> {
         let packets: Arc<Mutex<Vec<DemuxedPacket>>> = Arc::new(Mutex::new(Vec::new()));
         let error: Arc<Mutex<Option<Mp4DemuxerError>>> = Arc::new(Mutex::new(None));
         let p = packets.clone();
         let e = error.clone();
 
         let demuxer = Self::new_inner(input_path, parsed, move |output| match output {
+            Mp4DemuxerOutput::StreamInfo(_) => {}
             Mp4DemuxerOutput::Packet(pkt) => p.lock().unwrap().push(pkt),
             Mp4DemuxerOutput::Eos => {}
             Mp4DemuxerOutput::Error(err) => *e.lock().unwrap() = Some(err),
@@ -377,9 +480,9 @@ impl Mp4Demuxer {
             return Err(e);
         }
 
-        let codec = demuxer.detected_codec();
+        let info = demuxer.video_info();
         let pkts = std::mem::take(&mut *packets.lock().unwrap());
-        Ok((pkts, codec))
+        Ok((pkts, info))
     }
 }
 
@@ -396,18 +499,109 @@ fn signal_done(done_pair: &(Mutex<bool>, Condvar)) {
     cvar.notify_all();
 }
 
-/// Convert a GStreamer sample to a [`DemuxedPacket`], updating
-/// `detected_codec` on the first sample with caps.
-fn sample_to_packet(
-    sample: gst::Sample,
-    detected_codec: &Mutex<Option<Codec>>,
-) -> Result<DemuxedPacket, Mp4DemuxerError> {
-    {
-        let mut codec = detected_codec.lock().unwrap();
-        if codec.is_none() {
-            *codec = sample.caps().and_then(codec_from_caps);
+/// Notify the condvar that stream info is known or unavailable because the
+/// pipeline has already terminated.
+fn signal_info_done(info_pair: &(Mutex<bool>, Condvar)) {
+    let (lock, cvar) = info_pair;
+    *lock.lock().unwrap() = true;
+    cvar.notify_all();
+}
+
+/// Build [`VideoInfo`] from caps, when enough fields are available.
+fn video_info_from_caps(caps: &gst::CapsRef) -> Option<VideoInfo> {
+    let codec = codec_from_caps(caps)?;
+    let s = caps.structure(0)?;
+    let width = s
+        .get::<i32>("width")
+        .ok()
+        .and_then(|v| u32::try_from(v).ok())?;
+    let height = s
+        .get::<i32>("height")
+        .ok()
+        .and_then(|v| u32::try_from(v).ok())?;
+    let (framerate_num, framerate_den) = s
+        .get::<gst::Fraction>("framerate")
+        .ok()
+        .map(|f| (u32::try_from(f.numer()).ok(), u32::try_from(f.denom()).ok()))
+        .map(|(num, den)| (num.unwrap_or(0), den.unwrap_or(1)))
+        .unwrap_or((0, 1));
+    Some(VideoInfo {
+        codec,
+        width,
+        height,
+        framerate_num,
+        framerate_den,
+    })
+}
+
+/// Try to detect and emit stream info from caps exactly once.
+fn maybe_emit_stream_info_from_caps<F>(
+    caps: Option<&gst::CapsRef>,
+    detected_codec: &Mutex<Option<VideoCodec>>,
+    video_info: &Mutex<Option<VideoInfo>>,
+    stream_info_fired: &AtomicBool,
+    info_pair: &(Mutex<bool>, Condvar),
+    on_output: &F,
+) where
+    F: Fn(Mp4DemuxerOutput) + Send + Sync + ?Sized,
+{
+    let Some(caps) = caps else {
+        return;
+    };
+
+    let maybe_codec = codec_from_caps(caps);
+    if let Some(codec) = maybe_codec {
+        let mut detected_codec_guard = detected_codec.lock().unwrap();
+        if detected_codec_guard.is_none() {
+            *detected_codec_guard = Some(codec);
         }
     }
+
+    let Some(info) = video_info_from_caps(caps) else {
+        return;
+    };
+
+    // Write `video_info` before flipping `stream_info_fired` so readers that
+    // take the fast path (`stream_info_fired.load()` -> `video_info()`) never
+    // observe the atomic set without the corresponding `video_info` value.
+    {
+        let mut guard = video_info.lock().unwrap();
+        if guard.is_some() {
+            return;
+        }
+        *guard = Some(info);
+    }
+
+    if stream_info_fired
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        signal_info_done(info_pair);
+        on_output(Mp4DemuxerOutput::StreamInfo(info));
+    }
+}
+
+/// Convert a GStreamer sample to a [`DemuxedPacket`], updating
+/// `detected_codec` on the first sample with caps.
+fn sample_to_packet<F>(
+    sample: gst::Sample,
+    detected_codec: &Mutex<Option<VideoCodec>>,
+    video_info: &Mutex<Option<VideoInfo>>,
+    stream_info_fired: &AtomicBool,
+    info_pair: &(Mutex<bool>, Condvar),
+    on_output: &F,
+) -> Result<DemuxedPacket, Mp4DemuxerError>
+where
+    F: Fn(Mp4DemuxerOutput) + Send + Sync + ?Sized,
+{
+    maybe_emit_stream_info_from_caps(
+        sample.caps(),
+        detected_codec,
+        video_info,
+        stream_info_fired,
+        info_pair,
+        on_output,
+    );
 
     let Some(buffer) = sample.buffer() else {
         return Err(Mp4DemuxerError::PipelineError {
@@ -436,17 +630,17 @@ fn sample_to_packet(
     })
 }
 
-/// Map GStreamer caps to a [`Codec`] value.
-fn codec_from_caps(caps: &gst::CapsRef) -> Option<Codec> {
+/// Map GStreamer caps to a [`VideoCodec`] value.
+fn codec_from_caps(caps: &gst::CapsRef) -> Option<VideoCodec> {
     let s = caps.structure(0)?;
     match s.name().as_str() {
-        "video/x-h264" => Some(Codec::H264),
-        "video/x-h265" => Some(Codec::Hevc),
-        "video/x-av1" => Some(Codec::Av1),
-        "video/x-vp8" => Some(Codec::Vp8),
-        "video/x-vp9" => Some(Codec::Vp9),
-        "image/jpeg" => Some(Codec::Jpeg),
-        "image/png" => Some(Codec::Png),
+        "video/x-h264" => Some(VideoCodec::H264),
+        "video/x-h265" => Some(VideoCodec::Hevc),
+        "video/x-av1" => Some(VideoCodec::Av1),
+        "video/x-vp8" => Some(VideoCodec::Vp8),
+        "video/x-vp9" => Some(VideoCodec::Vp9),
+        "image/jpeg" => Some(VideoCodec::Jpeg),
+        "image/png" => Some(VideoCodec::Png),
         _ => None,
     }
 }
@@ -538,6 +732,29 @@ mod tests {
     use super::*;
     use crate::mp4_muxer::Mp4Muxer;
     use std::str::FromStr;
+    use std::sync::Mutex as StdMutex;
+
+    const H264_SPS_PPS_IDR: [u8; 32] = [
+        0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x0A, 0xE9, 0x40, 0x40, 0x04, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x38, 0x80, 0x00, 0x00, 0x00, 0x01, 0x65, 0x88,
+        0x80, 0x40,
+    ];
+
+    fn make_h264_mp4(path: &str, num_frames: usize) {
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
+        let duration_ns = 33_333_333u64;
+        for i in 0..num_frames {
+            muxer
+                .push(
+                    &H264_SPS_PPS_IDR,
+                    (i as u64) * duration_ns,
+                    None,
+                    Some(duration_ns),
+                )
+                .unwrap();
+        }
+        muxer.finish().unwrap();
+    }
 
     #[test]
     fn test_codec_from_caps_mapping() {
@@ -549,12 +766,12 @@ mod tests {
         let vp9 = gst::Caps::from_str("video/x-vp9").unwrap();
         let jpeg = gst::Caps::from_str("image/jpeg").unwrap();
 
-        assert_eq!(codec_from_caps(&h264), Some(Codec::H264));
-        assert_eq!(codec_from_caps(&hevc), Some(Codec::Hevc));
-        assert_eq!(codec_from_caps(&av1), Some(Codec::Av1));
-        assert_eq!(codec_from_caps(&vp8), Some(Codec::Vp8));
-        assert_eq!(codec_from_caps(&vp9), Some(Codec::Vp9));
-        assert_eq!(codec_from_caps(&jpeg), Some(Codec::Jpeg));
+        assert_eq!(codec_from_caps(&h264), Some(VideoCodec::H264));
+        assert_eq!(codec_from_caps(&hevc), Some(VideoCodec::Hevc));
+        assert_eq!(codec_from_caps(&av1), Some(VideoCodec::Av1));
+        assert_eq!(codec_from_caps(&vp8), Some(VideoCodec::Vp8));
+        assert_eq!(codec_from_caps(&vp9), Some(VideoCodec::Vp9));
+        assert_eq!(codec_from_caps(&jpeg), Some(VideoCodec::Jpeg));
     }
 
     #[test]
@@ -569,11 +786,92 @@ mod tests {
         let path = "/tmp/test_demuxer_corrupt.mp4";
         let _ = std::fs::remove_file(path);
 
-        let mut muxer = Mp4Muxer::new(Codec::H264, path, 30, 1).unwrap();
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
         muxer.finish().unwrap();
 
         let err = Mp4Demuxer::demux_all(path).unwrap_err();
         assert!(matches!(err, Mp4DemuxerError::PipelineError { .. }));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_video_info_available_after_wait() {
+        let _ = gst::init();
+        let path = "/tmp/test_demuxer_video_info_after_wait.mp4";
+        let _ = std::fs::remove_file(path);
+
+        make_h264_mp4(path, 3);
+        let (_packets, info) = Mp4Demuxer::demux_all_parsed(path).unwrap();
+        let info = info.expect("video info expected");
+        assert_eq!(info.codec, VideoCodec::H264);
+        assert!(info.width > 0);
+        assert!(info.height > 0);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_stream_info_callback_fires_before_first_packet() {
+        let _ = gst::init();
+        let path = "/tmp/test_demuxer_stream_info_order.mp4";
+        let _ = std::fs::remove_file(path);
+        make_h264_mp4(path, 3);
+
+        let labels: Arc<StdMutex<Vec<&'static str>>> = Arc::new(StdMutex::new(Vec::new()));
+        let labels_cb = labels.clone();
+        let demuxer = Mp4Demuxer::new(path, move |output| {
+            let mut out = labels_cb.lock().unwrap();
+            match output {
+                Mp4DemuxerOutput::StreamInfo(_) => out.push("stream_info"),
+                Mp4DemuxerOutput::Packet(_) => out.push("packet"),
+                Mp4DemuxerOutput::Eos => out.push("eos"),
+                Mp4DemuxerOutput::Error(_) => out.push("error"),
+            }
+        })
+        .unwrap();
+
+        demuxer.wait();
+        let out = labels.lock().unwrap();
+        assert!(!out.is_empty());
+        assert_eq!(out[0], "stream_info");
+        assert_eq!(
+            out.iter().filter(|label| **label == "stream_info").count(),
+            1
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_wait_for_video_info_timeout_on_corrupt() {
+        let _ = gst::init();
+        let path = "/tmp/test_demuxer_video_info_corrupt.mp4";
+        let _ = std::fs::remove_file(path);
+
+        let mut muxer = Mp4Muxer::new(VideoCodec::H264, path, 30, 1).unwrap();
+        muxer.finish().unwrap();
+
+        let demuxer = Mp4Demuxer::new(path, |_| {}).unwrap();
+        let info = demuxer.wait_for_video_info(Duration::from_secs(2));
+        assert!(info.is_none());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_video_info_getter_returns_none_before_caps_and_some_after() {
+        let _ = gst::init();
+        let path = "/tmp/test_demuxer_video_info_getter.mp4";
+        let _ = std::fs::remove_file(path);
+        make_h264_mp4(path, 3);
+
+        let demuxer = Mp4Demuxer::new(path, |_| {}).unwrap();
+        assert!(demuxer.video_info().is_none());
+        let waited = demuxer.wait_for_video_info(Duration::from_secs(5));
+        assert!(waited.is_some());
+        assert_eq!(demuxer.video_info(), waited);
+        demuxer.wait();
+
         let _ = std::fs::remove_file(path);
     }
 }

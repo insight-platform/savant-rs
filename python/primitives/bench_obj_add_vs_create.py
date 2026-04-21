@@ -3,7 +3,7 @@ from timeit import timeit
 from savant_rs.primitives import (
     IdCollisionResolutionPolicy,
     VideoFrame,
-    VideoFrameCodec,
+    Codec,
     VideoFrameContent,
     VideoObject,
 )
@@ -15,7 +15,7 @@ frame = VideoFrame(
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
-    codec=VideoFrameCodec.Jpeg,
+    codec=Codec.Jpeg,
     keyframe=True,
     pts=0,
     dts=None,
@@ -46,7 +46,7 @@ frame = VideoFrame(
     width=1920,
     height=1080,
     content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
-    codec=VideoFrameCodec.Jpeg,
+    codec=Codec.Jpeg,
     keyframe=True,
     pts=0,
     dts=None,

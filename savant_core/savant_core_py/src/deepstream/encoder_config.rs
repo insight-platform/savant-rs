@@ -1,5 +1,5 @@
 use crate::deepstream::{PyMemType, PyVideoFormat};
-use crate::gstreamer::PyCodec;
+use crate::primitives::frame::PyVideoCodec;
 use deepstream_encoders::prelude::*;
 use pyo3::prelude::*;
 
@@ -1387,7 +1387,7 @@ impl PyEncoderProperties {
 )]
 #[derive(Debug, Clone)]
 pub struct PyEncoderConfig {
-    codec: PyCodec,
+    codec: PyVideoCodec,
     width: u32,
     height: u32,
     format: PyVideoFormat,
@@ -1401,7 +1401,7 @@ pub struct PyEncoderConfig {
 #[pymethods]
 impl PyEncoderConfig {
     #[new]
-    fn new(codec: PyCodec, width: u32, height: u32) -> Self {
+    fn new(codec: PyVideoCodec, width: u32, height: u32) -> Self {
         Self {
             codec,
             width,
@@ -1525,15 +1525,15 @@ impl PyEncoderConfig {
     /// enum variant with platform-appropriate properties.
     ///
     /// Codec dispatch rules:
-    /// * `Codec::H264` → [`EncoderConfig::H264`] with
+    /// * `VideoCodec::H264` → [`EncoderConfig::H264`] with
     ///   [`H264DgpuProps`] / [`H264JetsonProps`] when `encoder_params`
     ///   matches the host platform.
-    /// * `Codec::Hevc` → [`EncoderConfig::Hevc`] with
+    /// * `VideoCodec::Hevc` → [`EncoderConfig::Hevc`] with
     ///   [`HevcDgpuProps`] / [`HevcJetsonProps`].
-    /// * `Codec::Av1` → [`EncoderConfig::Av1`] with
+    /// * `VideoCodec::Av1` → [`EncoderConfig::Av1`] with
     ///   [`Av1DgpuProps`] / [`Av1JetsonProps`].
-    /// * `Codec::Jpeg` → [`EncoderConfig::Jpeg`] with [`JpegProps`].
-    /// * `Codec::Png` → [`EncoderConfig::Png`] with [`PngProps`].
+    /// * `VideoCodec::Jpeg` → [`EncoderConfig::Jpeg`] with [`JpegProps`].
+    /// * `VideoCodec::Png` → [`EncoderConfig::Png`] with [`PngProps`].
     /// * Raw codecs (`RawRgba`/`RawRgb`/`RawNv12`) → [`EncoderConfig`]
     ///   raw variants with default [`RawProps`].
     ///
@@ -1547,7 +1547,7 @@ impl PyEncoderConfig {
     /// the target platform.
     pub(crate) fn to_rust(&self) -> PyResult<deepstream_encoders::NvEncoderConfig> {
         use deepstream_encoders::{EncoderConfig as E, NvEncoderConfig};
-        let codec: Codec = self.codec.into();
+        let codec: VideoCodec = self.codec.into();
         let format = self.format.into();
         let fps_num = self.fps_num;
         let fps_den = self.fps_den;
@@ -1594,7 +1594,7 @@ impl PyEncoderConfig {
         }
 
         let encoder_cfg = match codec {
-            Codec::H264 => {
+            VideoCodec::H264 => {
                 let mut cfg = H264EncoderConfig::new(w, h)
                     .format(format)
                     .fps(fps_num, fps_den);
@@ -1608,7 +1608,7 @@ impl PyEncoderConfig {
                 }
                 E::H264(cfg)
             }
-            Codec::Hevc => {
+            VideoCodec::Hevc => {
                 let mut cfg = HevcEncoderConfig::new(w, h)
                     .format(format)
                     .fps(fps_num, fps_den);
@@ -1622,7 +1622,7 @@ impl PyEncoderConfig {
                 }
                 E::Hevc(cfg)
             }
-            Codec::Av1 => {
+            VideoCodec::Av1 => {
                 let mut cfg = Av1EncoderConfig::new(w, h)
                     .format(format)
                     .fps(fps_num, fps_den);
@@ -1636,7 +1636,7 @@ impl PyEncoderConfig {
                 }
                 E::Av1(cfg)
             }
-            Codec::Jpeg => {
+            VideoCodec::Jpeg => {
                 let mut cfg = JpegEncoderConfig::new(w, h)
                     .format(format)
                     .fps(fps_num, fps_den);
@@ -1645,7 +1645,7 @@ impl PyEncoderConfig {
                 }
                 E::Jpeg(cfg)
             }
-            Codec::Png => {
+            VideoCodec::Png => {
                 let mut cfg = PngEncoderConfig::new(w, h)
                     .format(format)
                     .fps(fps_num, fps_den);
@@ -1654,17 +1654,17 @@ impl PyEncoderConfig {
                 }
                 E::Png(cfg)
             }
-            Codec::RawRgba => {
+            VideoCodec::RawRgba => {
                 E::RawRgba(RawEncoderConfig::new(w, h, VideoFormat::RGBA).fps(fps_num, fps_den))
             }
-            Codec::RawRgb => {
+            VideoCodec::RawRgb => {
                 // Raw RGB pseudoencoder uses RGBA-shaped surfaces internally; the
                 // GPU→CPU download layer drops the alpha byte before packaging the
                 // payload. See `savant_deepstream/encoders/src/pipeline.rs`
-                // (`Codec::RawRgb => VideoFormat::RGBA`) for the surface layout.
+                // (`VideoCodec::RawRgb => VideoFormat::RGBA`) for the surface layout.
                 E::RawRgb(RawEncoderConfig::new(w, h, VideoFormat::RGBA).fps(fps_num, fps_den))
             }
-            Codec::RawNv12 => {
+            VideoCodec::RawNv12 => {
                 E::RawNv12(RawEncoderConfig::new(w, h, VideoFormat::NV12).fps(fps_num, fps_den))
             }
             other => {

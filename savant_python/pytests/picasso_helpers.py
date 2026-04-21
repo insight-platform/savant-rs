@@ -290,7 +290,7 @@ def build_jpeg_encoder_config(
 ) -> EncoderConfig:
     """Build JPEG encoder config."""
     props = EncoderProperties.jpeg(JpegProps(quality=90))
-    cfg = EncoderConfig(Codec.JPEG, width, height)
+    cfg = EncoderConfig(Codec.Jpeg, width, height)
     cfg.format(VideoFormat.RGBA)
     cfg.fps(fps, 1)
     cfg.properties(props)
@@ -304,7 +304,7 @@ def build_png_encoder_config(
 ) -> EncoderConfig:
     """Build PNG encoder config (CPU-based, lossless)."""
     props = EncoderProperties.png(PngProps(compression_level=6))
-    cfg = EncoderConfig(Codec.PNG, width, height)
+    cfg = EncoderConfig(Codec.Png, width, height)
     cfg.format(VideoFormat.RGBA)
     cfg.fps(fps, 1)
     cfg.properties(props)

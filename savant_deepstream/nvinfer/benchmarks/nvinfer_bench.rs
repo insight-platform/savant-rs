@@ -11,12 +11,14 @@ use deepstream_buffers::{
     BufferGenerator, ComputeMode, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind,
     SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use deepstream_nvinfer::{ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig};
+use deepstream_nvinfer::output::BatchInferenceOutput;
+use deepstream_nvinfer::{
+    ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig, NvInferOutput,
+};
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 // ---------------------------------------------------------------------------
@@ -59,6 +61,29 @@ fn promote_built_engine(onnx_stem: &str, batch_size: u32) {
             std::fs::remove_file(&auto_path).ok();
         });
     }
+}
+
+/// Block until the engine emits the next [`NvInferOutput::Inference`],
+/// skipping intermediate events (e.g. `stream-start`, `caps`).  Panics
+/// on EOS, pipeline error, or if no inference arrives within a bounded
+/// number of recv iterations.
+///
+/// Mirrors `tests/common/mod.rs::recv_inference`; benches can't reach
+/// into the test-only module so the helper is duplicated here.
+fn recv_inference(engine: &NvInfer) -> BatchInferenceOutput {
+    for _ in 0..64 {
+        match engine.recv().expect("recv failed") {
+            NvInferOutput::Inference(output) => return output,
+            NvInferOutput::Event(_) => continue,
+            NvInferOutput::Eos { source_id } => {
+                panic!("unexpected EOS while waiting for inference: source_id={source_id}")
+            }
+            NvInferOutput::Error(e) => {
+                panic!("pipeline error while waiting for inference: {e}")
+            }
+        }
+    }
+    panic!("did not receive Inference output after 64 attempts");
 }
 
 fn platform_transform_config() -> TransformConfig {
@@ -319,11 +344,12 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
             ModelColorFormat::RGB,
         )
         .scaling(spec.scaling);
-        let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
+        let engine = NvInfer::new(config).expect("create NvInfer for bench");
         promote_built_engine(&spec.onnx_stem, bs);
 
         let warm = make_batch(mode, spec.format, spec.width, spec.height, bs);
-        let _ = engine.infer_sync(warm, None);
+        engine.submit(warm, None).expect("warmup submit");
+        std::hint::black_box(recv_inference(&engine));
 
         let fills: Vec<u32> = FILL_COUNTS.iter().copied().filter(|&f| f <= bs).collect();
         let n = BATCHES_PER_ITER;
@@ -339,8 +365,8 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
                     },
                     |batches| {
                         for batch in batches {
-                            let out = engine.infer_sync(batch, None).expect("infer_sync");
-                            std::hint::black_box(out);
+                            engine.submit(batch, None).expect("submit");
+                            std::hint::black_box(recv_inference(&engine));
                         }
                     },
                     criterion::BatchSize::LargeInput,
@@ -480,18 +506,6 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
         .sample_size(10)
         .measurement_time(Duration::from_secs(30));
 
-    let done_count = Arc::new(AtomicU32::new(0));
-    let notify = Arc::new((Mutex::new(()), Condvar::new()));
-
-    let cb_done = Arc::clone(&done_count);
-    let cb_notify = Arc::clone(&notify);
-    let callback = Box::new(move |_output| {
-        cb_done.fetch_add(1, Ordering::Release);
-        let (lock, cvar) = &*cb_notify;
-        let _guard = lock.lock().unwrap();
-        cvar.notify_one();
-    });
-
     let mut props = age_gender_base_properties(&dir);
     props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
     props.insert(
@@ -506,25 +520,20 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
     );
 
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, callback).expect("create NvInfer for random bench");
+    let engine = NvInfer::new(config).expect("create NvInfer for random bench");
     promote_built_engine(
         "age_gender_mobilenet_v2_dynBatch.onnx",
         RANDOM_NONUNIFORM_FRAMES,
     );
 
-    // Warmup with one batch.
     let mut rng = rand::rng();
-    done_count.store(0, Ordering::Release);
     let warmup = make_random_nonuniform_batch(&mut rng);
     engine.submit(warmup, None).expect("warmup submit");
-    {
-        let (lock, cvar) = &*notify;
-        let mut guard = lock.lock().unwrap();
-        while done_count.load(Ordering::Acquire) < 1 {
-            guard = cvar.wait(guard).unwrap();
-        }
-    }
+    std::hint::black_box(recv_inference(&engine));
 
+    // Pipelined async: submit all `n` batches first, then drain `n` results.
+    // This exercises the full async channel depth of the NvInfer pipeline,
+    // unlike the sync bench below which serialises submit ↔ recv per batch.
     let id = format!("x{}_bs{}", n, RANDOM_NONUNIFORM_FRAMES);
     group.bench_function(BenchmarkId::new(&id, 0), |b| {
         b.iter_batched(
@@ -535,16 +544,11 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
                     .collect::<Vec<_>>()
             },
             |batches| {
-                done_count.store(0, Ordering::Release);
-
                 for batch in batches {
                     engine.submit(batch, None).expect("submit");
                 }
-
-                let (lock, cvar) = &*notify;
-                let mut guard = lock.lock().unwrap();
-                while done_count.load(Ordering::Acquire) < n {
-                    guard = cvar.wait(guard).unwrap();
+                for _ in 0..n {
+                    std::hint::black_box(recv_inference(&engine));
                 }
             },
             criterion::BatchSize::LargeInput,
@@ -586,17 +590,19 @@ fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
     );
 
     let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for sync bench");
+    let engine = NvInfer::new(config).expect("create NvInfer for sync bench");
     promote_built_engine(
         "age_gender_mobilenet_v2_dynBatch.onnx",
         RANDOM_NONUNIFORM_FRAMES,
     );
 
-    // Warmup.
     let mut rng = rand::rng();
     let warmup = make_random_nonuniform_batch(&mut rng);
-    let _ = engine.infer_sync(warmup, None);
+    engine.submit(warmup, None).expect("warmup submit");
+    std::hint::black_box(recv_inference(&engine));
 
+    // Synchronous: alternate submit/recv so each batch is fully drained
+    // before the next is pushed.  Reflects a single-threaded caller.
     let id = format!("x{}_bs{}_sync", n, RANDOM_NONUNIFORM_FRAMES);
     group.bench_function(BenchmarkId::new(&id, 0), |b| {
         b.iter_batched(
@@ -608,8 +614,8 @@ fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
             },
             |batches| {
                 for batch in batches {
-                    let out = engine.infer_sync(batch, None).expect("infer_sync");
-                    std::hint::black_box(out);
+                    engine.submit(batch, None).expect("submit");
+                    std::hint::black_box(recv_inference(&engine));
                 }
             },
             criterion::BatchSize::LargeInput,

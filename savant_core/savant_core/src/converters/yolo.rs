@@ -627,8 +627,8 @@ mod tests {
         let rows = num_classes + 4;
         let mut data = vec![0.0_f32; rows * n];
         for j in 0..n {
-            data[0 * n + j] = 0.1 * (j + 1) as f32;
-            data[1 * n + j] = 0.2 * (j + 1) as f32;
+            data[j] = 0.1 * (j + 1) as f32;
+            data[n + j] = 0.2 * (j + 1) as f32;
             data[2 * n + j] = 0.3;
             data[3 * n + j] = 0.4;
             data[4 * n + j] = 0.9 - j as f32 * 0.1;
@@ -645,7 +645,7 @@ mod tests {
             let found = class0.iter().any(|(c, b)| {
                 (c - exp_conf).abs() < 1e-5
                     && (b.get_xc() - data[j]).abs() < 1e-5
-                    && (b.get_yc() - data[1 * n + j]).abs() < 1e-5
+                    && (b.get_yc() - data[n + j]).abs() < 1e-5
             });
             assert!(found, "column j={j}");
         }
@@ -752,19 +752,19 @@ mod tests {
         let tensors = [(&d0[..], &s0[..]), (&d1[..], &s1[..]), (&d2[..], &s2[..])];
         let conv = default_converter(YoloFormat::V3Raw);
         let out = conv.decode(&tensors).unwrap();
-        assert!(out.get(&1).is_some());
-        assert!(out.get(&0).is_some());
+        assert!(out.contains_key(&1));
+        assert!(out.contains_key(&0));
     }
 
     #[test]
     fn v3_raw_confidence_uses_preselected_class() {
         let n = 1usize;
         let k = 3usize;
-        let d0 = vec![50.0_f32, 50.0, 10.0, 10.0];
+        let d0 = [50.0_f32, 50.0, 10.0, 10.0];
         // Class scores: class0=0.1, class1=0.9 (highest), class2=0.3
-        let d1 = vec![0.1_f32, 0.9, 0.3];
+        let d1 = [0.1_f32, 0.9, 0.3];
         // Pre-selected class is 2 (NOT the argmax class 1)
-        let d2 = vec![2.0_f32];
+        let d2 = [2.0_f32];
         let s0 = [n, 4];
         let s1 = [n, k];
         let s2 = [n];
@@ -889,7 +889,7 @@ mod tests {
         let mh = 100.0_f32;
         let n = 4usize;
         let num_dets = 2.0_f32;
-        let d0 = vec![num_dets];
+        let d0 = [num_dets];
         let s0 = [1usize];
         let mut d1 = vec![0.0_f32; n * 4];
         d1[0] = 0.0;
@@ -932,8 +932,8 @@ mod tests {
         let rows = num_classes + 4;
         let mut data = vec![0.0_f32; rows * n];
         for j in 0..n {
-            data[0 * n + j] = 10.0;
-            data[1 * n + j] = 10.0;
+            data[j] = 10.0;
+            data[n + j] = 10.0;
             data[2 * n + j] = 2.0;
             data[3 * n + j] = 2.0;
             data[4 * n + j] = if j == 0 { 0.9 } else { 0.3 };
@@ -959,8 +959,8 @@ mod tests {
         let rows = num_classes + 4;
         let mut data = vec![0.0_f32; rows * n];
         for j in 0..n {
-            data[0 * n + j] = 0.0;
-            data[1 * n + j] = 0.0;
+            data[j] = 0.0;
+            data[n + j] = 0.0;
             data[2 * n + j] = 1.0;
             data[3 * n + j] = 1.0;
             if j == 0 {
@@ -994,8 +994,8 @@ mod tests {
         let rows = num_classes + 4;
         let mut data = vec![0.0_f32; rows * n];
         for j in 0..n {
-            data[0 * n + j] = 0.0;
-            data[1 * n + j] = 0.0;
+            data[j] = 0.0;
+            data[n + j] = 0.0;
             data[2 * n + j] = 1.0;
             data[3 * n + j] = 1.0;
             for c in 0..num_classes {
@@ -1026,8 +1026,8 @@ mod tests {
         let rows = num_classes + 4;
         let mut data = vec![0.0_f32; rows * n];
         for j in 0..n {
-            data[0 * n + j] = 10.0;
-            data[1 * n + j] = 10.0;
+            data[j] = 10.0;
+            data[n + j] = 10.0;
             data[2 * n + j] = 4.0;
             data[3 * n + j] = 4.0;
             data[4 * n + j] = 0.99;

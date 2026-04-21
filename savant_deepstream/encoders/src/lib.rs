@@ -74,7 +74,7 @@ pub use deepstream_buffers::{
     cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
     UniformBatchGenerator, VideoFormat,
 };
-pub use savant_gstreamer::Codec;
+pub use savant_core::primitives::video_codec::VideoCodec;
 
 // Aggregate property enum kept for generic handling (used by the Python
 // bindings and JSON round-tripping).
@@ -99,10 +99,10 @@ pub struct EncodedFrame {
     /// Duration in nanoseconds (if known).
     pub duration_ns: Option<u64>,
     /// Encoded bitstream data, or tightly-packed raw pixel data for
-    /// [`Codec::RawRgba`] / [`Codec::RawRgb`] / [`Codec::RawNv12`].
+    /// [`VideoCodec::RawRgba`] / [`VideoCodec::RawRgb`] / [`VideoCodec::RawNv12`].
     pub data: Vec<u8>,
     /// Codec used to encode this frame.
-    pub codec: Codec,
+    pub codec: VideoCodec,
     /// `true` when this is an intra-coded (key) frame.
     pub keyframe: bool,
     /// Time base `(num, den)` for interpreting timestamps.  Always

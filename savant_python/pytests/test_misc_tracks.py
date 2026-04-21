@@ -247,10 +247,11 @@ class TestApplyTrackingInfo:
         obj_id = obj.id
 
         box_ = RBBox(100.0, 200.0, 50.0, 60.0, None)
-        f.apply_tracking_info(
+        unmatched = f.apply_tracking_info(
             track_updates=[TrackUpdate(obj_id, 777, box_)],
             misc_tracks=[_make_misc_track(MiscTrackCategory.SHADOW)],
         )
+        assert unmatched == []
 
         updated = f.get_object(obj_id)
         assert updated.track_id == 777
@@ -262,23 +263,31 @@ class TestApplyTrackingInfo:
         f.add_misc_track(_make_misc_track(MiscTrackCategory.PAST_FRAME))
         assert len(f.get_misc_tracks()) == 1
 
-        f.apply_tracking_info(
+        unmatched = f.apply_tracking_info(
             track_updates=[],
             misc_tracks=[
                 _make_misc_track(MiscTrackCategory.SHADOW),
                 _make_misc_track(MiscTrackCategory.TERMINATED),
             ],
         )
+        assert unmatched == []
         assert len(f.get_misc_tracks()) == 2
         assert f.get_misc_tracks_by_category(MiscTrackCategory.PAST_FRAME) == []
 
-    def test_missing_object_raises(self):
+    def test_missing_object_returns_unmatched(self):
         f = _make_frame()
-        with pytest.raises(ValueError, match="not found"):
-            f.apply_tracking_info(
-                track_updates=[TrackUpdate(999, 1, RBBox(0.0, 0.0, 1.0, 1.0, None))],
-                misc_tracks=[],
-            )
+        update = TrackUpdate(999, 1, RBBox(0.0, 0.0, 1.0, 1.0, None))
+        unmatched = f.apply_tracking_info(
+            track_updates=[update],
+            misc_tracks=[],
+        )
+        # Missing update returned verbatim to the caller, not raised.
+        assert len(unmatched) == 1
+        assert unmatched[0].object_id == 999
+        assert unmatched[0].track_id == 1
+        # Display round-trip (Rust std::fmt::Display backs __str__ / __repr__).
+        assert "object_id=999" in str(unmatched[0])
+        assert "track_id=1" in repr(unmatched[0])
 
 
 # ── Protobuf round-trip ──────────────────────────────────────────────

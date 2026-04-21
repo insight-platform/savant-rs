@@ -378,14 +378,14 @@ fn is_jetson() -> bool {
 ```rust
 fn h264_encoder_config(w: u32, h: u32) -> EncoderConfig {
     if is_jetson() {
-        EncoderConfig::new(Codec::H264, w, h)
+        EncoderConfig::new(VideoCodec::H264, w, h)
             .format(VideoFormat::RGBA)
             .properties(EncoderProperties::H264Jetson(H264JetsonProps {
                 preset_level: Some(JetsonPresetLevel::UltraFast),
                 ..Default::default()
             }))
     } else {
-        EncoderConfig::new(Codec::H264, w, h)
+        EncoderConfig::new(VideoCodec::H264, w, h)
             .format(VideoFormat::RGBA)
             .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
                 preset: Some(DgpuPreset::P1),
@@ -399,11 +399,11 @@ fn make_default_encoder_config(w: u32, h: u32) -> Option<EncoderConfig> {
     if has_nvenc() {
         Some(h264_encoder_config(w, h))
     } else if has_nvjpegenc() {
-        Some(EncoderConfig::new(Codec::Jpeg, w, h)
+        Some(EncoderConfig::new(VideoCodec::Jpeg, w, h)
             .format(VideoFormat::RGBA)
             .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) })))
     } else {
-        Some(EncoderConfig::new(Codec::Png, w, h).format(VideoFormat::RGBA))
+        Some(EncoderConfig::new(VideoCodec::Png, w, h).format(VideoFormat::RGBA))
     }
 }
 ```

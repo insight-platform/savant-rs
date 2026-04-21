@@ -4,14 +4,14 @@ use deepstream_buffers::SharedBuffer;
 use deepstream_decoders::DecoderError;
 use gstreamer as gst;
 use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::video_codec::VideoCodec;
 use savant_core::utils::release_seal::ReleaseSeal;
-use savant_gstreamer::Codec;
 use std::sync::Arc;
 
-/// Codec, width and height snapshot for a decoder session.
+/// VideoCodec, width and height snapshot for a decoder session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecoderParameters {
-    pub codec: Codec,
+    pub codec: VideoCodec,
     pub width: i64,
     pub height: i64,
 }
@@ -41,7 +41,7 @@ pub enum FlexibleDecoderOutput {
         #[doc(hidden)]
         seal: Arc<ReleaseSeal>,
     },
-    /// Codec or resolution changed.  Old decoder has been drained; new one is
+    /// VideoCodec or resolution changed.  Old decoder has been drained; new one is
     /// active.
     ParameterChange {
         old: DecoderParameters,

@@ -39,7 +39,7 @@
 
 ## 8) Stream Format Detection
 
-- `detect_stream_config` only supports `Codec::H264` and `Codec::Hevc`.
+- `detect_stream_config` only supports `VideoCodec::H264` and `VideoCodec::Hevc`.
   All other codecs return `None`.
 - For length-prefixed (AVCC/HVCC) detection to succeed, the access unit
   must contain in-band parameter sets: SPS + PPS for H264, VPS + SPS + PPS
@@ -47,7 +47,9 @@
 - MP4 containers may strip in-band parameter sets from non-keyframe packets
   (parameter sets live in `codec_data` sideband). Use `Mp4Demuxer::demux_all()`
   (no parser) to get raw container packets; only keyframe AUs with in-band
-  params will be detectable as AVCC/HVCC.
+  params will be detectable as AVCC/HVCC. `demux_all()` returns
+  `(Vec<DemuxedPacket>, Option<VideoInfo>)`; use `info.codec` when you need
+  the codec.
 - NAL parsing depends on `cros-codecs` crate. The `Header` trait must be
   in scope for `.len()` on NALU headers (`use cros_codecs::codec::h264::nalu::Header;`).
 
@@ -90,7 +92,8 @@
   accept bare `video/x-vp9` caps fed through `identity`, but the
   pre-parsed, super-frame-aligned packets produced by
   `Mp4Demuxer::new_parsed` / `Mp4Demuxer::demux_all_parsed` (which
-  themselves use `vp9parse` internally) do not decode end-to-end
+  return `(Vec<DemuxedPacket>, Option<VideoInfo>)` and themselves use
+  `vp9parse` internally) do not decode end-to-end
   through the bare-caps `identity` path — empirically 0 frames are
   emitted by the Tegra NVDEC. Running `vp9parse` again in the
   `NvDecoder` pipeline enriches the caps with the fields the Tegra

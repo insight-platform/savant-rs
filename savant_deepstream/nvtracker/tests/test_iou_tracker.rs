@@ -702,3 +702,87 @@ fn test_mux_reference_equivalence() {}
 fn test_misc_track_state_mapping() {
     let _ = TrackState::Active;
 }
+
+/// Contract check: DeepStream's low-level trackers preserve the
+/// `misc_obj_info[0]` slot we set during ROI formation (`misc[0] =
+/// roi.id`) for every current-frame `TrackedObject`.  This is the
+/// canonical channel for recovering the input detection's
+/// frame-side id after tracking — downstream consumers can build
+/// `(TrackUpdate { object_id: misc_obj_info[0], track_id: object_id,
+/// track_box })` directly, no IoU reconciliation needed.
+///
+/// Covers the IOU tracker here.
+#[test]
+#[serial]
+fn test_misc_obj_info_zero_preserves_roi_id_iou() {
+    common::init();
+    let Some(tracker) = try_create_tracker(TrackingIdResetMode::None) else {
+        return;
+    };
+
+    const SENTINEL_A: i64 = 4242;
+    const SENTINEL_B: i64 = 9999;
+    let rois = vec![
+        Roi {
+            id: SENTINEL_A,
+            bbox: rb(40.0, 40.0, 80.0, 60.0),
+        },
+        Roi {
+            id: SENTINEL_B,
+            bbox: rb(180.0, 100.0, 70.0, 70.0),
+        },
+    ];
+
+    let out = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois.clone(), 320, 240)],
+        frame_ids(1),
+    )
+    .expect("track frame 0");
+    assert_eq!(out.current_tracks.len(), 2);
+
+    let ids_after: std::collections::HashSet<i64> = out
+        .current_tracks
+        .iter()
+        .map(|t| t.misc_obj_info[0])
+        .collect();
+    assert_eq!(
+        ids_after,
+        std::collections::HashSet::from([SENTINEL_A, SENTINEL_B]),
+        "IOU tracker must preserve misc_obj_info[0] = roi.id for \
+         current-frame tracked objects: got {:?}",
+        ids_after
+    );
+
+    // Second frame: same ROIs slightly shifted — check the invariant
+    // still holds when the tracker is matching to existing tracks.
+    let rois2 = vec![
+        Roi {
+            id: SENTINEL_A,
+            bbox: rb(42.0, 41.0, 80.0, 60.0),
+        },
+        Roi {
+            id: SENTINEL_B,
+            bbox: rb(182.0, 101.0, 70.0, 70.0),
+        },
+    ];
+    let out1 = common::track_sync(
+        &tracker,
+        &[make_frame("cam-1", rois2, 320, 240)],
+        frame_ids(1),
+    )
+    .expect("track frame 1");
+    assert_eq!(out1.current_tracks.len(), 2);
+    let ids_after: std::collections::HashSet<i64> = out1
+        .current_tracks
+        .iter()
+        .map(|t| t.misc_obj_info[0])
+        .collect();
+    assert_eq!(
+        ids_after,
+        std::collections::HashSet::from([SENTINEL_A, SENTINEL_B]),
+        "misc_obj_info[0] must round-trip on subsequent frames too"
+    );
+
+    let _ = tracker.shutdown();
+}

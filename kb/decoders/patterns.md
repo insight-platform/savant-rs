@@ -69,23 +69,28 @@ and `is_random_access_point` against real asset files from
 2. **AVCC/HVCC (MP4 demuxed)**: use `Mp4Demuxer::demux_all()` (no parser,
    raw container packets) to collect length-prefixed packets from `.mp4`
    files → feed to `detect_stream_config` → assert `Avc`/`Hvc1` with
-   valid `codec_data` (version byte = 1, reasonable length).
+   valid `codec_data` (version byte = 1, reasonable length). The same call
+   returns an `Option<VideoInfo>` carrying the detected codec and encoded
+   frame dimensions.
 3. **Raw file prefix**: feed first 4 KiB of each raw bitstream directly
    (no AU splitting) → assert Annex-B detection.
 4. **RAP (Annex-B)**: first grouped access unit of each raw `.h264`/`.h265`
    asset → `is_random_access_point` is `true`.
 5. **RAP (MP4)**: `Mp4Demuxer::demux_all()` packets — first RAP index
    matches a keyframe; B-frame assets include at least one non-RAP packet.
+   The companion `info` value gives encoded width/height if needed.
 
 ```rust
 use savant_gstreamer::mp4_demuxer::Mp4Demuxer;
 
 // Callback-based: collect all raw (unparsed) packets in one call.
-let (packets, codec) = Mp4Demuxer::demux_all(mp4_path)
+// `info` carries codec, encoded width/height, and framerate.
+let (packets, info) = Mp4Demuxer::demux_all(mp4_path)
     .unwrap_or_else(|e| panic!("demuxer failed: {e}"));
 
+let codec = info.expect("no video track detected").codec;
 for pkt in &packets {
-    if let Some(cfg) = detect_stream_config(codec.unwrap(), &pkt.data) {
+    if let Some(cfg) = detect_stream_config(codec, &pkt.data) {
         // verify stream format and codec_data
         break;
     }

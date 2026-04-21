@@ -281,20 +281,29 @@ pub struct TrackUpdate {
 
 #[pymethods]
 impl TrackUpdate {
+    /// Create a tracking update.
+    ///
+    /// :param object_id: id of the existing VideoObject on the frame whose
+    ///     ``track_id`` / ``track_box`` should be set.  If no object with
+    ///     that id exists on the frame the update is returned to the caller
+    ///     in the ``unmatched`` list of
+    ///     :meth:`VideoFrame.apply_tracking_info`.
+    /// :param track_id: tracker-assigned stable id.
+    /// :param track_box: tracker-refined bounding box (center-x, center-y,
+    ///     width, height — see :meth:`RBBox.__init__`).
     #[new]
     fn new(object_id: i64, track_id: i64, track_box: RBBox) -> Self {
-        Self {
-            object_id,
-            track_id,
-            track_box,
-        }
+        // Delegate to core so there is one construction path.
+        let core_update = core::TrackUpdate::new(object_id, track_id, track_box.0.clone());
+        Self::from(&core_update)
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "TrackUpdate(object_id={}, track_id={})",
-            self.object_id, self.track_id
-        )
+        core::TrackUpdate::from(self).to_string()
+    }
+
+    fn __str__(&self) -> String {
+        core::TrackUpdate::from(self).to_string()
     }
 }
 
@@ -304,6 +313,16 @@ impl From<&TrackUpdate> for core::TrackUpdate {
             object_id: u.object_id,
             track_id: u.track_id,
             track_box: u.track_box.0.clone(),
+        }
+    }
+}
+
+impl From<&core::TrackUpdate> for TrackUpdate {
+    fn from(u: &core::TrackUpdate) -> Self {
+        Self {
+            object_id: u.object_id,
+            track_id: u.track_id,
+            track_box: RBBox(u.track_box.clone()),
         }
     }
 }

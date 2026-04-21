@@ -14,7 +14,7 @@ __all__ = [
     "ExternalFrame",
     "VideoFrameContent",
     "VideoFrameTranscodingMethod",
-    "VideoFrameCodec",
+    "Codec",
     "VideoFrameTransformation",
     "VideoFrame",
     "VideoFrameUpdate",
@@ -63,8 +63,12 @@ class VideoFrameTranscodingMethod(Enum):
     Copy: ...
     Encoded: ...
 
-class VideoFrameCodec(Enum):
-    """Codec carried on a :class:`VideoFrame` (includes ``SwJpeg``)."""
+class Codec(Enum):
+    """Unified video codec enum.
+
+    The same class is re-exported from :mod:`savant_rs.gstreamer` so that
+    ``savant_rs.primitives.Codec is savant_rs.gstreamer.Codec``.
+    """
 
     H264: ...
     Hevc: ...
@@ -78,7 +82,7 @@ class VideoFrameCodec(Enum):
     RawRgb: ...
     RawNv12: ...
     @staticmethod
-    def from_name(name: str) -> VideoFrameCodec: ...
+    def from_name(name: str) -> Codec: ...
     def name(self) -> str: ...
 
 class TrackState:
@@ -173,7 +177,10 @@ class MiscTrackData:
     def __repr__(self) -> str: ...
 
 class TrackUpdate:
-    """Describes how to apply tracker output to an existing VideoObject."""
+    """Describes how to apply tracker output to an existing ``VideoObject``.
+
+    Used by :meth:`VideoFrame.apply_tracking_info`.
+    """
 
     @property
     def object_id(self) -> int: ...
@@ -182,9 +189,22 @@ class TrackUpdate:
     @property
     def track_box(self) -> RBBox: ...
 
-    def __init__(self, object_id: int, track_id: int, track_box: RBBox) -> None: ...
+    def __init__(self, object_id: int, track_id: int, track_box: RBBox) -> None:
+        """Create a tracking update.
+
+        :param object_id: id of the existing :class:`VideoObject` on the
+            frame whose ``track_id`` / ``track_box`` should be set.  If no
+            object with that id exists on the frame the update is returned
+            to the caller in the ``unmatched`` list of
+            :meth:`VideoFrame.apply_tracking_info`.
+        :param track_id: tracker-assigned stable id.
+        :param track_box: tracker-refined bounding box (center-x, center-y,
+            width, height — see :class:`RBBox`).
+        """
+        ...
 
     def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
 
 class VideoFrame:
     def transform_geometry(
@@ -202,7 +222,7 @@ class VideoFrame:
         height: int,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod = VideoFrameTranscodingMethod.Copy,
-        codec: Optional[VideoFrameCodec] = None,
+        codec: Optional[Codec] = None,
         keyframe: Optional[bool] = None,
         time_base: Tuple[int, int] = (1, 1_000_000),
         pts: int = 0,
@@ -253,9 +273,9 @@ class VideoFrame:
     @transcoding_method.setter
     def transcoding_method(self, transcoding_method: VideoFrameTranscodingMethod): ...
     @property
-    def codec(self) -> Optional[VideoFrameCodec]: ...
+    def codec(self) -> Optional[Codec]: ...
     @codec.setter
-    def codec(self, codec: Optional[VideoFrameCodec]): ...
+    def codec(self, codec: Optional[Codec]): ...
     @property
     def keyframe(self) -> Optional[bool]: ...
     @keyframe.setter
@@ -384,12 +404,20 @@ class VideoFrame:
         self,
         track_updates: List[TrackUpdate],
         misc_tracks: List[MiscTrackData],
-    ) -> None:
+    ) -> List[TrackUpdate]:
         """Apply full tracker output to this frame in a single operation.
 
-        For each ``TrackUpdate``, sets ``track_id`` and ``track_box`` on the
-        corresponding ``VideoObject``.  Then replaces the frame's misc-track
-        list with ``misc_tracks``.
+        For each :class:`TrackUpdate`, sets ``track_id`` and ``track_box`` on
+        the corresponding :class:`VideoObject`.  If the ``object_id`` does
+        not match any existing object on the frame, the update is **returned
+        in the result list** — no new :class:`VideoObject` is synthesized,
+        nothing is logged.  Then replaces the frame's misc-track list with
+        ``misc_tracks``.
+
+        :returns: the list of unmatched :class:`TrackUpdate` s (empty on the
+            happy path) so the caller can log / count / dead-letter them.
+            Each :class:`TrackUpdate` has a readable ``__repr__`` / ``__str__``
+            backed by the Rust ``Display`` impl.
         """
         ...
 

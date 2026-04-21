@@ -15,7 +15,6 @@ use savant_core::primitives::frame::{
 };
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::rust::VideoFrameTranscodingMethod;
-use savant_core::primitives::video_codec::VideoCodec;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -506,21 +505,6 @@ pub(crate) fn dispatch_encoded(
     }
 }
 
-fn gst_codec_to_video_codec(c: Codec) -> VideoCodec {
-    match c {
-        Codec::H264 => VideoCodec::H264,
-        Codec::Hevc => VideoCodec::Hevc,
-        Codec::Jpeg => VideoCodec::Jpeg,
-        Codec::Av1 => VideoCodec::Av1,
-        Codec::Png => VideoCodec::Png,
-        Codec::Vp8 => VideoCodec::Vp8,
-        Codec::Vp9 => VideoCodec::Vp9,
-        Codec::RawRgba => VideoCodec::RawRgba,
-        Codec::RawRgb => VideoCodec::RawRgb,
-        Codec::RawNv12 => VideoCodec::RawNv12,
-    }
-}
-
 /// Update a [`VideoFrameProxy`] with encoded output and fire the callback.
 pub(crate) fn fill_encoded_frame(
     mut frame: VideoFrameProxy,
@@ -540,7 +524,7 @@ pub(crate) fn fill_encoded_frame(
             i64::from(encoded.time_base.1),
         ))
         .ok();
-    frame.set_codec(Some(gst_codec_to_video_codec(encoded.codec)));
+    frame.set_codec(Some(encoded.codec));
     frame.set_keyframe(Some(encoded.keyframe));
     cb.call(OutputMessage::VideoFrame(frame));
 }

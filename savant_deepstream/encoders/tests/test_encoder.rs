@@ -19,38 +19,38 @@ use serial_test::serial;
 
 const FRAME_DUR_NS: u64 = 33_333_333; // ~30 fps
 
-// ─── Codec tests ─────────────────────────────────────────────────────────
+// ─── VideoCodec tests ─────────────────────────────────────────────────────────
 
 #[test]
 fn test_codec_from_name() {
-    assert_eq!(Codec::from_name("h264"), Some(Codec::H264));
-    assert_eq!(Codec::from_name("H264"), Some(Codec::H264));
-    assert_eq!(Codec::from_name("hevc"), Some(Codec::Hevc));
-    assert_eq!(Codec::from_name("h265"), Some(Codec::Hevc));
-    assert_eq!(Codec::from_name("jpeg"), Some(Codec::Jpeg));
-    assert_eq!(Codec::from_name("av1"), Some(Codec::Av1));
-    assert_eq!(Codec::from_name("png"), Some(Codec::Png));
-    assert_eq!(Codec::from_name("vp8"), Some(Codec::Vp8));
-    assert_eq!(Codec::from_name("vp9"), Some(Codec::Vp9));
-    assert_eq!(Codec::from_name("raw_rgba"), Some(Codec::RawRgba));
-    assert_eq!(Codec::from_name("raw_rgb"), Some(Codec::RawRgb));
-    assert_eq!(Codec::from_name("raw_nv12"), Some(Codec::RawNv12));
-    assert_eq!(Codec::from_name("RAW_NV12"), Some(Codec::RawNv12));
-    assert_eq!(Codec::from_name("unknown"), None);
+    assert_eq!(VideoCodec::from_name("h264"), Some(VideoCodec::H264));
+    assert_eq!(VideoCodec::from_name("H264"), Some(VideoCodec::H264));
+    assert_eq!(VideoCodec::from_name("hevc"), Some(VideoCodec::Hevc));
+    assert_eq!(VideoCodec::from_name("h265"), Some(VideoCodec::Hevc));
+    assert_eq!(VideoCodec::from_name("jpeg"), Some(VideoCodec::Jpeg));
+    assert_eq!(VideoCodec::from_name("av1"), Some(VideoCodec::Av1));
+    assert_eq!(VideoCodec::from_name("png"), Some(VideoCodec::Png));
+    assert_eq!(VideoCodec::from_name("vp8"), Some(VideoCodec::Vp8));
+    assert_eq!(VideoCodec::from_name("vp9"), Some(VideoCodec::Vp9));
+    assert_eq!(VideoCodec::from_name("raw_rgba"), Some(VideoCodec::RawRgba));
+    assert_eq!(VideoCodec::from_name("raw_rgb"), Some(VideoCodec::RawRgb));
+    assert_eq!(VideoCodec::from_name("raw_nv12"), Some(VideoCodec::RawNv12));
+    assert_eq!(VideoCodec::from_name("RAW_NV12"), Some(VideoCodec::RawNv12));
+    assert_eq!(VideoCodec::from_name("unknown"), None);
 }
 
 #[test]
 fn test_codec_names() {
-    assert_eq!(Codec::H264.name(), "h264");
-    assert_eq!(Codec::Hevc.name(), "hevc");
-    assert_eq!(Codec::Jpeg.name(), "jpeg");
-    assert_eq!(Codec::Av1.name(), "av1");
-    assert_eq!(Codec::Png.name(), "png");
-    assert_eq!(Codec::Vp8.name(), "vp8");
-    assert_eq!(Codec::Vp9.name(), "vp9");
-    assert_eq!(Codec::RawRgba.name(), "raw_rgba");
-    assert_eq!(Codec::RawRgb.name(), "raw_rgb");
-    assert_eq!(Codec::RawNv12.name(), "raw_nv12");
+    assert_eq!(VideoCodec::H264.name(), "h264");
+    assert_eq!(VideoCodec::Hevc.name(), "hevc");
+    assert_eq!(VideoCodec::Jpeg.name(), "jpeg");
+    assert_eq!(VideoCodec::Av1.name(), "av1");
+    assert_eq!(VideoCodec::Png.name(), "png");
+    assert_eq!(VideoCodec::Vp8.name(), "vp8");
+    assert_eq!(VideoCodec::Vp9.name(), "vp9");
+    assert_eq!(VideoCodec::RawRgba.name(), "raw_rgba");
+    assert_eq!(VideoCodec::RawRgb.name(), "raw_rgb");
+    assert_eq!(VideoCodec::RawNv12.name(), "raw_nv12");
 }
 
 // ─── EncoderConfig tests ─────────────────────────────────────────────────
@@ -66,7 +66,7 @@ fn test_config_defaults() {
     assert!(config.props.is_none());
 
     let encoder_config = EncoderConfig::Hevc(config);
-    assert_eq!(encoder_config.codec(), Codec::Hevc);
+    assert_eq!(encoder_config.codec(), VideoCodec::Hevc);
     assert_eq!(encoder_config.width(), 1920);
     assert_eq!(encoder_config.height(), 1080);
     assert_eq!(encoder_config.format(), VideoFormat::NV12);
@@ -255,7 +255,7 @@ fn test_h264_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert!(!frames.is_empty());
     for f in &frames {
-        assert_eq!(f.codec, Codec::H264);
+        assert_eq!(f.codec, VideoCodec::H264);
         assert!(!f.data.is_empty());
     }
 }
@@ -279,7 +279,7 @@ fn test_hevc_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert!(!frames.is_empty());
     for f in &frames {
-        assert_eq!(f.codec, Codec::Hevc);
+        assert_eq!(f.codec, VideoCodec::Hevc);
         assert!(!f.data.is_empty());
     }
 }
@@ -305,7 +305,7 @@ fn test_jpeg_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert!(!frames.is_empty());
     for f in &frames {
-        assert_eq!(f.codec, Codec::Jpeg);
+        assert_eq!(f.codec, VideoCodec::Jpeg);
         assert!(f.keyframe, "Every JPEG frame must be a keyframe");
         assert!(!f.data.is_empty());
     }
@@ -328,7 +328,7 @@ fn test_av1_single_frame() {
     let frames = drain_to_frames(&encoder);
     assert!(!frames.is_empty());
     for f in &frames {
-        assert_eq!(f.codec, Codec::Av1);
+        assert_eq!(f.codec, VideoCodec::Av1);
         assert!(!f.data.is_empty());
     }
 }
@@ -540,7 +540,7 @@ fn test_png_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert_eq!(frames.len(), 3);
     for f in &frames {
-        assert_eq!(f.codec, Codec::Png);
+        assert_eq!(f.codec, VideoCodec::Png);
         assert!(f.keyframe);
         // PNG signature: 89 50 4E 47 0D 0A 1A 0A
         assert_eq!(
@@ -628,7 +628,7 @@ fn test_raw_rgba_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert_eq!(frames.len(), 3);
     for f in &frames {
-        assert_eq!(f.codec, Codec::RawRgba);
+        assert_eq!(f.codec, VideoCodec::RawRgba);
         assert!(f.keyframe);
         assert_eq!(f.data.len(), (w * h * 4) as usize);
     }
@@ -655,7 +655,7 @@ fn test_raw_rgb_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert_eq!(frames.len(), 3);
     for f in &frames {
-        assert_eq!(f.codec, Codec::RawRgb);
+        assert_eq!(f.codec, VideoCodec::RawRgb);
         assert!(f.keyframe);
         assert_eq!(f.data.len(), (w * h * 3) as usize);
     }
@@ -682,7 +682,7 @@ fn test_raw_nv12_submit_and_pull_frames() {
     let frames = drain_to_frames(&encoder);
     assert_eq!(frames.len(), 3);
     for f in &frames {
-        assert_eq!(f.codec, Codec::RawNv12);
+        assert_eq!(f.codec, VideoCodec::RawNv12);
         assert!(f.keyframe);
         // NV12: Y plane (w*h) + interleaved UV (w*h/2) = w*h*3/2
         assert_eq!(f.data.len(), (w * h * 3 / 2) as usize);

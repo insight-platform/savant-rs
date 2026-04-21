@@ -10,12 +10,12 @@ use crate::deepstream::PySharedBuffer;
 use crate::primitives::bbox::RBBox as PyRBBox;
 use crate::primitives::frame::VideoFrame;
 use deepstream_buffers::SavantIdMetaKind;
-use numpy::{PyArray2, PyReadonlyArray2};
 use deepstream_nvinfer::{
     BatchFormationCallback, BatchFormationResult, NvInferBatchingOperator,
     NvInferBatchingOperatorConfig, OperatorInferenceOutput, OperatorOutput, RoiKind,
     SealedDeliveries,
 };
+use numpy::{PyArray2, PyReadonlyArray2};
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -909,14 +909,15 @@ impl PyNvInferBatchingOperator {
             })
         });
 
-        let result_cb: deepstream_nvinfer::OperatorResultCallback = Box::new(move |output: OperatorOutput| {
-            Python::attach(|py| {
-                let py_output = PyOperatorOutput::from_rust(output);
-                if let Err(e) = result_callback.call1(py, (py_output,)) {
-                    log::error!("NvInferBatchingOperator result_callback error: {e}");
-                }
+        let result_cb: deepstream_nvinfer::OperatorResultCallback =
+            Box::new(move |output: OperatorOutput| {
+                Python::attach(|py| {
+                    let py_output = PyOperatorOutput::from_rust(output);
+                    if let Err(e) = result_callback.call1(py, (py_output,)) {
+                        log::error!("NvInferBatchingOperator result_callback error: {e}");
+                    }
+                });
             });
-        });
 
         let operator = py.detach(|| {
             NvInferBatchingOperator::new(rust_config, batch_cb, result_cb)

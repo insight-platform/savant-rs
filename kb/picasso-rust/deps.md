@@ -122,7 +122,7 @@ frame.set_duration(Some(dur_ns as i64)).unwrap();
 ### EncoderConfig
 ```rust
 // dGPU:
-EncoderConfig::new(Codec::H264, W, H)
+EncoderConfig::new(VideoCodec::H264, W, H)
     .format(VideoFormat::RGBA)
     .fps(30, 1)
     .gpu_id(0)  // default: 0 — must match incoming buffer GPU
@@ -135,7 +135,7 @@ EncoderConfig::new(Codec::H264, W, H)
     }))
 
 // Jetson (aarch64):
-EncoderConfig::new(Codec::H264, W, H)
+EncoderConfig::new(VideoCodec::H264, W, H)
     .format(VideoFormat::RGBA)
     .fps(30, 1)
     .properties(EncoderProperties::H264Jetson(H264JetsonProps {
@@ -145,7 +145,7 @@ EncoderConfig::new(Codec::H264, W, H)
     }))
 
 // Raw pseudoencoder (GPU→CPU, both platforms):
-EncoderConfig::new(Codec::RawRgba, W, H)
+EncoderConfig::new(VideoCodec::RawRgba, W, H)
     .format(VideoFormat::RGBA)
 ```
 ⚠ Builder returns `Self` by value (move semantics). Chain in one expression.
@@ -154,7 +154,7 @@ EncoderConfig::new(Codec::RawRgba, W, H)
 
 ### PNG encoder (CPU-based, GStreamer pngenc)
 ```rust
-EncoderConfig::new(Codec::Png, W, H)
+EncoderConfig::new(VideoCodec::Png, W, H)
     .format(VideoFormat::RGBA)  // required for PNG
     .fps(30, 1)
     .properties(EncoderProperties::Png(PngProps {

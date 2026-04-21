@@ -7,8 +7,9 @@ use deepstream_buffers::{BatchState, SavantIdMetaKind, SharedBuffer};
 use log::{error, warn};
 use parking_lot::{Condvar, Mutex};
 use savant_core::primitives::frame::VideoFrameProxy;
+use savant_gstreamer::submit_gate::SubmitGate;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -62,7 +63,7 @@ impl NvInferBatchingOperator {
             batch_formation,
             state: state.clone(),
             pending_batches: pending_batches.clone(),
-            next_batch_id: Arc::new(AtomicU64::new(0)),
+            submit_gate: SubmitGate::new(),
             nvinfer: nvinfer.clone(),
             shutdown_flag: shutdown_flag.clone(),
             failed: failed.clone(),
