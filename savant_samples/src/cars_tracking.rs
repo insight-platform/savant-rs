@@ -14,6 +14,7 @@
 //! - [`detections`]  – YOLO tensor post-processing + result callback
 //! - [`tracker`]     – NvDCF tracker config + result callback
 //! - [`draw`]        – Picasso per-class draw specification
+//! - [`warmup`]      – engine preparation phase (TensorRT build/load + heartbeat)
 //! - [`pipeline`]    – orchestration glue (`run`)
 
 pub mod detections;
@@ -21,3 +22,4 @@ pub mod draw;
 pub mod model;
 pub mod pipeline;
 pub mod tracker;
+pub mod warmup;

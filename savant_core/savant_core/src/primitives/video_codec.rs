@@ -101,17 +101,26 @@ impl VideoCodec {
 
     /// Return the GStreamer parser element name for this codec.
     ///
-    /// Codecs without a GStreamer parser (raw pixel formats, PNG, VP8, VP9)
-    /// return `"identity"` as a pass-through.
+    /// VP9 uses `vp9parse` (from `gst-plugins-bad`, `videoparsersbad`) on
+    /// both dGPU and Jetson: it enriches `video/x-vp9` caps with
+    /// `width`, `height`, `profile`, `chroma-format`, and
+    /// `bit-depth-luma`/`bit-depth-chroma`, which dGPU `nvv4l2decoder`
+    /// requires to avoid caps negotiation failure and which Tegra NVDEC
+    /// needs to emit frames for pre-parsed super-frame-aligned packets.
+    /// See `kb/decoders/caveats.md §10`.
+    ///
+    /// Codecs without a dedicated GStreamer parser (raw pixel formats,
+    /// PNG, VP8) return `"identity"` as a pass-through. There is no
+    /// `vp8parse` in upstream `gst-plugins-bad`, so VP8 intentionally
+    /// stays on `identity`.
     pub const fn parser_element(self) -> &'static str {
         match self {
             Self::H264 => "h264parse",
             Self::Hevc => "h265parse",
             Self::Jpeg | Self::SwJpeg => "jpegparse",
             Self::Av1 => "av1parse",
-            Self::Png | Self::Vp8 | Self::Vp9 | Self::RawRgba | Self::RawRgb | Self::RawNv12 => {
-                "identity"
-            }
+            Self::Vp9 => "vp9parse",
+            Self::Png | Self::Vp8 | Self::RawRgba | Self::RawRgb | Self::RawNv12 => "identity",
         }
     }
 

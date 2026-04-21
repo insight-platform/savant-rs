@@ -81,12 +81,13 @@ use crate::cars_tracking::detections::{
     InferResultSender, InferStats,
 };
 use crate::cars_tracking::draw::{attach_frame_id_overlay, build_vehicle_draw_spec};
-use crate::cars_tracking::model::{build_nvinfer_config, promote_yolo11n_engine};
+use crate::cars_tracking::model::build_nvinfer_config;
 use crate::cars_tracking::tracker::{
     self, build_batch_formation as build_tracker_batch_formation,
     build_result_callback as build_tracker_callback, build_tracker_config, TrackerResultReceiver,
     TrackerResultSender, TrackerStats,
 };
+use crate::cars_tracking::warmup::{prepare_nvinfer_operator, prepare_nvtracker_operator};
 
 /// Default source identifier used throughout the pipeline.  Every stage
 /// uses the same id because the sample processes exactly one input file.
@@ -193,10 +194,15 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let stats = PipelineStats::new();
     let fatal = Arc::new(AtomicBool::new(false));
 
-    // ── Per-stage counters + periodic FPS reporter ──────────────────────
-    // `savant_core::pipeline::stats::Stats` owns a background thread that
-    // emits a timestamp-based FPS line every `STATS_TIMESTAMP_PERIOD_MS` ms
-    // together with the per-stage processing stats we register below.
+    // ── Per-stage counters ──────────────────────────────────────────────
+    // We construct [`Stats`] up front so the stage counters can be
+    // registered, but we deliberately defer [`Stats::kick_off`] until
+    // *after* engine preparation.  Otherwise the timestamp-based FPS
+    // reporter would happily log "0 FPS" lines during the (potentially
+    // multi-minute) TensorRT engine build — indistinguishable to the
+    // user from a stall.  See
+    // [`crate::cars_tracking::warmup`] for the heartbeat scheme that
+    // surfaces progress during the preparation phase.
     let core_stats = Arc::new(Stats::new(
         STATS_HISTORY_LEN,
         None,
@@ -210,7 +216,6 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     core_stats.add_stage_stats(infer_stage.clone());
     core_stats.add_stage_stats(track_stage.clone());
     core_stats.add_stage_stats(encode_stage.clone());
-    core_stats.kick_off();
 
     // ── Channels ────────────────────────────────────────────────────────
     let (tx_demux, rx_demux) = demux_channel(cli.channel_cap);
@@ -219,7 +224,15 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let (tx_tracker, rx_tracker) = bounded::<TrackerSealedDeliveries>(cli.channel_cap);
     let (tx_encoded, rx_encoded) = encoded_channel(cli.channel_cap);
 
-    // ── Build operators (fails fast; engine build happens here) ─────────
+    // ── Phase 1: engine preparation ─────────────────────────────────────
+    // Heavy blocking work (TensorRT ONNX->plan build on first run,
+    // NvDCF tracker init) happens here, before any pipeline thread is
+    // spawned and before `core_stats.kick_off()`.  Each preparation
+    // helper logs a clear "starting / still-working (Ns) / ready"
+    // timeline so the user always knows what the process is doing.
+    log::info!("[warmup] phase 1: preparing inference + tracker + renderer (no frames yet)");
+    let warmup_t0 = Instant::now();
+
     let infer_cfg = build_nvinfer_config(cli.gpu)?;
     let infer_batch_cb = build_infer_batch_formation();
     let converter = build_yolo_converter(cli.conf, cli.iou);
@@ -232,17 +245,8 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         infer_result_tx_cb,
         Some(infer_stats.clone()),
     );
-    let build_t0 = Instant::now();
-    let infer_operator = NvInferBatchingOperator::new(infer_cfg, infer_batch_cb, infer_result_cb)
-        .map_err(|e| anyhow!("build NvInferBatchingOperator: {e}"))?;
-    log::info!(
-        "nvinfer engine ready ({:.1}s)",
-        build_t0.elapsed().as_secs_f64()
-    );
-    // Cache the engine for subsequent runs.
-    if let Err(e) = promote_yolo11n_engine(cli.gpu) {
-        log::warn!("engine promotion failed (will rebuild next run): {e:#}");
-    }
+    let (infer_operator, _infer_build) =
+        prepare_nvinfer_operator(cli.gpu, infer_cfg, infer_batch_cb, infer_result_cb)?;
 
     let tracker_cfg = build_tracker_config(cli.gpu)?;
     let tracker_batch_cb = build_tracker_batch_formation();
@@ -252,12 +256,9 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     drop(tx_tracker);
     let tracker_result_cb =
         build_tracker_callback(tracker_result_tx_cb, Some(tracker_stats.clone()));
-    let tracker_operator =
-        NvTrackerBatchingOperator::new(tracker_cfg, tracker_batch_cb, tracker_result_cb)
-            .map_err(|e| anyhow!("build NvTrackerBatchingOperator: {e}"))?;
-    log::info!("nvtracker ready");
+    let (tracker_operator, _tracker_build) =
+        prepare_nvtracker_operator(tracker_cfg, tracker_batch_cb, tracker_result_cb)?;
 
-    // ── Build Picasso engine ────────────────────────────────────────────
     let picasso = Arc::new(build_picasso_engine(
         tx_encoded.clone(),
         stats.clone(),
@@ -265,9 +266,19 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         core_stats.clone(),
     ));
     drop(tx_encoded);
-    log::info!("picasso engine ready");
+    log::info!("[warmup/picasso] renderer engine ready");
 
-    // ── Spawn threads ───────────────────────────────────────────────────
+    log::info!(
+        "[warmup] phase 1 complete ({:.2}s) - starting pipeline threads + FPS reporter",
+        warmup_t0.elapsed().as_secs_f64()
+    );
+
+    // ── Phase 2: live pipeline ──────────────────────────────────────────
+    // From here on real frames start flowing; kick off the FPS
+    // reporter so "0 FPS" never appears in the log for the warmup
+    // phase — any zero lines after this point mean an actual stall.
+    core_stats.kick_off();
+    let pipeline_t0 = Instant::now();
     let demux_handle = spawn_demux_thread(
         cli.input.to_string_lossy().into_owned(),
         tx_demux,
@@ -346,8 +357,17 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     // below so the background thread is joined before we exit).
     core_stats.log_final_fps();
 
+    let pipeline_elapsed = pipeline_t0.elapsed();
+    let encoded_frames = stage_frames(&encode_stage);
+    let pipeline_fps = if pipeline_elapsed.as_secs_f64() > 0.0 {
+        encoded_frames as f64 / pipeline_elapsed.as_secs_f64()
+    } else {
+        0.0
+    };
     log::info!(
-        "cars-demo done: demux={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} encoded={} bytes={}",
+        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} encoded={} bytes={}",
+        pipeline_elapsed.as_secs_f64(),
+        pipeline_fps,
         stats.demux_packets.load(Ordering::Relaxed),
         stage_frames(&decode_stage),
         stage_frames(&infer_stage),
@@ -355,7 +375,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         stage_frames(&track_stage),
         tracker_stats_summary.unique_tracks(),
         tracker_stats_summary.unmatched_updates(),
-        stage_frames(&encode_stage),
+        encoded_frames,
         stats.encoded_bytes.load(Ordering::Relaxed),
     );
     // Surface the detailed infer counters (detections match the
