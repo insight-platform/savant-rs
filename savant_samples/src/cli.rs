@@ -59,6 +59,17 @@ pub struct Cli {
     /// Output framerate denominator.  Must be >= 1.
     #[arg(long = "fps-den", default_value_t = 1)]
     pub fps_den: i32,
+
+    /// Completely disable Picasso's draw stage: no bounding boxes, no
+    /// labels, and no frame-id overlay.  The pipeline still performs
+    /// decode → infer → track → transform → encode, so the output MP4
+    /// is the re-encoded source video without any visual overlay.
+    ///
+    /// Useful for measuring raw decoder + infer + tracker + encoder
+    /// throughput (isolating the Skia draw cost) and for producing an
+    /// overlay-free reference copy of the output.
+    #[arg(long = "no-draw", default_value_t = false)]
+    pub no_draw: bool,
 }
 
 impl Cli {
@@ -140,6 +151,7 @@ impl Cli {
             debug: self.debug,
             fps_num: self.fps_num,
             fps_den: self.fps_den,
+            draw_enabled: !self.no_draw,
         })
     }
 }
@@ -166,6 +178,11 @@ pub struct ResolvedCli {
     pub fps_num: i32,
     /// Output container / encoder framerate denominator.
     pub fps_den: i32,
+    /// Whether Picasso's draw stage runs.  When `false` (CLI
+    /// `--no-draw`) no bounding boxes, labels, or frame-id overlay
+    /// are composited onto the output — decode + infer + track +
+    /// transform + encode still run as normal.
+    pub draw_enabled: bool,
 }
 
 impl ResolvedCli {
@@ -229,6 +246,36 @@ mod tests {
         .unwrap();
         let err = cli.resolve().unwrap_err();
         assert!(err.to_string().contains("--conf"));
+    }
+
+    /// `--no-draw` must default to `false` (draw stage active) and
+    /// invert to `draw_enabled = false` on the resolved struct when
+    /// the flag is set.  The toggle is the sole source of truth for
+    /// whether the render stage populates Picasso's draw spec, so a
+    /// regression here silently turns the feature off (or on) for
+    /// every user.
+    #[test]
+    fn no_draw_flag_inverts_into_draw_enabled() {
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            "some.mov",
+            "--output",
+            "/tmp/out.mp4",
+        ])
+        .unwrap();
+        assert!(!cli.no_draw);
+
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            "some.mov",
+            "--output",
+            "/tmp/out.mp4",
+            "--no-draw",
+        ])
+        .unwrap();
+        assert!(cli.no_draw);
     }
 
     #[test]

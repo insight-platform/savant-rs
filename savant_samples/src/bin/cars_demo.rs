@@ -26,7 +26,7 @@ fn main() -> Result<()> {
 
     let resolved = cli.resolve()?;
     log::info!(
-        "cars-demo: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} debug={}",
+        "cars-demo: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} draw_enabled={} debug={}",
         resolved.input().display(),
         resolved.output().display(),
         resolved.gpu,
@@ -35,6 +35,7 @@ fn main() -> Result<()> {
         resolved.channel_cap,
         resolved.fps_num,
         resolved.fps_den,
+        resolved.draw_enabled,
         resolved.debug,
     );
 
