@@ -26,15 +26,19 @@ fn main() -> Result<()> {
 
     let resolved = cli.resolve()?;
     log::info!(
-        "cars-demo: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} draw_enabled={} debug={}",
+        "cars-demo: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} picasso_enabled={} draw_enabled={} debug={}",
         resolved.input().display(),
-        resolved.output().display(),
+        resolved
+            .output()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
         resolved.gpu,
         resolved.conf,
         resolved.iou,
         resolved.channel_cap,
         resolved.fps_num,
         resolved.fps_den,
+        resolved.picasso_enabled,
         resolved.draw_enabled,
         resolved.debug,
     );

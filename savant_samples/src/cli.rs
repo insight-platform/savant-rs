@@ -21,9 +21,12 @@ pub struct Cli {
     #[arg(long)]
     pub input: PathBuf,
 
-    /// Output MP4 file.  Parent directory must exist and be writable.
+    /// Output MP4 file.  Required unless [`Cli::no_picasso`] is set;
+    /// when Picasso is disabled the pipeline produces no output file
+    /// and the argument (if supplied) is ignored with a warning.
+    /// Parent directory must exist and be writable.
     #[arg(long)]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 
     /// CUDA device ID.
     #[arg(long, default_value_t = 0)]
@@ -68,8 +71,23 @@ pub struct Cli {
     /// Useful for measuring raw decoder + infer + tracker + encoder
     /// throughput (isolating the Skia draw cost) and for producing an
     /// overlay-free reference copy of the output.
+    ///
+    /// Implied by [`Cli::no_picasso`] because Picasso is bypassed
+    /// entirely in that mode.
     #[arg(long = "no-draw", default_value_t = false)]
     pub no_draw: bool,
+
+    /// Completely exclude Picasso from the pipeline: no Skia engine,
+    /// no GPU transform, no encoder, no muxer.  Decoded frames flow
+    /// through YOLO + NvDCF as usual and are then dropped — nothing
+    /// is written to disk and [`Cli::output`] becomes optional (it
+    /// is ignored with a warning if supplied).
+    ///
+    /// Useful for measuring the raw cost of decode + infer + track
+    /// in isolation, without paying for the transform / overlay /
+    /// encode tail of the pipeline.
+    #[arg(long = "no-picasso", default_value_t = false)]
+    pub no_picasso: bool,
 }
 
 impl Cli {
@@ -100,16 +118,31 @@ impl Cli {
         Ok(path)
     }
 
-    /// Validate that the output path is writable (its parent directory
-    /// exists).  The file itself does not need to exist yet.
-    pub fn validated_output(&self) -> Result<PathBuf> {
-        let path = self.output.clone();
+    /// Resolve the output path against the picasso mode.
+    ///
+    /// - When Picasso is enabled (default), `--output` is required and
+    ///   its parent directory must exist.
+    /// - When `--no-picasso` is set, `--output` is ignored (a warning
+    ///   is logged if the user supplied one) and this returns `None`.
+    pub fn resolved_output(&self) -> Result<Option<PathBuf>> {
+        if self.no_picasso {
+            if self.output.is_some() {
+                log::warn!(
+                    "--output is ignored when --no-picasso is set (no file will be written)"
+                );
+            }
+            return Ok(None);
+        }
+        let path = self
+            .output
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--output is required unless --no-picasso is set"))?;
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 bail!("output directory does not exist: {}", parent.display());
             }
         }
-        Ok(path)
+        Ok(Some(path))
     }
 
     /// Validate all numeric knobs (channel capacity, thresholds).  Runs
@@ -140,7 +173,12 @@ impl Cli {
     pub fn resolve(&self) -> Result<ResolvedCli> {
         self.validate_knobs()?;
         let input = self.resolved_input()?;
-        let output = self.validated_output()?;
+        let output = self.resolved_output()?;
+        // `--no-picasso` implies `draw_enabled = false` because the
+        // draw stage lives inside Picasso; with Picasso excluded
+        // there is simply nothing to draw onto.
+        let picasso_enabled = !self.no_picasso;
+        let draw_enabled = picasso_enabled && !self.no_draw;
         Ok(ResolvedCli {
             input,
             output,
@@ -151,7 +189,8 @@ impl Cli {
             debug: self.debug,
             fps_num: self.fps_num,
             fps_den: self.fps_den,
-            draw_enabled: !self.no_draw,
+            draw_enabled,
+            picasso_enabled,
         })
     }
 }
@@ -162,8 +201,11 @@ impl Cli {
 pub struct ResolvedCli {
     /// Absolute path to the input MP4 file.
     pub input: PathBuf,
-    /// Absolute path to the output MP4 file.
-    pub output: PathBuf,
+    /// Absolute path to the output MP4 file.  `None` when Picasso
+    /// is excluded via `--no-picasso` — no file is written in that
+    /// mode.  Always `Some` when [`Self::picasso_enabled`] is
+    /// `true`; the resolver upholds this invariant.
+    pub output: Option<PathBuf>,
     /// CUDA device ID.
     pub gpu: u32,
     /// Detection confidence threshold.
@@ -178,11 +220,16 @@ pub struct ResolvedCli {
     pub fps_num: i32,
     /// Output container / encoder framerate denominator.
     pub fps_den: i32,
-    /// Whether Picasso's draw stage runs.  When `false` (CLI
-    /// `--no-draw`) no bounding boxes, labels, or frame-id overlay
-    /// are composited onto the output — decode + infer + track +
-    /// transform + encode still run as normal.
+    /// Whether Picasso's draw stage runs.  `false` when either
+    /// `--no-draw` or `--no-picasso` is set; the latter implies the
+    /// former because the draw stage lives inside Picasso.
     pub draw_enabled: bool,
+    /// Whether the pipeline instantiates Picasso at all.  When
+    /// `false` (CLI `--no-picasso`) the render + mux stages are
+    /// replaced by a drop-on-receive drain: decode + infer + track
+    /// still run, but no transform / overlay / encode / mux stages
+    /// are spun up and no output file is produced.
+    pub picasso_enabled: bool,
 }
 
 impl ResolvedCli {
@@ -191,9 +238,12 @@ impl ResolvedCli {
         &self.input
     }
 
-    /// Borrow the output path.
-    pub fn output(&self) -> &Path {
-        &self.output
+    /// Borrow the output path, when one was requested.  Always
+    /// returns `Some` when [`Self::picasso_enabled`] is `true`; the
+    /// resolver refuses to produce a `ResolvedCli` with
+    /// `picasso_enabled = true` and `output = None`.
+    pub fn output(&self) -> Option<&Path> {
+        self.output.as_deref()
     }
 }
 
@@ -276,6 +326,47 @@ mod tests {
         ])
         .unwrap();
         assert!(cli.no_draw);
+    }
+
+    /// `--no-picasso` both switches off Picasso *and* implies
+    /// `draw_enabled = false` (because the draw stage lives inside
+    /// Picasso).  The resolver is the single source of truth for
+    /// that implication, so a regression here silently leaves
+    /// `draw_enabled = true` and sends the pipeline down the render
+    /// path with no engine to render into.
+    #[test]
+    fn no_picasso_disables_both_picasso_and_draw() {
+        let exe_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/cars_tracking.rs");
+        // Use an existing file so `resolved_input` passes — we only
+        // care about the picasso / draw plumbing here.
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            exe_dir.to_str().unwrap(),
+            "--no-picasso",
+        ])
+        .unwrap();
+        let resolved = cli.resolve().expect("resolve should accept no --output");
+        assert!(!resolved.picasso_enabled);
+        assert!(!resolved.draw_enabled);
+        assert!(resolved.output.is_none());
+    }
+
+    /// Without `--no-picasso`, omitting `--output` is a hard error:
+    /// the default pipeline writes an MP4 and silently skipping it
+    /// would change the output contract from "always produces a
+    /// file" to "sometimes produces a file".
+    #[test]
+    fn missing_output_rejected_when_picasso_enabled() {
+        let exe_dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/cars_tracking.rs");
+        let cli = Cli::try_parse_from(["cars-demo", "--input", exe_dir.to_str().unwrap()]).unwrap();
+        let err = cli.resolve().unwrap_err();
+        assert!(
+            err.to_string().contains("--output is required"),
+            "unexpected error: {err:#}"
+        );
     }
 
     #[test]

@@ -94,7 +94,7 @@ use crate::cars_tracking::warmup::{prepare_nvinfer_operator, prepare_nvtracker_o
 const SOURCE_ID: &str = "cars-demo";
 /// Decoder buffer-pool size.  Enough to hide NVDEC queue depth without
 /// holding on to memory across many frames.
-const DECODER_POOL_SIZE: u32 = 4;
+const DECODER_POOL_SIZE: u32 = 8;
 /// Eviction TTL for [`FlexibleDecoderPool`].  Large enough that our single
 /// long-running file is never evicted mid-run; a shorter value is suitable
 /// for multi-source live-stream pipelines.
@@ -169,9 +169,19 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     if !cli.input.is_file() {
         bail!("input file does not exist: {}", cli.input.display());
     }
-    if let Some(parent) = cli.output.parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            bail!("output directory does not exist: {}", parent.display());
+    if cli.picasso_enabled {
+        // Defensive: the resolver enforces `output.is_some()` when
+        // picasso is enabled, but we re-check here so mis-constructed
+        // `ResolvedCli` instances (e.g. from integration tests) still
+        // fail fast with a clear message.
+        let out = cli
+            .output
+            .as_ref()
+            .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?;
+        if let Some(parent) = out.parent() {
+            if !parent.as_os_str().is_empty() && !parent.exists() {
+                bail!("output directory does not exist: {}", parent.display());
+            }
         }
     }
 
@@ -179,15 +189,19 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     cuda_init(cli.gpu).map_err(|e| anyhow!("cuda init (gpu={}): {e}", cli.gpu))?;
 
     log::info!(
-        "cars-demo starting: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} draw_enabled={} debug={}",
+        "cars-demo starting: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} picasso_enabled={} draw_enabled={} debug={}",
         cli.input.display(),
-        cli.output.display(),
+        cli.output
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
         cli.gpu,
         cli.conf,
         cli.iou,
         cli.channel_cap,
         cli.fps_num,
         cli.fps_den,
+        cli.picasso_enabled,
         cli.draw_enabled,
         cli.debug
     );
@@ -212,18 +226,37 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let decode_stage = make_stage("decode");
     let infer_stage = make_stage("infer");
     let track_stage = make_stage("track");
-    let encode_stage = make_stage("encode");
+    // The "tail" stage terminates the pipeline and is the one that
+    // drives `Stats::register_frame` (and therefore the time-based
+    // FPS log line).  Its logical identity differs with `--no-picasso`:
+    // with Picasso it counts encoded frames, without it counts frames
+    // that reach the drain thread.  Using a mode-dependent stage name
+    // keeps the `📊 <stage>` log column self-explanatory in both modes.
+    let tail_stage_name = if cli.picasso_enabled {
+        "encode"
+    } else {
+        "drain"
+    };
+    let tail_stage = make_stage(tail_stage_name);
     core_stats.add_stage_stats(decode_stage.clone());
     core_stats.add_stage_stats(infer_stage.clone());
     core_stats.add_stage_stats(track_stage.clone());
-    core_stats.add_stage_stats(encode_stage.clone());
+    core_stats.add_stage_stats(tail_stage.clone());
 
     // ── Channels ────────────────────────────────────────────────────────
     let (tx_demux, rx_demux) = demux_channel(cli.channel_cap);
     let (tx_decoded, rx_decoded) = bounded::<SealedDelivery>(cli.channel_cap);
     let (tx_infer, rx_infer) = bounded::<InferSealedDeliveries>(cli.channel_cap);
     let (tx_tracker, rx_tracker) = bounded::<TrackerSealedDeliveries>(cli.channel_cap);
-    let (tx_encoded, rx_encoded) = encoded_channel(cli.channel_cap);
+    // The encoded channel only exists when Picasso is active: it
+    // carries Picasso's [`OutputMessage::VideoFrame`] payloads into
+    // the MP4 muxer.  With `--no-picasso` there is no producer and
+    // no consumer, so we skip allocating the channel entirely.
+    let encoded = if cli.picasso_enabled {
+        Some(encoded_channel(cli.channel_cap))
+    } else {
+        None
+    };
 
     // ── Phase 1: engine preparation ─────────────────────────────────────
     // Heavy blocking work (TensorRT ONNX->plan build on first run,
@@ -231,7 +264,14 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     // spawned and before `core_stats.kick_off()`.  Each preparation
     // helper logs a clear "starting / still-working (Ns) / ready"
     // timeline so the user always knows what the process is doing.
-    log::info!("[warmup] phase 1: preparing inference + tracker + renderer (no frames yet)");
+    log::info!(
+        "[warmup] phase 1: preparing inference + tracker{} (no frames yet)",
+        if cli.picasso_enabled {
+            " + renderer"
+        } else {
+            " (picasso excluded)"
+        }
+    );
     let warmup_t0 = Instant::now();
 
     let infer_cfg = build_nvinfer_config(cli.gpu)?;
@@ -260,14 +300,24 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let (tracker_operator, _tracker_build) =
         prepare_nvtracker_operator(tracker_cfg, tracker_batch_cb, tracker_result_cb)?;
 
-    let picasso = Arc::new(build_picasso_engine(
-        tx_encoded.clone(),
-        stats.clone(),
-        encode_stage.clone(),
-        core_stats.clone(),
-    ));
-    drop(tx_encoded);
-    log::info!("[warmup/picasso] renderer engine ready");
+    // Picasso is expensive to instantiate (Skia GPU context, Cairo
+    // fonts, CUDA transform pool) so build it only when enabled.
+    // When `--no-picasso` is set the render + mux stages are
+    // replaced by a drop-on-receive drain thread further down.
+    let (picasso, rx_encoded) = if let Some((tx_encoded, rx_encoded)) = encoded {
+        let engine = Arc::new(build_picasso_engine(
+            tx_encoded.clone(),
+            stats.clone(),
+            tail_stage.clone(),
+            core_stats.clone(),
+        ));
+        drop(tx_encoded);
+        log::info!("[warmup/picasso] renderer engine ready");
+        (Some(engine), Some(rx_encoded))
+    } else {
+        log::info!("[warmup/picasso] skipped (--no-picasso): render + mux stages disabled");
+        (None, None)
+    };
 
     log::info!(
         "[warmup] phase 1 complete ({:.2}s) - starting pipeline threads + FPS reporter",
@@ -322,22 +372,48 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         track_stage.clone(),
     )?;
 
-    let render_handle = spawn_render_thread(
-        SOURCE_ID.to_string(),
-        picasso,
-        rx_tracker,
-        fatal.clone(),
-        cli.draw_enabled,
-    )?;
+    let render_handle = match picasso {
+        Some(engine) => spawn_render_thread(
+            SOURCE_ID.to_string(),
+            engine,
+            rx_tracker,
+            fatal.clone(),
+            cli.draw_enabled,
+        )?,
+        None => spawn_drain_thread(
+            SOURCE_ID.to_string(),
+            rx_tracker,
+            fatal.clone(),
+            tail_stage.clone(),
+            core_stats.clone(),
+        )?,
+    };
 
-    let mux_handle = spawn_mux_thread(
-        cli.output.to_string_lossy().into_owned(),
-        cli.fps_num,
-        cli.fps_den,
-        rx_encoded,
-        fatal.clone(),
-        stats.clone(),
-    )?;
+    // The muxer only runs when Picasso is enabled (nothing to mux
+    // otherwise).  We still return a `JoinHandle<Result<()>>` from
+    // both branches so the join logic below stays symmetric.
+    let mux_handle = match rx_encoded {
+        Some(rx_encoded) => {
+            let out = cli
+                .output
+                .as_ref()
+                .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?
+                .to_string_lossy()
+                .into_owned();
+            spawn_mux_thread(
+                out,
+                cli.fps_num,
+                cli.fps_den,
+                rx_encoded,
+                fatal.clone(),
+                stats.clone(),
+            )?
+        }
+        None => std::thread::Builder::new()
+            .name("cars-demo/mux-noop".into())
+            .spawn(|| Ok(()))
+            .context("spawn mux-noop thread")?,
+    };
 
     // ── Join in stage order (downstream may still be draining) ──────────
     let demux_result = demux_handle
@@ -364,14 +440,17 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     core_stats.log_final_fps();
 
     let pipeline_elapsed = pipeline_t0.elapsed();
-    let encoded_frames = stage_frames(&encode_stage);
+    // Pipeline-tail frame count: encoded frames in Picasso mode,
+    // drained frames in `--no-picasso` mode.  Either way this is the
+    // end-of-pipeline count and the correct divisor for `avg_fps`.
+    let tail_frames = stage_frames(&tail_stage);
     let pipeline_fps = if pipeline_elapsed.as_secs_f64() > 0.0 {
-        encoded_frames as f64 / pipeline_elapsed.as_secs_f64()
+        tail_frames as f64 / pipeline_elapsed.as_secs_f64()
     } else {
         0.0
     };
     log::info!(
-        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} encoded={} bytes={}",
+        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} {}={} bytes={}",
         pipeline_elapsed.as_secs_f64(),
         pipeline_fps,
         stats.demux_packets.load(Ordering::Relaxed),
@@ -381,7 +460,8 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         stage_frames(&track_stage),
         tracker_stats_summary.unique_tracks(),
         tracker_stats_summary.unmatched_updates(),
-        encoded_frames,
+        tail_stage_name,
+        tail_frames,
         stats.encoded_bytes.load(Ordering::Relaxed),
     );
     // Surface the detailed infer counters (detections match the
@@ -926,6 +1006,82 @@ fn spawn_render_thread(
         .context("spawn render thread")
 }
 
+/// Replacement for [`spawn_render_thread`] used when Picasso is
+/// excluded via `--no-picasso`.
+///
+/// The drain thread unseals every tracker delivery and immediately
+/// drops the resulting `(VideoFrameProxy, SharedBuffer)` pairs.
+/// Dropping the `SharedBuffer` releases the GPU slot back to the
+/// decoder pool, which is what keeps the pipeline flowing; without
+/// this drain the tracker output channel would fill up and stall
+/// the inference / decode stages.
+///
+/// The drain also drives the pipeline-tail metrics that would
+/// otherwise be driven by Picasso's `OnEncodedFrame` callback:
+///
+/// * [`Stats::register_frame`] on `core_stats` — the sole source
+///   for the `📊 Time-based FPS counter triggered: ...` log line;
+///   without this call FPS stays at zero with `--no-picasso`.
+/// * `tail_stage` frame counter — keeps `📊 <stage>` rows
+///   symmetrical with Picasso mode.
+///
+/// We still honour the shared `fatal` flag so the drain exits
+/// cleanly if any upstream stage aborts.
+fn spawn_drain_thread(
+    source_id: String,
+    rx: TrackerResultReceiver,
+    fatal: Arc<AtomicBool>,
+    tail_stage: StageStats,
+    core_stats: Arc<Stats>,
+) -> Result<JoinHandle<Result<()>>> {
+    thread::Builder::new()
+        .name("cars-drain".into())
+        .spawn(move || drain_thread(source_id, rx, fatal, tail_stage, core_stats))
+        .context("spawn drain thread")
+}
+
+fn drain_thread(
+    source_id: String,
+    rx: TrackerResultReceiver,
+    fatal: Arc<AtomicBool>,
+    tail_stage: StageStats,
+    core_stats: Arc<Stats>,
+) -> Result<()> {
+    log::info!("[drain] starting source_id={source_id} (picasso excluded)");
+    let mut drained: u64 = 0;
+    loop {
+        match rx.recv() {
+            Ok(sealed) => {
+                let pairs = sealed.unseal();
+                let count = pairs.len();
+                // Record the frames as they reach the pipeline tail
+                // *before* dropping — this keeps the FPS counter
+                // consistent even if the drop below is inlined into
+                // a long-running destructor (e.g. GPU slot cleanup).
+                for _ in 0..count {
+                    tick_stage(&tail_stage, 1, 0);
+                    core_stats.register_frame(0);
+                }
+                drained = drained.saturating_add(count as u64);
+                // Dropping the `SharedBuffer`s releases GPU slots
+                // back to the decoder pool — without this drop the
+                // tracker output channel would fill up and the
+                // pipeline would stall one channel-cap in.
+                drop(pairs);
+                if fatal.load(Ordering::Acquire) {
+                    break;
+                }
+            }
+            Err(RecvError) => {
+                log::info!("[drain] upstream channel closed");
+                break;
+            }
+        }
+    }
+    log::info!("[drain] finished drained_frames={drained}");
+    Ok(())
+}
+
 fn render_thread(
     source_id: String,
     picasso: Arc<PicassoEngine>,
@@ -1157,7 +1313,7 @@ mod tests {
     fn run_rejects_missing_input() {
         let cli = ResolvedCli {
             input: PathBuf::from("/definitely/does/not/exist.mp4"),
-            output: std::env::temp_dir().join("savant_samples_pipeline_out.mp4"),
+            output: Some(std::env::temp_dir().join("savant_samples_pipeline_out.mp4")),
             gpu: 0,
             conf: 0.25,
             iou: 0.45,
@@ -1166,6 +1322,7 @@ mod tests {
             fps_num: 25,
             fps_den: 1,
             draw_enabled: true,
+            picasso_enabled: true,
         };
         let err = run(cli).unwrap_err();
         assert!(
