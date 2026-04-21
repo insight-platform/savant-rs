@@ -5,7 +5,10 @@ use crossbeam::channel::{Receiver, Sender, TrySendError};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
-use savant_gstreamer::pipeline::{GstPipeline, PipelineConfig, PipelineInput, PipelineOutput};
+use savant_gstreamer::pipeline::{
+    build_source_eos_event, parse_source_eos_event, GstPipeline, PipelineConfig, PipelineInput,
+    PipelineOutput,
+};
 
 static GST_INIT: Once = Once::new();
 
@@ -29,6 +32,22 @@ fn start_pipeline(
     input_channel_capacity: usize,
     output_channel_capacity: usize,
 ) -> (Sender<PipelineInput>, Receiver<PipelineOutput>, GstPipeline) {
+    start_pipeline_with(
+        elements,
+        operation_timeout,
+        input_channel_capacity,
+        output_channel_capacity,
+        None,
+    )
+}
+
+fn start_pipeline_with(
+    elements: Vec<gst::Element>,
+    operation_timeout: Option<Duration>,
+    input_channel_capacity: usize,
+    output_channel_capacity: usize,
+    idle_flush_interval: Option<Duration>,
+) -> (Sender<PipelineInput>, Receiver<PipelineOutput>, GstPipeline) {
     init_gst();
     let config = PipelineConfig {
         name: "test".to_string(),
@@ -38,6 +57,7 @@ fn start_pipeline(
         output_channel_capacity,
         operation_timeout,
         drain_poll_interval: Duration::from_millis(10),
+        idle_flush_interval,
         appsrc_probe: None,
         pts_policy: None,
         leak_on_finalize: false,
@@ -391,5 +411,108 @@ fn bus_error_propagation() {
              skipping strict bus error assertion"
         );
     }
+    pipeline.shutdown().unwrap();
+}
+
+/// Try to drain a single `PipelineOutput::Event` containing a
+/// `savant.pipeline.source_eos` for `source_id` from `rx`, with a short
+/// bounded timeout.  Returns `true` if the event is observed.
+fn drain_source_eos(rx: &Receiver<PipelineOutput>, source_id: &str) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(PipelineOutput::Event(event)) => {
+                if parse_source_eos_event(&event).as_deref() == Some(source_id) {
+                    return true;
+                }
+            }
+            Ok(PipelineOutput::Buffer(_)) => {}
+            Ok(PipelineOutput::Eos) => return false,
+            Ok(PipelineOutput::Error(e)) => panic!("unexpected pipeline error: {e:?}"),
+            Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
+            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => return false,
+        }
+    }
+    false
+}
+
+/// Explicit `flush_idle()` must release a pending `source_eos` event
+/// when the pipeline is idle (no buffers in flight), without triggering
+/// a full EOS teardown.  The event arrives on the output channel as a
+/// rescued `PipelineOutput::Event`.
+#[test]
+fn flush_idle_explicit_releases_pending_source_eos() {
+    let (tx, rx, mut pipeline) = start_pipeline(vec![build_identity("id")], None, 16, 16);
+
+    // Push a buffer, drain it so `in_flight` becomes empty.
+    tx.send(PipelineInput::Buffer(make_buffer(&[1], 100, None)))
+        .unwrap();
+    let _ = recv_buffer(&rx);
+
+    // Inject a source_eos event — identity forwards serialized custom
+    // events inline, so the rescue probe captures it on the appsrc side.
+    tx.send(PipelineInput::Event(build_source_eos_event("cam-1")))
+        .unwrap();
+
+    // Explicit flush should deliver the event without a full EOS.
+    let flushed = pipeline.flush_idle().expect("flush_idle ok");
+    // Identity passes the event through on its own, so flush_idle may
+    // return 0 (the event already made it through the peer).  The key
+    // invariant is that the event ends up on the output channel.
+    assert!(flushed <= 1);
+
+    assert!(
+        drain_source_eos(&rx, "cam-1"),
+        "expected rescued source_eos event to be observed"
+    );
+    pipeline.shutdown().unwrap();
+}
+
+/// `flush_idle()` must be a no-op (returning `Ok(0)` without sending
+/// anything downstream) when there are no pending rescue-eligible
+/// events.  Also covers "idle with nothing pending".
+#[test]
+fn flush_idle_noop_when_empty() {
+    let (tx, rx, mut pipeline) = start_pipeline(vec![build_identity("id")], None, 16, 16);
+    tx.send(PipelineInput::Buffer(make_buffer(&[1], 1, None)))
+        .unwrap();
+    let _ = recv_buffer(&rx);
+
+    for _ in 0..3 {
+        let n = pipeline.flush_idle().expect("flush_idle ok");
+        assert_eq!(n, 0, "no pending events — should be 0-flush");
+    }
+
+    pipeline.shutdown().unwrap();
+}
+
+/// The auto-flush thread (`idle_flush_interval` set in the config) must
+/// release a pending `source_eos` event on its own — no caller-side
+/// flush required.
+#[test]
+fn flush_idle_auto_thread_releases_pending_source_eos() {
+    let (tx, rx, mut pipeline) = start_pipeline_with(
+        vec![build_identity("id")],
+        None,
+        16,
+        16,
+        Some(Duration::from_millis(50)),
+    );
+
+    tx.send(PipelineInput::Buffer(make_buffer(&[1], 10, None)))
+        .unwrap();
+    let _ = recv_buffer(&rx);
+
+    tx.send(PipelineInput::Event(build_source_eos_event("cam-auto")))
+        .unwrap();
+
+    // No explicit flush_idle call: the background auto-flush thread
+    // should observe idleness and push the event within a couple of
+    // flush intervals.
+    assert!(
+        drain_source_eos(&rx, "cam-auto"),
+        "auto-flush thread must release pending source_eos"
+    );
+
     pipeline.shutdown().unwrap();
 }

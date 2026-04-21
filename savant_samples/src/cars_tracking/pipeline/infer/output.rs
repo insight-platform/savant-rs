@@ -1,41 +1,50 @@
-//! YOLO post-processing for the `cars_tracking` sample.
+//! Inference output processing — everything that turns a concrete
+//! nvinfer [`OperatorOutput`] into downstream artefacts for the
+//! `cars_tracking` sample.
 //!
-//! The nvinfer result callback runs on the operator's internal completion
-//! thread.  It is forbidden to `unseal()` there — doing so would block that
-//! thread and pin GPU slots for the whole time the downstream stage takes
-//! to consume the frame.  Instead the callback:
+//! Scope:
 //!
-//! 1. Reads every output tensor while the [`OperatorInferenceOutput`] is
-//!    still alive (pointers are only valid for that lifetime),
-//! 2. Attaches decoded detections as `VideoObject`s onto the frame,
-//! 3. Calls `take_deliveries()` and forwards the resulting
-//!    [`SealedDeliveries`] through a bounded channel.
+//! * YOLO post-processing configuration — [`build_yolo_converter`] and
+//!   the [`CONFIDENCE_THRESHOLD`] / [`NMS_IOU_THRESHOLD`] /
+//!   [`NMS_TOP_K`] constants.
+//! * The [`OperatorResultCallback`] installed on
+//!   [`deepstream_nvinfer::prelude::NvInferBatchingOperator`] —
+//!   [`build_result_callback`] and the shared
+//!   [`process_infer_output`] dispatcher used by both the callback
+//!   and the drain path in [`super::spawn_infer_thread`].
+//! * The per-frame YOLO `output0` tensor → [`RBBox`] →
+//!   `VideoObject` pipeline ([`attach_detections`] +
+//!   [`count_detection_objects`]).
+//! * The downstream channel type aliases
+//!   ([`InferResultSender`] / [`InferResultReceiver`]) that carry the
+//!   sealed nvinfer deliveries to the tracker stage.
+//! * [`InferStats`] — sample-level frame / detection counters
+//!   written from this module (the only place that touches tensor
+//!   outputs) and read by the orchestrator for the end-of-run
+//!   summary.
 //!
-//! A dedicated consumer thread (in [`crate::cars_tracking::pipeline`]) pulls
-//! the sealed handles off the channel, calls `unseal()` and submits the
-//! frames to the tracker — this keeps backpressure healthy and ensures GPU
-//! slots are freed promptly.
-//!
-//! Per-source EOS / errors are only logged; hard shutdown is driven by the
-//! orchestrator via `graceful_shutdown()` and sender drops.
+//! The split keeps [`super`](super) (the actor thread +
+//! [`BatchFormationCallback`]) free of tensor-decoding detail, and
+//! keeps this module free of operator-lifecycle concerns.  Stream
+//! alignment for the in-band [`PipelineMsg::SourceEos`] sentinel is
+//! documented on [`process_infer_output`].
 
 use crossbeam::channel::{Receiver, Sender};
-use deepstream_buffers::SavantIdMetaKind;
-use deepstream_nvinfer::{
-    BatchFormationCallback, BatchFormationResult, OperatorOutput, OperatorResultCallback, RoiKind,
-    SealedDeliveries,
-};
+use deepstream_nvinfer::{OperatorOutput, OperatorResultCallback};
 use savant_core::converters::{NmsKind, YoloDetectionConverter, YoloFormat};
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
 };
 use savant_core::primitives::RBBox;
+// `HashMap`/`HashSet` here must be `std::collections::*` because they
+// are handed to `YoloDetectionConverter::new`, which is a boundary API
+// that takes the std types.  The rest of `cars_tracking` uses
+// `hashbrown`.
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::cars_tracking::model::{
-    vehicle_label, DETECTION_NAMESPACE, VEHICLE_CLASS_IDS, YOLO_NUM_CLASSES,
-};
+use super::model::{vehicle_label, DETECTION_NAMESPACE, VEHICLE_CLASS_IDS, YOLO_NUM_CLASSES};
+use crate::cars_tracking::message::PipelineMsg;
 
 /// Confidence threshold used by the post-processing.
 pub const CONFIDENCE_THRESHOLD: f32 = 0.25;
@@ -44,11 +53,15 @@ pub const NMS_IOU_THRESHOLD: f32 = 0.45;
 /// Maximum detections retained after NMS.
 pub const NMS_TOP_K: usize = 300;
 
-/// Sender half of the nvinfer-result channel — forwards sealed deliveries
-/// from the operator callback to the consumer thread.
-pub type InferResultSender = Sender<SealedDeliveries>;
+/// Sender half of the nvinfer-result channel — forwards [`PipelineMsg`]
+/// from the operator callback + infer-thread EOS handler to the tracker
+/// thread.  The infer stage emits the batched
+/// [`PipelineMsg::Deliveries`] variant (the boxed payload is a
+/// `deepstream_nvinfer::SealedDeliveries`); the singular `Delivery`
+/// variant is never emitted on this channel.
+pub type InferResultSender = Sender<PipelineMsg>;
 /// Receiver half of the nvinfer-result channel.
-pub type InferResultReceiver = Receiver<SealedDeliveries>;
+pub type InferResultReceiver = Receiver<PipelineMsg>;
 
 /// Build a shared `YoloDetectionConverter` for YOLOv11 with a vehicle filter.
 pub fn build_yolo_converter(conf: f32, iou: f32) -> Arc<YoloDetectionConverter> {
@@ -67,28 +80,25 @@ pub fn build_yolo_converter(conf: f32, iou: f32) -> Arc<YoloDetectionConverter> 
     ))
 }
 
-/// Build the batch-formation callback used by `NvInferBatchingOperator`.
-///
-/// Each slot processes a single full-frame ROI (the whole image).
-pub fn build_batch_formation() -> BatchFormationCallback {
-    Arc::new(|frames| {
-        let ids = frames
-            .iter()
-            .enumerate()
-            .map(|(slot, _)| SavantIdMetaKind::Frame(slot as u128))
-            .collect();
-        let rois = frames.iter().map(|_| RoiKind::FullFrame).collect();
-        BatchFormationResult { ids, rois }
-    })
-}
-
 /// Process a single [`OperatorOutput`]: attach detections on inference
-/// batches and forward the resulting [`SealedDeliveries`]; log and discard
-/// per-source EOS / operator errors.
+/// batches, forward the resulting [`SealedDeliveries`], and — critically
+/// — forward the in-band [`PipelineMsg::SourceEos`] sentinel when the
+/// operator emits [`OperatorOutput::Eos`].
 ///
 /// Used by both the result callback (normal flow) and the orchestrator's
 /// drain step (which receives a `Vec<OperatorOutput>` from
 /// `graceful_shutdown` instead of having the callback fire).
+///
+/// `SourceEos` propagation happens **here**, not in the infer thread's
+/// main loop.  The operator delivers results in per-source order and
+/// emits `OperatorOutput::Eos { source_id }` strictly after the last
+/// delivery for that source; forwarding the sentinel from the main
+/// loop (upon receiving upstream `PipelineMsg::SourceEos`) would race
+/// ahead of still-in-flight deliveries and make `SourceEos`
+/// *out-of-band* on the infer->tracker channel.  Keeping the emit
+/// inside this single call site guarantees stream alignment.
+///
+/// [`SealedDeliveries`]: deepstream_nvinfer::SealedDeliveries
 pub fn process_infer_output(
     output: OperatorOutput,
     converter: &YoloDetectionConverter,
@@ -110,13 +120,29 @@ pub fn process_infer_output(
             }
             if let Some(sealed) = inf.take_deliveries() {
                 drop(inf);
-                if forward.send(sealed).is_err() {
+                if forward
+                    .send(PipelineMsg::Deliveries(Box::new(sealed)))
+                    .is_err()
+                {
                     log::warn!("nvinfer result receiver closed; dropping sealed batch");
                 }
             }
         }
         OperatorOutput::Eos { source_id } => {
-            log::info!("nvinfer source EOS: {source_id}");
+            // Stream-aligned propagation: the operator guarantees
+            // this fires strictly after the last `Inference` output
+            // for `source_id`, so the downstream receiver sees every
+            // delivery *before* the sentinel.  This is the only
+            // place in the stage where `SourceEos` leaves.
+            log::info!("[infer/cb] OperatorOutput::Eos for source_id={source_id}; propagating");
+            if forward
+                .send(PipelineMsg::SourceEos {
+                    source_id: source_id.clone(),
+                })
+                .is_err()
+            {
+                log::warn!("[infer/cb] downstream closed; dropping SourceEos({source_id})");
+            }
         }
         OperatorOutput::Error(err) => {
             log::error!("nvinfer operator error: {err}");
@@ -279,23 +305,32 @@ fn attach_detections(
 mod tests {
     use super::*;
 
-    /// Per-source EOS / operator errors must be logged only — pipeline
-    /// shutdown is driven by the orchestrator (sender drop), so the callback
-    /// must NOT push anything onto the sealed-deliveries channel.
+    /// The callback is the only place that emits `PipelineMsg::SourceEos`
+    /// because it is the only vantage point where "no more deliveries
+    /// for this source will follow" is an invariant (the operator
+    /// guarantees the `Eos` output fires strictly after the last
+    /// `Inference` output for the same source_id).  Operator errors
+    /// stay log-only.
     #[test]
-    fn callback_does_not_forward_on_source_eos_or_error() {
+    fn callback_forwards_source_eos_but_not_errors() {
         use deepstream_nvinfer::NvInferError;
-        let (tx, rx) = crossbeam::channel::bounded::<SealedDeliveries>(1);
+        let (tx, rx) = crossbeam::channel::bounded::<PipelineMsg>(1);
         let converter = build_yolo_converter(CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD);
         let mut cb = build_result_callback(converter, tx, None);
 
         cb(OperatorOutput::Eos {
             source_id: "cam-1".to_string(),
         });
+        match rx.try_recv().expect("expected SourceEos on the channel") {
+            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
+            PipelineMsg::Delivery(_) => panic!("unexpected Delivery on Eos"),
+            PipelineMsg::Deliveries(_) => panic!("unexpected Deliveries on Eos"),
+            PipelineMsg::Shutdown { .. } => panic!("unexpected Shutdown on Eos"),
+        }
+
         cb(OperatorOutput::Error(NvInferError::PipelineError(
             "synthetic".to_string(),
         )));
-
         assert!(rx.try_recv().is_err());
     }
 }

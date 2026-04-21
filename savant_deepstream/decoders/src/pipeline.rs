@@ -165,6 +165,7 @@ impl NvDecoder {
                 output_channel_capacity: config.output_channel_capacity,
                 operation_timeout: Some(config.operation_timeout),
                 drain_poll_interval: config.drain_poll_interval,
+                idle_flush_interval: config.idle_flush_interval,
                 appsrc_probe: None,
                 pts_policy: Some(PtsPolicy::StrictDecodeOrder),
                 leak_on_finalize: false,
@@ -344,6 +345,30 @@ impl NvDecoder {
     /// ordered with decoded frames. Does **not** stop the decoder.
     pub fn send_source_eos(&self, source_id: &str) -> Result<(), DecoderError> {
         self.send_event(build_source_eos_event(source_id))
+    }
+
+    /// Force-flush pending rescue-eligible custom-downstream events
+    /// (including `savant.pipeline.source_eos`) through the decoder when
+    /// no buffers are in flight.
+    ///
+    /// Delegates to [`savant_gstreamer::pipeline::GstPipeline::flush_idle`];
+    /// see that method for semantics.  Returns the number of events
+    /// actually flushed.  `Ok(0)` is non-error and means either "no
+    /// pending events" or "decoder still busy decoding".
+    ///
+    /// Typical use: call from the consumer's `recv_timeout(Timeout)`
+    /// branch to let trailing per-source EOS markers escape the decoder
+    /// in the middle of a session, without initiating a full
+    /// [`graceful_shutdown`](Self::graceful_shutdown).  Backends other
+    /// than the GStreamer pipeline (`RawUpload`, `ImageDecode`) return
+    /// `Ok(0)`.
+    pub fn flush_idle(&self) -> Result<usize, DecoderError> {
+        match &self.backend {
+            DecoderBackendState::Pipeline { pipeline, .. } => Ok(pipeline.lock().flush_idle()?),
+            DecoderBackendState::RawUpload { .. } | DecoderBackendState::ImageDecode { .. } => {
+                Ok(0)
+            }
+        }
     }
 
     /// Block until the next output is available.

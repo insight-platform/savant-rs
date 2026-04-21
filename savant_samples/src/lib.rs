@@ -19,11 +19,13 @@
 //! 2. **Backpressure via bounded channels.**  All stage boundaries use
 //!    [`crossbeam::channel::bounded`] with a small capacity.  A slow
 //!    downstream stage blocks its upstream producer.
-//! 3. **EOS by sender drop.**  Shutdown is driven by the orchestrator
-//!    dropping upstream senders; each stage calls `graceful_shutdown()` on
-//!    the operator it owns once its input channel closes.  Operator-level
-//!    source-EOS notifications are only logged; the muxer flushes the
-//!    `moov` atom after receiving an [`EncodedMsg::Eos`](crate::channels::EncodedMsg)
+//! 3. **In-band EOS propagation.**  End-of-source is an in-band
+//!    message (each inter-actor channel's enum has a `SourceEos {
+//!    source_id }` variant) — not channel closure.  Each actor
+//!    receives the upstream sentinel, calls `send_eos(sid)` +
+//!    `graceful_shutdown()` on its operator, then emits its own
+//!    `SourceEos` downstream.  The muxer flushes the `moov` atom on
+//!    receiving an [`EncodedMsg::Eos`](crate::cars_tracking::pipeline::picasso::EncodedMsg)
 //!    sentinel from the Picasso encoder thread.
 //! 4. **Per-frame ownership.**  Each frame traverses the pipeline as a single
 //!    `(VideoFrameProxy, SharedBuffer)` tuple packaged into a sealed
@@ -43,5 +45,4 @@
 
 pub mod assets;
 pub mod cars_tracking;
-pub mod channels;
 pub mod cli;

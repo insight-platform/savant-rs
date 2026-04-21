@@ -31,6 +31,20 @@ pub struct PipelineConfig {
     pub output_channel_capacity: usize,
     pub operation_timeout: Option<Duration>,
     pub drain_poll_interval: Duration,
+    /// When `Some`, spawns a background thread that periodically invokes
+    /// [`super::runner::GstPipeline::flush_idle`] every interval.
+    ///
+    /// `flush_idle` is a cheap no-op when the pipeline is busy (buffers
+    /// in flight) or when there are no pending rescue-eligible events,
+    /// so a short interval (e.g. 50–200 ms) is reasonable.  Useful for
+    /// streams with long quiet periods where trailing custom-downstream
+    /// events (e.g. `savant.pipeline.source_eos`) would otherwise sit
+    /// inside a `GstVideoDecoder` until full pipeline EOS.
+    ///
+    /// When `None` (default), callers drive flushing explicitly via
+    /// [`super::runner::GstPipeline::flush_idle`] (e.g. from their own
+    /// `recv_timeout` branch).
+    pub idle_flush_interval: Option<Duration>,
     /// Optional one-shot hook on `appsrc`'s `src` pad (after meta bridge).
     pub appsrc_probe: Option<AppsrcPadProbe>,
     /// Timestamp ordering policy applied in the feeder thread. `None` disables validation.
@@ -56,6 +70,7 @@ impl fmt::Debug for PipelineConfig {
             .field("output_channel_capacity", &self.output_channel_capacity)
             .field("operation_timeout", &self.operation_timeout)
             .field("drain_poll_interval", &self.drain_poll_interval)
+            .field("idle_flush_interval", &self.idle_flush_interval)
             .field("appsrc_probe", &self.appsrc_probe.as_ref().map(|_| "<fn>"))
             .field("pts_policy", &self.pts_policy)
             .field("leak_on_finalize", &self.leak_on_finalize)

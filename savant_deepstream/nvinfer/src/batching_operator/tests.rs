@@ -52,6 +52,7 @@ fn make_nvinfer_config() -> crate::config::NvInferConfig {
         input_channel_capacity: 16,
         output_channel_capacity: 16,
         drain_poll_interval: Duration::from_millis(100),
+        idle_flush_interval: None,
     }
 }
 

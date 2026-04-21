@@ -183,6 +183,48 @@ impl FlexibleDecoderPool {
         }
     }
 
+    /// Force-flush pending rescue-eligible custom-downstream events on
+    /// every active per-stream decoder in the pool.
+    ///
+    /// Iterates all streams and invokes [`FlexibleDecoder::flush_idle`]
+    /// on each.  Returns the total number of events flushed across the
+    /// pool (sum across streams).  Errors from individual streams are
+    /// logged but do not short-circuit the iteration — the method
+    /// returns the first `Err` encountered after attempting all streams.
+    ///
+    /// Typical use: call from the consumer's `recv_timeout(Timeout)`
+    /// branch to let trailing per-source EOS markers escape their
+    /// respective `nvv4l2decoder` elements without requiring a full
+    /// [`graceful_shutdown`](Self::graceful_shutdown).
+    pub fn flush_idle(&self) -> Result<usize, FlexibleDecoderError> {
+        if self.shut_down.load(Ordering::Relaxed) {
+            return Err(FlexibleDecoderError::ShutDown);
+        }
+
+        let decoders: Vec<Arc<FlexibleDecoder>> = {
+            let streams = self.streams.lock();
+            streams.values().map(|e| Arc::clone(&e.decoder)).collect()
+        };
+
+        let mut total = 0usize;
+        let mut first_err: Option<FlexibleDecoderError> = None;
+        for decoder in decoders {
+            match decoder.flush_idle() {
+                Ok(n) => total += n,
+                Err(e) => {
+                    if first_err.is_none() {
+                        first_err = Some(e);
+                    }
+                }
+            }
+        }
+        if let Some(e) = first_err {
+            Err(e)
+        } else {
+            Ok(total)
+        }
+    }
+
     /// Drain every decoder in the pool and shut down.
     ///
     /// The eviction thread is stopped first.  Each per-stream decoder is

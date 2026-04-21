@@ -1,179 +1,83 @@
-//! End-to-end streaming pipeline for the `cars_tracking` sample.
+//! End-to-end streaming orchestrator for the `cars_tracking` sample.
 //!
 //! ```text
 //! Mp4Demuxer -> FlexibleDecoderPool -> NvInfer -> NvTracker -> Picasso -> Mp4Muxer
 //! ```
 //!
-//! # Architecture invariants
+//! This module is **orchestration only** — per-actor behavior lives
+//! inside each stage module (see [`crate::cars_tracking`] for the
+//! actor / carrier discussion).  [`run`] is responsible for:
 //!
-//! - Every stage processes frames one at a time — operators are configured
-//!   with `max_batch_size = 1`, `max_batch_wait = 0`.
-//! - Every stage boundary is a bounded [`crossbeam::channel::bounded`] whose
-//!   capacity is controlled by `--channel-cap`, so total memory usage is
-//!   `O(channel_cap)` regardless of input length.
-//! - Operator result callbacks only forward the raw
-//!   [`deepstream_nvinfer::SealedDeliveries`] /
-//!   [`deepstream_nvtracker::SealedDeliveries`] through the channel — the
-//!   consumer thread on the other side calls `unseal()` before submitting
-//!   the `(frame, buffer)` pair to the next stage.  Unsealing is NEVER done
-//!   on the callback thread because it would pin the operator's internal
-//!   completion worker while the downstream stage processes the frame.
-//! - Callbacks only log per-source EOS and operator errors; pipeline
-//!   shutdown is driven by the orchestrator dropping upstream senders, each
-//!   stage calling `graceful_shutdown()` and processing whatever residual
-//!   outputs it returns.
-//! - `NvInferBatchingOperator::graceful_shutdown` / its nvtracker
-//!   counterpart drain pending work into a returned `Vec<…Output>` rather
-//!   than firing the callback, so the pump threads reuse
-//!   [`detections::process_infer_output`] / [`tracker::process_tracker_output`]
-//!   to process those drained outputs with the exact same logic as the
-//!   live callback.
-//! - The muxer flushes the `moov` atom only after receiving
-//!   [`crate::channels::EncodedMsg::Eos`] (forwarded by the Picasso
-//!   `on_encoded_frame` callback when the engine emits
-//!   [`picasso::prelude::OutputMessage::EndOfStream`]).
+//! 1. Validating the resolved CLI.
+//! 2. Building the inference / tracker operators and — when enabled —
+//!    the Picasso engine (phase 1, ahead of `Stats::kick_off` to keep
+//!    engine-build time out of the FPS counter).
+//! 3. Allocating the bounded inter-actor channels.
+//! 4. Spawning each actor via its `spawn_X_thread` API.
+//! 5. Joining the actors in stage order and emitting the final
+//!    summary.
 
 use anyhow::{anyhow, bail, Context, Result};
-use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
-use deepstream_buffers::{cuda_init, SurfaceView};
-use deepstream_encoders::{EncoderConfig, H264EncoderConfig, NvEncoderConfig};
-use deepstream_inputs::prelude::{
-    FlexibleDecoderOutput, FlexibleDecoderPool, FlexibleDecoderPoolConfig, SealedDelivery,
-};
-use deepstream_nvinfer::prelude::{
-    NvInferBatchingOperator, SealedDeliveries as InferSealedDeliveries,
-    VideoFormat as InferVideoFormat,
-};
-use deepstream_nvtracker::{
-    NvTrackerBatchingOperator, SealedDeliveries as TrackerSealedDeliveries,
-};
-use parking_lot::Mutex as PlMutex;
-use picasso::prelude::{
-    Callbacks, CodecSpec, GeneralSpec, ObjectDrawSpec, OnEncodedFrame, OutputMessage,
-    PicassoEngine, SourceSpec, TransformConfig,
-};
-use savant_core::pipeline::stats::{StageLatencyStat, StageProcessingStat, StageStats, Stats};
-use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
-};
-use savant_core::primitives::video_codec::VideoCodec;
-use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerOutput, VideoInfo};
-use savant_gstreamer::mp4_muxer::Mp4Muxer;
-
-#[cfg(not(target_arch = "aarch64"))]
-use deepstream_encoders::properties::H264DgpuProps;
-#[cfg(target_arch = "aarch64")]
-use deepstream_encoders::properties::H264JetsonProps;
-
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use crossbeam::channel::bounded;
+use deepstream_buffers::cuda_init;
+use savant_core::pipeline::stats::Stats;
+use std::borrow::Cow;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use crate::channels::{
-    demux_channel, encoded_channel, DemuxMsg, DemuxSender, EncodedMsg, EncodedSender,
+pub mod blackhole;
+pub mod decoder;
+pub mod infer;
+pub mod mp4_demux;
+pub mod mp4_mux;
+pub mod picasso;
+pub mod tracker;
+
+use self::blackhole::spawn_blackhole_thread;
+use self::decoder::spawn_decoder_thread;
+use self::infer::output::{
+    build_result_callback as build_infer_callback, build_yolo_converter, InferStats,
 };
+use self::infer::{
+    build_batch_formation as build_infer_batch_formation, spawn_infer_thread, InferThreadArgs,
+};
+use self::mp4_demux::{spawn_mp4_demux_thread, DecoderMsg};
+use self::mp4_mux::spawn_mp4_mux_thread;
+use self::picasso::{build_picasso_engine, encoded_channel, spawn_picasso_thread};
+use self::tracker::{
+    build_batch_formation as build_tracker_batch_formation,
+    build_result_callback as build_tracker_callback, build_tracker_config, spawn_tracker_thread,
+    TrackerStats,
+};
+use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::pipeline::infer::model::build_nvinfer_config;
+use crate::cars_tracking::stats::{make_stage, stage_frames, stage_objects, PipelineStats};
+use crate::cars_tracking::supervisor::{exit_channel, StageExit, StageKind, StageName};
+use crate::cars_tracking::warmup::{prepare_nvinfer_operator, prepare_nvtracker_operator};
 use crate::cli::ResolvedCli;
 
-use crate::cars_tracking::detections::{
-    self, build_batch_formation as build_infer_batch_formation,
-    build_result_callback as build_infer_callback, build_yolo_converter, InferResultReceiver,
-    InferResultSender, InferStats,
-};
-use crate::cars_tracking::draw::{attach_frame_id_overlay, build_vehicle_draw_spec};
-use crate::cars_tracking::model::build_nvinfer_config;
-use crate::cars_tracking::tracker::{
-    self, build_batch_formation as build_tracker_batch_formation,
-    build_result_callback as build_tracker_callback, build_tracker_config, TrackerResultReceiver,
-    TrackerResultSender, TrackerStats,
-};
-use crate::cars_tracking::warmup::{prepare_nvinfer_operator, prepare_nvtracker_operator};
-
-/// Default source identifier used throughout the pipeline.  Every stage
-/// uses the same id because the sample processes exactly one input file.
+/// Default source identifier used throughout the pipeline.  Every
+/// stage uses the same id because the sample processes exactly one
+/// input file.  The constant is passed *only* to
+/// [`spawn_demux_thread`]; every downstream stage discovers the
+/// source id in-band via the `SourceEos { source_id }` sentinels or
+/// by reading [`savant_core::primitives::frame::VideoFrameProxy::get_source_id`]
+/// off the frames themselves.
 const SOURCE_ID: &str = "cars-demo";
-/// Decoder buffer-pool size.  Enough to hide NVDEC queue depth without
-/// holding on to memory across many frames.
-const DECODER_POOL_SIZE: u32 = 8;
-/// Eviction TTL for [`FlexibleDecoderPool`].  Large enough that our single
-/// long-running file is never evicted mid-run; a shorter value is suitable
-/// for multi-source live-stream pipelines.
-const DECODER_EVICTION_TTL: Duration = Duration::from_secs(3600);
-/// Maximum time [`NvInferBatchingOperator::graceful_shutdown`] waits for
-/// in-flight batches to complete.  Large value because TensorRT engine
-/// may still be processing the last frame when shutdown is signaled.
-const INFER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
-/// Maximum time [`NvTrackerBatchingOperator::graceful_shutdown`] waits.
-const TRACKER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 /// Period (ms) at which [`Stats`] logs timestamp-based FPS while the
 /// pipeline runs.  One second matches the prior custom reporter.
 const STATS_TIMESTAMP_PERIOD_MS: i64 = 1_000;
 /// Retained history length for [`Stats`].
 const STATS_HISTORY_LEN: usize = 100;
 
-/// Sample-level shared counters that don't map onto a per-stage processing
-/// counter in [`savant_core::pipeline::stats::Stats`].
-///
-/// Per-stage frame / object counts live inside [`StageStats`] instances
-/// registered with [`Stats`] (see [`run`]).  This struct only carries the
-/// counters whose semantics are specific to this sample: demuxed
-/// access-unit counts and encoded-byte totals.  The domain-specific
-/// [`InferStats`] and [`TrackerStats`] arcs live alongside and are shared
-/// directly with the relevant stage threads.
-#[derive(Debug, Default)]
-pub struct PipelineStats {
-    /// Demuxed access-unit count.
-    pub demux_packets: AtomicU64,
-    /// Total encoded bytes written by the muxer.
-    pub encoded_bytes: AtomicU64,
-}
-
-impl PipelineStats {
-    fn new() -> Arc<Self> {
-        Arc::new(Self::default())
-    }
-}
-
-/// Build a fresh [`StageStats`] handle bound to `name`.
-fn make_stage(name: &str) -> StageStats {
-    Arc::new(PlMutex::new((
-        StageProcessingStat::new(name.to_string()),
-        StageLatencyStat::new(name.to_string()),
-    )))
-}
-
-/// Increment the `frame_counter` on a stage, optionally adding to the
-/// `object_counter`.  Called on every successfully processed frame.
-#[inline]
-fn tick_stage(stage: &StageStats, frames: usize, objects: usize) {
-    let mut guard = stage.lock();
-    guard.0.frame_counter += frames;
-    guard.0.object_counter += objects;
-}
-
-/// Read the total `frame_counter` value from a [`StageStats`].
-#[inline]
-fn stage_frames(stage: &StageStats) -> usize {
-    stage.lock().0.frame_counter
-}
-
-/// Read the total `object_counter` value from a [`StageStats`].
-#[inline]
-fn stage_objects(stage: &StageStats) -> usize {
-    stage.lock().0.object_counter
-}
-
-/// Run the cars-tracking pipeline end-to-end.  Blocks until the input MP4
-/// is fully processed and the output MP4 is finalized.
+/// Run the cars-tracking pipeline end-to-end.  Blocks until the input
+/// MP4 is fully processed and the output MP4 is finalized.
 pub fn run(cli: ResolvedCli) -> Result<()> {
     if !cli.input.is_file() {
         bail!("input file does not exist: {}", cli.input.display());
     }
     if cli.picasso_enabled {
-        // Defensive: the resolver enforces `output.is_some()` when
-        // picasso is enabled, but we re-check here so mis-constructed
-        // `ResolvedCli` instances (e.g. from integration tests) still
-        // fail fast with a clear message.
         let out = cli
             .output
             .as_ref()
@@ -207,15 +111,14 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     );
 
     let stats = PipelineStats::new();
-    let fatal = Arc::new(AtomicBool::new(false));
 
     // ── Per-stage counters ──────────────────────────────────────────────
-    // We construct [`Stats`] up front so the stage counters can be
-    // registered, but we deliberately defer [`Stats::kick_off`] until
+    // We construct `Stats` up front so the stage counters can be
+    // registered, but we deliberately defer `Stats::kick_off` until
     // *after* engine preparation.  Otherwise the timestamp-based FPS
-    // reporter would happily log "0 FPS" lines during the (potentially
-    // multi-minute) TensorRT engine build — indistinguishable to the
-    // user from a stall.  See
+    // reporter would happily log "0 FPS" lines during the
+    // (potentially multi-minute) TensorRT engine build —
+    // indistinguishable to the user from a stall.  See
     // [`crate::cars_tracking::warmup`] for the heartbeat scheme that
     // surfaces progress during the preparation phase.
     let core_stats = Arc::new(Stats::new(
@@ -223,33 +126,32 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         None,
         Some(STATS_TIMESTAMP_PERIOD_MS),
     ));
-    let decode_stage = make_stage("decode");
+    let decoder_stage = make_stage("decoder");
     let infer_stage = make_stage("infer");
     let track_stage = make_stage("track");
     // The "tail" stage terminates the pipeline and is the one that
     // drives `Stats::register_frame` (and therefore the time-based
-    // FPS log line).  Its logical identity differs with `--no-picasso`:
-    // with Picasso it counts encoded frames, without it counts frames
-    // that reach the drain thread.  Using a mode-dependent stage name
-    // keeps the `📊 <stage>` log column self-explanatory in both modes.
+    // FPS log line).  Its logical identity differs with
+    // `--no-picasso`: with Picasso it counts encoded frames, without
+    // it counts frames that reach the drain thread.
     let tail_stage_name = if cli.picasso_enabled {
         "encode"
     } else {
-        "drain"
+        "blackhole"
     };
     let tail_stage = make_stage(tail_stage_name);
-    core_stats.add_stage_stats(decode_stage.clone());
+    core_stats.add_stage_stats(decoder_stage.clone());
     core_stats.add_stage_stats(infer_stage.clone());
     core_stats.add_stage_stats(track_stage.clone());
     core_stats.add_stage_stats(tail_stage.clone());
 
     // ── Channels ────────────────────────────────────────────────────────
-    let (tx_demux, rx_demux) = demux_channel(cli.channel_cap);
-    let (tx_decoded, rx_decoded) = bounded::<SealedDelivery>(cli.channel_cap);
-    let (tx_infer, rx_infer) = bounded::<InferSealedDeliveries>(cli.channel_cap);
-    let (tx_tracker, rx_tracker) = bounded::<TrackerSealedDeliveries>(cli.channel_cap);
+    let (tx_demux, rx_demux) = bounded::<DecoderMsg>(cli.channel_cap);
+    let (tx_decoded, rx_decoded) = bounded::<PipelineMsg>(cli.channel_cap);
+    let (tx_infer, rx_infer) = bounded::<PipelineMsg>(cli.channel_cap);
+    let (tx_tracker, rx_tracker) = bounded::<PipelineMsg>(cli.channel_cap);
     // The encoded channel only exists when Picasso is active: it
-    // carries Picasso's [`OutputMessage::VideoFrame`] payloads into
+    // carries Picasso's `OutputMessage::VideoFrame` payloads into
     // the MP4 muxer.  With `--no-picasso` there is no producer and
     // no consumer, so we skip allocating the channel entirely.
     let encoded = if cli.picasso_enabled {
@@ -259,11 +161,6 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     };
 
     // ── Phase 1: engine preparation ─────────────────────────────────────
-    // Heavy blocking work (TensorRT ONNX->plan build on first run,
-    // NvDCF tracker init) happens here, before any pipeline thread is
-    // spawned and before `core_stats.kick_off()`.  Each preparation
-    // helper logs a clear "starting / still-working (Ns) / ready"
-    // timeline so the user always knows what the process is doing.
     log::info!(
         "[warmup] phase 1: preparing inference + tracker{} (no frames yet)",
         if cli.picasso_enabled {
@@ -300,10 +197,6 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let (tracker_operator, _tracker_build) =
         prepare_nvtracker_operator(tracker_cfg, tracker_batch_cb, tracker_result_cb)?;
 
-    // Picasso is expensive to instantiate (Skia GPU context, Cairo
-    // fonts, CUDA transform pool) so build it only when enabled.
-    // When `--no-picasso` is set the render + mux stages are
-    // replaced by a drop-on-receive drain thread further down.
     let (picasso, rx_encoded) = if let Some((tx_encoded, rx_encoded)) = encoded {
         let engine = Arc::new(build_picasso_engine(
             tx_encoded.clone(),
@@ -315,7 +208,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         log::info!("[warmup/picasso] renderer engine ready");
         (Some(engine), Some(rx_encoded))
     } else {
-        log::info!("[warmup/picasso] skipped (--no-picasso): render + mux stages disabled");
+        log::info!("[warmup/picasso] skipped (--no-picasso): picasso + mux stages disabled");
         (None, None)
     };
 
@@ -325,124 +218,265 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     );
 
     // ── Phase 2: live pipeline ──────────────────────────────────────────
-    // From here on real frames start flowing; kick off the FPS
-    // reporter so "0 FPS" never appears in the log for the warmup
-    // phase — any zero lines after this point mean an actual stall.
     core_stats.kick_off();
     let pipeline_t0 = Instant::now();
-    let demux_handle = spawn_demux_thread(
+
+    // Sender clones retained by the orchestrator so
+    // [`broadcast_shutdown`] can inject a cooperative `Shutdown`
+    // sentinel onto every inter-actor channel.  Each clone targets
+    // the channel that the corresponding downstream actor *reads
+    // from*:
+    //
+    //   shutdown_tx_demux   -> decode reads this (DecoderMsg::Shutdown)
+    //   shutdown_tx_decoded -> infer  reads this (PipelineMsg::Shutdown)
+    //   shutdown_tx_infer   -> track  reads this (PipelineMsg::Shutdown)
+    //   shutdown_tx_tracker -> picasso reads this (PipelineMsg::Shutdown)
+    let shutdown_tx_demux = tx_demux.clone();
+    let shutdown_tx_decoded = tx_decoded.clone();
+    let shutdown_tx_infer = infer_drain_tx.clone();
+    let shutdown_tx_tracker = tracker_drain_tx.clone();
+
+    // ── Supervisor back-channel ────────────────────────────────────────
+    //
+    // Every stage thread owns a `StageExitGuard` that pushes a
+    // `StageExit { stage }` onto this channel when it drops — on
+    // `Ok`, on `Err`, and during a panic unwind.  The orchestrator
+    // blocks on `exit_rx.recv()` for the *first* signal, then
+    // broadcasts `Shutdown { grace: None }` on every inter-actor
+    // channel and joins every thread.
+    //
+    // Ctrl+C is routed through the same back-channel (synthetic
+    // `StageKind::CtrlC`) so user-cancel flows through one uniform
+    // recv-point alongside natural exits and fatal stage errors.
+    // A second Ctrl+C falls through to the default SIGINT handler
+    // and aborts the process.
+    //
+    // Back-channel is unbounded — `StageExitGuard::drop` must never
+    // block, including during a panic unwind.  See the module-level
+    // `Why unbounded?` note in [`super::supervisor`].
+    let (exit_tx, exit_rx) = exit_channel();
+    {
+        let exit_tx_ctrl = exit_tx.clone();
+        if let Err(e) = ctrlc::try_set_handler(move || {
+            log::warn!("[ctrl-c] received; notifying supervisor");
+            let _ = exit_tx_ctrl.send(StageExit {
+                stage: StageName::unnamed(StageKind::CtrlC),
+            });
+        }) {
+            log::warn!("[ctrl-c] could not install handler: {e}");
+        }
+    }
+
+    // This pipeline runs a single actor of each [`StageKind`], so
+    // every stage gets an unnamed [`StageName`].  A pipeline
+    // hosting several nvinfer models (e.g. `yolo11n` +
+    // `person_attr`) would pass
+    // `StageName::new(StageKind::Infer, "yolo11n")` etc. to
+    // disambiguate back-channel signals in logs.
+    let mp4_demux_handle = spawn_mp4_demux_thread(
+        SOURCE_ID.to_string(),
         cli.input.to_string_lossy().into_owned(),
         tx_demux,
-        fatal.clone(),
         stats.clone(),
+        exit_tx.clone(),
+        StageName::unnamed(StageKind::Mp4Demux),
     )?;
 
-    let decode_handle = spawn_decode_thread(
-        SOURCE_ID.to_string(),
+    let decoder_handle = spawn_decoder_thread(
         cli.gpu,
         rx_demux,
         tx_decoded,
-        fatal.clone(),
-        decode_stage.clone(),
+        decoder_stage.clone(),
+        exit_tx.clone(),
+        StageName::unnamed(StageKind::Decoder),
     )?;
 
-    // Clones kept for the end-of-run summary (the originals are moved
-    // into the stage threads below).
+    // Clones kept for the end-of-run summary (the originals are
+    // moved into the stage threads below).
     let infer_stats_summary = infer_stats.clone();
     let tracker_stats_summary = tracker_stats.clone();
 
-    let infer_handle = spawn_infer_thread(InferThreadArgs {
-        source_id: SOURCE_ID.to_string(),
-        operator: infer_operator,
-        rx: rx_decoded,
-        drain_tx: infer_drain_tx,
-        converter,
-        stats: infer_stats,
-        fatal: fatal.clone(),
-        stage: infer_stage.clone(),
-    })?;
+    let infer_handle = spawn_infer_thread(
+        InferThreadArgs {
+            operator: infer_operator,
+            rx: rx_decoded,
+            drain_tx: infer_drain_tx,
+            converter,
+            stats: infer_stats,
+            stage: infer_stage.clone(),
+        },
+        exit_tx.clone(),
+        StageName::unnamed(StageKind::Infer),
+    )?;
 
     let tracker_handle = spawn_tracker_thread(
-        SOURCE_ID.to_string(),
         tracker_operator,
         rx_infer,
         tracker_drain_tx,
         tracker_stats,
-        fatal.clone(),
         track_stage.clone(),
+        exit_tx.clone(),
+        StageName::unnamed(StageKind::Tracker),
     )?;
 
-    let render_handle = match picasso {
-        Some(engine) => spawn_render_thread(
-            SOURCE_ID.to_string(),
-            engine,
-            rx_tracker,
-            fatal.clone(),
-            cli.draw_enabled,
-        )?,
-        None => spawn_drain_thread(
-            SOURCE_ID.to_string(),
-            rx_tracker,
-            fatal.clone(),
-            tail_stage.clone(),
-            core_stats.clone(),
-        )?,
-    };
-
-    // The muxer only runs when Picasso is enabled (nothing to mux
-    // otherwise).  We still return a `JoinHandle<Result<()>>` from
-    // both branches so the join logic below stays symmetric.
-    let mux_handle = match rx_encoded {
-        Some(rx_encoded) => {
+    // Picasso (optional) + terminus (mux or drain).
+    //
+    //   * Picasso enabled  — picasso feeds mux via the encoded
+    //     channel; mux is the pipeline terminus.
+    //   * --no-picasso     — drain is the terminus, no picasso.
+    //
+    // The orchestrator no longer treats the terminus specially at
+    // join time: the supervisor back-channel decides *when* to
+    // start winding down, then every handle is joined in
+    // downstream -> upstream order for a deterministic summary.
+    let (picasso_handle, terminus_handle) = match picasso {
+        Some(engine) => {
+            let picasso_stage = spawn_picasso_thread(
+                engine,
+                rx_tracker,
+                cli.draw_enabled,
+                exit_tx.clone(),
+                StageName::unnamed(StageKind::Picasso),
+            )?;
             let out = cli
                 .output
                 .as_ref()
                 .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?
                 .to_string_lossy()
                 .into_owned();
-            spawn_mux_thread(
+            let rx_encoded = rx_encoded
+                .ok_or_else(|| anyhow!("picasso enabled but encoded channel is missing"))?;
+            let mux = spawn_mp4_mux_thread(
                 out,
                 cli.fps_num,
                 cli.fps_den,
                 rx_encoded,
-                fatal.clone(),
                 stats.clone(),
-            )?
+                exit_tx.clone(),
+                StageName::unnamed(StageKind::Mp4Mux),
+            )?;
+            (Some(picasso_stage), mux)
         }
-        None => std::thread::Builder::new()
-            .name("cars-demo/mux-noop".into())
-            .spawn(|| Ok(()))
-            .context("spawn mux-noop thread")?,
+        None => {
+            let drain = spawn_blackhole_thread(
+                rx_tracker,
+                tail_stage.clone(),
+                core_stats.clone(),
+                exit_tx.clone(),
+                StageName::unnamed(StageKind::Blackhole),
+            )?;
+            (None, drain)
+        }
     };
 
-    // ── Join in stage order (downstream may still be draining) ──────────
-    let demux_result = demux_handle
+    // Drop our local `exit_tx`: the only remaining senders now are
+    // the per-stage guards (and the Ctrl+C handler's clone, which
+    // stays alive for the lifetime of the program).  This keeps
+    // `exit_rx` live until all stages have dropped their guards.
+    drop(exit_tx);
+
+    // ── Supervisor: first *shutdown-worthy* exit → broadcast → join all ─
+    //
+    // Not every `StageExit` means the pipeline must wind down.  The
+    // conditional policy lives here and matches on [`StageKind`] —
+    // the instance tag carried inside [`StageName`] is for log
+    // visibility only:
+    //
+    //   * [`StageKind::Mp4Demux`] — **happy-path** for finite inputs.
+    //     The demuxer finishing simply means "no more packets"; the
+    //     rest of the pipeline drains naturally via in-band
+    //     [`SourceEos`].  Logged and skipped for *every* demuxer
+    //     instance, so multi-source pipelines aren't torn down by
+    //     a single source draining.
+    //   * Every other kind — [`Decode`], [`Infer`], [`Tracker`],
+    //     [`Picasso`], [`Drain`], [`Mux`], [`CtrlC`] — is
+    //     shutdown-worthy.  The terminus ([`Mux`] or [`Drain`])
+    //     exiting means the pipeline is end-to-end complete; any
+    //     other intermediate stage exiting before the terminus is
+    //     anomalous (error/panic) and also warrants an immediate
+    //     cooperative shutdown to unblock upstream actors.
+    //
+    // `recv()` can only return `Err` if every sender (including the
+    // Ctrl+C handler's clone) has been dropped without pushing a
+    // signal, which is impossible given every stage thread holds a
+    // guard.  We still handle it defensively so the orchestrator
+    // degrades to "broadcast anyway" rather than hanging.
+    //
+    // [`StageKind::Mp4Demux`]: crate::cars_tracking::supervisor::StageKind::Mp4Demux
+    // [`SourceEos`]: crate::cars_tracking::message::PipelineMsg::SourceEos
+    let first_exit = loop {
+        match exit_rx.recv() {
+            Ok(exit) if exit.stage.kind == StageKind::Mp4Demux => {
+                log::info!(
+                    "[supervisor] demux exit observed ({}); letting downstream drain naturally",
+                    exit.stage
+                );
+            }
+            Ok(exit) => {
+                log::info!(
+                    "[supervisor] shutdown-worthy exit from [{}]; broadcasting Shutdown",
+                    exit.stage
+                );
+                break Some(exit);
+            }
+            Err(e) => {
+                log::error!("[supervisor] back-channel closed before any exit signal: {e}");
+                break None;
+            }
+        }
+    };
+
+    broadcast_shutdown(
+        &shutdown_tx_demux,
+        &shutdown_tx_decoded,
+        &shutdown_tx_infer,
+        &shutdown_tx_tracker,
+        "supervisor",
+    );
+    // Drop our retained sender clones so the actors observe
+    // `Disconnected` after consuming the `Shutdown` sentinel.
+    drop(shutdown_tx_demux);
+    drop(shutdown_tx_decoded);
+    drop(shutdown_tx_infer);
+    drop(shutdown_tx_tracker);
+
+    // Join every stage.  Order is downstream -> upstream so a panic
+    // log surfaces at the leaf first, but correctness no longer
+    // depends on the order — Shutdown has been broadcast and every
+    // stage has either drained naturally or observed the sentinel.
+    let terminus_result = terminus_handle
         .join()
-        .unwrap_or_else(|_| Err(anyhow!("demux panic")));
-    let decode_result = decode_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("decode panic")));
-    let infer_result = infer_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("infer panic")));
+        .unwrap_or_else(|_| Err(anyhow!("terminus panic")));
+    let picasso_result = match picasso_handle {
+        Some(h) => h.join().unwrap_or_else(|_| Err(anyhow!("picasso panic"))),
+        None => Ok(()),
+    };
     let tracker_result = tracker_handle
         .join()
         .unwrap_or_else(|_| Err(anyhow!("tracker panic")));
-    let render_result = render_handle
+    let infer_result = infer_handle
         .join()
-        .unwrap_or_else(|_| Err(anyhow!("render panic")));
-    let mux_result = mux_handle
+        .unwrap_or_else(|_| Err(anyhow!("infer panic")));
+    let decoder_result = decoder_handle
         .join()
-        .unwrap_or_else(|_| Err(anyhow!("mux panic")));
+        .unwrap_or_else(|_| Err(anyhow!("decoder panic")));
+    let mp4_demux_result = mp4_demux_handle
+        .join()
+        .unwrap_or_else(|_| Err(anyhow!("mp4_demux panic")));
 
-    // Flush a final timestamp-based FPS record (and drop `core_stats`
-    // below so the background thread is joined before we exit).
+    // Drain any residual exit signals for diagnostic visibility.
+    // Every joined thread fired its guard; we already consumed the
+    // first, the rest sit in the back-channel.
+    if let Some(first) = first_exit {
+        log::debug!("[supervisor] triggering stage: {}", first.stage);
+    }
+    while let Ok(extra) = exit_rx.try_recv() {
+        log::debug!("[supervisor] subsequent exit from [{}]", extra.stage);
+    }
+
     core_stats.log_final_fps();
 
     let pipeline_elapsed = pipeline_t0.elapsed();
-    // Pipeline-tail frame count: encoded frames in Picasso mode,
-    // drained frames in `--no-picasso` mode.  Either way this is the
-    // end-of-pipeline count and the correct divisor for `avg_fps`.
     let tail_frames = stage_frames(&tail_stage);
     let pipeline_fps = if pipeline_elapsed.as_secs_f64() > 0.0 {
         tail_frames as f64 / pipeline_elapsed.as_secs_f64()
@@ -450,11 +484,11 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         0.0
     };
     log::info!(
-        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} {}={} bytes={}",
+        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} mp4_demux={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} {}={} bytes={}",
         pipeline_elapsed.as_secs_f64(),
         pipeline_fps,
         stats.demux_packets.load(Ordering::Relaxed),
-        stage_frames(&decode_stage),
+        stage_frames(&decoder_stage),
         stage_frames(&infer_stage),
         stage_objects(&infer_stage),
         stage_frames(&track_stage),
@@ -464,9 +498,6 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         tail_frames,
         stats.encoded_bytes.load(Ordering::Relaxed),
     );
-    // Surface the detailed infer counters (detections match the
-    // object_counter on the infer stage; this extra line keeps the
-    // InferStats API used and helps spot divergence).
     log::debug!(
         "final InferStats: frames={} detections={}",
         infer_stats_summary.frames(),
@@ -474,809 +505,82 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     );
     drop(core_stats);
 
-    // First error wins, rest logged.
+    let terminus_label = if cli.picasso_enabled {
+        "mp4_mux"
+    } else {
+        "blackhole"
+    };
     for (name, r) in [
-        ("demux", &demux_result),
-        ("decode", &decode_result),
+        ("mp4_demux", &mp4_demux_result),
+        ("decoder", &decoder_result),
         ("infer", &infer_result),
         ("tracker", &tracker_result),
-        ("render", &render_result),
-        ("mux", &mux_result),
+        ("picasso", &picasso_result),
+        (terminus_label, &terminus_result),
     ] {
         if let Err(e) = r {
             log::error!("[{name}] stage error: {e:#}");
         }
     }
-    demux_result?;
-    decode_result?;
+    mp4_demux_result?;
+    decoder_result?;
     infer_result?;
     tracker_result?;
-    render_result?;
-    mux_result?;
+    picasso_result?;
+    terminus_result?;
     Ok(())
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-//  Demux stage
-// ═══════════════════════════════════════════════════════════════════════
-
-fn spawn_demux_thread(
-    input: String,
-    tx: DemuxSender,
-    fatal: Arc<AtomicBool>,
-    stats: Arc<PipelineStats>,
-) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-demux".into())
-        .spawn(move || demux_thread(input, tx, fatal, stats))
-        .context("spawn demux thread")
-}
-
-fn demux_thread(
-    input: String,
-    tx: DemuxSender,
-    fatal: Arc<AtomicBool>,
-    stats: Arc<PipelineStats>,
-) -> Result<()> {
-    log::info!("[demux] starting on {input}");
-    let tx_cb = tx.clone();
-    let fatal_cb = fatal.clone();
-    let stats_cb = stats.clone();
-    let demuxer = Mp4Demuxer::new_parsed(&input, move |output| {
-        if fatal_cb.load(Ordering::Acquire) {
-            return;
-        }
-        match output {
-            Mp4DemuxerOutput::StreamInfo(info) => {
-                log::info!(
-                    "[demux] stream info: {}x{} @ {}/{} codec={:?}",
-                    info.width,
-                    info.height,
-                    info.framerate_num,
-                    info.framerate_den,
-                    info.codec
-                );
-                if tx_cb.send(DemuxMsg::StreamInfo(info)).is_err() {
-                    log::warn!("[demux] receiver closed; dropping stream info");
-                    fatal_cb.store(true, Ordering::Release);
-                }
-            }
-            Mp4DemuxerOutput::Packet(pkt) => {
-                stats_cb.demux_packets.fetch_add(1, Ordering::Relaxed);
-                if tx_cb.send(DemuxMsg::Packet(pkt)).is_err() {
-                    log::warn!("[demux] receiver closed; dropping packet");
-                    fatal_cb.store(true, Ordering::Release);
-                }
-            }
-            Mp4DemuxerOutput::Eos => {
-                log::info!("[demux] EOS");
-                let _ = tx_cb.send(DemuxMsg::Eos);
-            }
-            Mp4DemuxerOutput::Error(e) => {
-                log::error!("[demux] pipeline error: {e}");
-                let _ = tx_cb.send(DemuxMsg::Error(e.to_string()));
-                fatal_cb.store(true, Ordering::Release);
-            }
-        }
-    })
-    .map_err(|e| anyhow!("Mp4Demuxer::new_parsed: {e}"))?;
-
-    demuxer.wait();
-    let codec = demuxer.detected_codec();
-    log::info!("[demux] finished, detected_codec={codec:?}");
-    drop(tx);
-    if codec.is_none() {
-        bail!("demuxer did not detect a video codec (empty stream?)");
-    }
-    Ok(())
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  Decode stage
-// ═══════════════════════════════════════════════════════════════════════
-
-type DecodedSender = Sender<SealedDelivery>;
-type DecodedReceiver = Receiver<SealedDelivery>;
-
-fn spawn_decode_thread(
-    source_id: String,
-    gpu_id: u32,
-    rx: Receiver<DemuxMsg>,
-    tx: DecodedSender,
-    fatal: Arc<AtomicBool>,
-    stage: StageStats,
-) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-decode".into())
-        .spawn(move || decode_thread(source_id, gpu_id, rx, tx, fatal, stage))
-        .context("spawn decode thread")
-}
-
-fn decode_thread(
-    source_id: String,
-    gpu_id: u32,
-    rx: Receiver<DemuxMsg>,
-    tx: DecodedSender,
-    fatal: Arc<AtomicBool>,
-    stage: StageStats,
-) -> Result<()> {
-    log::info!("[decode] starting source_id={source_id}");
-    let dec_cfg = FlexibleDecoderPoolConfig::new(gpu_id, DECODER_POOL_SIZE, DECODER_EVICTION_TTL)
-        .idle_timeout(Duration::from_secs(5))
-        .detect_buffer_limit(60);
-
-    let fatal_cb = fatal.clone();
-    let tx_cb = tx.clone();
-    let stage_cb = stage.clone();
-    let mut decoder = FlexibleDecoderPool::new(dec_cfg, move |mut out| {
-        if fatal_cb.load(Ordering::Acquire) {
-            return;
-        }
-        match &out {
-            FlexibleDecoderOutput::Frame { .. } => {
-                if let Some(sealed) = out.take_delivery() {
-                    tick_stage(&stage_cb, 1, 0);
-                    if tx_cb.send(sealed).is_err() {
-                        log::warn!("[decode] downstream closed; dropping decoded frame");
-                        fatal_cb.store(true, Ordering::Release);
-                    }
-                }
-            }
-            FlexibleDecoderOutput::ParameterChange { old, new } => {
-                log::info!("[decode] parameter change: {old:?} -> {new:?}");
-            }
-            FlexibleDecoderOutput::Skipped { reason, .. } => {
-                log::debug!("[decode] skipped: {reason:?}");
-            }
-            FlexibleDecoderOutput::OrphanFrame { .. } => {
-                log::debug!("[decode] orphan frame (source id mismatch?)");
-            }
-            FlexibleDecoderOutput::SourceEos { source_id } => {
-                log::info!("[decode] source EOS: {source_id}");
-            }
-            FlexibleDecoderOutput::Event(_) => {}
-            FlexibleDecoderOutput::Error(err) => {
-                log::error!("[decode] decoder error: {err}");
-                fatal_cb.store(true, Ordering::Release);
-            }
-        }
-    });
-
-    // Drop our callback-outside copy of tx so the callback's clone is the
-    // only remaining strong producer.
-    drop(tx);
-
-    let mut saw_eos = false;
-    let mut video_info: Option<VideoInfo> = None;
-    loop {
-        match rx.recv() {
-            Ok(DemuxMsg::StreamInfo(info)) => {
-                if video_info.is_some() {
-                    log::warn!("[decode] duplicate StreamInfo; ignoring");
-                } else {
-                    log::info!(
-                        "[decode] stream info: {}x{} @ {}/{}",
-                        info.width,
-                        info.height,
-                        info.framerate_num,
-                        info.framerate_den
-                    );
-                    video_info = Some(info);
-                }
-            }
-            Ok(DemuxMsg::Packet(pkt)) => {
-                let Some(info) = video_info.as_ref() else {
-                    log::error!("[decode] packet received before StreamInfo — aborting");
-                    fatal.store(true, Ordering::Release);
-                    break;
-                };
-                let frame = make_decode_frame(&source_id, &pkt, info);
-                if let Err(e) = decoder.submit(&frame, Some(&pkt.data)) {
-                    log::error!("[decode] submit failed: {e}");
-                    fatal.store(true, Ordering::Release);
-                    break;
-                }
-            }
-            Ok(DemuxMsg::Eos) => {
-                log::info!("[decode] received EOS from demux");
-                saw_eos = true;
-                break;
-            }
-            Ok(DemuxMsg::Error(msg)) => {
-                log::error!("[decode] demux error: {msg}");
-                fatal.store(true, Ordering::Release);
-                break;
-            }
-            Err(RecvError) => {
-                log::warn!("[decode] demux channel closed without EOS");
-                break;
-            }
-        }
-    }
-
-    if saw_eos {
-        if let Err(e) = decoder.source_eos(&source_id) {
-            log::warn!("[decode] source_eos failed: {e}");
-        }
-    }
-    if let Err(e) = decoder.graceful_shutdown() {
-        log::warn!("[decode] graceful_shutdown failed: {e}");
-    }
-    drop(decoder);
-    log::info!("[decode] finished ({} frames)", stage_frames(&stage));
-    Ok(())
-}
-
-/// Fallback framerate used only when the container does not advertise one
-/// (per [`VideoInfo`] contract: `framerate_num == 0`).
-const FALLBACK_FPS_NUM: i64 = 30;
-const FALLBACK_FPS_DEN: i64 = 1;
-
-fn make_decode_frame(source_id: &str, pkt: &DemuxedPacket, info: &VideoInfo) -> VideoFrameProxy {
-    let (fps_num, fps_den) = if info.framerate_num == 0 {
-        (FALLBACK_FPS_NUM, FALLBACK_FPS_DEN)
-    } else {
-        (info.framerate_num as i64, info.framerate_den.max(1) as i64)
-    };
-    VideoFrameProxy::new(
-        source_id,
-        (fps_num, fps_den),
-        info.width as i64,
-        info.height as i64,
-        VideoFrameContent::None,
-        VideoFrameTranscodingMethod::Copy,
-        Some(info.codec),
-        Some(pkt.is_keyframe),
-        (1, 1_000_000_000),
-        pkt.pts_ns as i64,
-        pkt.dts_ns.map(|v| v as i64),
-        pkt.duration_ns.map(|v| v as i64),
-    )
-    .expect("VideoFrameProxy::new (decode)")
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  Inference stage
-// ═══════════════════════════════════════════════════════════════════════
-
-struct InferThreadArgs {
-    source_id: String,
-    operator: NvInferBatchingOperator,
-    rx: DecodedReceiver,
-    drain_tx: InferResultSender,
-    converter: Arc<savant_core::converters::YoloDetectionConverter>,
-    stats: Arc<InferStats>,
-    fatal: Arc<AtomicBool>,
-    stage: StageStats,
-}
-
-fn spawn_infer_thread(args: InferThreadArgs) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-infer".into())
-        .spawn(move || infer_thread(args))
-        .context("spawn infer thread")
-}
-
-fn infer_thread(args: InferThreadArgs) -> Result<()> {
-    let InferThreadArgs {
-        source_id,
-        mut operator,
-        rx,
-        drain_tx,
-        converter,
-        stats,
-        fatal,
-        stage,
-    } = args;
-    log::info!("[infer] starting source_id={source_id}");
-    // Baseline for per-frame detection deltas (the operator callback
-    // increments `stats.detections()` asynchronously, so we snapshot the
-    // cumulative count before each `add_frame` to derive the per-call
-    // object delta for the pipeline stage counters).
-    let mut det_baseline = stats.detections();
-    loop {
-        match rx.recv() {
-            Ok(sealed) => {
-                // Decoder SealedDelivery carries a single frame/buffer pair.
-                if let Some((frame, buffer)) = sealed.unseal() {
-                    if let Err(e) = operator.add_frame(frame, buffer) {
-                        log::error!("[infer] add_frame failed: {e}");
-                        fatal.store(true, Ordering::Release);
-                        break;
-                    }
-                    let now = stats.detections();
-                    tick_stage(&stage, 1, (now - det_baseline) as usize);
-                    det_baseline = now;
-                }
-                if fatal.load(Ordering::Acquire) {
-                    break;
-                }
-            }
-            Err(RecvError) => {
-                log::info!("[infer] upstream channel closed");
-                break;
-            }
-        }
-    }
-
-    if let Err(e) = operator.send_eos(&source_id) {
-        log::warn!("[infer] send_eos failed: {e}");
-    }
-    match operator.graceful_shutdown(INFER_DRAIN_TIMEOUT) {
-        Ok(drained) => {
-            log::info!("[infer] drained {} remaining outputs", drained.len());
-            for out in drained {
-                detections::process_infer_output(out, converter.as_ref(), &drain_tx, Some(&stats));
-            }
-        }
-        Err(e) => {
-            log::error!("[infer] graceful_shutdown failed: {e}");
-            fatal.store(true, Ordering::Release);
-        }
-    }
-    // Absorb any detections registered after the last tick above (including
-    // results produced by `graceful_shutdown`) so the stage object counter
-    // matches the sample-level InferStats.
-    let final_dets = stats.detections();
-    if final_dets > det_baseline {
-        tick_stage(&stage, 0, (final_dets - det_baseline) as usize);
-    }
-    drop(drain_tx);
-    drop(operator);
-    log::info!(
-        "[infer] finished: frames={} detections={}",
-        stats.frames(),
-        stats.detections()
-    );
-    Ok(())
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  Tracker stage
-// ═══════════════════════════════════════════════════════════════════════
-
-fn spawn_tracker_thread(
-    source_id: String,
-    operator: NvTrackerBatchingOperator,
-    rx: InferResultReceiver,
-    drain_tx: TrackerResultSender,
-    stats: Arc<TrackerStats>,
-    fatal: Arc<AtomicBool>,
-    stage: StageStats,
-) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-tracker".into())
-        .spawn(move || tracker_thread(source_id, operator, rx, drain_tx, stats, fatal, stage))
-        .context("spawn tracker thread")
-}
-
-fn tracker_thread(
-    source_id: String,
-    mut operator: NvTrackerBatchingOperator,
-    rx: InferResultReceiver,
-    drain_tx: TrackerResultSender,
-    stats: Arc<TrackerStats>,
-    fatal: Arc<AtomicBool>,
-    stage: StageStats,
-) -> Result<()> {
-    log::info!("[track] starting source_id={source_id}");
-    loop {
-        match rx.recv() {
-            Ok(sealed) => {
-                let pairs = sealed.unseal();
-                for (frame, buffer) in pairs {
-                    if let Err(e) = operator.add_frame(frame, buffer) {
-                        log::error!("[track] add_frame failed: {e}");
-                        fatal.store(true, Ordering::Release);
-                        break;
-                    }
-                    tick_stage(&stage, 1, 0);
-                }
-                if fatal.load(Ordering::Acquire) {
-                    break;
-                }
-            }
-            Err(RecvError) => {
-                log::info!("[track] upstream channel closed");
-                break;
-            }
-        }
-    }
-
-    if let Err(e) = operator.send_eos(&source_id) {
-        log::warn!("[track] send_eos failed: {e}");
-    }
-    match operator.graceful_shutdown(TRACKER_DRAIN_TIMEOUT) {
-        Ok(drained) => {
-            log::info!("[track] drained {} remaining outputs", drained.len());
-            for out in drained {
-                tracker::process_tracker_output(out, &drain_tx, Some(&stats));
-            }
-        }
-        Err(e) => {
-            log::error!("[track] graceful_shutdown failed: {e}");
-            fatal.store(true, Ordering::Release);
-        }
-    }
-    drop(drain_tx);
-    drop(operator);
-    log::info!(
-        "[track] finished: frames={} unique_tracks={}",
-        stage_frames(&stage),
-        stats.unique_tracks()
-    );
-    Ok(())
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  Render stage (Picasso)
-// ═══════════════════════════════════════════════════════════════════════
-
-fn build_picasso_engine(
-    tx_encoded: EncodedSender,
-    stats: Arc<PipelineStats>,
-    stage: StageStats,
-    core_stats: Arc<Stats>,
-) -> PicassoEngine {
-    let callbacks = Callbacks::builder()
-        .on_encoded_frame(EncodedSink {
-            tx: tx_encoded,
-            stats,
-            stage,
-            core_stats,
+/// Fan an immediate cooperative `Shutdown` sentinel out to every
+/// inter-actor channel.  Sends are best-effort — receivers may have
+/// already exited (e.g. after natural EOS propagation) and are not a
+/// failure.  The orchestrator calls this after joining the terminus
+/// and the Ctrl+C handler calls it on SIGINT.
+fn broadcast_shutdown(
+    tx_demux: &crossbeam::channel::Sender<DecoderMsg>,
+    tx_decoded: &crossbeam::channel::Sender<PipelineMsg>,
+    tx_infer: &crossbeam::channel::Sender<PipelineMsg>,
+    tx_tracker: &crossbeam::channel::Sender<PipelineMsg>,
+    reason: &'static str,
+) {
+    log::info!("[shutdown] broadcasting immediate Shutdown: reason={reason}");
+    let r: Cow<'static, str> = Cow::Borrowed(reason);
+    if tx_demux
+        .send(DecoderMsg::Shutdown {
+            grace: None,
+            reason: r.clone(),
         })
-        .build();
-    let general = GeneralSpec::builder()
-        .name("cars-demo")
-        .idle_timeout_secs(600)
-        .inflight_queue_size(8)
-        .build();
-    PicassoEngine::new(general, callbacks)
-}
-
-struct EncodedSink {
-    tx: EncodedSender,
-    stats: Arc<PipelineStats>,
-    stage: StageStats,
-    /// Pipeline-tail counter — the timestamp-based FPS emitted by
-    /// [`Stats`] is driven by the rate at which we call
-    /// [`Stats::register_frame`] here on the encoded-frame callback.
-    core_stats: Arc<Stats>,
-}
-
-impl OnEncodedFrame for EncodedSink {
-    fn call(&self, output: OutputMessage) {
-        match output {
-            OutputMessage::VideoFrame(frame) => {
-                let content = frame.get_content();
-                let data = match content.as_ref() {
-                    VideoFrameContent::Internal(d) => d.clone(),
-                    other => {
-                        log::error!(
-                            "[encode-cb] unexpected content variant: {:?}",
-                            std::mem::discriminant(other)
-                        );
-                        return;
-                    }
-                };
-                let pts_ns = frame.get_pts().max(0) as u64;
-                let dts_ns = frame.get_dts().map(|v| v.max(0) as u64);
-                let duration_ns = frame.get_duration().map(|v| v.max(0) as u64);
-                tick_stage(&self.stage, 1, 0);
-                self.core_stats.register_frame(0);
-                self.stats
-                    .encoded_bytes
-                    .fetch_add(data.len() as u64, Ordering::Relaxed);
-                log::debug!(
-                    "[encode-cb] frame pts={}ms bytes={}",
-                    pts_ns / 1_000_000,
-                    data.len()
-                );
-                if self
-                    .tx
-                    .send(EncodedMsg::AccessUnit {
-                        data,
-                        pts_ns,
-                        dts_ns,
-                        duration_ns,
-                    })
-                    .is_err()
-                {
-                    log::warn!("[encode-cb] muxer closed; dropping encoded frame");
-                }
-            }
-            OutputMessage::EndOfStream(_) => {
-                log::info!("[encode-cb] EndOfStream");
-                let _ = self.tx.send(EncodedMsg::Eos);
-            }
-        }
+        .is_err()
+    {
+        log::debug!("[shutdown] tx_demux already closed");
     }
-}
-
-fn spawn_render_thread(
-    source_id: String,
-    picasso: Arc<PicassoEngine>,
-    rx: TrackerResultReceiver,
-    fatal: Arc<AtomicBool>,
-    draw_enabled: bool,
-) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-render".into())
-        .spawn(move || render_thread(source_id, picasso, rx, fatal, draw_enabled))
-        .context("spawn render thread")
-}
-
-/// Replacement for [`spawn_render_thread`] used when Picasso is
-/// excluded via `--no-picasso`.
-///
-/// The drain thread unseals every tracker delivery and immediately
-/// drops the resulting `(VideoFrameProxy, SharedBuffer)` pairs.
-/// Dropping the `SharedBuffer` releases the GPU slot back to the
-/// decoder pool, which is what keeps the pipeline flowing; without
-/// this drain the tracker output channel would fill up and stall
-/// the inference / decode stages.
-///
-/// The drain also drives the pipeline-tail metrics that would
-/// otherwise be driven by Picasso's `OnEncodedFrame` callback:
-///
-/// * [`Stats::register_frame`] on `core_stats` — the sole source
-///   for the `📊 Time-based FPS counter triggered: ...` log line;
-///   without this call FPS stays at zero with `--no-picasso`.
-/// * `tail_stage` frame counter — keeps `📊 <stage>` rows
-///   symmetrical with Picasso mode.
-///
-/// We still honour the shared `fatal` flag so the drain exits
-/// cleanly if any upstream stage aborts.
-fn spawn_drain_thread(
-    source_id: String,
-    rx: TrackerResultReceiver,
-    fatal: Arc<AtomicBool>,
-    tail_stage: StageStats,
-    core_stats: Arc<Stats>,
-) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-drain".into())
-        .spawn(move || drain_thread(source_id, rx, fatal, tail_stage, core_stats))
-        .context("spawn drain thread")
-}
-
-fn drain_thread(
-    source_id: String,
-    rx: TrackerResultReceiver,
-    fatal: Arc<AtomicBool>,
-    tail_stage: StageStats,
-    core_stats: Arc<Stats>,
-) -> Result<()> {
-    log::info!("[drain] starting source_id={source_id} (picasso excluded)");
-    let mut drained: u64 = 0;
-    loop {
-        match rx.recv() {
-            Ok(sealed) => {
-                let pairs = sealed.unseal();
-                let count = pairs.len();
-                // Record the frames as they reach the pipeline tail
-                // *before* dropping — this keeps the FPS counter
-                // consistent even if the drop below is inlined into
-                // a long-running destructor (e.g. GPU slot cleanup).
-                for _ in 0..count {
-                    tick_stage(&tail_stage, 1, 0);
-                    core_stats.register_frame(0);
-                }
-                drained = drained.saturating_add(count as u64);
-                // Dropping the `SharedBuffer`s releases GPU slots
-                // back to the decoder pool — without this drop the
-                // tracker output channel would fill up and the
-                // pipeline would stall one channel-cap in.
-                drop(pairs);
-                if fatal.load(Ordering::Acquire) {
-                    break;
-                }
-            }
-            Err(RecvError) => {
-                log::info!("[drain] upstream channel closed");
-                break;
-            }
-        }
+    if tx_decoded
+        .send(PipelineMsg::Shutdown {
+            grace: None,
+            reason: r.clone(),
+        })
+        .is_err()
+    {
+        log::debug!("[shutdown] tx_decoded already closed");
     }
-    log::info!("[drain] finished drained_frames={drained}");
-    Ok(())
-}
-
-fn render_thread(
-    source_id: String,
-    picasso: Arc<PicassoEngine>,
-    rx: TrackerResultReceiver,
-    fatal: Arc<AtomicBool>,
-    draw_enabled: bool,
-) -> Result<()> {
-    log::info!("[render] starting source_id={source_id} draw_enabled={draw_enabled}");
-    let mut source_spec_set = false;
-    // Monotonically increasing per-frame counter rendered as the
-    // top-left `frame #N` badge when drawing is enabled.  Attaching
-    // the overlay here — after inference and tracking — keeps the
-    // synthetic object invisible to both the inference batch
-    // formation (`RoiKind::FullFrame`) and the tracker batch
-    // formation (which filters by `DETECTION_NAMESPACE`); see
-    // [`crate::cars_tracking::draw::attach_frame_id_overlay`].  When
-    // `draw_enabled == false` we skip the attach entirely and install
-    // an empty [`ObjectDrawSpec`] on the source spec so Picasso
-    // renders no overlays at all — decode → infer → track →
-    // transform → encode still run as normal.
-    let mut frame_counter: u64 = 0;
-    loop {
-        match rx.recv() {
-            Ok(sealed) => {
-                let pairs = sealed.unseal();
-                for (frame, buffer) in pairs {
-                    if !source_spec_set {
-                        let w = frame.get_width().max(1) as u32;
-                        let h = frame.get_height().max(1) as u32;
-                        let fps = frame.get_fps();
-                        log::info!(
-                            "[render] first frame: {w}x{h} fps={}/{} draw_enabled={draw_enabled}",
-                            fps.0,
-                            fps.1,
-                        );
-                        let spec =
-                            build_source_spec(w, h, fps.0 as i32, fps.1 as i32, draw_enabled)?;
-                        picasso
-                            .set_source_spec(&source_id, spec)
-                            .map_err(|e| anyhow!("set_source_spec: {e}"))?;
-                        source_spec_set = true;
-                    }
-
-                    if draw_enabled {
-                        if let Err(e) = attach_frame_id_overlay(&frame, frame_counter) {
-                            log::warn!("[render] attach_frame_id_overlay failed: {e}");
-                        }
-                    }
-                    frame_counter = frame_counter.wrapping_add(1);
-
-                    let view = SurfaceView::from_buffer(&buffer, 0)
-                        .map_err(|e| anyhow!("SurfaceView::from_buffer: {e}"))?;
-                    if let Err(e) = picasso.send_frame(&source_id, frame, view, None) {
-                        log::error!("[render] send_frame failed: {e}");
-                        fatal.store(true, Ordering::Release);
-                        break;
-                    }
-                }
-                if fatal.load(Ordering::Acquire) {
-                    break;
-                }
-            }
-            Err(RecvError) => {
-                log::info!("[render] upstream channel closed");
-                break;
-            }
-        }
+    if tx_infer
+        .send(PipelineMsg::Shutdown {
+            grace: None,
+            reason: r.clone(),
+        })
+        .is_err()
+    {
+        log::debug!("[shutdown] tx_infer already closed");
     }
-
-    // Signal end-of-source, then drain workers.  `shutdown` blocks until
-    // all workers have finished; the OnEncodedFrame callback forwards the
-    // resulting `OutputMessage::EndOfStream` onto the muxer channel.
-    if let Err(e) = picasso.send_eos(&source_id) {
-        log::warn!("[render] send_eos: {e}");
+    if tx_tracker
+        .send(PipelineMsg::Shutdown {
+            grace: None,
+            reason: r,
+        })
+        .is_err()
+    {
+        log::debug!("[shutdown] tx_tracker already closed");
     }
-    picasso.shutdown();
-    // Drop our strong ref — the only remaining ref is the Arc passed to
-    // workers, which are already joined by `shutdown()`.  After this drop
-    // the OnEncodedFrame callback's tx_encoded is released.
-    drop(picasso);
-    log::info!("[render] finished");
-    Ok(())
-}
-
-fn build_source_spec(
-    width: u32,
-    height: u32,
-    fps_num: i32,
-    fps_den: i32,
-    draw_enabled: bool,
-) -> Result<SourceSpec> {
-    let encoder = build_encoder_config(width, height, fps_num, fps_den);
-    // Empty [`ObjectDrawSpec`] is the `--no-draw` escape hatch:
-    // Picasso's per-object lookup returns `None` for every
-    // `(namespace, label)` pair, so no bboxes/labels/badges are
-    // composited onto the frame.  The transform + encode stages
-    // still execute so the output MP4 is a clean re-encoded copy of
-    // the source.
-    let draw = if draw_enabled {
-        build_vehicle_draw_spec().context("build vehicle draw spec")?
-    } else {
-        ObjectDrawSpec::default()
-    };
-    Ok(SourceSpec {
-        codec: CodecSpec::Encode {
-            transform: TransformConfig::default(),
-            encoder: Box::new(encoder),
-        },
-        draw,
-        font_family: "monospace".to_string(),
-        use_on_render: false,
-        use_on_gpumat: false,
-        ..Default::default()
-    })
-}
-
-fn build_encoder_config(width: u32, height: u32, fps_num: i32, fps_den: i32) -> NvEncoderConfig {
-    let cfg = H264EncoderConfig::new(width, height)
-        .format(InferVideoFormat::RGBA)
-        .fps(fps_num, fps_den);
-    #[cfg(target_arch = "aarch64")]
-    let cfg = cfg.props(H264JetsonProps {
-        bitrate: Some(6_000_000),
-        iframeinterval: Some(fps_num.max(1) as u32),
-        ..Default::default()
-    });
-    #[cfg(not(target_arch = "aarch64"))]
-    let cfg = cfg.props(H264DgpuProps {
-        bitrate: Some(6_000_000),
-        iframeinterval: Some(fps_num.max(1) as u32),
-        ..Default::default()
-    });
-    NvEncoderConfig::new(0, EncoderConfig::H264(cfg)).name("cars-demo/enc")
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  Mux stage
-// ═══════════════════════════════════════════════════════════════════════
-
-fn spawn_mux_thread(
-    output: String,
-    fps_num: i32,
-    fps_den: i32,
-    rx: Receiver<EncodedMsg>,
-    fatal: Arc<AtomicBool>,
-    stats: Arc<PipelineStats>,
-) -> Result<JoinHandle<Result<()>>> {
-    thread::Builder::new()
-        .name("cars-mux".into())
-        .spawn(move || mux_thread(output, fps_num, fps_den, rx, fatal, stats))
-        .context("spawn mux thread")
-}
-
-fn mux_thread(
-    output: String,
-    fps_num: i32,
-    fps_den: i32,
-    rx: Receiver<EncodedMsg>,
-    fatal: Arc<AtomicBool>,
-    _stats: Arc<PipelineStats>,
-) -> Result<()> {
-    log::info!("[mux] starting output={output} fps={fps_num}/{fps_den}");
-    let mut muxer = Mp4Muxer::new(VideoCodec::H264, &output, fps_num, fps_den)
-        .map_err(|e| anyhow!("Mp4Muxer::new: {e}"))?;
-
-    loop {
-        match rx.recv() {
-            Ok(EncodedMsg::AccessUnit {
-                data,
-                pts_ns,
-                dts_ns,
-                duration_ns,
-            }) => {
-                if let Err(e) = muxer.push(&data, pts_ns, dts_ns, duration_ns) {
-                    log::error!("[mux] push failed: {e}");
-                    fatal.store(true, Ordering::Release);
-                    break;
-                }
-            }
-            Ok(EncodedMsg::Eos) => {
-                log::info!("[mux] EOS");
-                break;
-            }
-            Err(RecvError) => {
-                log::info!("[mux] upstream channel closed without EOS");
-                break;
-            }
-        }
-    }
-
-    muxer
-        .finish()
-        .map_err(|e| anyhow!("Mp4Muxer::finish: {e}"))?;
-    log::info!("[mux] finished: {}", output);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1284,31 +588,8 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    /// `make_decode_frame` must propagate `VideoInfo::codec` onto the
-    /// resulting `VideoFrameProxy` — otherwise `FlexibleDecoderPool`
-    /// resolves the wrong codec for non-H.264 containers.
-    #[test]
-    fn make_decode_frame_forwards_info_codec() {
-        let info = VideoInfo {
-            codec: VideoCodec::Hevc,
-            width: 1920,
-            height: 1080,
-            framerate_num: 30,
-            framerate_den: 1,
-        };
-        let pkt = DemuxedPacket {
-            data: Vec::new(),
-            pts_ns: 0,
-            dts_ns: None,
-            duration_ns: None,
-            is_keyframe: true,
-        };
-        let frame = make_decode_frame("src", &pkt, &info);
-        assert_eq!(frame.get_codec(), Some(VideoCodec::Hevc));
-    }
-
-    /// Integration guard: the orchestrator must fail fast when the input
-    /// file is missing, before touching GStreamer / CUDA.
+    /// Integration guard: the orchestrator must fail fast when the
+    /// input file is missing, before touching GStreamer / CUDA.
     #[test]
     fn run_rejects_missing_input() {
         let cli = ResolvedCli {

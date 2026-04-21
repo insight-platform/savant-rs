@@ -41,7 +41,9 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::cars_tracking::model::{promote_yolo11n_engine, yolo11n_engine_cache_path};
+use crate::cars_tracking::pipeline::infer::model::{
+    promote_yolo11n_engine, yolo11n_engine_cache_path,
+};
 
 /// Period at which [`with_heartbeat`] logs "still working" progress
 /// lines while the wrapped closure is blocked.

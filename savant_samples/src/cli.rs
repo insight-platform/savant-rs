@@ -9,6 +9,11 @@ use anyhow::{bail, Result};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 
+/// Minimum allowed `--channel-cap`.  Keeps backpressure meaningful:
+/// capacity 1 means every intra-pipeline send serializes an entire
+/// stage, which is too tight in practice.
+pub const MIN_CHANNEL_CAPACITY: usize = 2;
+
 /// End-to-end streaming samples CLI.
 #[derive(Debug, Clone, Parser)]
 #[command(
@@ -148,11 +153,8 @@ impl Cli {
     /// Validate all numeric knobs (channel capacity, thresholds).  Runs
     /// before any I/O so tests can exercise the checks in isolation.
     pub fn validate_knobs(&self) -> Result<()> {
-        if self.channel_cap < crate::channels::MIN_CHANNEL_CAPACITY {
-            bail!(
-                "--channel-cap must be >= {}",
-                crate::channels::MIN_CHANNEL_CAPACITY
-            );
+        if self.channel_cap < MIN_CHANNEL_CAPACITY {
+            bail!("--channel-cap must be >= {MIN_CHANNEL_CAPACITY}");
         }
         if !(0.0..=1.0).contains(&self.conf) {
             bail!("--conf must be in [0, 1], got {}", self.conf);
@@ -225,7 +227,7 @@ pub struct ResolvedCli {
     /// former because the draw stage lives inside Picasso.
     pub draw_enabled: bool,
     /// Whether the pipeline instantiates Picasso at all.  When
-    /// `false` (CLI `--no-picasso`) the render + mux stages are
+    /// `false` (CLI `--no-picasso`) the picasso + mux stages are
     /// replaced by a drop-on-receive drain: decode + infer + track
     /// still run, but no transform / overlay / encode / mux stages
     /// are spun up and no output file is produced.
@@ -301,7 +303,7 @@ mod tests {
     /// `--no-draw` must default to `false` (draw stage active) and
     /// invert to `draw_enabled = false` on the resolved struct when
     /// the flag is set.  The toggle is the sole source of truth for
-    /// whether the render stage populates Picasso's draw spec, so a
+    /// whether the picasso stage populates Picasso's draw spec, so a
     /// regression here silently turns the feature off (or on) for
     /// every user.
     #[test]
@@ -332,7 +334,7 @@ mod tests {
     /// `draw_enabled = false` (because the draw stage lives inside
     /// Picasso).  The resolver is the single source of truth for
     /// that implication, so a regression here silently leaves
-    /// `draw_enabled = true` and sends the pipeline down the render
+    /// `draw_enabled = true` and sends the pipeline down the picasso
     /// path with no engine to render into.
     #[test]
     fn no_picasso_disables_both_picasso_and_draw() {

@@ -59,6 +59,13 @@ pub struct NvTrackerConfig {
     pub output_channel_capacity: usize,
     /// How often the framework drain thread polls `appsink` when idle.
     pub drain_poll_interval: Duration,
+    /// When `Some`, the inner [`savant_gstreamer::pipeline::GstPipeline`]
+    /// auto-invokes
+    /// [`flush_idle`](savant_gstreamer::pipeline::GstPipeline::flush_idle)
+    /// every interval in a background thread.  Ensures per-source EOS
+    /// markers escape `nvtracker` without an explicit caller flush or
+    /// full graceful_shutdown.  Default: 10 ms.
+    pub idle_flush_interval: Option<Duration>,
 }
 
 impl NvTrackerConfig {
@@ -80,6 +87,7 @@ impl NvTrackerConfig {
             input_channel_capacity: 16,
             output_channel_capacity: 16,
             drain_poll_interval: Duration::from_millis(100),
+            idle_flush_interval: Some(Duration::from_millis(10)),
         }
     }
 
@@ -98,6 +106,13 @@ impl NvTrackerConfig {
     /// Set the framework drain thread poll interval when no sample is ready.
     pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
         self.drain_poll_interval = interval;
+        self
+    }
+
+    /// Enable or disable the auto-flush thread for pending custom
+    /// downstream events.  See [`NvTrackerConfig::idle_flush_interval`].
+    pub fn idle_flush_interval(mut self, interval: Option<Duration>) -> Self {
+        self.idle_flush_interval = interval;
         self
     }
 

@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_channel_capacity: 16,
         operation_timeout: Some(Duration::from_secs(5)),
         drain_poll_interval: Duration::from_millis(10),
+        idle_flush_interval: None,
         appsrc_probe: None,
         pts_policy: None,
         leak_on_finalize: false,

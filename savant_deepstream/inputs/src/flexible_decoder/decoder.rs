@@ -357,6 +357,33 @@ impl FlexibleDecoder {
         Ok(())
     }
 
+    /// Force-flush pending rescue-eligible custom-downstream events
+    /// inside the internal [`NvDecoder`] when it is idle (no buffers in
+    /// flight).
+    ///
+    /// Typical use: call from the consumer's `recv_timeout(Timeout)`
+    /// branch so a trailing [`source_eos`](Self::source_eos) marker
+    /// submitted after the last frame is delivered to the output
+    /// callback without requiring a full
+    /// [`graceful_shutdown`](Self::graceful_shutdown).
+    ///
+    /// Returns the number of events actually flushed.  When the decoder
+    /// is in `Idle` / `Detecting` state, there is no inner decoder to
+    /// flush (the [`source_eos`](Self::source_eos) fast-path already
+    /// emits `SourceEos` directly through the callback in those states),
+    /// so this returns `Ok(0)`.
+    ///
+    /// See [`savant_gstreamer::pipeline::GstPipeline::flush_idle`] for
+    /// full semantics and the race note.
+    pub fn flush_idle(&self) -> Result<usize, FlexibleDecoderError> {
+        let state = self.state.lock();
+        match &*state {
+            DecoderState::ShutDown => Err(FlexibleDecoderError::ShutDown),
+            DecoderState::Active { decoder, .. } => Ok(decoder.flush_idle()?),
+            DecoderState::Idle | DecoderState::Detecting { .. } => Ok(0),
+        }
+    }
+
     /// Drain the current internal decoder, forwarding all remaining frames
     /// to the callback (bounded by `config.idle_timeout`), then tear down.
     ///

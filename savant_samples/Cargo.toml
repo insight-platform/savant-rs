@@ -34,7 +34,9 @@ clap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 crossbeam = { workspace = true }
+ctrlc = { workspace = true }
 gstreamer = { workspace = true }
+hashbrown = { workspace = true }
 parking_lot = { workspace = true }
 
 [dev-dependencies]

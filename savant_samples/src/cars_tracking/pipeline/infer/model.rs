@@ -26,6 +26,9 @@ use deepstream_buffers::VideoFormat;
 use deepstream_nvinfer::{
     ModelColorFormat, ModelInputScaling, NvInferBatchingOperatorConfig, NvInferConfig,
 };
+// `HashMap` here must be `std::collections::HashMap` because it is
+// handed to `NvInferConfig::new`, which is a boundary API that takes
+// the std type.  The rest of `cars_tracking` uses `hashbrown`.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

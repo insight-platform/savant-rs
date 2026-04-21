@@ -301,6 +301,7 @@ impl NvEncoder {
             output_channel_capacity: config.output_channel_capacity,
             operation_timeout: Some(config.operation_timeout),
             drain_poll_interval: config.drain_poll_interval,
+            idle_flush_interval: config.idle_flush_interval,
             appsrc_probe: None,
             // Encoders enforce strict PTS monotonicity on input (no
             // B-frames).  StrictPts rejects duplicate or out-of-order PTS
@@ -461,6 +462,19 @@ impl NvEncoder {
     /// encoder.
     pub fn send_source_eos(&self, source_id: &str) -> Result<(), EncoderError> {
         self.send_event(build_source_eos_event(source_id))
+    }
+
+    /// Force-flush pending rescue-eligible custom-downstream events
+    /// (including `savant.pipeline.source_eos`) through the encoder when
+    /// no buffers are in flight.
+    ///
+    /// See [`savant_gstreamer::pipeline::GstPipeline::flush_idle`] for
+    /// semantics.  Returns the number of events flushed; `Ok(0)` means
+    /// "nothing pending" or "encoder still busy".
+    pub fn flush_idle(&self) -> Result<usize, EncoderError> {
+        match &self.backend {
+            EncoderBackendState::Pipeline { pipeline, .. } => Ok(pipeline.lock().flush_idle()?),
+        }
     }
 
     /// Block until the next output is available.

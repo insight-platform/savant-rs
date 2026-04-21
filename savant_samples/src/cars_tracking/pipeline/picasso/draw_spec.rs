@@ -1,4 +1,8 @@
 //! Per-class draw specs for the cars-demo pipeline.
+//!
+//! Lives under [`crate::cars_tracking::pipeline::picasso`] because the
+//! Picasso actor is the sole consumer of these specs + the frame-id
+//! overlay attachment helper.
 
 use anyhow::Context;
 use picasso::prelude::*;
@@ -11,13 +15,13 @@ use savant_core::primitives::object::{IdCollisionResolutionPolicy, VideoObjectBu
 use savant_core::primitives::RBBox;
 
 /// Namespace the draw spec keys under — matches
-/// [`crate::cars_tracking::model::DETECTION_NAMESPACE`].
-pub const DRAW_NAMESPACE: &str = crate::cars_tracking::model::DETECTION_NAMESPACE;
+/// [`crate::cars_tracking::pipeline::infer::model::DETECTION_NAMESPACE`].
+pub const DRAW_NAMESPACE: &str = crate::cars_tracking::pipeline::infer::model::DETECTION_NAMESPACE;
 
 /// Namespace for non-detection overlay objects (e.g. the frame-id badge in
 /// the top-left corner).  Kept distinct from [`DRAW_NAMESPACE`] so that the
 /// tracker's batch formation — which filters by
-/// [`crate::cars_tracking::model::DETECTION_NAMESPACE`] — never sees these
+/// [`crate::cars_tracking::pipeline::infer::model::DETECTION_NAMESPACE`] — never sees these
 /// synthetic objects as ROIs.
 pub const OVERLAY_NAMESPACE: &str = "overlay";
 
@@ -187,12 +191,12 @@ fn build_frame_id_overlay_draw() -> anyhow::Result<ObjectDraw> {
 /// [`IdCollisionResolutionPolicy::GenerateNewId`] so it can coexist with
 /// any detections already on the frame without ID clashes.
 ///
-/// Called from the render stage (see
+/// Called from the picasso stage (see
 /// [`crate::cars_tracking::pipeline`]) because:
 /// - inference's batch formation uses `RoiKind::FullFrame` so the overlay
 ///   is invisible there,
 /// - tracker's batch formation filters by
-///   [`crate::cars_tracking::model::DETECTION_NAMESPACE`] so the overlay
+///   [`crate::cars_tracking::pipeline::infer::model::DETECTION_NAMESPACE`] so the overlay
 ///   is invisible there too.
 ///
 /// Returns an error only if the `VideoObject` fails to build (missing
@@ -286,7 +290,7 @@ mod tests {
         attach_frame_id_overlay(&frame, 1)?;
         attach_frame_id_overlay(&frame, 2)?;
 
-        let ids: std::collections::HashSet<i64> =
+        let ids: hashbrown::HashSet<i64> =
             frame.get_all_objects().iter().map(|o| o.get_id()).collect();
         assert_eq!(ids.len(), 2, "distinct ids assigned: {ids:?}");
         Ok(())

@@ -99,9 +99,24 @@ pub struct GstPipeline {
     feeder_thread: Option<JoinHandle<()>>,
     drain_thread: Option<JoinHandle<()>>,
     watchdog_thread: Option<JoinHandle<()>>,
+    idle_flush_thread: Option<JoinHandle<()>>,
     is_shut_down: Arc<AtomicBool>,
     draining: Arc<AtomicBool>,
     leak_on_finalize: bool,
+    /// Map of PTS (ns) → submission time for each buffer currently between
+    /// the feeder and the drain.  `in_flight.is_empty()` ⇒ no buffers in
+    /// the GStreamer pipeline, which is the "idle" precondition for
+    /// [`flush_idle`](Self::flush_idle).
+    in_flight: Arc<Mutex<HashMap<u64, Instant>>>,
+    /// Rescue-eligible custom-downstream events that entered `appsrc.src`
+    /// but have not yet exited `appsink.sink`.  Re-injected downstream by
+    /// either the EOS rescue path in the probe pair or an explicit
+    /// [`flush_idle`](Self::flush_idle) call.
+    pending_rescue_events: Arc<Mutex<Vec<gst::Event>>>,
+    /// Sink pad of the internal `appsink`.  Cached here so
+    /// [`flush_idle`](Self::flush_idle) can resolve `.peer()` without
+    /// having to walk the pipeline each time.
+    appsink_sink_pad: gst::Pad,
 }
 
 impl GstPipeline {
@@ -416,10 +431,22 @@ impl GstPipeline {
             spawn_watchdog(
                 format!("{}-watchdog", config.name),
                 timeout,
-                in_flight,
+                in_flight.clone(),
                 shutdown.clone(),
                 failed.clone(),
                 output_tx,
+            )
+        });
+
+        let idle_flush_thread = config.idle_flush_interval.and_then(|interval| {
+            spawn_idle_flush_thread(
+                format!("{}-idle-flush", config.name),
+                interval,
+                in_flight.clone(),
+                pending_rescue_events.clone(),
+                appsink_sink_pad.clone(),
+                shutdown.clone(),
+                failed.clone(),
             )
         });
 
@@ -435,11 +462,97 @@ impl GstPipeline {
                 feeder_thread: Some(feeder_thread),
                 drain_thread: Some(drain_thread),
                 watchdog_thread,
+                idle_flush_thread,
                 is_shut_down,
                 draining,
                 leak_on_finalize: config.leak_on_finalize,
+                in_flight,
+                pending_rescue_events,
+                appsink_sink_pad,
             },
         ))
+    }
+
+    /// Push every rescue-eligible custom-downstream event still pending
+    /// inside the pipeline through to `appsink` when (and only when) the
+    /// pipeline is idle.
+    ///
+    /// # Background
+    ///
+    /// `GstVideoDecoder` (and some DeepStream elements that use its base
+    /// class, e.g. `nvv4l2decoder`) queue serialized custom-downstream
+    /// events against the currently-parsed frame and release them only
+    /// when that frame is pushed downstream.  When a custom event is
+    /// submitted *after* the last frame, it sits inside the decoder
+    /// indefinitely — until either `GstEvent::Eos` triggers the
+    /// pipeline's built-in rescue probe or the pipeline is torn down.
+    ///
+    /// This is a problem for application-layer markers like
+    /// `savant.pipeline.source_eos`, which must be delivered to
+    /// downstream stages promptly even in the middle of a live session
+    /// (to let a downstream consumer drain one source's tail without
+    /// bringing the whole pipeline down).
+    ///
+    /// # Mechanism
+    ///
+    /// Reuses the same "probe pair + peer.push_event" machinery as the
+    /// EOS rescue path.  Specifically:
+    /// 1. If [`is_failed`](Self::is_failed) or [`is_draining`](Self::is_draining)
+    ///    is true, returns `Ok(0)` — no flush needed in terminal states.
+    /// 2. If `in_flight` is non-empty, returns `Ok(0)` — the pipeline is
+    ///    busy, cannot guarantee ordering.  Caller should retry on the
+    ///    next idle window.
+    /// 3. Otherwise, atomically swaps the pending-events list with an
+    ///    empty one and pushes each event on `appsink_sink_pad.peer()`
+    ///    (i.e. the last processing element's src pad).  The events
+    ///    re-enter the exit probe, are forwarded to the output channel
+    ///    via `PipelineOutput::Event`, and consumers observe them in
+    ///    the same order as any other custom-downstream output.
+    ///
+    /// Safe to call repeatedly (e.g. from a caller's `recv_timeout`
+    /// branch) — it's a cheap `Mutex::lock + is_empty` when there's
+    /// nothing to do.
+    ///
+    /// # Returns
+    ///
+    /// Number of events flushed.  `Ok(0)` means either "nothing pending"
+    /// or "pipeline busy" — both are non-errors.
+    ///
+    /// # Ordering note
+    ///
+    /// There's an inherent narrow race between observing
+    /// `in_flight.is_empty()` and issuing `push_event`: a buffer may
+    /// enter `appsrc` between the two.  In that case the rescued event
+    /// may end up slightly ahead of the new buffer downstream.  This is
+    /// acceptable for per-source EOS markers (which are stream-aligned
+    /// by the caller — the caller only sends `source_eos` after the last
+    /// buffer for that source), and matches the semantics already
+    /// established by the EOS rescue path.
+    pub fn flush_idle(&self) -> Result<usize, PipelineError> {
+        if self.is_shut_down.load(Ordering::Acquire) || self.failed.load(Ordering::Acquire) {
+            return Ok(0);
+        }
+        if !self.in_flight.lock().is_empty() {
+            return Ok(0);
+        }
+        let events: Vec<gst::Event> = {
+            let mut guard = self.pending_rescue_events.lock();
+            if guard.is_empty() {
+                return Ok(0);
+            }
+            std::mem::take(&mut *guard)
+        };
+        let count = events.len();
+        if let Some(peer) = self.appsink_sink_pad.peer() {
+            for e in events {
+                let _ = peer.push_event(e);
+            }
+            Ok(count)
+        } else {
+            // No peer — pipeline must be in a very strange state (mid
+            // teardown).  Nothing we can do; report no flush.
+            Ok(0)
+        }
     }
 
     pub fn is_failed(&self) -> bool {
@@ -543,6 +656,9 @@ impl GstPipeline {
             let _ = handle.join();
         }
         if let Some(handle) = self.watchdog_thread.take() {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.idle_flush_thread.take() {
             let _ = handle.join();
         }
     }
@@ -751,6 +867,64 @@ fn wait_for_finalization(label: &str, done: &Receiver<()>) {
             );
         }
     }
+}
+
+/// Spawn a background thread that periodically invokes the same logic as
+/// [`GstPipeline::flush_idle`] when the pipeline is idle and has pending
+/// rescue-eligible events.
+///
+/// Terminates when `shutdown` or `failed` becomes `true`.  Uses a short
+/// polling sleep (`POLL_INTERVAL`) so shutdown is observed within ~10 ms
+/// regardless of `interval`.
+fn spawn_idle_flush_thread(
+    thread_name: String,
+    interval: Duration,
+    in_flight: Arc<Mutex<HashMap<u64, Instant>>>,
+    pending_rescue_events: Arc<Mutex<Vec<gst::Event>>>,
+    appsink_sink_pad: gst::Pad,
+    shutdown: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
+) -> Option<JoinHandle<()>> {
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+    std::thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            loop {
+                let deadline = Instant::now() + interval;
+                while Instant::now() < deadline {
+                    if shutdown.load(Ordering::Acquire) || failed.load(Ordering::Acquire) {
+                        return;
+                    }
+                    std::thread::sleep(POLL_INTERVAL);
+                }
+                if shutdown.load(Ordering::Acquire) || failed.load(Ordering::Acquire) {
+                    return;
+                }
+
+                // Mirror GstPipeline::flush_idle semantics: skip if busy,
+                // skip if nothing to rescue, otherwise push each pending
+                // event on the appsink peer's src pad.
+                if !in_flight.lock().is_empty() {
+                    continue;
+                }
+                let events: Vec<gst::Event> = {
+                    let mut guard = pending_rescue_events.lock();
+                    if guard.is_empty() {
+                        continue;
+                    }
+                    std::mem::take(&mut *guard)
+                };
+                if let Some(peer) = appsink_sink_pad.peer() {
+                    for e in events {
+                        let _ = peer.push_event(e);
+                    }
+                }
+                // If there's no peer (pipeline mid-teardown), events are
+                // dropped — the pending list has already been cleared.
+            }
+        })
+        .ok()
 }
 
 /// Extract the ordering key from a buffer according to `policy` and verify it
