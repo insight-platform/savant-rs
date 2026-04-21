@@ -17,7 +17,8 @@ ERROR savant_gstreamer::pipeline::runner:
 ```
 
 The PTS values (tiny integers) pointed to the pipeline's internal
-monotonic counter `next_pts: AtomicU64`, not the real video PTS.
+monotonic counter that feeds the GStreamer appsrc, not the real video
+PTS.
 
 ### Root cause
 
@@ -44,8 +45,14 @@ second buffer with `pts=291 <= previous_pts=292` is rejected.
 
 ### Fix
 
-Added `submit_mutex: Mutex<()>` in both `NvInfer` and `NvTracker` and
-wrapped the whole `fetch_add + prepare_buffer + send` sequence in it.
+Replaced the `AtomicU64 next_pts` + sibling `Mutex<()> submit_mutex`
+pair with a single `submit_gate: SubmitGate` in both `NvInfer` and
+`NvTracker`.  `SubmitGate` (`savant_gstreamer::submit_gate`) owns the
+counter inside its mutex and exposes it only through a
+`submit_with(|&mut u64| -> R)` closure API.  The whole read + advance +
+prepare_buffer + send sequence runs under the closure, so it is
+impossible — at the type level — to observe or advance the counter
+outside the critical section.
 
 ## Layer 2 — `submit_batch_impl` in the batching operators
 
@@ -79,7 +86,7 @@ let frames = state.lock().take();       // drain (short lock)
 ...                                      // build NonUniformBatch
 let batch_id = next_batch_id.fetch_add(1, ...);
 pending_batches.lock().insert(...);
-nvinfer.submit(shared_buffer, rois)?;    // ← Layer-1 mutex here
+nvinfer.submit(shared_buffer, rois)?;    // ← Layer-1 gate here
 ```
 
 with **no lock** held across drain → submit.  So two threads could:
@@ -87,7 +94,7 @@ with **no lock** held across drain → submit.  So two threads could:
 ```
 T_timer:  state.take() -> [F_k]
 T_add:    state.take() -> [F_{k+1}]
-T_add:    nvinfer.submit(F_{k+1})   // wins layer-1 lock first
+T_add:    nvinfer.submit(F_{k+1})   // wins layer-1 gate first
 T_timer:  nvinfer.submit(F_k)
 ```
 
@@ -104,46 +111,68 @@ thread-scheduling behaviour.
 
 ### Fix
 
-Added `submit_lock: Mutex<()>` to the `SubmitContext` of both batching
-operators and hold it for the **entire** critical section:
+`SubmitContext` on both batching operators gained a
+`submit_gate: SubmitGate`, replacing the old
+`Arc<AtomicU64> next_batch_id` + sibling `Mutex<()> submit_lock` pair.
+The whole critical section runs inside a single
+`submit_gate.submit_with(|next_batch_id| { … })` closure:
 
 ```rust
-let _submit_guard = self.submit_lock.lock();
-
-let frames = { let mut st = self.state.lock(); st.take() };
-// ... build batch, assign batch_id, insert into pending_batches ...
-self.nvinfer.submit(shared_buffer, rois_arg.as_ref())?;
+self.submit_gate.submit_with(|next_batch_id| {
+    let frames = { let mut st = self.state.lock(); st.take() };
+    if frames.is_empty() { return Ok(()); }
+    let batch_id = *next_batch_id as u128;
+    *next_batch_id += 1;
+    // ... build batch, insert into pending_batches ...
+    self.nvinfer.submit(shared_buffer, rois_arg.as_ref())
+})
 ```
 
-Because the inner state lock is nested inside `submit_lock`, ordering
-is now "first thread to acquire `submit_lock` wins the whole drain +
-submit window", and `BatchState::take()` always returns frames in push
-order (`add_frame` pushes from a single caller thread per source).  The
-two ordering guarantees compose:
+Because the inner state lock is nested inside the gate, ordering is
+now "first thread to acquire the gate wins the whole drain + submit
+window", and `BatchState::take()` always returns frames in push order
+(`add_frame` pushes from a single caller thread per source).  The two
+ordering guarantees compose:
 
     video-PTS order in → BatchState push order → take order → submit order
 
 ### Verification
 
-After the fix, running `cars-demo` on dGPU:
+After the fix, running `cars-demo` on dGPU twice:
 
 - zero `Timestamp order violation (StrictPts)` errors,
 - zero `PTS reset detected` warnings,
 - zero `muxer closed; dropping encoded frame` warnings,
 - `decoded == infer_frames == track_frames == encoded == 1078`,
 - `ffprobe` reports 1078 packets in strict monotonic PTS order in
-  `/tmp/ny_city_center.out.mp4`.
+  both `/tmp/cars_out_run1.mp4` and `/tmp/cars_out_run2.mp4`.
 
-## Why both locks still exist
+## Why both gates still exist
 
-- `submit_mutex` in `NvInfer` / `NvTracker` covers **direct** callers
-  of `submit()` (tests, benchmarks, any future user of the pipeline
-  without going through a batching operator).  Keeping it is
+- `NvInfer::submit_gate` / `NvTracker::submit_gate` cover **direct**
+  callers of `submit()` (tests, benchmarks, any future user of the
+  pipeline without going through a batching operator).  Keeping it is
   defence-in-depth at the right abstraction layer.
-- `submit_lock` in the batching operators serialises the wider
-  critical section that includes drain, batch construction and
-  `pending_batches` accounting.  It is a strict superset of
-  `submit_mutex` for the batching-operator path.
+- `SubmitContext::submit_gate` in the batching operators serialises
+  the wider critical section that includes drain, batch construction
+  and `pending_batches` accounting.  It is a strict superset of the
+  pipeline-level gate for the batching-operator path.
 
-Removing either lock would reintroduce a real, reproducible ordering
+Removing either gate would reintroduce a real, reproducible ordering
 bug.
+
+## Why `SubmitGate` and not `AtomicU64 + Mutex<()>`
+
+The original fix used an `AtomicU64` for the counter and a sibling
+`Mutex<()>` for serialisation.  That worked but was misleading:
+`fetch_add` reads as lock-free while, in reality, the sibling mutex
+was always held.  A contributor could "optimise" away the mutex
+without the compiler complaining.
+
+`SubmitGate` (`savant_gstreamer::submit_gate`) owns the `u64` counter
+*inside* its `parking_lot::Mutex`, and its only API is
+`submit_with(closure)` — no raw accessor.  That turns the invariant
+"you cannot advance the counter without holding the serialiser" from
+a convention into a compile-time guarantee, and removes the
+redundant `Arc<AtomicU64>` wrapping on `SubmitContext` (which was
+already held behind an `Arc` itself).

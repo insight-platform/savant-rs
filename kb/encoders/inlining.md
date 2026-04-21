@@ -25,7 +25,7 @@ every AV1 source startup.
 ## How
 
 Field and flow inside
-[`savant_deepstream/encoders/src/encoder.rs`](../../src/encoder.rs):
+[`savant_deepstream/encoders/src/encoder.rs`](../../savant_deepstream/encoders/src/encoder.rs):
 
 - `NvEncoder::pending_codec_header: Option<Vec<u8>>` — the stash slot.
 - `sample_to_frame`:
@@ -47,14 +47,12 @@ codecs is surfaced with `frame_id = None` as before; Picasso warns.
 ## Test
 
 See `test_av1_sequence_header_is_inlined` in
-[`savant_deepstream/encoders/tests/test_encoder.rs`](../../tests/test_encoder.rs).
+[`savant_deepstream/encoders/tests/test_encoder.rs`](../../savant_deepstream/encoders/tests/test_encoder.rs).
 It uses the same `Av1DgpuProps` (P1 preset + LowLatency tuning) that
 Picasso uses — the configuration under which a standalone 32-byte
 header buffer was observed on Ada / Ampere dGPUs.
 
 ## Related KB
 
-- [`kb/encoders/caveats.md`](../../../../kb/encoders/caveats.md) §8 —
-  top-level explanation and platform asymmetry.
-- [`kb/encoders/api.md`](../../../../kb/encoders/api.md) `EncodedFrame`
-  table — describes when `frame_id` is `None`.
+- [`caveats.md`](./caveats.md) §8 — top-level explanation and platform asymmetry.
+- [`api.md`](./api.md) `EncodedFrame` table — describes when `frame_id` is `None`.
