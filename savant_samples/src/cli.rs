@@ -259,23 +259,27 @@ mod tests {
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
-            "some.mov",
+            "Cargo.toml",
             "--output",
             "/tmp/out.mp4",
         ])
         .unwrap();
         assert!(!cli.no_draw);
+        let resolved = cli.resolve().unwrap();
+        assert!(resolved.draw_enabled);
 
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
-            "some.mov",
+            "Cargo.toml",
             "--output",
             "/tmp/out.mp4",
             "--no-draw",
         ])
         .unwrap();
         assert!(cli.no_draw);
+        let resolved = cli.resolve().unwrap();
+        assert!(!resolved.draw_enabled);
     }
 
     #[test]
