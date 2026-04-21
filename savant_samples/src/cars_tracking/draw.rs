@@ -81,14 +81,24 @@ fn build_vehicle_object_draw(color: (i64, i64, i64)) -> anyhow::Result<ObjectDra
     ))
 }
 
-/// Build the `ObjectDrawSpec` for the cars-demo pipeline.
+/// Build the full `ObjectDrawSpec` for the cars-demo pipeline.
 ///
-/// One entry per vehicle label under namespace `DRAW_NAMESPACE`; every entry
-/// uses `BBoxSource::DetectionBox` (the detection box is always present;
-/// `track_box` is only set once a tracker match has happened and Picasso
-/// already deals correctly with the missing field).
+/// One entry per vehicle label under namespace [`DRAW_NAMESPACE`];
+/// every entry uses `BBoxSource::TrackingBox` (Picasso gracefully
+/// falls back to the detection box while a track is still being
+/// established).  A separate [`OVERLAY_NAMESPACE`] entry carries the
+/// per-frame frame-id badge.
 ///
-/// Label format: `["{label} #{track_id}", "{confidence}"]`, outside top-left.
+/// Label format:
+/// `["{label} #{track_id}", "object: #{id}", "{confidence}"]`,
+/// outside top-left.
+///
+/// To opt out of drawing entirely (no bboxes, no labels, no
+/// frame-id badge), the pipeline installs
+/// [`picasso::ObjectDrawSpec::default`] instead of calling this
+/// function and skips [`attach_frame_id_overlay`] on every frame —
+/// see the `--no-draw` CLI flag wired through
+/// [`crate::cli::ResolvedCli::draw_enabled`].
 ///
 /// Returns `Result` because the `savant_core::draw` constructors can fail on
 /// pathological input (they validate ranges); we propagate those errors as

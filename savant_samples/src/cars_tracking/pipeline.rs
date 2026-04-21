@@ -49,8 +49,8 @@ use deepstream_nvtracker::{
 };
 use parking_lot::Mutex as PlMutex;
 use picasso::prelude::{
-    Callbacks, CodecSpec, GeneralSpec, OnEncodedFrame, OutputMessage, PicassoEngine, SourceSpec,
-    TransformConfig,
+    Callbacks, CodecSpec, GeneralSpec, ObjectDrawSpec, OnEncodedFrame, OutputMessage,
+    PicassoEngine, SourceSpec, TransformConfig,
 };
 use savant_core::pipeline::stats::{StageLatencyStat, StageProcessingStat, StageStats, Stats};
 use savant_core::primitives::frame::{
@@ -179,7 +179,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     cuda_init(cli.gpu).map_err(|e| anyhow!("cuda init (gpu={}): {e}", cli.gpu))?;
 
     log::info!(
-        "cars-demo starting: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} debug={}",
+        "cars-demo starting: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} draw_enabled={} debug={}",
         cli.input.display(),
         cli.output.display(),
         cli.gpu,
@@ -188,6 +188,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         cli.channel_cap,
         cli.fps_num,
         cli.fps_den,
+        cli.draw_enabled,
         cli.debug
     );
 
@@ -321,8 +322,13 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         track_stage.clone(),
     )?;
 
-    let render_handle =
-        spawn_render_thread(SOURCE_ID.to_string(), picasso, rx_tracker, fatal.clone())?;
+    let render_handle = spawn_render_thread(
+        SOURCE_ID.to_string(),
+        picasso,
+        rx_tracker,
+        fatal.clone(),
+        cli.draw_enabled,
+    )?;
 
     let mux_handle = spawn_mux_thread(
         cli.output.to_string_lossy().into_owned(),
@@ -912,10 +918,11 @@ fn spawn_render_thread(
     picasso: Arc<PicassoEngine>,
     rx: TrackerResultReceiver,
     fatal: Arc<AtomicBool>,
+    draw_enabled: bool,
 ) -> Result<JoinHandle<Result<()>>> {
     thread::Builder::new()
         .name("cars-render".into())
-        .spawn(move || render_thread(source_id, picasso, rx, fatal))
+        .spawn(move || render_thread(source_id, picasso, rx, fatal, draw_enabled))
         .context("spawn render thread")
 }
 
@@ -924,16 +931,21 @@ fn render_thread(
     picasso: Arc<PicassoEngine>,
     rx: TrackerResultReceiver,
     fatal: Arc<AtomicBool>,
+    draw_enabled: bool,
 ) -> Result<()> {
-    log::info!("[render] starting source_id={source_id}");
+    log::info!("[render] starting source_id={source_id} draw_enabled={draw_enabled}");
     let mut source_spec_set = false;
     // Monotonically increasing per-frame counter rendered as the
-    // top-left `frame #N` badge.  Attaching the overlay here — after
-    // inference and tracking — keeps the synthetic object invisible to
-    // both the inference batch formation (`RoiKind::FullFrame`) and the
-    // tracker batch formation (which filters by
-    // `DETECTION_NAMESPACE`); see
-    // [`crate::cars_tracking::draw::attach_frame_id_overlay`].
+    // top-left `frame #N` badge when drawing is enabled.  Attaching
+    // the overlay here — after inference and tracking — keeps the
+    // synthetic object invisible to both the inference batch
+    // formation (`RoiKind::FullFrame`) and the tracker batch
+    // formation (which filters by `DETECTION_NAMESPACE`); see
+    // [`crate::cars_tracking::draw::attach_frame_id_overlay`].  When
+    // `draw_enabled == false` we skip the attach entirely and install
+    // an empty [`ObjectDrawSpec`] on the source spec so Picasso
+    // renders no overlays at all — decode → infer → track →
+    // transform → encode still run as normal.
     let mut frame_counter: u64 = 0;
     loop {
         match rx.recv() {
@@ -944,16 +956,23 @@ fn render_thread(
                         let w = frame.get_width().max(1) as u32;
                         let h = frame.get_height().max(1) as u32;
                         let fps = frame.get_fps();
-                        log::info!("[render] first frame: {w}x{h} fps={}/{}", fps.0, fps.1);
-                        let spec = build_source_spec(w, h, fps.0 as i32, fps.1 as i32)?;
+                        log::info!(
+                            "[render] first frame: {w}x{h} fps={}/{} draw_enabled={draw_enabled}",
+                            fps.0,
+                            fps.1,
+                        );
+                        let spec =
+                            build_source_spec(w, h, fps.0 as i32, fps.1 as i32, draw_enabled)?;
                         picasso
                             .set_source_spec(&source_id, spec)
                             .map_err(|e| anyhow!("set_source_spec: {e}"))?;
                         source_spec_set = true;
                     }
 
-                    if let Err(e) = attach_frame_id_overlay(&frame, frame_counter) {
-                        log::warn!("[render] attach_frame_id_overlay failed: {e}");
+                    if draw_enabled {
+                        if let Err(e) = attach_frame_id_overlay(&frame, frame_counter) {
+                            log::warn!("[render] attach_frame_id_overlay failed: {e}");
+                        }
                     }
                     frame_counter = frame_counter.wrapping_add(1);
 
@@ -991,9 +1010,25 @@ fn render_thread(
     Ok(())
 }
 
-fn build_source_spec(width: u32, height: u32, fps_num: i32, fps_den: i32) -> Result<SourceSpec> {
+fn build_source_spec(
+    width: u32,
+    height: u32,
+    fps_num: i32,
+    fps_den: i32,
+    draw_enabled: bool,
+) -> Result<SourceSpec> {
     let encoder = build_encoder_config(width, height, fps_num, fps_den);
-    let draw = build_vehicle_draw_spec().context("build vehicle draw spec")?;
+    // Empty [`ObjectDrawSpec`] is the `--no-draw` escape hatch:
+    // Picasso's per-object lookup returns `None` for every
+    // `(namespace, label)` pair, so no bboxes/labels/badges are
+    // composited onto the frame.  The transform + encode stages
+    // still execute so the output MP4 is a clean re-encoded copy of
+    // the source.
+    let draw = if draw_enabled {
+        build_vehicle_draw_spec().context("build vehicle draw spec")?
+    } else {
+        ObjectDrawSpec::default()
+    };
     Ok(SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
@@ -1130,6 +1165,7 @@ mod tests {
             debug: false,
             fps_num: 25,
             fps_den: 1,
+            draw_enabled: true,
         };
         let err = run(cli).unwrap_err();
         assert!(
