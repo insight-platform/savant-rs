@@ -45,3 +45,11 @@ CLAUDE.md
 .claude
 
 savant_samples/assets/cache
+
+# Transient TensorRT engines auto-built by DeepStream next to the ONNX.
+# The nvinfer test harness (`common::promote_built_engine`) moves them
+# into the platform-specific cache at
+# `savant_deepstream/nvinfer/assets/engines/<platform_tag>/`, which IS
+# tracked. Only top-level `*.engine` files are transient and must not
+# be committed.
+savant_deepstream/nvinfer/assets/*.engine
