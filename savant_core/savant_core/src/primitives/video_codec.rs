@@ -221,10 +221,10 @@ mod tests {
         assert_eq!(VideoCodec::Jpeg.parser_element(), "jpegparse");
         assert_eq!(VideoCodec::SwJpeg.parser_element(), "jpegparse");
         assert_eq!(VideoCodec::Av1.parser_element(), "av1parse");
+        assert_eq!(VideoCodec::Vp9.parser_element(), "vp9parse");
         for &codec in &[
             VideoCodec::Png,
             VideoCodec::Vp8,
-            VideoCodec::Vp9,
             VideoCodec::RawRgba,
             VideoCodec::RawRgb,
             VideoCodec::RawNv12,
