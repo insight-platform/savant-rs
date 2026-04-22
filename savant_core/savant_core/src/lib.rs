@@ -27,6 +27,7 @@ pub mod telemetry;
 pub mod test;
 pub mod transport;
 pub mod utils;
+pub mod wal;
 
 pub mod metrics;
 pub mod webserver;
