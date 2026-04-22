@@ -1,7 +1,7 @@
 //! Decode actor for the `cars_tracking` sample.
 //!
-//! Consumes [`DecoderMsg`](super::mp4_demux::DecoderMsg) from the demux actor,
-//! drives [`FlexibleDecoderPool`] to decode H.264 / HEVC / AV1 / VP8 /
+//! Consumes [`EncodedMsg`] from the demux actor, drives
+//! [`FlexibleDecoderPool`] to decode H.264 / HEVC / AV1 / VP8 /
 //! VP9 / JPEG access units into GPU surfaces, and emits [`PipelineMsg`]
 //! to the infer actor.
 //!
@@ -9,15 +9,13 @@
 //!
 //! * Build the [`FlexibleDecoderPool`] with this sample's tuning.
 //! * Cache the `source_id` + [`VideoInfo`] from the single
-//!   [`DecoderMsg::StreamInfo`](super::mp4_demux::DecoderMsg::StreamInfo)
-//!   header and stamp every emitted
+//!   [`EncodedMsg::StreamInfo`] header and stamp every emitted
 //!   [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
 //!   with them (so every downstream actor can read `source_id` off
 //!   the frame without needing a constructor argument).
-//! * Translate the terminal
-//!   [`DecoderMsg::SourceEos`](super::mp4_demux::DecoderMsg::SourceEos) into a
-//!   local `decoder.source_eos(sid)` call that *initiates* the
-//!   per-source drain inside [`FlexibleDecoderPool`].  The downstream
+//! * Translate the terminal [`EncodedMsg::SourceEos`] into a local
+//!   `decoder.source_eos(sid)` call that *initiates* the per-source
+//!   drain inside [`FlexibleDecoderPool`].  The downstream
 //!   [`PipelineMsg::SourceEos`] sentinel is emitted by the decoder's
 //!   callback on [`FlexibleDecoderOutput::SourceEos`], which fires
 //!   strictly after the last [`FlexibleDecoderOutput::Frame`] for
@@ -35,13 +33,12 @@
 //!
 //! # Shutdown
 //!
-//! The decode actor consumes
-//! [`DecoderMsg::Shutdown`](super::mp4_demux::DecoderMsg::Shutdown) — a
-//! cooperative-exit sentinel broadcast by the orchestrator after the
-//! terminus (muxer / drain) has finished.  With `grace = None` the
-//! loop breaks after the current message is handled; with
-//! `grace = Some(d)` the actor sets a deadline and breaks the next
-//! time `recv_timeout` fires at or past the deadline.
+//! The decode actor consumes [`EncodedMsg::Shutdown`] — a cooperative
+//! exit sentinel broadcast by the orchestrator after the supervisor
+//! back-channel observes a shutdown-worthy stage exit.  With
+//! `grace = None` the loop breaks after the current message is
+//! handled; with `grace = Some(d)` the actor sets a deadline and
+//! breaks the next time `recv_timeout` fires at or past the deadline.
 
 use anyhow::{anyhow, Context, Result};
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
@@ -58,8 +55,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use super::mp4_demux::DecoderMsg;
-use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::message::{apply_shutdown_signal, EncodedMsg, PipelineMsg};
 use crate::cars_tracking::stats::{stage_frames, tick_stage};
 use crate::cars_tracking::supervisor::{ExitSender, StageExitGuard, StageName};
 // Caller supplies the fully-constructed StageName so multiple
@@ -79,52 +75,52 @@ const FALLBACK_FPS_NUM: i64 = 30;
 const FALLBACK_FPS_DEN: i64 = 1;
 /// Receive poll timeout.  The decode actor is multiplexed via
 /// [`FlexibleDecoderPool`] (keyed by source id): per-source
-/// [`DecoderMsg::SourceEos`] translates to a `decoder.source_eos(sid)`
+/// [`EncodedMsg::SourceEos`] translates to a `decoder.source_eos(sid)`
 /// flush + a downstream propagation; the receive loop exits on
-/// [`DecoderMsg::Shutdown`] (grace expiry) or upstream channel closure.
+/// [`EncodedMsg::Shutdown`] (grace expiry) or upstream channel closure.
 const DECODE_RECV_POLL: Duration = Duration::from_millis(100);
-
-/// Alias for the decode -> infer channel sender.  The decoder pool
-/// produces the singular [`PipelineMsg::Delivery`] variant; the
-/// `Deliveries` variant is never emitted on this channel.
-pub type DecodedSender = Sender<PipelineMsg>;
-/// Alias for the decode -> infer channel receiver.
-pub type DecodedReceiver = Receiver<PipelineMsg>;
 
 /// Spawn the decode actor.
 ///
 /// Fatal errors (decoder submit failure, demux error, etc.) return
 /// `Err(_)` from the thread handle.  The loop also breaks on
-/// [`DecoderMsg::Shutdown`] broadcast by the orchestrator.  A
+/// [`EncodedMsg::Shutdown`] broadcast by the orchestrator.  A
 /// [`StageExitGuard`] tagged with `name` is installed at the top of
 /// the thread body so the supervisor is notified on any exit path;
 /// pass `StageName::unnamed(StageKind::Decoder)` for a single-decode
 /// pipeline or a named [`StageName`] to disambiguate concurrent
 /// decoders.
+///
+/// The downstream channel carries [`PipelineMsg`] — the decoder pool
+/// produces the singular [`PipelineMsg::Delivery`] variant exclusively
+/// (the batched `Deliveries` variant is emitted by the batching
+/// operators downstream).
 pub fn spawn_decoder_thread(
     gpu_id: u32,
-    rx: Receiver<DecoderMsg>,
-    tx: DecodedSender,
+    rx: Receiver<EncodedMsg>,
+    tx: Sender<PipelineMsg>,
     stage: StageStats,
     exit_tx: ExitSender,
     name: StageName,
 ) -> Result<JoinHandle<Result<()>>> {
+    let guard_name = name.clone();
     thread::Builder::new()
         .name("cars-decoder".into())
         .spawn(move || {
-            let _exit_guard = StageExitGuard::new(name, exit_tx);
-            decoder_thread(gpu_id, rx, tx, stage)
+            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
+            decoder_thread(gpu_id, rx, tx, stage, name)
         })
         .context("spawn decode thread")
 }
 
 fn decoder_thread(
     gpu_id: u32,
-    rx: Receiver<DecoderMsg>,
-    tx: DecodedSender,
+    rx: Receiver<EncodedMsg>,
+    tx: Sender<PipelineMsg>,
     stage: StageStats,
+    name: StageName,
 ) -> Result<()> {
-    log::info!("[decoder] starting");
+    log::info!("[{name}] starting");
     let dec_cfg = FlexibleDecoderPoolConfig::new(gpu_id, DECODER_POOL_SIZE, DECODER_EVICTION_TTL)
         .idle_timeout(Duration::from_secs(5))
         .detect_buffer_limit(60);
@@ -135,6 +131,7 @@ fn decoder_thread(
     let cb_aborted_cb = cb_aborted.clone();
     let tx_cb = tx.clone();
     let stage_cb = stage.clone();
+    let name_cb = name.clone();
     let mut decoder = FlexibleDecoderPool::new(dec_cfg, move |mut out| {
         if cb_aborted_cb.load(Ordering::Acquire) {
             return;
@@ -144,23 +141,23 @@ fn decoder_thread(
                 if let Some(sealed) = out.take_delivery() {
                     tick_stage(&stage_cb, 1, 0);
                     if tx_cb.send(PipelineMsg::Delivery(sealed)).is_err() {
-                        log::warn!("[decoder] downstream closed; dropping decoded frame");
+                        log::warn!("[{name_cb}] downstream closed; dropping decoded frame");
                         cb_aborted_cb.store(true, Ordering::Release);
                     }
                 }
             }
             FlexibleDecoderOutput::ParameterChange { old, new } => {
-                log::info!("[decoder] parameter change: {old:?} -> {new:?}");
+                log::info!("[{name_cb}] parameter change: {old:?} -> {new:?}");
             }
             FlexibleDecoderOutput::Skipped { reason, .. } => {
-                log::debug!("[decoder] skipped: {reason:?}");
+                log::debug!("[{name_cb}] skipped: {reason:?}");
             }
             FlexibleDecoderOutput::OrphanFrame { .. } => {
-                log::debug!("[decoder] orphan frame (source id mismatch?)");
+                log::debug!("[{name_cb}] orphan frame (source id mismatch?)");
             }
             FlexibleDecoderOutput::SourceEos { source_id } => {
                 log::info!(
-                    "[decoder/cb] FlexibleDecoderOutput::SourceEos for source_id={source_id}; propagating"
+                    "[{name_cb}/cb] FlexibleDecoderOutput::SourceEos for source_id={source_id}; propagating"
                 );
                 if tx_cb
                     .send(PipelineMsg::SourceEos {
@@ -168,13 +165,13 @@ fn decoder_thread(
                     })
                     .is_err()
                 {
-                    log::warn!("[decoder/cb] downstream closed; dropping SourceEos({source_id})");
+                    log::warn!("[{name_cb}/cb] downstream closed; dropping SourceEos({source_id})");
                     cb_aborted_cb.store(true, Ordering::Release);
                 }
             }
             FlexibleDecoderOutput::Event(_) => {}
             FlexibleDecoderOutput::Error(err) => {
-                log::error!("[decoder] decoder error: {err}");
+                log::error!("[{name_cb}] decoder error: {err}");
                 cb_aborted_cb.store(true, Ordering::Release);
             }
         }
@@ -182,8 +179,8 @@ fn decoder_thread(
 
     // Per-source stream metadata cache.  `FlexibleDecoderPool` is
     // multiplexed: every `source_id` it sees gets its own decoder
-    // slot.  Each [`DecoderMsg::StreamInfo`] populates this map, and
-    // every [`DecoderMsg::Packet`] resolves its `VideoInfo` by looking
+    // slot.  Each [`EncodedMsg::StreamInfo`] populates this map, and
+    // every [`EncodedMsg::Packet`] resolves its `VideoInfo` by looking
     // up the tagged `source_id` — no "take the first entry" fallback.
     let mut stream_info: HashMap<String, VideoInfo> = HashMap::new();
     // Cooperative-exit deadline.  `None` means "keep running".  Set
@@ -197,7 +194,7 @@ fn decoder_thread(
 
     // Termination contract:
     //
-    // * `DecoderMsg::Shutdown`         → cooperative exit.  `grace =
+    // * `EncodedMsg::Shutdown`       → cooperative exit.  `grace =
     //                                  None` breaks after the current
     //                                  message; `grace = Some(d)` sets
     //                                  a deadline and keeps running.
@@ -209,28 +206,28 @@ fn decoder_thread(
     //                                  the decoder.
     loop {
         match rx.recv_timeout(DECODE_RECV_POLL) {
-            Ok(DecoderMsg::StreamInfo {
+            Ok(EncodedMsg::StreamInfo {
                 source_id: sid,
                 info,
             }) => {
                 log::info!(
-                    "[decoder] stream info: source_id={sid} {}x{} @ {}/{}",
+                    "[{name}] stream info: source_id={sid} {}x{} @ {}/{}",
                     info.width,
                     info.height,
                     info.framerate_num,
                     info.framerate_den
                 );
                 if stream_info.insert(sid.clone(), info).is_some() {
-                    log::warn!("[decoder] duplicate StreamInfo for {sid}; overwriting");
+                    log::warn!("[{name}] duplicate StreamInfo for {sid}; overwriting");
                 }
             }
-            Ok(DecoderMsg::Packet {
+            Ok(EncodedMsg::Packet {
                 source_id: sid,
                 packet: pkt,
             }) => {
                 let Some(info) = stream_info.get(&sid) else {
                     log::error!(
-                        "[decoder] packet for source_id={sid} received before its StreamInfo — aborting"
+                        "[{name}] packet for source_id={sid} received before its StreamInfo — aborting"
                     );
                     return Err(anyhow!(
                         "decoder: packet for source_id={sid} received before StreamInfo"
@@ -238,11 +235,11 @@ fn decoder_thread(
                 };
                 let frame = make_decode_frame(&sid, &pkt, info);
                 if let Err(e) = decoder.submit(&frame, Some(&pkt.data)) {
-                    log::error!("[decoder] submit failed (source_id={sid}): {e}");
+                    log::error!("[{name}] submit failed (source_id={sid}): {e}");
                     return Err(anyhow!("decoder submit (source_id={sid}): {e}"));
                 }
             }
-            Ok(DecoderMsg::Frame { frame, payload }) => {
+            Ok(EncodedMsg::Frame { frame, payload }) => {
                 // Pre-built frame path — the upstream producer
                 // already populated source_id / codec / dims / fps,
                 // so no `StreamInfo` lookup or
@@ -256,35 +253,35 @@ fn decoder_thread(
                 // the frame carries `External` / `None` content).
                 let sid = frame.get_source_id();
                 if let Err(e) = decoder.submit(&frame, payload.as_deref()) {
-                    log::error!("[decoder] submit failed (source_id={sid}): {e}");
+                    log::error!("[{name}] submit failed (source_id={sid}): {e}");
                     return Err(anyhow!("decoder submit (source_id={sid}): {e}"));
                 }
             }
-            Ok(DecoderMsg::SourceEos { source_id: sid }) => {
+            Ok(EncodedMsg::SourceEos { source_id: sid }) => {
                 // Per-source flush only — `decoder.source_eos(sid)`
                 // initiates the drain, and the decoder's callback
                 // will emit `PipelineMsg::SourceEos` once the last
                 // frame for `sid` has been delivered.  Do NOT break
                 // — other sources may still be streaming through
                 // this multiplexed actor.
-                log::info!("[decoder] SourceEos {sid}: initiating operator drain");
+                log::info!("[{name}] SourceEos {sid}: initiating operator drain");
                 if let Err(e) = decoder.source_eos(&sid) {
-                    log::warn!("[decoder] source_eos({sid}) failed: {e}");
+                    log::warn!("[{name}] source_eos({sid}) failed: {e}");
                 }
             }
-            Ok(DecoderMsg::Shutdown { grace, reason }) => {
-                handle_shutdown("decoder", grace, &reason, &mut deadline, &mut break_now);
+            Ok(EncodedMsg::Shutdown { grace, reason }) => {
+                apply_shutdown_signal(&name, grace, &reason, &mut deadline, &mut break_now);
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Flush rescue-eligible custom events inside the
                 // decoder's GStreamer pipeline when it's idle.  Same
                 // rationale as in infer/pipeline.rs / tracker.rs.
                 if let Err(e) = decoder.flush_idle() {
-                    log::warn!("[decoder] flush_idle failed: {e}");
+                    log::warn!("[{name}] flush_idle failed: {e}");
                 }
             }
             Err(RecvTimeoutError::Disconnected) => {
-                log::info!("[decoder] upstream channel disconnected; exiting receive loop");
+                log::info!("[{name}] upstream channel disconnected; exiting receive loop");
                 break;
             }
         }
@@ -297,49 +294,19 @@ fn decoder_thread(
         }
         if let Some(d) = deadline {
             if Instant::now() >= d {
-                log::info!("[decoder] grace deadline expired; exiting receive loop");
+                log::info!("[{name}] grace deadline expired; exiting receive loop");
                 break;
             }
         }
     }
 
     if let Err(e) = decoder.graceful_shutdown() {
-        log::warn!("[decoder] graceful_shutdown failed: {e}");
+        log::warn!("[{name}] graceful_shutdown failed: {e}");
     }
     drop(tx);
     drop(decoder);
-    log::info!("[decoder] finished ({} frames)", stage_frames(&stage));
+    log::info!("[{name}] finished ({} frames)", stage_frames(&stage));
     Ok(())
-}
-
-/// Centralised handler for the cooperative `Shutdown` variant.
-/// Logging is uniform across every actor.
-pub(crate) fn handle_shutdown(
-    actor: &'static str,
-    grace: Option<Duration>,
-    reason: &str,
-    deadline: &mut Option<Instant>,
-    break_now: &mut bool,
-) {
-    match grace {
-        None => {
-            log::info!(
-                "[{actor}] Shutdown (reason={reason}, grace=none); exiting after current message"
-            );
-            *break_now = true;
-        }
-        Some(d) => {
-            let new_deadline = Instant::now() + d;
-            // Honour the earlier deadline if one is already set.
-            *deadline = Some(match *deadline {
-                Some(existing) if existing < new_deadline => existing,
-                _ => new_deadline,
-            });
-            log::info!(
-                "[{actor}] Shutdown (reason={reason}, grace={d:?}); deadline set, continuing"
-            );
-        }
-    }
 }
 
 /// Build the per-packet [`VideoFrameProxy`] the decoder pool
@@ -398,38 +365,5 @@ mod tests {
         };
         let frame = make_decode_frame("src", &pkt, &info);
         assert_eq!(frame.get_codec(), Some(VideoCodec::Hevc));
-    }
-
-    /// `handle_shutdown` records a deadline on graceful shutdown and
-    /// sets `break_now` on instant shutdown.
-    #[test]
-    fn handle_shutdown_semantics() {
-        let mut deadline: Option<Instant> = None;
-        let mut break_now = false;
-
-        handle_shutdown(
-            "test",
-            Some(Duration::from_secs(1)),
-            "graceful",
-            &mut deadline,
-            &mut break_now,
-        );
-        assert!(deadline.is_some());
-        assert!(!break_now);
-
-        handle_shutdown("test", None, "instant", &mut deadline, &mut break_now);
-        assert!(break_now);
-
-        // Second graceful call must not push the deadline further
-        // into the future — earliest wins.
-        let earlier = deadline;
-        handle_shutdown(
-            "test",
-            Some(Duration::from_secs(5)),
-            "later-graceful",
-            &mut deadline,
-            &mut break_now,
-        );
-        assert_eq!(deadline, earlier, "earliest deadline must win");
     }
 }

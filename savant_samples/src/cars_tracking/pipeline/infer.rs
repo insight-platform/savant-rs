@@ -7,9 +7,8 @@
 //!   constants.
 //! * [`output`] — concrete tensor-output processing: the
 //!   [`OperatorResultCallback`] that decodes the YOLO `output0` tensor
-//!   into `VideoObject`s, the [`InferResultSender`] /
-//!   [`InferResultReceiver`] channel aliases that carry the sealed
-//!   deliveries to the tracker, and the [`InferStats`] counters.
+//!   into `VideoObject`s, the callback builder that sends
+//!   [`PipelineMsg`] downstream, and the [`InferStats`] counters.
 //! * *This module* — operator lifecycle: batch-formation callback,
 //!   the multiplexed receive loop, `send_eos` fan-out per source,
 //!   `graceful_shutdown` + drain at the end of the pipeline.
@@ -51,15 +50,13 @@
 //!   the downstream channel.  This keeps the sentinel in-band with
 //!   the delivery stream, satisfying the ordering invariant.
 //!
-//! [`InferResultSender`]: output::InferResultSender
-//! [`InferResultReceiver`]: output::InferResultReceiver
 //! [`InferStats`]: output::InferStats
 //! [`OperatorInferenceOutput`]: deepstream_nvinfer::OperatorInferenceOutput
 //! [`OperatorResultCallback`]: deepstream_nvinfer::OperatorResultCallback
 //! [`SealedDeliveries`]: deepstream_nvinfer::SealedDeliveries
 
 use anyhow::{anyhow, Context, Result};
-use crossbeam::channel::RecvTimeoutError;
+use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
 use deepstream_buffers::SavantIdMetaKind;
 use deepstream_nvinfer::prelude::NvInferBatchingOperator;
 use deepstream_nvinfer::{BatchFormationCallback, BatchFormationResult, RoiKind};
@@ -72,9 +69,8 @@ use std::time::{Duration, Instant};
 pub mod model;
 pub mod output;
 
-use self::output::{process_infer_output, InferResultSender, InferStats};
-use super::decoder::{handle_shutdown, DecodedReceiver};
-use crate::cars_tracking::message::PipelineMsg;
+use self::output::{process_infer_output, InferStats};
+use crate::cars_tracking::message::{apply_shutdown_signal, PipelineMsg};
 use crate::cars_tracking::stats::tick_stage;
 // `name` is passed in per spawn call so a pipeline with multiple
 // concurrent nvinfer models (e.g. `infer[yolo11n]`,
@@ -118,12 +114,12 @@ pub fn build_batch_formation() -> BatchFormationCallback {
 pub struct InferThreadArgs {
     /// The nvinfer operator whose lifecycle the infer actor drives.
     pub operator: NvInferBatchingOperator,
-    /// Upstream receiver — decode -> infer channel.
-    pub rx: DecodedReceiver,
+    /// Upstream receiver — decoder -> infer channel.
+    pub rx: Receiver<PipelineMsg>,
     /// Downstream sender — infer -> tracker channel.  Also used by
     /// `graceful_shutdown` drain handling (via
     /// [`process_infer_output`]).
-    pub drain_tx: InferResultSender,
+    pub drain_tx: Sender<PipelineMsg>,
     /// YOLO post-processing converter shared with the operator
     /// callback.
     pub converter: Arc<YoloDetectionConverter>,
@@ -164,16 +160,17 @@ pub fn spawn_infer_thread(
     exit_tx: ExitSender,
     name: StageName,
 ) -> Result<JoinHandle<Result<()>>> {
+    let guard_name = name.clone();
     thread::Builder::new()
         .name("cars-infer".into())
         .spawn(move || {
-            let _exit_guard = StageExitGuard::new(name, exit_tx);
-            infer_thread(args)
+            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
+            infer_thread(args, name)
         })
         .context("spawn infer thread")
 }
 
-fn infer_thread(args: InferThreadArgs) -> Result<()> {
+fn infer_thread(args: InferThreadArgs, name: StageName) -> Result<()> {
     let InferThreadArgs {
         mut operator,
         rx,
@@ -182,7 +179,7 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
         stats,
         stage,
     } = args;
-    log::info!("[infer] starting");
+    log::info!("[{name}] starting");
     // Baseline for per-frame detection deltas (the operator callback
     // increments `stats.detections()` asynchronously, so we snapshot
     // the cumulative count before each `add_frame` to derive the
@@ -201,7 +198,7 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
                 // [`PipelineMsg`](PipelineMsg) was introduced for.
                 for (frame, buffer) in msg.into_pairs() {
                     if let Err(e) = operator.add_frame(frame, buffer) {
-                        log::error!("[infer] add_frame failed: {e}");
+                        log::error!("[{name}] add_frame failed: {e}");
                         return Err(anyhow!("infer add_frame: {e}"));
                     }
                     let now = stats.detections();
@@ -217,13 +214,13 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
                 // Do NOT break — other sources may still be
                 // producing deliveries through this multiplexed
                 // actor.
-                log::info!("[infer] SourceEos {source_id}: initiating operator drain");
+                log::info!("[{name}] SourceEos {source_id}: initiating operator drain");
                 if let Err(e) = operator.send_eos(&source_id) {
-                    log::warn!("[infer] send_eos({source_id}) failed: {e}");
+                    log::warn!("[{name}] send_eos({source_id}) failed: {e}");
                 }
             }
             Ok(PipelineMsg::Shutdown { grace, reason }) => {
-                handle_shutdown("infer", grace, &reason, &mut deadline, &mut break_now);
+                apply_shutdown_signal(&name, grace, &reason, &mut deadline, &mut break_now);
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Force-flush pending rescue-eligible custom-downstream
@@ -231,11 +228,11 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
                 // through the operator's internal GStreamer pipeline
                 // when it is idle.  Same rationale as decode.rs.
                 if let Err(e) = operator.flush_idle() {
-                    log::warn!("[infer] flush_idle failed: {e}");
+                    log::warn!("[{name}] flush_idle failed: {e}");
                 }
             }
             Err(RecvTimeoutError::Disconnected) => {
-                log::info!("[infer] upstream channel disconnected; exiting receive loop");
+                log::info!("[{name}] upstream channel disconnected; exiting receive loop");
                 break;
             }
         }
@@ -248,7 +245,7 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
         }
         if let Some(d) = deadline {
             if Instant::now() >= d {
-                log::info!("[infer] grace deadline expired; exiting receive loop");
+                log::info!("[{name}] grace deadline expired; exiting receive loop");
                 break;
             }
         }
@@ -260,13 +257,13 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
     // delivered yet.
     match operator.graceful_shutdown(INFER_DRAIN_TIMEOUT) {
         Ok(drained) => {
-            log::info!("[infer] drained {} remaining outputs", drained.len());
+            log::info!("[{name}] drained {} remaining outputs", drained.len());
             for out in drained {
-                process_infer_output(out, converter.as_ref(), &drain_tx, Some(&stats));
+                process_infer_output(out, converter.as_ref(), &drain_tx, Some(&stats), &name);
             }
         }
         Err(e) => {
-            log::error!("[infer] graceful_shutdown failed: {e}");
+            log::error!("[{name}] graceful_shutdown failed: {e}");
         }
     }
     // Absorb any detections registered after the last tick above
@@ -279,7 +276,7 @@ fn infer_thread(args: InferThreadArgs) -> Result<()> {
     drop(drain_tx);
     drop(operator);
     log::info!(
-        "[infer] finished: frames={} detections={}",
+        "[{name}] finished: frames={} detections={}",
         stats.frames(),
         stats.detections()
     );

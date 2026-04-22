@@ -5,26 +5,26 @@
 //! output) and only one of them runs for any given invocation:
 //!
 //! * [`spawn_picasso_thread`] — the full Picasso-backed actor.  Owns
-//!   the [`PicassoEngine`], the [`EncodedSink`] (
-//!   [`OnEncodedFrame`] callback that pushes [`EncodedMsg`] onto the
-//!   mux channel), and the overlay/draw-spec wiring.  Drives the
-//!   encode + mux tail of the pipeline.
-//! * [`spawn_drain_thread`] — the `--no-picasso` actor.  Unseals
-//!   every [`PipelineMsg::Delivery`] and drops it, keeping GPU slots
-//!   recycled.  Also ticks the pipeline-tail stage + registers frames
-//!   with [`Stats`] so the time-based FPS counter works in
-//!   `--no-picasso` mode.
+//!   the [`PicassoEngine`], the [`EncodedSink`]
+//!   ([`OnEncodedFrame`] callback that pushes [`EncodedMsg`] onto the
+//!   downstream channel), and the overlay/draw-spec wiring.  Drives
+//!   the encode + mux tail of the pipeline.
 //!
-//! Both actors terminate on the in-band
-//! [`PipelineMsg::SourceEos`](crate::cars_tracking::message::PipelineMsg::SourceEos)
-//! sentinel — the Picasso actor forwards an [`EncodedMsg::Eos`]
-//! downstream after [`PicassoEngine::send_eos`] drains and fires
-//! [`OutputMessage::EndOfStream`].
+//! The actor does not know *what* the downstream consumer of its
+//! encoded output will do — that is strictly the downstream actor's
+//! concern.  Picasso forwards each encoded
+//! [`OutputMessage::VideoFrame`] as [`EncodedMsg::Frame`] (the
+//! pre-built `VideoFrameProxy` already carries source id, pts/dts,
+//! duration, keyframe, and the encoded bitstream in its
+//! [`VideoFrameContent::Internal`]) and
+//! [`OutputMessage::EndOfStream`] as [`EncodedMsg::SourceEos`] (with
+//! the source id) so the downstream terminus can decide for itself
+//! when / how to finalise.
 
 pub mod draw_spec;
 
 use anyhow::{anyhow, Context, Result};
-use crossbeam::channel::{bounded, Receiver, RecvTimeoutError, Sender};
+use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
 use deepstream_buffers::SurfaceView;
 use deepstream_encoders::{EncoderConfig, H264EncoderConfig, NvEncoderConfig};
 use deepstream_nvinfer::prelude::VideoFormat as InferVideoFormat;
@@ -34,7 +34,7 @@ use picasso::prelude::{
     PicassoEngine, SourceSpec, TransformConfig,
 };
 use savant_core::pipeline::stats::{StageStats, Stats};
-use savant_core::primitives::frame::VideoFrameContent;
+use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -46,9 +46,7 @@ use deepstream_encoders::properties::H264DgpuProps;
 use deepstream_encoders::properties::H264JetsonProps;
 
 use self::draw_spec::{attach_frame_id_overlay, build_vehicle_draw_spec};
-use super::decoder::handle_shutdown;
-use super::tracker::TrackerResultReceiver;
-use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::message::{apply_shutdown_signal, EncodedMsg, PipelineMsg};
 use crate::cars_tracking::stats::{tick_stage, PipelineStats};
 // `name` is passed in per spawn so picasso and drain actors carry
 // disambiguating instance tags when multiple are live.
@@ -59,49 +57,20 @@ use crate::cars_tracking::supervisor::{ExitSender, StageExitGuard, StageName};
 /// loop responsive while there is no upstream traffic.
 const PICASSO_RECV_POLL: Duration = Duration::from_millis(100);
 
-/// Picasso -> mux boundary message type.
-///
-/// Emitted exclusively by the [`EncodedSink`] on the
-/// [`OnEncodedFrame`] callback — that callback is the carrier-side
-/// boundary between Picasso's encoder thread and the sample's muxer
-/// actor.
-#[derive(Debug)]
-pub enum EncodedMsg {
-    /// A single H.264 access unit plus its timing metadata.
-    AccessUnit {
-        /// Encoded access unit payload.
-        data: Vec<u8>,
-        /// Presentation timestamp in nanoseconds.
-        pts_ns: u64,
-        /// Decode timestamp in nanoseconds (optional — mirrors the
-        /// GStreamer buffer convention).
-        dts_ns: Option<u64>,
-        /// Duration in nanoseconds (optional).
-        duration_ns: Option<u64>,
-    },
-    /// End-of-stream sentinel forwarded after
-    /// [`OutputMessage::EndOfStream`].  The muxer flushes its `moov`
-    /// atom on receipt.
-    Eos,
-}
-
-/// Alias for the picasso -> mux channel sender.
-pub type EncodedSender = Sender<EncodedMsg>;
-/// Alias for the picasso -> mux channel receiver.
-pub type EncodedReceiver = Receiver<EncodedMsg>;
-
-/// Create a bounded picasso -> mux channel.
-pub fn encoded_channel(cap: usize) -> (EncodedSender, EncodedReceiver) {
-    bounded(cap)
-}
-
 /// Build the Picasso rendering engine wired to the `cars-demo`
 /// encoded-frame sink.
+///
+/// `name` is stored on the [`EncodedSink`] so every log record
+/// emitted from the `on_encoded_frame` callback carries the actor's
+/// configured [`StageName`] (kind + instance tag) — matching the
+/// main actor thread's logs even when multiple Picasso actors run
+/// concurrently.
 pub fn build_picasso_engine(
-    tx_encoded: EncodedSender,
+    tx_encoded: Sender<EncodedMsg>,
     stats: Arc<PipelineStats>,
     stage: StageStats,
     core_stats: Arc<Stats>,
+    name: StageName,
 ) -> PicassoEngine {
     let callbacks = Callbacks::builder()
         .on_encoded_frame(EncodedSink {
@@ -109,6 +78,7 @@ pub fn build_picasso_engine(
             stats,
             stage,
             core_stats,
+            name,
         })
         .build();
     let general = GeneralSpec::builder()
@@ -120,61 +90,97 @@ pub fn build_picasso_engine(
 }
 
 /// `on_encoded_frame` callback — forwards encoded access units /
-/// EOS onto the mux channel and drives the pipeline-tail counters.
+/// source-EOS onto the downstream channel and drives the
+/// pipeline-tail counters.
 struct EncodedSink {
-    tx: EncodedSender,
+    tx: Sender<EncodedMsg>,
     stats: Arc<PipelineStats>,
     stage: StageStats,
     /// Pipeline-tail counter — the timestamp-based FPS emitted by
     /// [`Stats`] is driven by the rate at which we call
     /// [`Stats::register_frame`] here on the encoded-frame callback.
     core_stats: Arc<Stats>,
+    /// Picasso actor's [`StageName`] — used verbatim as the log
+    /// prefix on every record the sink emits so the callback's
+    /// output is indistinguishable from the picasso thread's.
+    name: StageName,
+}
+
+impl EncodedSink {
+    /// Validate + trace an encoded [`VideoFrameProxy`].
+    ///
+    /// Ensures the frame's content is a [`VideoFrameContent::Internal`]
+    /// blob (the only variant an encoder callback may legitimately
+    /// produce in this pipeline), then updates per-stage +
+    /// pipeline-tail counters and emits a single `debug!` line.
+    /// PTS is logged verbatim — every stage in this pipeline
+    /// treats PTS as an opaque, codec-supplied tick value and
+    /// never rescales it to wall-clock units.
+    ///
+    /// Returns `true` when the frame is forwardable; `false`
+    /// means the content variant was unexpected (logged at
+    /// `error!`) and the caller must drop the frame.
+    fn trace_encoded_frame(&self, frame: &VideoFrameProxy) -> bool {
+        let bytes = match frame.get_content().as_ref() {
+            VideoFrameContent::Internal(d) => d.len(),
+            other => {
+                log::error!(
+                    "[{}/encode-cb] unexpected content variant: {:?}",
+                    self.name,
+                    std::mem::discriminant(other)
+                );
+                return false;
+            }
+        };
+        tick_stage(&self.stage, 1, 0);
+        self.core_stats.register_frame(0);
+        self.stats
+            .encoded_bytes
+            .fetch_add(bytes as u64, Ordering::Relaxed);
+        log::debug!(
+            "[{}/encode-cb] frame source_id={} pts={} bytes={bytes}",
+            self.name,
+            frame.get_source_id(),
+            frame.get_pts(),
+        );
+        true
+    }
 }
 
 impl OnEncodedFrame for EncodedSink {
     fn call(&self, output: OutputMessage) {
         match output {
             OutputMessage::VideoFrame(frame) => {
-                let content = frame.get_content();
-                let data = match content.as_ref() {
-                    VideoFrameContent::Internal(d) => d.clone(),
-                    other => {
-                        log::error!(
-                            "[encode-cb] unexpected content variant: {:?}",
-                            std::mem::discriminant(other)
-                        );
-                        return;
-                    }
-                };
-                let pts_ns = frame.get_pts().max(0) as u64;
-                let dts_ns = frame.get_dts().map(|v| v.max(0) as u64);
-                let duration_ns = frame.get_duration().map(|v| v.max(0) as u64);
-                tick_stage(&self.stage, 1, 0);
-                self.core_stats.register_frame(0);
-                self.stats
-                    .encoded_bytes
-                    .fetch_add(data.len() as u64, Ordering::Relaxed);
-                log::debug!(
-                    "[encode-cb] frame pts={}ms bytes={}",
-                    pts_ns / 1_000_000,
-                    data.len()
-                );
+                // Forward the pre-built frame verbatim — the frame
+                // already carries everything downstream needs
+                // (source id, pts/dts, duration, keyframe, encoded
+                // bitstream in `VideoFrameContent::Internal`).  The
+                // trace hook validates content and updates stats;
+                // if it rejects the frame we simply drop it.
+                if !self.trace_encoded_frame(&frame) {
+                    return;
+                }
                 if self
                     .tx
-                    .send(EncodedMsg::AccessUnit {
-                        data,
-                        pts_ns,
-                        dts_ns,
-                        duration_ns,
+                    .send(EncodedMsg::Frame {
+                        frame,
+                        payload: None,
                     })
                     .is_err()
                 {
-                    log::warn!("[encode-cb] muxer closed; dropping encoded frame");
+                    log::warn!(
+                        "[{}/encode-cb] downstream closed; dropping encoded frame",
+                        self.name
+                    );
                 }
             }
-            OutputMessage::EndOfStream(_) => {
-                log::info!("[encode-cb] EndOfStream");
-                let _ = self.tx.send(EncodedMsg::Eos);
+            OutputMessage::EndOfStream(eos) => {
+                let source_id = eos.source_id;
+                log::info!(
+                    "[{}/encode-cb] EndOfStream source_id={source_id}",
+                    self.name
+                );
+                let _ = self.tx.send(EncodedMsg::SourceEos { source_id });
             }
         }
     }
@@ -193,26 +199,28 @@ impl OnEncodedFrame for EncodedSink {
 /// cooperative exit.  Fatal errors surface as `Err(_)`.
 pub fn spawn_picasso_thread(
     picasso: Arc<PicassoEngine>,
-    rx: TrackerResultReceiver,
+    rx: Receiver<PipelineMsg>,
     draw_enabled: bool,
     exit_tx: ExitSender,
     name: StageName,
 ) -> Result<JoinHandle<Result<()>>> {
+    let guard_name = name.clone();
     thread::Builder::new()
         .name("cars-picasso".into())
         .spawn(move || {
-            let _exit_guard = StageExitGuard::new(name, exit_tx);
-            picasso_thread(picasso, rx, draw_enabled)
+            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
+            picasso_thread(picasso, rx, draw_enabled, name)
         })
         .context("spawn picasso thread")
 }
 
 fn picasso_thread(
     picasso: Arc<PicassoEngine>,
-    rx: TrackerResultReceiver,
+    rx: Receiver<PipelineMsg>,
     draw_enabled: bool,
+    name: StageName,
 ) -> Result<()> {
-    log::info!("[picasso] starting draw_enabled={draw_enabled}");
+    log::info!("[{name}] starting draw_enabled={draw_enabled}");
     // Per-source tracking: Picasso is multiplexed (each source_id
     // gets its own SourceSpec / encoder slot).  We lazily register
     // a `SourceSpec` the first time we see a given source_id, and
@@ -247,7 +255,7 @@ fn picasso_thread(
                         let h = frame.get_height().max(1) as u32;
                         let fps = frame.get_fps();
                         log::info!(
-                            "[picasso] registering source_id={sid} {w}x{h} fps={}/{} draw_enabled={draw_enabled}",
+                            "[{name}] registering source_id={sid} {w}x{h} fps={}/{} draw_enabled={draw_enabled}",
                             fps.0,
                             fps.1,
                         );
@@ -260,7 +268,7 @@ fn picasso_thread(
 
                     if draw_enabled {
                         if let Err(e) = attach_frame_id_overlay(&frame, frame_counter) {
-                            log::warn!("[picasso] attach_frame_id_overlay failed: {e}");
+                            log::warn!("[{name}] attach_frame_id_overlay failed: {e}");
                         }
                     }
                     frame_counter = frame_counter.wrapping_add(1);
@@ -268,7 +276,7 @@ fn picasso_thread(
                     let view = SurfaceView::from_buffer(&buffer, 0)
                         .map_err(|e| anyhow!("SurfaceView::from_buffer: {e}"))?;
                     if let Err(e) = picasso.send_frame(&sid, frame, view, None) {
-                        log::error!("[picasso] send_frame failed: {e}");
+                        log::error!("[{name}] send_frame failed: {e}");
                         return Err(anyhow!("picasso send_frame: {e}"));
                     }
                 }
@@ -276,21 +284,21 @@ fn picasso_thread(
             Ok(PipelineMsg::SourceEos { source_id: sid }) => {
                 // Per-source flush only — Picasso's
                 // [`OnEncodedFrame`] callback asynchronously emits
-                // [`EncodedMsg::Eos`] on
+                // [`EncodedMsg::SourceEos { source_id }`] on
                 // [`OutputMessage::EndOfStream`] once the last
                 // frame for this source has drained.  The loop
                 // does NOT break; other sources may still stream.
-                log::info!("[picasso] SourceEos {sid}: flushing picasso");
+                log::info!("[{name}] SourceEos {sid}: flushing picasso");
                 if let Err(e) = picasso.send_eos(&sid) {
-                    log::warn!("[picasso] send_eos({sid}): {e}");
+                    log::warn!("[{name}] send_eos({sid}): {e}");
                 }
             }
             Ok(PipelineMsg::Shutdown { grace, reason }) => {
-                handle_shutdown("picasso", grace, &reason, &mut deadline, &mut break_now);
+                apply_shutdown_signal(&name, grace, &reason, &mut deadline, &mut break_now);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                log::info!("[picasso] upstream channel disconnected; exiting receive loop");
+                log::info!("[{name}] upstream channel disconnected; exiting receive loop");
                 break;
             }
         }
@@ -303,7 +311,7 @@ fn picasso_thread(
         }
         if let Some(d) = deadline {
             if Instant::now() >= d {
-                log::info!("[picasso] grace deadline expired; exiting receive loop");
+                log::info!("[{name}] grace deadline expired; exiting receive loop");
                 break;
             }
         }
@@ -314,7 +322,7 @@ fn picasso_thread(
     // to workers, which are already joined by `shutdown()`.  After
     // this drop the OnEncodedFrame callback's tx_encoded is released.
     drop(picasso);
-    log::info!("[picasso] finished");
+    log::info!("[{name}] finished");
     Ok(())
 }
 

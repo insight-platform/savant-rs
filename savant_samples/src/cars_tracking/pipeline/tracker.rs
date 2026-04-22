@@ -59,10 +59,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use super::decoder::handle_shutdown;
-use super::infer::output::InferResultReceiver;
 use crate::assets;
-use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::message::{apply_shutdown_signal, PipelineMsg};
 use crate::cars_tracking::pipeline::infer::model::DETECTION_NAMESPACE;
 use crate::cars_tracking::stats::{stage_frames, tick_stage};
 use crate::cars_tracking::supervisor::{ExitSender, StageExitGuard, StageName};
@@ -86,16 +84,6 @@ const NVDCF_CONFIG_REL: &str =
     "savant_deepstream/nvtracker/assets/config_tracker_NvDCF_max_perf.yml";
 
 const UNKNOWN_VEHICLE_CLASS_ID: i32 = 99;
-
-/// Sender half of the nvtracker-result channel — forwards [`PipelineMsg`]
-/// from the operator callback + tracker-thread EOS handler to the picasso
-/// (or drain) thread.  The tracker stage emits the batched
-/// [`PipelineMsg::Deliveries`] variant (the boxed payload is a
-/// `deepstream_nvtracker::SealedDeliveries`); the singular `Delivery`
-/// variant is never emitted on this channel.
-pub type TrackerResultSender = Sender<PipelineMsg>;
-/// Receiver half of the nvtracker-result channel.
-pub type TrackerResultReceiver = Receiver<PipelineMsg>;
 
 /// Locate the NvDCF max-perf YAML shipped by `deepstream_nvtracker`.
 pub fn nvdcf_config_path() -> Result<PathBuf> {
@@ -231,8 +219,9 @@ impl TrackerStats {
 /// make `SourceEos` out-of-band on the tracker->picasso channel.
 pub fn process_tracker_output(
     output: TrackerOperatorOutput,
-    forward: &TrackerResultSender,
+    forward: &Sender<PipelineMsg>,
     stats: Option<&TrackerStats>,
+    stage: &StageName,
 ) {
     match output {
         TrackerOperatorOutput::Tracking(mut tracking_output) => {
@@ -244,14 +233,14 @@ pub fn process_tracker_output(
                                 s.record_unmatched_updates(unmatched.len());
                             }
                             for tu in &unmatched {
-                                log::warn!("tracker: unmatched {tu}");
+                                log::warn!("[{stage}] unmatched {tu}");
                             }
                         }
                     }
-                    Err(err) => log::warn!("apply_to_frame failed: {err}"),
+                    Err(err) => log::warn!("[{stage}] apply_to_frame failed: {err}"),
                 }
                 log::debug!(
-                    "[track] frame source={} tracks={}",
+                    "[{stage}] frame source={} tracks={}",
                     frame_output.frame.get_source_id(),
                     frame_output.tracked_objects.len()
                 );
@@ -265,14 +254,14 @@ pub fn process_tracker_output(
                     .send(PipelineMsg::Deliveries(Box::new(sealed)))
                     .is_err()
                 {
-                    log::warn!("nvtracker result receiver closed; dropping sealed batch");
+                    log::warn!("[{stage}] result receiver closed; dropping sealed batch");
                 }
             }
         }
         TrackerOperatorOutput::Eos { source_id } => {
             // Stream-aligned propagation (see function docs).
             log::info!(
-                "[track/cb] TrackerOperatorOutput::Eos for source_id={source_id}; propagating"
+                "[{stage}/cb] TrackerOperatorOutput::Eos for source_id={source_id}; propagating"
             );
             if forward
                 .send(PipelineMsg::SourceEos {
@@ -280,22 +269,28 @@ pub fn process_tracker_output(
                 })
                 .is_err()
             {
-                log::warn!("[track/cb] downstream closed; dropping SourceEos({source_id})");
+                log::warn!("[{stage}/cb] downstream closed; dropping SourceEos({source_id})");
             }
         }
         TrackerOperatorOutput::Error(err) => {
-            log::error!("nvtracker operator error: {err}");
+            log::error!("[{stage}] operator error: {err}");
         }
     }
 }
 
 /// Build the result callback — thin wrapper over [`process_tracker_output`].
+///
+/// `stage` is captured so every log record emitted by
+/// [`process_tracker_output`] carries the actor's configured
+/// [`StageName`] (kind + instance tag) — concurrent tracker actors
+/// in the same pipeline stay distinguishable in the logs.
 pub fn build_result_callback(
-    forward: TrackerResultSender,
+    forward: Sender<PipelineMsg>,
     stats: Option<Arc<TrackerStats>>,
+    stage: StageName,
 ) -> TrackerOperatorResultCallback {
     Box::new(move |output: TrackerOperatorOutput| {
-        process_tracker_output(output, &forward, stats.as_deref())
+        process_tracker_output(output, &forward, stats.as_deref(), &stage)
     })
 }
 
@@ -342,30 +337,32 @@ fn detection_to_roi(index: i64, det_box: &RBBox) -> Roi {
 /// [`process_tracker_output`].
 pub fn spawn_tracker_thread(
     operator: NvTrackerBatchingOperator,
-    rx: InferResultReceiver,
-    drain_tx: TrackerResultSender,
+    rx: Receiver<PipelineMsg>,
+    drain_tx: Sender<PipelineMsg>,
     stats: Arc<TrackerStats>,
     stage: StageStats,
     exit_tx: ExitSender,
     name: StageName,
 ) -> Result<JoinHandle<Result<()>>> {
+    let guard_name = name.clone();
     thread::Builder::new()
         .name("cars-tracker".into())
         .spawn(move || {
-            let _exit_guard = StageExitGuard::new(name, exit_tx);
-            tracker_thread(operator, rx, drain_tx, stats, stage)
+            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
+            tracker_thread(operator, rx, drain_tx, stats, stage, name)
         })
         .context("spawn tracker thread")
 }
 
 fn tracker_thread(
     mut operator: NvTrackerBatchingOperator,
-    rx: InferResultReceiver,
-    drain_tx: TrackerResultSender,
+    rx: Receiver<PipelineMsg>,
+    drain_tx: Sender<PipelineMsg>,
     stats: Arc<TrackerStats>,
     stage: StageStats,
+    name: StageName,
 ) -> Result<()> {
-    log::info!("[track] starting");
+    log::info!("[{name}] starting");
     let mut deadline: Option<Instant> = None;
     let mut break_now = false;
     loop {
@@ -378,28 +375,28 @@ fn tracker_thread(
                 // rationale.
                 for (frame, buffer) in msg.into_pairs() {
                     if let Err(e) = operator.add_frame(frame, buffer) {
-                        log::error!("[track] add_frame failed: {e}");
+                        log::error!("[{name}] add_frame failed: {e}");
                         return Err(anyhow!("track add_frame: {e}"));
                     }
                     tick_stage(&stage, 1, 0);
                 }
             }
             Ok(PipelineMsg::SourceEos { source_id }) => {
-                log::info!("[track] SourceEos {source_id}: initiating operator drain");
+                log::info!("[{name}] SourceEos {source_id}: initiating operator drain");
                 if let Err(e) = operator.send_eos(&source_id) {
-                    log::warn!("[track] send_eos({source_id}) failed: {e}");
+                    log::warn!("[{name}] send_eos({source_id}) failed: {e}");
                 }
             }
             Ok(PipelineMsg::Shutdown { grace, reason }) => {
-                handle_shutdown("track", grace, &reason, &mut deadline, &mut break_now);
+                apply_shutdown_signal(&name, grace, &reason, &mut deadline, &mut break_now);
             }
             Err(RecvTimeoutError::Timeout) => {
                 if let Err(e) = operator.flush_idle() {
-                    log::warn!("[track] flush_idle failed: {e}");
+                    log::warn!("[{name}] flush_idle failed: {e}");
                 }
             }
             Err(RecvTimeoutError::Disconnected) => {
-                log::info!("[track] upstream channel disconnected; exiting receive loop");
+                log::info!("[{name}] upstream channel disconnected; exiting receive loop");
                 break;
             }
         }
@@ -412,7 +409,7 @@ fn tracker_thread(
         }
         if let Some(d) = deadline {
             if Instant::now() >= d {
-                log::info!("[track] grace deadline expired; exiting receive loop");
+                log::info!("[{name}] grace deadline expired; exiting receive loop");
                 break;
             }
         }
@@ -420,19 +417,19 @@ fn tracker_thread(
 
     match operator.graceful_shutdown(TRACKER_DRAIN_TIMEOUT) {
         Ok(drained) => {
-            log::info!("[track] drained {} remaining outputs", drained.len());
+            log::info!("[{name}] drained {} remaining outputs", drained.len());
             for out in drained {
-                process_tracker_output(out, &drain_tx, Some(&stats));
+                process_tracker_output(out, &drain_tx, Some(&stats), &name);
             }
         }
         Err(e) => {
-            log::error!("[track] graceful_shutdown failed: {e}");
+            log::error!("[{name}] graceful_shutdown failed: {e}");
         }
     }
     drop(drain_tx);
     drop(operator);
     log::info!(
-        "[track] finished: frames={} unique_tracks={}",
+        "[{name}] finished: frames={} unique_tracks={}",
         stage_frames(&stage),
         stats.unique_tracks()
     );
@@ -463,8 +460,10 @@ mod tests {
     /// `Tracking` output for the same source_id).
     #[test]
     fn callback_forwards_source_eos() {
+        use crate::cars_tracking::supervisor::StageKind;
         let (tx, rx) = crossbeam::channel::bounded::<PipelineMsg>(1);
-        let mut cb = build_result_callback(tx, None);
+        let stage = StageName::unnamed(StageKind::Tracker);
+        let mut cb = build_result_callback(tx, None, stage);
         cb(TrackerOperatorOutput::Eos {
             source_id: "cam-1".to_string(),
         });

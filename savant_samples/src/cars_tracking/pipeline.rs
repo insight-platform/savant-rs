@@ -24,7 +24,7 @@ use savant_core::pipeline::stats::Stats;
 use std::borrow::Cow;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub mod blackhole;
 pub mod decoder;
@@ -42,15 +42,15 @@ use self::infer::output::{
 use self::infer::{
     build_batch_formation as build_infer_batch_formation, spawn_infer_thread, InferThreadArgs,
 };
-use self::mp4_demux::{spawn_mp4_demux_thread, DecoderMsg};
+use self::mp4_demux::spawn_mp4_demux_thread;
 use self::mp4_mux::spawn_mp4_mux_thread;
-use self::picasso::{build_picasso_engine, encoded_channel, spawn_picasso_thread};
+use self::picasso::{build_picasso_engine, spawn_picasso_thread};
 use self::tracker::{
     build_batch_formation as build_tracker_batch_formation,
     build_result_callback as build_tracker_callback, build_tracker_config, spawn_tracker_thread,
     TrackerStats,
 };
-use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::message::{EncodedMsg, PipelineMsg};
 use crate::cars_tracking::pipeline::infer::model::build_nvinfer_config;
 use crate::cars_tracking::stats::{make_stage, stage_frames, stage_objects, PipelineStats};
 use crate::cars_tracking::supervisor::{exit_channel, StageExit, StageKind, StageName};
@@ -70,6 +70,12 @@ const SOURCE_ID: &str = "cars-demo";
 const STATS_TIMESTAMP_PERIOD_MS: i64 = 1_000;
 /// Retained history length for [`Stats`].
 const STATS_HISTORY_LEN: usize = 100;
+
+/// Grace window the supervisor sleeps between observing the first
+/// back-channel `StageExit` and broadcasting a cooperative
+/// `Shutdown` sentinel on every inter-actor channel.  See the
+/// supervisor comment in [`run`] for the race this papers over.
+const SUPERVISOR_QUIESCENCE_GRACE: Duration = Duration::from_secs(12);
 
 /// Run the cars-tracking pipeline end-to-end.  Blocks until the input
 /// MP4 is fully processed and the output MP4 is finalized.
@@ -146,7 +152,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     core_stats.add_stage_stats(tail_stage.clone());
 
     // ── Channels ────────────────────────────────────────────────────────
-    let (tx_demux, rx_demux) = bounded::<DecoderMsg>(cli.channel_cap);
+    let (tx_demux, rx_demux) = bounded::<EncodedMsg>(cli.channel_cap);
     let (tx_decoded, rx_decoded) = bounded::<PipelineMsg>(cli.channel_cap);
     let (tx_infer, rx_infer) = bounded::<PipelineMsg>(cli.channel_cap);
     let (tx_tracker, rx_tracker) = bounded::<PipelineMsg>(cli.channel_cap);
@@ -155,7 +161,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     // the MP4 muxer.  With `--no-picasso` there is no producer and
     // no consumer, so we skip allocating the channel entirely.
     let encoded = if cli.picasso_enabled {
-        Some(encoded_channel(cli.channel_cap))
+        Some(bounded::<EncodedMsg>(cli.channel_cap))
     } else {
         None
     };
@@ -172,6 +178,21 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let warmup_t0 = Instant::now();
 
     let infer_cfg = build_nvinfer_config(cli.gpu)?;
+    // Actor identities established once up-front so each name is
+    // shared by (a) the spawn call that installs the
+    // `StageExitGuard`, (b) the thread body's log records, and
+    // (c) operator result callbacks — logs from every path carry
+    // the same identifier, which matters as soon as a pipeline
+    // hosts concurrent actors of the same kind (e.g.
+    // `infer[yolo11n]` vs `infer[person_attr]`).
+    let mp4_demux_name = StageName::unnamed(StageKind::Mp4Demux);
+    let decoder_name = StageName::unnamed(StageKind::Decoder);
+    let infer_name = StageName::unnamed(StageKind::Infer);
+    let tracker_name = StageName::unnamed(StageKind::Tracker);
+    let picasso_name = StageName::unnamed(StageKind::Picasso);
+    let mp4_mux_name = StageName::unnamed(StageKind::Mp4Mux);
+    let blackhole_name = StageName::unnamed(StageKind::Blackhole);
+
     let infer_batch_cb = build_infer_batch_formation();
     let converter = build_yolo_converter(cli.conf, cli.iou);
     let infer_stats = Arc::new(InferStats::new());
@@ -182,6 +203,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         converter.clone(),
         infer_result_tx_cb,
         Some(infer_stats.clone()),
+        infer_name.clone(),
     );
     let (infer_operator, _infer_build) =
         prepare_nvinfer_operator(cli.gpu, infer_cfg, infer_batch_cb, infer_result_cb)?;
@@ -192,24 +214,27 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let tracker_result_tx_cb = tx_tracker.clone();
     let tracker_drain_tx = tx_tracker.clone();
     drop(tx_tracker);
-    let tracker_result_cb =
-        build_tracker_callback(tracker_result_tx_cb, Some(tracker_stats.clone()));
+    let tracker_result_cb = build_tracker_callback(
+        tracker_result_tx_cb,
+        Some(tracker_stats.clone()),
+        tracker_name.clone(),
+    );
     let (tracker_operator, _tracker_build) =
         prepare_nvtracker_operator(tracker_cfg, tracker_batch_cb, tracker_result_cb)?;
 
-    let (picasso, rx_encoded) = if let Some((tx_encoded, rx_encoded)) = encoded {
+    let (picasso, tx_encoded, rx_encoded) = if let Some((tx_encoded, rx_encoded)) = encoded {
         let engine = Arc::new(build_picasso_engine(
             tx_encoded.clone(),
             stats.clone(),
             tail_stage.clone(),
             core_stats.clone(),
+            picasso_name.clone(),
         ));
-        drop(tx_encoded);
         log::info!("[warmup/picasso] renderer engine ready");
-        (Some(engine), Some(rx_encoded))
+        (Some(engine), Some(tx_encoded), Some(rx_encoded))
     } else {
         log::info!("[warmup/picasso] skipped (--no-picasso): picasso + mux stages disabled");
-        (None, None)
+        (None, None, None)
     };
 
     log::info!(
@@ -227,14 +252,18 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     // the channel that the corresponding downstream actor *reads
     // from*:
     //
-    //   shutdown_tx_demux   -> decode reads this (DecoderMsg::Shutdown)
-    //   shutdown_tx_decoded -> infer  reads this (PipelineMsg::Shutdown)
-    //   shutdown_tx_infer   -> track  reads this (PipelineMsg::Shutdown)
-    //   shutdown_tx_tracker -> picasso reads this (PipelineMsg::Shutdown)
+    //   shutdown_tx_demux   -> decoder  reads this (EncodedMsg::Shutdown)
+    //   shutdown_tx_decoded -> infer    reads this (PipelineMsg::Shutdown)
+    //   shutdown_tx_infer   -> tracker  reads this (PipelineMsg::Shutdown)
+    //   shutdown_tx_tracker -> picasso/blackhole reads this (PipelineMsg::Shutdown)
+    //   shutdown_tx_encoded -> mp4_mux  reads this (EncodedMsg::Shutdown) — only
+    //                          when picasso is enabled.
     let shutdown_tx_demux = tx_demux.clone();
     let shutdown_tx_decoded = tx_decoded.clone();
     let shutdown_tx_infer = infer_drain_tx.clone();
     let shutdown_tx_tracker = tracker_drain_tx.clone();
+    let shutdown_tx_encoded = tx_encoded.as_ref().cloned();
+    drop(tx_encoded);
 
     // ── Supervisor back-channel ────────────────────────────────────────
     //
@@ -268,18 +297,19 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     }
 
     // This pipeline runs a single actor of each [`StageKind`], so
-    // every stage gets an unnamed [`StageName`].  A pipeline
-    // hosting several nvinfer models (e.g. `yolo11n` +
-    // `person_attr`) would pass
+    // every stage gets an unnamed [`StageName`] (see the block
+    // above where the names are bound).  A pipeline hosting
+    // several nvinfer models (e.g. `yolo11n` + `person_attr`)
+    // would bind those locals with
     // `StageName::new(StageKind::Infer, "yolo11n")` etc. to
-    // disambiguate back-channel signals in logs.
+    // disambiguate back-channel signals and log records.
     let mp4_demux_handle = spawn_mp4_demux_thread(
         SOURCE_ID.to_string(),
         cli.input.to_string_lossy().into_owned(),
         tx_demux,
         stats.clone(),
         exit_tx.clone(),
-        StageName::unnamed(StageKind::Mp4Demux),
+        mp4_demux_name,
     )?;
 
     let decoder_handle = spawn_decoder_thread(
@@ -288,7 +318,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         tx_decoded,
         decoder_stage.clone(),
         exit_tx.clone(),
-        StageName::unnamed(StageKind::Decoder),
+        decoder_name,
     )?;
 
     // Clones kept for the end-of-run summary (the originals are
@@ -306,7 +336,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
             stage: infer_stage.clone(),
         },
         exit_tx.clone(),
-        StageName::unnamed(StageKind::Infer),
+        infer_name,
     )?;
 
     let tracker_handle = spawn_tracker_thread(
@@ -316,7 +346,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         tracker_stats,
         track_stage.clone(),
         exit_tx.clone(),
-        StageName::unnamed(StageKind::Tracker),
+        tracker_name,
     )?;
 
     // Picasso (optional) + terminus (mux or drain).
@@ -336,7 +366,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
                 rx_tracker,
                 cli.draw_enabled,
                 exit_tx.clone(),
-                StageName::unnamed(StageKind::Picasso),
+                picasso_name,
             )?;
             let out = cli
                 .output
@@ -353,7 +383,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
                 rx_encoded,
                 stats.clone(),
                 exit_tx.clone(),
-                StageName::unnamed(StageKind::Mp4Mux),
+                mp4_mux_name,
             )?;
             (Some(picasso_stage), mux)
         }
@@ -363,7 +393,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
                 tail_stage.clone(),
                 core_stats.clone(),
                 exit_tx.clone(),
-                StageName::unnamed(StageKind::Blackhole),
+                blackhole_name,
             )?;
             (None, drain)
         }
@@ -375,62 +405,59 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     // `exit_rx` live until all stages have dropped their guards.
     drop(exit_tx);
 
-    // ── Supervisor: first *shutdown-worthy* exit → broadcast → join all ─
+    // ── Supervisor: first exit → quiescence grace → broadcast Shutdown ─
     //
-    // Not every `StageExit` means the pipeline must wind down.  The
-    // conditional policy lives here and matches on [`StageKind`] —
-    // the instance tag carried inside [`StageName`] is for log
-    // visibility only:
+    // Every [`StageExit`] is treated as shutdown-worthy in this
+    // sample — the demuxer draining a finite input file is the
+    // normal trigger.  The [`StageKind`] + instance tag carried on
+    // [`StageName`] is still threaded through every log record so
+    // operators can see *which* stage won the race, which matters
+    // as soon as the pipeline hosts multiple actors of the same
+    // kind.
     //
-    //   * [`StageKind::Mp4Demux`] — **happy-path** for finite inputs.
-    //     The demuxer finishing simply means "no more packets"; the
-    //     rest of the pipeline drains naturally via in-band
-    //     [`SourceEos`].  Logged and skipped for *every* demuxer
-    //     instance, so multi-source pipelines aren't torn down by
-    //     a single source draining.
-    //   * Every other kind — [`Decode`], [`Infer`], [`Tracker`],
-    //     [`Picasso`], [`Drain`], [`Mux`], [`CtrlC`] — is
-    //     shutdown-worthy.  The terminus ([`Mux`] or [`Drain`])
-    //     exiting means the pipeline is end-to-end complete; any
-    //     other intermediate stage exiting before the terminus is
-    //     anomalous (error/panic) and also warrants an immediate
-    //     cooperative shutdown to unblock upstream actors.
+    // After observing the first exit the supervisor sleeps for
+    // [`SUPERVISOR_QUIESCENCE_GRACE`] before broadcasting.  The
+    // grace matters because the first exit is usually `mp4_demux`
+    // racing to end-of-file while many unconsumed packets are
+    // still buffered inside NVDEC + downstream channels.  The
+    // in-band `SourceEos` is always *behind* those packets on the
+    // same channel (FIFO, same producer), but the supervisor's
+    // `Shutdown` is a *parallel* producer on the same channels, so
+    // without a grace window it can overtake the in-band drain
+    // and force-exit stages while packets still linger.  Sleeping
+    // briefly lets the natural drain reach each stage first;
+    // anything still blocked afterwards (e.g. the blackhole, which
+    // intentionally never self-terminates) is unblocked by the
+    // broadcast.
     //
     // `recv()` can only return `Err` if every sender (including the
     // Ctrl+C handler's clone) has been dropped without pushing a
     // signal, which is impossible given every stage thread holds a
     // guard.  We still handle it defensively so the orchestrator
     // degrades to "broadcast anyway" rather than hanging.
-    //
-    // [`StageKind::Mp4Demux`]: crate::cars_tracking::supervisor::StageKind::Mp4Demux
-    // [`SourceEos`]: crate::cars_tracking::message::PipelineMsg::SourceEos
-    let first_exit = loop {
-        match exit_rx.recv() {
-            Ok(exit) if exit.stage.kind == StageKind::Mp4Demux => {
-                log::info!(
-                    "[supervisor] demux exit observed ({}); letting downstream drain naturally",
-                    exit.stage
-                );
-            }
-            Ok(exit) => {
-                log::info!(
-                    "[supervisor] shutdown-worthy exit from [{}]; broadcasting Shutdown",
-                    exit.stage
-                );
-                break Some(exit);
-            }
-            Err(e) => {
-                log::error!("[supervisor] back-channel closed before any exit signal: {e}");
-                break None;
-            }
+    let first_exit = match exit_rx.recv() {
+        Ok(exit) => {
+            log::info!(
+                "[supervisor] stage exit observed from [{}]; waiting {:?} for natural drain before broadcasting Shutdown",
+                exit.stage,
+                SUPERVISOR_QUIESCENCE_GRACE
+            );
+            Some(exit)
+        }
+        Err(e) => {
+            log::error!("[supervisor] back-channel closed before any exit signal: {e}");
+            None
         }
     };
+
+    std::thread::sleep(SUPERVISOR_QUIESCENCE_GRACE);
 
     broadcast_shutdown(
         &shutdown_tx_demux,
         &shutdown_tx_decoded,
         &shutdown_tx_infer,
         &shutdown_tx_tracker,
+        shutdown_tx_encoded.as_ref(),
         "supervisor",
     );
     // Drop our retained sender clones so the actors observe
@@ -439,6 +466,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     drop(shutdown_tx_decoded);
     drop(shutdown_tx_infer);
     drop(shutdown_tx_tracker);
+    drop(shutdown_tx_encoded);
 
     // Join every stage.  Order is downstream -> upstream so a panic
     // log surfaces at the leaf first, but correctness no longer
@@ -533,20 +561,22 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
 
 /// Fan an immediate cooperative `Shutdown` sentinel out to every
 /// inter-actor channel.  Sends are best-effort — receivers may have
-/// already exited (e.g. after natural EOS propagation) and are not a
-/// failure.  The orchestrator calls this after joining the terminus
-/// and the Ctrl+C handler calls it on SIGINT.
+/// already exited (e.g. the stage observed `Disconnected` after its
+/// upstream dropped) and a closed channel is not a failure.  The
+/// orchestrator calls this once it observes the first back-channel
+/// stage exit.
 fn broadcast_shutdown(
-    tx_demux: &crossbeam::channel::Sender<DecoderMsg>,
+    tx_demux: &crossbeam::channel::Sender<EncodedMsg>,
     tx_decoded: &crossbeam::channel::Sender<PipelineMsg>,
     tx_infer: &crossbeam::channel::Sender<PipelineMsg>,
     tx_tracker: &crossbeam::channel::Sender<PipelineMsg>,
+    tx_encoded: Option<&crossbeam::channel::Sender<EncodedMsg>>,
     reason: &'static str,
 ) {
     log::info!("[shutdown] broadcasting immediate Shutdown: reason={reason}");
     let r: Cow<'static, str> = Cow::Borrowed(reason);
     if tx_demux
-        .send(DecoderMsg::Shutdown {
+        .send(EncodedMsg::Shutdown {
             grace: None,
             reason: r.clone(),
         })
@@ -575,11 +605,22 @@ fn broadcast_shutdown(
     if tx_tracker
         .send(PipelineMsg::Shutdown {
             grace: None,
-            reason: r,
+            reason: r.clone(),
         })
         .is_err()
     {
         log::debug!("[shutdown] tx_tracker already closed");
+    }
+    if let Some(tx_encoded) = tx_encoded {
+        if tx_encoded
+            .send(EncodedMsg::Shutdown {
+                grace: None,
+                reason: r,
+            })
+            .is_err()
+        {
+            log::debug!("[shutdown] tx_encoded already closed");
+        }
     }
 }
 

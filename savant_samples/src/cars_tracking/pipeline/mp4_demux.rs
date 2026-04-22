@@ -4,14 +4,14 @@
 //! [`savant_gstreamer::mp4_demuxer::Mp4Demuxer::new_parsed`] that stamps
 //! the sample-level `source_id` onto the in-band messages it emits:
 //!
-//! 1. A single [`DecoderMsg::StreamInfo { source_id, info }`](DecoderMsg)
+//! 1. A single [`EncodedMsg::StreamInfo { source_id, info }`](EncodedMsg)
 //!    header, emitted *once* before the first packet.  The downstream
 //!    decode actor caches both fields — the `info` drives the
 //!    NVDEC/RGBA pool dimensions; the `source_id` is stamped onto
 //!    every [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
 //!    the decoder emits.
-//! 2. [`DecoderMsg::Packet`] per demuxed access unit.
-//! 3. Exactly one terminal [`DecoderMsg::SourceEos { source_id }`](DecoderMsg)
+//! 2. [`EncodedMsg::Packet`] per demuxed access unit.
+//! 3. Exactly one terminal [`EncodedMsg::SourceEos { source_id }`](EncodedMsg)
 //!    when the underlying demuxer drains.  This is the in-band
 //!    end-of-source sentinel; every downstream stage propagates its
 //!    own `SourceEos` after local flush.
@@ -20,7 +20,7 @@
 //! [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
 //! (e.g. bridges from an external message bus, or replay from stored
 //! frames) can bypass the `StreamInfo` + `Packet` pair and feed the
-//! decode actor directly via [`DecoderMsg::Frame`] — see the variant
+//! decode actor directly via [`EncodedMsg::Frame`] — see the variant
 //! docs for payload-resolution semantics.
 //!
 //! # Failure model
@@ -43,139 +43,39 @@
 //!
 //! The sample uses a single pure actor-model shutdown flow:
 //!
-//! * **In-band [`DecoderMsg::SourceEos`]** — normal end-of-source
+//! * **In-band [`EncodedMsg::SourceEos`]** — normal end-of-source
 //!   signal.  Propagated stage-by-stage stream-aligned via each
 //!   operator's completion callback.
-//! * **[`DecoderMsg::Shutdown`]** — cooperative exit sentinel,
+//! * **[`EncodedMsg::Shutdown`]** — cooperative exit sentinel,
 //!   broadcast by the orchestrator onto every inter-actor channel
-//!   after the terminus (muxer / drain) has been joined, or from
-//!   the Ctrl+C handler.  Demux itself does **not** consume
-//!   `Shutdown` — it has no input channel — but the variant exists
-//!   on `DecoderMsg` so the decode actor can observe it.
+//!   after the supervisor back-channel observes a shutdown-worthy
+//!   exit, or from the Ctrl+C handler.  Demux itself does **not**
+//!   consume `Shutdown` — it has no input channel — but the variant
+//!   exists on `EncodedMsg` so the decode actor can observe it.
 //!
 //! Fatal errors surface as `Err(_)` returned from the demux
 //! thread; the orchestrator propagates the failure once it joins
 //! the thread handle.
 
 use anyhow::{anyhow, bail, Context, Result};
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::Sender;
 use parking_lot::Mutex;
-use savant_core::primitives::frame::VideoFrameProxy;
-use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer, Mp4DemuxerOutput, VideoInfo};
-use std::borrow::Cow;
+use savant_gstreamer::mp4_demuxer::{Mp4Demuxer, Mp4DemuxerOutput};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
+use crate::cars_tracking::message::EncodedMsg;
 use crate::cars_tracking::stats::PipelineStats;
 use crate::cars_tracking::supervisor::{ExitSender, StageExitGuard, StageName};
 // StageKind is not referenced directly here — callers pass a fully
 // constructed StageName so a single pipeline can host multiple
 // demuxers with distinct instance tags.
 
-/// Demux -> decode boundary message type.
-///
-/// Source EOS is an **in-band** message (not channel closure) — every
-/// inter-stage channel in the sample follows the same rule: upstream
-/// communicates to downstream by sending both main deliverables *and*
-/// an explicit `SourceEos { source_id }` sentinel.  The same channel
-/// also carries the out-of-band [`DecoderMsg::Shutdown`] sentinel,
-/// which the orchestrator broadcasts once the terminus actor has
-/// joined (or when Ctrl+C fires).
-#[derive(Debug)]
-pub enum DecoderMsg {
-    /// Stream metadata discovered from the container caps paired with
-    /// the sample-level source id.  Fires once, before any
-    /// [`DecoderMsg::Packet`].
-    StreamInfo {
-        /// Source id this stream belongs to.  Every decoded frame the
-        /// decoder emits is stamped with this value.
-        source_id: String,
-        /// Stream-level metadata (width, height, framerate, codec).
-        info: VideoInfo,
-    },
-    /// A single demuxed access unit ready for the decoder, tagged
-    /// with the `source_id` it belongs to.  Tagging every packet
-    /// (rather than relying on a preceding [`DecoderMsg::StreamInfo`])
-    /// keeps the channel protocol self-describing: a multiplexed
-    /// decode actor can look up the matching [`VideoInfo`] for each
-    /// packet without assuming a single-source pipeline.
-    Packet {
-        /// Source id this packet belongs to.
-        source_id: String,
-        /// The demuxed access unit.
-        packet: DemuxedPacket,
-    },
-    /// A pre-built [`VideoFrameProxy`] delivered with its encoded
-    /// payload, ready for direct submission to the decoder.
-    ///
-    /// Unlike [`DecoderMsg::Packet`] — which is raw container output
-    /// that the decode actor wraps into a fresh frame via
-    /// `make_decode_frame` — this variant lets an upstream producer
-    /// hand off a fully-populated frame (source id, dimensions,
-    /// codec, fps, uuid, keyframe, timestamps) and side-step the
-    /// `StreamInfo` / `make_decode_frame` path entirely.
-    ///
-    /// Payload resolution follows the `FlexibleDecoder::submit`
-    /// contract:
-    ///
-    /// * `payload = Some(bytes)` — the decoder uses `bytes` directly.
-    /// * `payload = None` — the decoder extracts the bitstream from
-    ///   the frame's internal content
-    ///   ([`VideoFrameContent::Internal`](savant_core::primitives::frame::VideoFrameContent)).
-    ///   If the frame's content is `External` or `None`, the decoder
-    ///   emits a `Skipped { NoPayload }` callback rather than
-    ///   erroring.
-    ///
-    /// This is the entrypoint for producers that already own the
-    /// frame (e.g. reading previously-captured `savant_core` frames
-    /// back from storage, or bridging from another message-bus
-    /// format) without paying the cost of re-deriving frame
-    /// metadata from demuxer caps.
-    Frame {
-        /// Pre-built frame.  Its `source_id`, `codec`, `width`,
-        /// `height`, `fps`, `uuid`, and `keyframe` fields must
-        /// already be set — the decoder routes on
-        /// `frame.get_source_id()` and consults the other fields at
-        /// `submit` time.
-        frame: VideoFrameProxy,
-        /// Encoded bitstream for this frame, or `None` to have the
-        /// decoder extract it from `frame.get_content()`.
-        payload: Option<Vec<u8>>,
-    },
-    /// End-of-stream sentinel carrying the source id.  The decoder
-    /// runs its own `decoder.source_eos(source_id)` + drain on
-    /// receipt, then forwards an equivalent sentinel on its
-    /// downstream channel.
-    SourceEos {
-        /// Source id this EOS belongs to.
-        source_id: String,
-    },
-    /// Cooperative shutdown sentinel, broadcast by the orchestrator
-    /// after the terminus actor has joined (or from the Ctrl+C
-    /// handler).  Decode consumes this variant and exits its
-    /// receive loop either immediately (when `grace` is `None`) or
-    /// after the grace deadline elapses.
-    Shutdown {
-        /// `None` — break after the current message is handled.
-        /// `Some(d)` — keep processing, break when `recv_timeout`
-        /// next fires at or past `now + d`.
-        grace: Option<Duration>,
-        /// Human-readable reason (logged on receipt).
-        reason: Cow<'static, str>,
-    },
-}
-
-/// Alias for the demux -> decode channel sender.
-pub type DecoderSender = Sender<DecoderMsg>;
-/// Alias for the demux -> decode channel receiver.
-pub type DecoderReceiver = Receiver<DecoderMsg>;
-
 /// Spawn the demux actor.
 ///
 /// The actor reads `input` via [`Mp4Demuxer::new_parsed`] and emits
-/// [`DecoderMsg`]s on `tx` until the demuxer drains or errors.  Fatal
+/// [`EncodedMsg`]s on `tx` until the demuxer drains or errors.  Fatal
 /// errors surface as `Err(_)` from the thread handle.
 ///
 /// * `exit_tx` is the orchestrator's supervisor back-channel.
@@ -192,16 +92,17 @@ pub type DecoderReceiver = Receiver<DecoderMsg>;
 pub fn spawn_mp4_demux_thread(
     source_id: String,
     input: String,
-    tx: DecoderSender,
+    tx: Sender<EncodedMsg>,
     stats: Arc<PipelineStats>,
     exit_tx: ExitSender,
     name: StageName,
 ) -> Result<JoinHandle<Result<()>>> {
+    let guard_name = name.clone();
     thread::Builder::new()
         .name("cars-mp4-demux".into())
         .spawn(move || {
-            let _exit_guard = StageExitGuard::new(name, exit_tx);
-            mp4_demux_thread(source_id, input, tx, stats)
+            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
+            mp4_demux_thread(source_id, input, tx, stats, name)
         })
         .context("spawn mp4_demux thread")
 }
@@ -209,10 +110,11 @@ pub fn spawn_mp4_demux_thread(
 fn mp4_demux_thread(
     source_id: String,
     input: String,
-    tx: DecoderSender,
+    tx: Sender<EncodedMsg>,
     stats: Arc<PipelineStats>,
+    name: StageName,
 ) -> Result<()> {
-    log::info!("[mp4_demux] starting source_id={source_id} input={input}");
+    log::info!("[{name}] starting source_id={source_id} input={input}");
     // Local abort flag — purely internal to the demux actor.  The
     // callback runs inside `Mp4Demuxer`'s GStreamer thread pool; once
     // it has observed that downstream is closed (a `send` returned
@@ -239,6 +141,7 @@ fn mp4_demux_thread(
     let stats_cb = stats.clone();
     let first_error_cb = first_error.clone();
     let source_id_cb = source_id.clone();
+    let name_cb = name.clone();
     let demuxer = Mp4Demuxer::new_parsed(&input, move |output| {
         if aborted_cb.load(Ordering::Acquire) {
             return;
@@ -246,36 +149,36 @@ fn mp4_demux_thread(
         match output {
             Mp4DemuxerOutput::StreamInfo(info) => {
                 log::info!(
-                    "[mp4_demux] stream info: source_id={source_id_cb} {}x{} @ {}/{} codec={:?}",
+                    "[{name_cb}] stream info: source_id={source_id_cb} {}x{} @ {}/{} codec={:?}",
                     info.width,
                     info.height,
                     info.framerate_num,
                     info.framerate_den,
                     info.codec
                 );
-                let msg = DecoderMsg::StreamInfo {
+                let msg = EncodedMsg::StreamInfo {
                     source_id: source_id_cb.clone(),
                     info,
                 };
                 if tx_cb.send(msg).is_err() {
-                    log::warn!("[mp4_demux] receiver closed; dropping stream info");
+                    log::warn!("[{name_cb}] receiver closed; dropping stream info");
                     aborted_cb.store(true, Ordering::Release);
                 }
             }
             Mp4DemuxerOutput::Packet(pkt) => {
                 stats_cb.demux_packets.fetch_add(1, Ordering::Relaxed);
-                let msg = DecoderMsg::Packet {
+                let msg = EncodedMsg::Packet {
                     source_id: source_id_cb.clone(),
                     packet: pkt,
                 };
                 if tx_cb.send(msg).is_err() {
-                    log::warn!("[mp4_demux] receiver closed; dropping packet");
+                    log::warn!("[{name_cb}] receiver closed; dropping packet");
                     aborted_cb.store(true, Ordering::Release);
                 }
             }
             Mp4DemuxerOutput::Eos => {
-                log::info!("[mp4_demux] EOS (source_id={source_id_cb})");
-                let _ = tx_cb.send(DecoderMsg::SourceEos {
+                log::info!("[{name_cb}] EOS (source_id={source_id_cb})");
+                let _ = tx_cb.send(EncodedMsg::SourceEos {
                     source_id: source_id_cb.clone(),
                 });
             }
@@ -288,7 +191,7 @@ fn mp4_demux_thread(
                 // through normal channel closure once the thread
                 // body returns `Err(_)`.
                 let msg = e.to_string();
-                log::error!("[mp4_demux] pipeline error: {msg}");
+                log::error!("[{name_cb}] pipeline error: {msg}");
                 let mut slot = first_error_cb.lock();
                 if slot.is_none() {
                     *slot = Some(msg);
@@ -301,12 +204,12 @@ fn mp4_demux_thread(
 
     demuxer.wait();
     let codec = demuxer.detected_codec();
-    log::info!("[mp4_demux] finished, detected_codec={codec:?}");
+    log::info!("[{name}] finished, detected_codec={codec:?}");
     // Drop `tx` last — it plus the callback-held `tx_cb` inside
     // `demuxer` (dropped when `demuxer` goes out of scope below)
     // are the only demux-side producers on the demux→decode channel.
     // Both must go away for downstream to observe `Disconnected`
-    // (after consuming any in-flight `DecoderMsg::Shutdown` broadcast
+    // (after consuming any in-flight `EncodedMsg::Shutdown` broadcast
     // by the orchestrator).
     drop(tx);
     drop(demuxer);
@@ -345,19 +248,19 @@ mod tests {
         .expect("VideoFrameProxy::new")
     }
 
-    /// The `DecoderMsg::Frame` variant round-trips a pre-built frame +
+    /// The `EncodedMsg::Frame` variant round-trips a pre-built frame +
     /// explicit payload through a channel unchanged — covers the
     /// "upstream producer already owns the frame" path.
     #[test]
     fn frame_variant_round_trips_payload() {
         let frame = prebuilt_frame("cam-1", VideoFrameContent::None);
         let payload = vec![0xDEu8, 0xAD, 0xBE, 0xEF];
-        let msg = DecoderMsg::Frame {
+        let msg = EncodedMsg::Frame {
             frame: frame.clone(),
             payload: Some(payload.clone()),
         };
         match msg {
-            DecoderMsg::Frame {
+            EncodedMsg::Frame {
                 frame: f,
                 payload: p,
             } => {
@@ -377,12 +280,12 @@ mod tests {
     fn frame_variant_preserves_internal_content_when_payload_none() {
         let blob = vec![1u8, 2, 3, 4, 5];
         let frame = prebuilt_frame("cam-1", VideoFrameContent::Internal(blob.clone()));
-        let msg = DecoderMsg::Frame {
+        let msg = EncodedMsg::Frame {
             frame,
             payload: None,
         };
         match msg {
-            DecoderMsg::Frame {
+            EncodedMsg::Frame {
                 frame: f,
                 payload: None,
             } => match &*f.get_content() {

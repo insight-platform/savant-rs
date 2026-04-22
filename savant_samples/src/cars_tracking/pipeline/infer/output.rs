@@ -15,9 +15,6 @@
 //! * The per-frame YOLO `output0` tensor → [`RBBox`] →
 //!   `VideoObject` pipeline ([`attach_detections`] +
 //!   [`count_detection_objects`]).
-//! * The downstream channel type aliases
-//!   ([`InferResultSender`] / [`InferResultReceiver`]) that carry the
-//!   sealed nvinfer deliveries to the tracker stage.
 //! * [`InferStats`] — sample-level frame / detection counters
 //!   written from this module (the only place that touches tensor
 //!   outputs) and read by the orchestrator for the end-of-run
@@ -29,7 +26,7 @@
 //! alignment for the in-band [`PipelineMsg::SourceEos`] sentinel is
 //! documented on [`process_infer_output`].
 
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::Sender;
 use deepstream_nvinfer::{OperatorOutput, OperatorResultCallback};
 use savant_core::converters::{NmsKind, YoloDetectionConverter, YoloFormat};
 use savant_core::primitives::object::{
@@ -45,6 +42,7 @@ use std::sync::Arc;
 
 use super::model::{vehicle_label, DETECTION_NAMESPACE, VEHICLE_CLASS_IDS, YOLO_NUM_CLASSES};
 use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::supervisor::StageName;
 
 /// Confidence threshold used by the post-processing.
 pub const CONFIDENCE_THRESHOLD: f32 = 0.25;
@@ -52,16 +50,6 @@ pub const CONFIDENCE_THRESHOLD: f32 = 0.25;
 pub const NMS_IOU_THRESHOLD: f32 = 0.45;
 /// Maximum detections retained after NMS.
 pub const NMS_TOP_K: usize = 300;
-
-/// Sender half of the nvinfer-result channel — forwards [`PipelineMsg`]
-/// from the operator callback + infer-thread EOS handler to the tracker
-/// thread.  The infer stage emits the batched
-/// [`PipelineMsg::Deliveries`] variant (the boxed payload is a
-/// `deepstream_nvinfer::SealedDeliveries`); the singular `Delivery`
-/// variant is never emitted on this channel.
-pub type InferResultSender = Sender<PipelineMsg>;
-/// Receiver half of the nvinfer-result channel.
-pub type InferResultReceiver = Receiver<PipelineMsg>;
 
 /// Build a shared `YoloDetectionConverter` for YOLOv11 with a vehicle filter.
 pub fn build_yolo_converter(conf: f32, iou: f32) -> Arc<YoloDetectionConverter> {
@@ -102,8 +90,9 @@ pub fn build_yolo_converter(conf: f32, iou: f32) -> Arc<YoloDetectionConverter> 
 pub fn process_infer_output(
     output: OperatorOutput,
     converter: &YoloDetectionConverter,
-    forward: &InferResultSender,
+    forward: &Sender<PipelineMsg>,
     stats: Option<&InferStats>,
+    stage: &StageName,
 ) {
     match output {
         OperatorOutput::Inference(mut inf) => {
@@ -113,7 +102,7 @@ pub fn process_infer_output(
             let new_detections = detections_after.saturating_sub(detections_before);
             let frame_count = inf.frames().len() as u64;
             log::debug!(
-                "[infer] attached {new_detections} detection(s) across {frame_count} frame(s)"
+                "[{stage}] attached {new_detections} detection(s) across {frame_count} frame(s)"
             );
             if let Some(s) = stats {
                 s.record_batch(frame_count, new_detections as u64);
@@ -124,7 +113,7 @@ pub fn process_infer_output(
                     .send(PipelineMsg::Deliveries(Box::new(sealed)))
                     .is_err()
                 {
-                    log::warn!("nvinfer result receiver closed; dropping sealed batch");
+                    log::warn!("[{stage}] result receiver closed; dropping sealed batch");
                 }
             }
         }
@@ -134,18 +123,18 @@ pub fn process_infer_output(
             // for `source_id`, so the downstream receiver sees every
             // delivery *before* the sentinel.  This is the only
             // place in the stage where `SourceEos` leaves.
-            log::info!("[infer/cb] OperatorOutput::Eos for source_id={source_id}; propagating");
+            log::info!("[{stage}/cb] OperatorOutput::Eos for source_id={source_id}; propagating");
             if forward
                 .send(PipelineMsg::SourceEos {
                     source_id: source_id.clone(),
                 })
                 .is_err()
             {
-                log::warn!("[infer/cb] downstream closed; dropping SourceEos({source_id})");
+                log::warn!("[{stage}/cb] downstream closed; dropping SourceEos({source_id})");
             }
         }
         OperatorOutput::Error(err) => {
-            log::error!("nvinfer operator error: {err}");
+            log::error!("[{stage}] operator error: {err}");
         }
     }
 }
@@ -154,13 +143,25 @@ pub fn process_infer_output(
 ///
 /// Thin wrapper over [`process_infer_output`] so the drain path
 /// (`graceful_shutdown` → `Vec<OperatorOutput>`) can reuse the same logic.
+///
+/// `stage` is captured into the callback so every log record emitted
+/// by [`process_infer_output`] carries the actor's configured
+/// [`StageName`] (kind + instance tag) — concurrent infer actors in
+/// the same pipeline stay distinguishable in the logs.
 pub fn build_result_callback(
     converter: Arc<YoloDetectionConverter>,
-    forward: InferResultSender,
+    forward: Sender<PipelineMsg>,
     stats: Option<Arc<InferStats>>,
+    stage: StageName,
 ) -> OperatorResultCallback {
     Box::new(move |output: OperatorOutput| {
-        process_infer_output(output, converter.as_ref(), &forward, stats.as_deref())
+        process_infer_output(
+            output,
+            converter.as_ref(),
+            &forward,
+            stats.as_deref(),
+            &stage,
+        )
     })
 }
 
@@ -313,10 +314,12 @@ mod tests {
     /// stay log-only.
     #[test]
     fn callback_forwards_source_eos_but_not_errors() {
+        use crate::cars_tracking::supervisor::{StageKind, StageName};
         use deepstream_nvinfer::NvInferError;
         let (tx, rx) = crossbeam::channel::bounded::<PipelineMsg>(1);
         let converter = build_yolo_converter(CONFIDENCE_THRESHOLD, NMS_IOU_THRESHOLD);
-        let mut cb = build_result_callback(converter, tx, None);
+        let stage = StageName::unnamed(StageKind::Infer);
+        let mut cb = build_result_callback(converter, tx, None, stage);
 
         cb(OperatorOutput::Eos {
             source_id: "cam-1".to_string(),

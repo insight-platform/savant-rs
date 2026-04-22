@@ -8,6 +8,17 @@
 //! tracker output channel would fill up and stall the inference /
 //! decode stages.
 //!
+//! # Lifetime
+//!
+//! The blackhole is a pure sink — it *never* self-terminates on
+//! [`PipelineMsg::SourceEos`].  Source EOS is logged for visibility
+//! and otherwise ignored: the blackhole stays alive consuming any
+//! post-EOS trailing traffic (e.g. a multi-source pipeline where
+//! other sources are still streaming) until the supervisor broadcasts
+//! a [`PipelineMsg::Shutdown`] sentinel.
+//!
+//! # Stats responsibility
+//!
 //! The blackhole also drives the pipeline-tail metrics that would
 //! otherwise be driven by Picasso's
 //! [`OnEncodedFrame`](picasso::prelude::OnEncodedFrame) callback:
@@ -19,16 +30,14 @@
 //!   symmetrical with Picasso mode.
 
 use anyhow::{Context, Result};
-use crossbeam::channel::RecvTimeoutError;
+use crossbeam::channel::{Receiver, RecvTimeoutError};
 use hashbrown::HashSet;
 use savant_core::pipeline::stats::{StageStats, Stats};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use super::decoder::handle_shutdown;
-use super::tracker::TrackerResultReceiver;
-use crate::cars_tracking::message::PipelineMsg;
+use crate::cars_tracking::message::{apply_shutdown_signal, PipelineMsg};
 use crate::cars_tracking::stats::tick_stage;
 use crate::cars_tracking::supervisor::{ExitSender, StageExitGuard, StageName};
 
@@ -39,41 +48,42 @@ const BLACKHOLE_RECV_POLL: Duration = Duration::from_millis(100);
 /// Spawn the blackhole actor — used when Picasso is excluded via
 /// `--no-picasso`.
 pub fn spawn_blackhole_thread(
-    rx: TrackerResultReceiver,
+    rx: Receiver<PipelineMsg>,
     tail_stage: StageStats,
     core_stats: Arc<Stats>,
     exit_tx: ExitSender,
     name: StageName,
 ) -> Result<JoinHandle<Result<()>>> {
+    let guard_name = name.clone();
     thread::Builder::new()
         .name("cars-blackhole".into())
         .spawn(move || {
-            let _exit_guard = StageExitGuard::new(name, exit_tx);
-            blackhole_thread(rx, tail_stage, core_stats)
+            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
+            blackhole_thread(rx, tail_stage, core_stats, name)
         })
         .context("spawn blackhole thread")
 }
 
 fn blackhole_thread(
-    rx: TrackerResultReceiver,
+    rx: Receiver<PipelineMsg>,
     tail_stage: StageStats,
     core_stats: Arc<Stats>,
+    name: StageName,
 ) -> Result<()> {
-    log::info!("[blackhole] starting (picasso excluded) — acting as pipeline terminus");
+    log::info!("[{name}] starting (picasso excluded) — acting as pipeline terminus");
     let mut source_ids_seen: HashSet<String> = HashSet::new();
     let mut drained: u64 = 0;
     let mut deadline: Option<Instant> = None;
     let mut break_now = false;
     // Termination contract:
     //
-    // * The blackhole actor is the **terminus** of the
-    //   `--no-picasso` pipeline — the symmetric counterpart to the
-    //   muxer in Picasso mode.  The orchestrator joins this thread
-    //   first (via `PipelineMsg::SourceEos` the loop exits naturally
-    //   because the upstream channel eventually disconnects), then
-    //   broadcasts `PipelineMsg::Shutdown` to every upstream stage.
-    // * [`PipelineMsg::Shutdown`] — cooperative exit, honoured with
-    //   the usual grace semantics.
+    // * [`PipelineMsg::SourceEos`]   — logged only.  The blackhole is
+    //   a pure sink; a single source draining must **not** terminate
+    //   the actor because other sources may still be streaming (and
+    //   the supervisor drives shutdown independently via the
+    //   back-channel, not via in-band EOS).
+    // * [`PipelineMsg::Shutdown`]    — cooperative exit, honoured
+    //   with the usual grace semantics.
     // * `recv_timeout(Disconnected)` — upstream dropped its sender
     //   after consuming the `Shutdown` sentinel; normal completion.
     loop {
@@ -88,7 +98,7 @@ fn blackhole_thread(
                 for (frame, _) in pairs.iter() {
                     let sid = frame.get_source_id();
                     if source_ids_seen.insert(sid.clone()) {
-                        log::info!("[blackhole] first frame for source_id={sid}");
+                        log::info!("[{name}] first frame for source_id={sid}");
                     }
                 }
                 let count = pairs.len();
@@ -108,21 +118,20 @@ fn blackhole_thread(
                 drop(pairs);
             }
             Ok(PipelineMsg::SourceEos { source_id }) => {
-                // Terminus-side end-of-source signal.  In this
-                // single-source sample the first `SourceEos` is also
-                // the last — every frame has traversed the pipeline
-                // end-to-end by the time we observe it.  Break so
-                // the orchestrator can join us and then broadcast
-                // `Shutdown` to every upstream stage.
-                log::info!("[blackhole] terminus SourceEos {source_id}: exiting");
-                break;
+                // Log-only: the blackhole is a pure sink and is not
+                // authoritative about pipeline shutdown.  Other
+                // sources may still stream through this multiplexed
+                // actor, and in the single-source case the supervisor
+                // will broadcast `Shutdown` via the back-channel once
+                // the demuxer exits.
+                log::info!("[{name}] SourceEos {source_id}: continuing");
             }
             Ok(PipelineMsg::Shutdown { grace, reason }) => {
-                handle_shutdown("blackhole", grace, &reason, &mut deadline, &mut break_now);
+                apply_shutdown_signal(&name, grace, &reason, &mut deadline, &mut break_now);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                log::info!("[blackhole] upstream channel disconnected; exiting receive loop");
+                log::info!("[{name}] upstream channel disconnected; exiting receive loop");
                 break;
             }
         }
@@ -135,11 +144,11 @@ fn blackhole_thread(
         }
         if let Some(d) = deadline {
             if Instant::now() >= d {
-                log::info!("[blackhole] grace deadline expired; exiting receive loop");
+                log::info!("[{name}] grace deadline expired; exiting receive loop");
                 break;
             }
         }
     }
-    log::info!("[blackhole] finished drained_frames={drained}");
+    log::info!("[{name}] finished drained_frames={drained}");
     Ok(())
 }
