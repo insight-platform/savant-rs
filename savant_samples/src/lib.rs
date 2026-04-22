@@ -25,7 +25,8 @@
 //!    receives the upstream sentinel, calls `send_eos(sid)` +
 //!    `graceful_shutdown()` on its operator, then emits its own
 //!    `SourceEos` downstream.  The muxer flushes the `moov` atom on
-//!    receiving an [`EncodedMsg::Eos`](crate::cars_tracking::pipeline::picasso::EncodedMsg)
+//!    receiving an
+//!    [`EncodedMsg::SourceEos`](crate::framework::envelopes::EncodedMsg::SourceEos)
 //!    sentinel from the Picasso encoder thread.
 //! 4. **Per-frame ownership.**  Each frame traverses the pipeline as a single
 //!    `(VideoFrameProxy, SharedBuffer)` tuple packaged into a sealed
@@ -46,3 +47,4 @@
 pub mod assets;
 pub mod cars_tracking;
 pub mod cli;
+pub mod framework;

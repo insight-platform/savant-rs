@@ -1,10 +1,30 @@
-//! Unified ingress message type shared by the infer, tracker, and
-//! picasso stages.
+//! Framework-level **pipeline envelopes**: the concrete message
+//! enum types carried on every inter-actor / source-to-actor
+//! channel in the system, together with their per-variant payload
+//! wrappers and their [`Envelope`]/[`Dispatch`] integration.
+//!
+//! This module pairs with [`crate::framework::messages`], which
+//! hosts the orthogonal set of **envelope-agnostic per-instance
+//! action payloads** ([`ResetStreamPayload`](super::messages::ResetStreamPayload),
+//! [`RemoveSourcePayload`](super::messages::RemoveSourcePayload),
+//! [`UpdateSourceSpecPayload`](super::messages::UpdateSourceSpecPayload),
+//! plus the cross-envelope sentinels [`SourceEosPayload`] and
+//! [`ShutdownPayload`]).  The split is:
+//!
+//! * `messages.rs` — envelope-agnostic per-instance action payloads
+//!   and cross-envelope sentinels.  Consumers opt in by adding a
+//!   variant to their envelope and routing the payload via
+//!   [`Dispatch`].
+//! * `envelopes.rs` — the concrete envelope enums themselves
+//!   ([`PipelineMsg`], [`EncodedMsg`]) and the per-variant payload
+//!   wrappers ([`SingleDelivery`], [`BatchDelivery`],
+//!   [`StreamInfoPayload`], [`PacketPayload`], [`FramePayload`])
+//!   they destructure into.
 //!
 //! # Rationale
 //!
 //! The three middle stages all have structurally-identical ingress
-//! channels — they each receive some deliverable, a per-source
+//! channels — each one receives a deliverable, a per-source
 //! [`SourceEos`](PipelineMsg::SourceEos) sentinel, and a cooperative
 //! [`Shutdown`](PipelineMsg::Shutdown) sentinel broadcast by the
 //! orchestrator.  The only thing that varies is the shape of the
@@ -37,14 +57,17 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deepstream_buffers::SharedBuffer;
 use deepstream_inputs::prelude::SealedDelivery;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
-use super::supervisor::StageName;
+use super::{Dispatch, Envelope, Flow, Handler, ShutdownHint};
+
+#[doc(inline)]
+pub use super::{ShutdownPayload, SourceEosPayload};
 
 /// Type-erasure trait for batched sealed-delivery payloads.
 ///
@@ -218,22 +241,30 @@ pub enum EncodedMsg {
         /// Stream-level metadata (width, height, framerate, codec).
         info: VideoInfo,
     },
-    /// A single encoded access unit tagged with its `source_id`.
-    /// Produced by:
+    /// A single encoded access unit tagged with its `source_id`
+    /// **and the stream-level [`VideoInfo`]** describing the stream
+    /// it belongs to.  Produced by:
     ///
     /// * the demuxer — raw container packets for the decoder to
-    ///   consume;
+    ///   consume, paired with the `VideoInfo` observed on the most
+    ///   recent [`EncodedMsg::StreamInfo`] for the same source.
     /// * the picasso encoder callback — freshly encoded frames for
     ///   the muxer (or any other downstream consumer) to consume.
     ///
-    /// Tagging every packet (rather than relying on a preceding
-    /// [`EncodedMsg::StreamInfo`]) keeps the protocol
-    /// self-describing: a multiplexed consumer can look up the
-    /// matching [`VideoInfo`] for each packet without assuming a
-    /// single-source pipeline.
+    /// Carrying the [`VideoInfo`] in-band makes this envelope
+    /// self-describing: downstream consumers (e.g. the decoder)
+    /// never have to cache a per-`source_id` map of stream
+    /// parameters — every packet arrives with the metadata it needs
+    /// to be decoded.  A standalone [`EncodedMsg::StreamInfo`] is
+    /// still emitted once per source for observers that want to
+    /// react to the stream header itself.
     Packet {
         /// Source id this packet belongs to.
         source_id: String,
+        /// Stream-level metadata (width, height, framerate, codec)
+        /// for this packet's source, as observed on the preceding
+        /// [`EncodedMsg::StreamInfo`].
+        info: VideoInfo,
         /// The encoded access unit.
         packet: DemuxedPacket,
     },
@@ -286,9 +317,10 @@ pub enum EncodedMsg {
     },
     /// Cooperative shutdown sentinel, broadcast by the orchestrator
     /// after the supervisor back-channel observes a shutdown-worthy
-    /// exit (or when Ctrl+C fires).  Consumers exit via
-    /// [`apply_shutdown_signal`] — either immediately (when `grace`
-    /// is `None`) or after the grace deadline elapses.
+    /// exit (or when Ctrl+C fires).  The framework's
+    /// [`Context`](crate::framework::Context) translates the sentinel
+    /// into receive-loop break flags — either immediately (when
+    /// `grace` is `None`) or after the grace deadline elapses.
     Shutdown {
         /// `None` — break after the current message is handled.
         /// `Some(d)` — keep processing, break when `recv_timeout`
@@ -299,56 +331,200 @@ pub enum EncodedMsg {
     },
 }
 
-/// Apply a received [`PipelineMsg::Shutdown`] to the caller's
-/// receive-loop shutdown state — shared by every actor so shutdown
-/// semantics (deadline bookkeeping, log wording) stay uniform across
-/// stages.
-///
-/// This does **not** perform the shutdown itself.  It only translates
-/// the `Shutdown { grace, reason }` sentinel into mutations on the
-/// caller's `deadline` / `break_now` locals; the receive loop
-/// observes them on its next iteration and decides when to exit.
-///
-/// Invoked with the destructured `grace` and `reason` fields of
-/// [`PipelineMsg::Shutdown`] plus the caller's local receive-loop
-/// state:
-///
-/// * `grace = None` — sets `*break_now = true`; the caller exits
-///   after finishing the current message.
-/// * `grace = Some(d)` — sets `*deadline = min(*deadline,
-///   Instant::now() + d)`; the caller keeps running until the
-///   deadline is observed expired on a subsequent iteration.  The
-///   earliest deadline always wins — a later, longer grace never
-///   pushes an already-recorded deadline into the future.
-///
-/// `stage` is the actor's [`StageName`] set at construction time
-/// (kind + optional instance tag).  It's used verbatim as the log
-/// prefix so concurrent instances of the same kind (e.g.
-/// `infer[yolo11n]` vs `infer[person_attr]`) remain distinguishable
-/// in the pipeline's logs.
-pub fn apply_shutdown_signal(
-    stage: &StageName,
-    grace: Option<Duration>,
-    reason: &str,
-    deadline: &mut Option<Instant>,
-    break_now: &mut bool,
-) {
-    match grace {
-        None => {
-            log::info!(
-                "[{stage}] Shutdown (reason={reason}, grace=none); exiting after current message"
-            );
-            *break_now = true;
+// ---------------------------------------------------------------------------
+// Framework integration — Envelope, Dispatch, per-variant payload wrappers.
+// ---------------------------------------------------------------------------
+//
+// These types bridge the pipeline's envelope enums (`PipelineMsg`,
+// `EncodedMsg`) to the generic actor framework in [`crate::framework`].
+//
+// * [`Envelope`] tells the receive-loop driver whether an envelope is a
+//   cooperative-shutdown sentinel, and how to *build* one for the
+//   supervisor's broadcast step.  Both envelopes carry a first-class
+//   `Shutdown` variant so `build_shutdown` always returns `Some(_)`.
+// * [`Dispatch`] routes each variant to the actor's per-variant
+//   [`Handler<V>`] impls.  Actors opt in to a variant by writing an
+//   `impl Handler<VariantPayload> for MyActor { … }`; unimplemented
+//   variants fall back to the framework's default no-op `handle`
+//   returning [`Flow::Cont`].
+//
+// The per-variant payload structs (`SingleDelivery`, `BatchDelivery`,
+// `StreamInfoPayload`, `PacketPayload`, `FramePayload`,
+// `SourceEosPayload`, `ShutdownPayload`) are thin wrappers around the
+// enum variants' fields.  They keep `impl Handler<…>` callsites
+// self-explanatory and mean an actor's signature for each handler
+// reflects the variant's exact payload — no destructuring boilerplate.
+
+/// Per-variant payload: a single sealed `(frame, buffer)` pair
+/// (from [`PipelineMsg::Delivery`]).
+pub struct SingleDelivery(pub SealedDelivery);
+
+impl fmt::Debug for SingleDelivery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("SingleDelivery").field(&self.0).finish()
+    }
+}
+
+/// Per-variant payload: a batched set of `(frame, buffer)` pairs
+/// (from [`PipelineMsg::Deliveries`]).
+pub struct BatchDelivery(pub BoxedDeliveries);
+
+impl fmt::Debug for BatchDelivery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BatchDelivery")
+            .field("len", &self.0.len())
+            .field("released", &self.0.is_released())
+            .finish()
+    }
+}
+
+/// Per-variant payload: stream-level metadata tagged with its
+/// `source_id` (from [`EncodedMsg::StreamInfo`]).
+#[derive(Debug)]
+pub struct StreamInfoPayload {
+    /// Source id this stream belongs to.
+    pub source_id: String,
+    /// Stream-level metadata (width, height, framerate, codec).
+    pub info: VideoInfo,
+}
+
+/// Per-variant payload: a single encoded access unit tagged with its
+/// `source_id` and the stream-level [`VideoInfo`] describing its
+/// source (from [`EncodedMsg::Packet`]).
+#[derive(Debug)]
+pub struct PacketPayload {
+    /// Source id this packet belongs to.
+    pub source_id: String,
+    /// Stream-level metadata for this packet's source.  Lets
+    /// downstream consumers (decoder, muxer) construct
+    /// [`VideoFrameProxy`] values or route by codec without
+    /// maintaining a per-source cache of stream parameters.
+    pub info: VideoInfo,
+    /// The encoded access unit.
+    pub packet: DemuxedPacket,
+}
+
+/// Per-variant payload: a pre-built [`VideoFrameProxy`] with its
+/// encoded bitstream (from [`EncodedMsg::Frame`]).
+pub struct FramePayload {
+    /// Pre-built frame (source_id, codec, dims, fps, uuid, keyframe
+    /// set).
+    pub frame: VideoFrameProxy,
+    /// Encoded payload, or `None` to have the decoder extract it
+    /// from the frame.
+    pub payload: Option<Vec<u8>>,
+}
+
+impl fmt::Debug for FramePayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FramePayload")
+            .field("payload_len", &self.payload.as_ref().map(|p| p.len()))
+            .finish()
+    }
+}
+
+impl Envelope for PipelineMsg {
+    fn as_shutdown(&self) -> Option<ShutdownHint<'_>> {
+        match self {
+            PipelineMsg::Shutdown { grace, reason } => Some(ShutdownHint::Graceful {
+                grace: *grace,
+                reason,
+            }),
+            _ => None,
         }
-        Some(d) => {
-            let new_deadline = Instant::now() + d;
-            *deadline = Some(match *deadline {
-                Some(existing) if existing < new_deadline => existing,
-                _ => new_deadline,
-            });
-            log::info!(
-                "[{stage}] Shutdown (reason={reason}, grace={d:?}); deadline set, continuing"
-            );
+    }
+
+    fn build_shutdown(grace: Option<Duration>, reason: Cow<'static, str>) -> Option<Self> {
+        Some(PipelineMsg::Shutdown { grace, reason })
+    }
+}
+
+impl<A> Dispatch<A> for PipelineMsg
+where
+    A: super::Actor<Msg = PipelineMsg>
+        + Handler<SingleDelivery>
+        + Handler<BatchDelivery>
+        + Handler<SourceEosPayload>
+        + Handler<ShutdownPayload>,
+{
+    fn dispatch(self, actor: &mut A, ctx: &mut super::Context<A>) -> anyhow::Result<Flow> {
+        match self {
+            PipelineMsg::Delivery(d) => {
+                <A as Handler<SingleDelivery>>::handle(actor, SingleDelivery(d), ctx)
+            }
+            PipelineMsg::Deliveries(b) => {
+                <A as Handler<BatchDelivery>>::handle(actor, BatchDelivery(b), ctx)
+            }
+            PipelineMsg::SourceEos { source_id } => {
+                <A as Handler<SourceEosPayload>>::handle(actor, SourceEosPayload { source_id }, ctx)
+            }
+            PipelineMsg::Shutdown { grace, reason } => <A as Handler<ShutdownPayload>>::handle(
+                actor,
+                ShutdownPayload { grace, reason },
+                ctx,
+            ),
+        }
+    }
+}
+
+impl Envelope for EncodedMsg {
+    fn as_shutdown(&self) -> Option<ShutdownHint<'_>> {
+        match self {
+            EncodedMsg::Shutdown { grace, reason } => Some(ShutdownHint::Graceful {
+                grace: *grace,
+                reason,
+            }),
+            _ => None,
+        }
+    }
+
+    fn build_shutdown(grace: Option<Duration>, reason: Cow<'static, str>) -> Option<Self> {
+        Some(EncodedMsg::Shutdown { grace, reason })
+    }
+}
+
+impl<A> Dispatch<A> for EncodedMsg
+where
+    A: super::Actor<Msg = EncodedMsg>
+        + Handler<StreamInfoPayload>
+        + Handler<PacketPayload>
+        + Handler<FramePayload>
+        + Handler<SourceEosPayload>
+        + Handler<ShutdownPayload>,
+{
+    fn dispatch(self, actor: &mut A, ctx: &mut super::Context<A>) -> anyhow::Result<Flow> {
+        match self {
+            EncodedMsg::StreamInfo { source_id, info } => {
+                <A as Handler<StreamInfoPayload>>::handle(
+                    actor,
+                    StreamInfoPayload { source_id, info },
+                    ctx,
+                )
+            }
+            EncodedMsg::Packet {
+                source_id,
+                info,
+                packet,
+            } => <A as Handler<PacketPayload>>::handle(
+                actor,
+                PacketPayload {
+                    source_id,
+                    info,
+                    packet,
+                },
+                ctx,
+            ),
+            EncodedMsg::Frame { frame, payload } => {
+                <A as Handler<FramePayload>>::handle(actor, FramePayload { frame, payload }, ctx)
+            }
+            EncodedMsg::SourceEos { source_id } => {
+                <A as Handler<SourceEosPayload>>::handle(actor, SourceEosPayload { source_id }, ctx)
+            }
+            EncodedMsg::Shutdown { grace, reason } => <A as Handler<ShutdownPayload>>::handle(
+                actor,
+                ShutdownPayload { grace, reason },
+                ctx,
+            ),
         }
     }
 }
@@ -378,39 +554,68 @@ impl fmt::Debug for PipelineMsg {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cars_tracking::supervisor::StageKind;
-
-    /// `apply_shutdown_signal` records a deadline on graceful
-    /// shutdown and sets `break_now` on instant shutdown.  A later,
-    /// longer grace must not push an already-recorded deadline
-    /// further into the future — earliest wins.
+    /// [`PipelineMsg::Shutdown`] surfaces a graceful shutdown hint;
+    /// every other variant is non-shutdown.
     #[test]
-    fn apply_shutdown_signal_semantics() {
-        let stage = StageName::unnamed(StageKind::Infer);
-        let mut deadline: Option<Instant> = None;
-        let mut break_now = false;
+    fn pipeline_msg_envelope_shutdown_hint() {
+        let sd = PipelineMsg::Shutdown {
+            grace: Some(Duration::from_millis(10)),
+            reason: Cow::Borrowed("bye"),
+        };
+        let hint = sd.as_shutdown().expect("shutdown must hint");
+        match hint {
+            ShutdownHint::Graceful { grace, reason } => {
+                assert_eq!(grace, Some(Duration::from_millis(10)));
+                assert_eq!(reason, "bye");
+            }
+            other => panic!("unexpected hint: {other:?}"),
+        }
+        let eos = PipelineMsg::SourceEos {
+            source_id: "s".into(),
+        };
+        assert!(eos.as_shutdown().is_none());
+    }
 
-        apply_shutdown_signal(
-            &stage,
-            Some(Duration::from_secs(1)),
-            "graceful",
-            &mut deadline,
-            &mut break_now,
-        );
-        assert!(deadline.is_some());
-        assert!(!break_now);
+    /// [`EncodedMsg::Shutdown`] surfaces a graceful shutdown hint;
+    /// every other variant is non-shutdown.
+    #[test]
+    fn encoded_msg_envelope_shutdown_hint() {
+        let sd = EncodedMsg::Shutdown {
+            grace: None,
+            reason: Cow::Borrowed("stop"),
+        };
+        let hint = sd.as_shutdown().expect("shutdown must hint");
+        match hint {
+            ShutdownHint::Graceful { grace, reason } => {
+                assert_eq!(grace, None);
+                assert_eq!(reason, "stop");
+            }
+            other => panic!("unexpected hint: {other:?}"),
+        }
+        let eos = EncodedMsg::SourceEos {
+            source_id: "s".into(),
+        };
+        assert!(eos.as_shutdown().is_none());
+    }
 
-        apply_shutdown_signal(&stage, None, "instant", &mut deadline, &mut break_now);
-        assert!(break_now);
+    /// `Envelope::build_shutdown` round-trips into a shutdown
+    /// variant that `as_shutdown` classifies as graceful.
+    #[test]
+    fn envelope_build_shutdown_round_trips() {
+        let m = <PipelineMsg as Envelope>::build_shutdown(
+            Some(Duration::from_millis(7)),
+            Cow::Borrowed("r1"),
+        )
+        .expect("must construct");
+        let hint = m.as_shutdown().expect("must be shutdown");
+        assert!(matches!(
+            hint,
+            ShutdownHint::Graceful { grace: Some(_), .. }
+        ));
 
-        let earlier = deadline;
-        apply_shutdown_signal(
-            &stage,
-            Some(Duration::from_secs(5)),
-            "later-graceful",
-            &mut deadline,
-            &mut break_now,
-        );
-        assert_eq!(deadline, earlier, "earliest deadline must win");
+        let m = <EncodedMsg as Envelope>::build_shutdown(None, Cow::Borrowed("r2"))
+            .expect("must construct");
+        let hint = m.as_shutdown().expect("must be shutdown");
+        assert!(matches!(hint, ShutdownHint::Graceful { grace: None, .. }));
     }
 }

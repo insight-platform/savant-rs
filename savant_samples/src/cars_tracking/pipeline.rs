@@ -4,78 +4,78 @@
 //! Mp4Demuxer -> FlexibleDecoderPool -> NvInfer -> NvTracker -> Picasso -> Mp4Muxer
 //! ```
 //!
-//! This module is **orchestration only** — per-actor behavior lives
-//! inside each stage module (see [`crate::cars_tracking`] for the
-//! actor / carrier discussion).  [`run`] is responsible for:
+//! This module is **orchestration only** — per-actor behaviour lives
+//! inside the framework Layer-B templates
+//! ([`crate::framework::templates`]) plus a thin set of per-stage
+//! output processors retained under this module's submodules
+//! (nvinfer post-processing, nvtracker reconciliation, picasso
+//! source-spec builder).  [`run`] is responsible for:
 //!
 //! 1. Validating the resolved CLI.
 //! 2. Building the inference / tracker operators and — when enabled —
-//!    the Picasso engine (phase 1, ahead of `Stats::kick_off` to keep
-//!    engine-build time out of the FPS counter).
-//! 3. Allocating the bounded inter-actor channels.
-//! 4. Spawning each actor via its `spawn_X_thread` API.
-//! 5. Joining the actors in stage order and emitting the final
-//!    summary.
+//!    the Picasso engine inside the actor/source factories run by
+//!    [`System::build`](crate::framework::System).  Engine preparation
+//!    happens lazily on the actor's own thread, which keeps slow TRT
+//!    builds out of the main thread and allows the framework to
+//!    surface spawn/factory errors uniformly.
+//! 3. Registering every actor + source with the
+//!    [`System`](crate::framework::System); the system handles
+//!    channel allocation, address publication, thread spawning,
+//!    cooperative shutdown, and join in a single call.
+//! 4. Kicking off the time-based FPS reporter and blocking on
+//!    [`System::run`](crate::framework::System::run) until the
+//!    pipeline terminates naturally or the supervisor observes a
+//!    fatal exit.
+//! 5. Logging the final aggregated summary.
 
-use anyhow::{anyhow, bail, Context, Result};
-use crossbeam::channel::bounded;
-use deepstream_buffers::cuda_init;
-use savant_core::pipeline::stats::Stats;
-use std::borrow::Cow;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-pub mod blackhole;
-pub mod decoder;
+use ::picasso::prelude::OnEncodedFrame;
+use ::picasso::{Callbacks, GeneralSpec, OutputMessage, PicassoEngine};
+use anyhow::{anyhow, bail, Context, Result};
+use deepstream_buffers::cuda_init;
+use savant_core::pipeline::stats::{StageStats, Stats};
+use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy};
+
 pub mod infer;
-pub mod mp4_demux;
-pub mod mp4_mux;
 pub mod picasso;
 pub mod tracker;
 
-use self::blackhole::spawn_blackhole_thread;
-use self::decoder::spawn_decoder_thread;
-use self::infer::output::{
-    build_result_callback as build_infer_callback, build_yolo_converter, InferStats,
-};
-use self::infer::{
-    build_batch_formation as build_infer_batch_formation, spawn_infer_thread, InferThreadArgs,
-};
-use self::mp4_demux::spawn_mp4_demux_thread;
-use self::mp4_mux::spawn_mp4_mux_thread;
-use self::picasso::{build_picasso_engine, spawn_picasso_thread};
+use self::infer::build_batch_formation as build_infer_batch_formation;
+use self::infer::model::build_nvinfer_config;
+use self::infer::output::{build_yolo_converter, process_infer_output, InferStats};
+use self::picasso::build_source_spec;
+use self::picasso::draw_spec::attach_frame_id_overlay;
 use self::tracker::{
-    build_batch_formation as build_tracker_batch_formation,
-    build_result_callback as build_tracker_callback, build_tracker_config, spawn_tracker_thread,
-    TrackerStats,
+    build_batch_formation as build_tracker_batch_formation, build_tracker_config,
+    process_tracker_output, TrackerStats,
 };
-use crate::cars_tracking::message::{EncodedMsg, PipelineMsg};
-use crate::cars_tracking::pipeline::infer::model::build_nvinfer_config;
-use crate::cars_tracking::stats::{make_stage, stage_frames, stage_objects, PipelineStats};
-use crate::cars_tracking::supervisor::{exit_channel, StageExit, StageKind, StageName};
-use crate::cars_tracking::warmup::{prepare_nvinfer_operator, prepare_nvtracker_operator};
+use crate::cars_tracking::stats::{
+    make_stage, stage_frames, stage_objects, tick_stage, PipelineStats,
+};
+use crate::cars_tracking::warmup::prepare_nvinfer_operator;
 use crate::cli::ResolvedCli;
+use crate::framework::envelopes::{EncodedMsg, PipelineMsg};
+use crate::framework::router::Router;
+use crate::framework::shutdown::{ShutdownAction, ShutdownCause, ShutdownCtx};
+use crate::framework::supervisor::{StageKind, StageName};
+use crate::framework::templates::decoder::make_decode_frame;
+use crate::framework::templates::{
+    Decoder, Mp4DemuxerSource, Mp4Muxer, NvInfer, NvTracker, Picasso, Sink,
+};
+use crate::framework::{Flow, System};
 
 /// Default source identifier used throughout the pipeline.  Every
 /// stage uses the same id because the sample processes exactly one
-/// input file.  The constant is passed *only* to
-/// [`spawn_demux_thread`]; every downstream stage discovers the
-/// source id in-band via the `SourceEos { source_id }` sentinels or
-/// by reading [`savant_core::primitives::frame::VideoFrameProxy::get_source_id`]
-/// off the frames themselves.
+/// input file.
 const SOURCE_ID: &str = "cars-demo";
 /// Period (ms) at which [`Stats`] logs timestamp-based FPS while the
 /// pipeline runs.  One second matches the prior custom reporter.
 const STATS_TIMESTAMP_PERIOD_MS: i64 = 1_000;
 /// Retained history length for [`Stats`].
 const STATS_HISTORY_LEN: usize = 100;
-
-/// Grace window the supervisor sleeps between observing the first
-/// back-channel `StageExit` and broadcasting a cooperative
-/// `Shutdown` sentinel on every inter-actor channel.  See the
-/// supervisor comment in [`run`] for the race this papers over.
-const SUPERVISOR_QUIESCENCE_GRACE: Duration = Duration::from_secs(12);
 
 /// Run the cars-tracking pipeline end-to-end.  Blocks until the input
 /// MP4 is fully processed and the output MP4 is finalized.
@@ -116,17 +116,8 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         cli.debug
     );
 
+    // ── Shared state ────────────────────────────────────────────────────
     let stats = PipelineStats::new();
-
-    // ── Per-stage counters ──────────────────────────────────────────────
-    // We construct `Stats` up front so the stage counters can be
-    // registered, but we deliberately defer `Stats::kick_off` until
-    // *after* engine preparation.  Otherwise the timestamp-based FPS
-    // reporter would happily log "0 FPS" lines during the
-    // (potentially multi-minute) TensorRT engine build —
-    // indistinguishable to the user from a stall.  See
-    // [`crate::cars_tracking::warmup`] for the heartbeat scheme that
-    // surfaces progress during the preparation phase.
     let core_stats = Arc::new(Stats::new(
         STATS_HISTORY_LEN,
         None,
@@ -135,11 +126,6 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let decoder_stage = make_stage("decoder");
     let infer_stage = make_stage("infer");
     let track_stage = make_stage("track");
-    // The "tail" stage terminates the pipeline and is the one that
-    // drives `Stats::register_frame` (and therefore the time-based
-    // FPS log line).  Its logical identity differs with
-    // `--no-picasso`: with Picasso it counts encoded frames, without
-    // it counts frames that reach the drain thread.
     let tail_stage_name = if cli.picasso_enabled {
         "encode"
     } else {
@@ -151,41 +137,11 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     core_stats.add_stage_stats(track_stage.clone());
     core_stats.add_stage_stats(tail_stage.clone());
 
-    // ── Channels ────────────────────────────────────────────────────────
-    let (tx_demux, rx_demux) = bounded::<EncodedMsg>(cli.channel_cap);
-    let (tx_decoded, rx_decoded) = bounded::<PipelineMsg>(cli.channel_cap);
-    let (tx_infer, rx_infer) = bounded::<PipelineMsg>(cli.channel_cap);
-    let (tx_tracker, rx_tracker) = bounded::<PipelineMsg>(cli.channel_cap);
-    // The encoded channel only exists when Picasso is active: it
-    // carries Picasso's `OutputMessage::VideoFrame` payloads into
-    // the MP4 muxer.  With `--no-picasso` there is no producer and
-    // no consumer, so we skip allocating the channel entirely.
-    let encoded = if cli.picasso_enabled {
-        Some(bounded::<EncodedMsg>(cli.channel_cap))
-    } else {
-        None
-    };
+    let infer_stats = Arc::new(InferStats::new());
+    let tracker_stats = Arc::new(TrackerStats::new());
 
-    // ── Phase 1: engine preparation ─────────────────────────────────────
-    log::info!(
-        "[warmup] phase 1: preparing inference + tracker{} (no frames yet)",
-        if cli.picasso_enabled {
-            " + renderer"
-        } else {
-            " (picasso excluded)"
-        }
-    );
-    let warmup_t0 = Instant::now();
-
-    let infer_cfg = build_nvinfer_config(cli.gpu)?;
-    // Actor identities established once up-front so each name is
-    // shared by (a) the spawn call that installs the
-    // `StageExitGuard`, (b) the thread body's log records, and
-    // (c) operator result callbacks — logs from every path carry
-    // the same identifier, which matters as soon as a pipeline
-    // hosts concurrent actors of the same kind (e.g.
-    // `infer[yolo11n]` vs `infer[person_attr]`).
-    let mp4_demux_name = StageName::unnamed(StageKind::Mp4Demux);
+    // ── Stage identities ────────────────────────────────────────────────
+    let demux_name = StageName::unnamed(StageKind::Mp4Demux);
     let decoder_name = StageName::unnamed(StageKind::Decoder);
     let infer_name = StageName::unnamed(StageKind::Infer);
     let tracker_name = StageName::unnamed(StageKind::Tracker);
@@ -193,315 +149,298 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let mp4_mux_name = StageName::unnamed(StageKind::Mp4Mux);
     let blackhole_name = StageName::unnamed(StageKind::Blackhole);
 
-    let infer_batch_cb = build_infer_batch_formation();
-    let converter = build_yolo_converter(cli.conf, cli.iou);
-    let infer_stats = Arc::new(InferStats::new());
-    let infer_result_tx_cb = tx_infer.clone();
-    let infer_drain_tx = tx_infer.clone();
-    drop(tx_infer);
-    let infer_result_cb = build_infer_callback(
-        converter.clone(),
-        infer_result_tx_cb,
-        Some(infer_stats.clone()),
-        infer_name.clone(),
-    );
-    let (infer_operator, _infer_build) =
-        prepare_nvinfer_operator(cli.gpu, infer_cfg, infer_batch_cb, infer_result_cb)?;
-
-    let tracker_cfg = build_tracker_config(cli.gpu)?;
-    let tracker_batch_cb = build_tracker_batch_formation();
-    let tracker_stats = Arc::new(TrackerStats::new());
-    let tracker_result_tx_cb = tx_tracker.clone();
-    let tracker_drain_tx = tx_tracker.clone();
-    drop(tx_tracker);
-    let tracker_result_cb = build_tracker_callback(
-        tracker_result_tx_cb,
-        Some(tracker_stats.clone()),
-        tracker_name.clone(),
-    );
-    let (tracker_operator, _tracker_build) =
-        prepare_nvtracker_operator(tracker_cfg, tracker_batch_cb, tracker_result_cb)?;
-
-    let (picasso, tx_encoded, rx_encoded) = if let Some((tx_encoded, rx_encoded)) = encoded {
-        let engine = Arc::new(build_picasso_engine(
-            tx_encoded.clone(),
-            stats.clone(),
-            tail_stage.clone(),
-            core_stats.clone(),
-            picasso_name.clone(),
-        ));
-        log::info!("[warmup/picasso] renderer engine ready");
-        (Some(engine), Some(tx_encoded), Some(rx_encoded))
+    // Pick the logical tail stage downstream of the tracker.  The
+    // chosen name is used both as the tracker's downstream target
+    // and in the final summary label.
+    let tail_actor_name = if cli.picasso_enabled {
+        picasso_name.clone()
     } else {
-        log::info!("[warmup/picasso] skipped (--no-picasso): picasso + mux stages disabled");
-        (None, None, None)
+        blackhole_name.clone()
     };
 
-    log::info!(
-        "[warmup] phase 1 complete ({:.2}s) - starting pipeline threads + FPS reporter",
-        warmup_t0.elapsed().as_secs_f64()
-    );
+    // ── Build System ────────────────────────────────────────────────────
+    //
+    // Install a sample-specific shutdown policy: the Mp4Demuxer
+    // finishing its input is an expected end-of-stream, not a
+    // shutdown trigger — the in-band `SourceEos` sentinel already
+    // flows through to the terminus (Mp4Muxer or Blackhole).  We
+    // wait for the *terminus* to exit (after draining) and treat
+    // its `StageExit` as the real "pipeline is done" trigger.
+    // No quiescence pause is needed: the terminus only exits once
+    // everything upstream has already drained.
+    let mut sys = System::new().on_shutdown(cars_shutdown_handler);
 
-    // ── Phase 2: live pipeline ──────────────────────────────────────────
+    // ── Demuxer source ──────────────────────────────────────────────────
+    //
+    // The `Mp4DemuxerSource` template never calls `router.send` itself.
+    // Every downstream dispatch below happens inside user code — the
+    // variant hooks receive `&Router<EncodedMsg>` and the sample
+    // chooses the default peer via plain `router.send(...)`.  Source
+    // operators that need to route differently per `source_id` (e.g.
+    // fan out to distinct decoder pools) would call
+    // `router.send_to(&decoder_for(&source_id), msg)` here instead.
+    //
+    // Note: we build the `VideoFrameProxy` on the **demuxer side**
+    // via `make_decode_frame` + `EncodedMsg::Frame`.  Swap this for
+    // `Mp4DemuxerSource::default_on_packet()` if you want the
+    // downstream decoder to own frame construction — the decoder
+    // no longer tracks `VideoInfo` state, every
+    // `EncodedMsg::Packet` carries it in-band instead.
+    let demux_pkt_stats = stats.clone();
+    let demux_src = Mp4DemuxerSource::builder(demux_name.clone())
+        .input(cli.input.to_string_lossy().into_owned())
+        .source_id(SOURCE_ID)
+        .downstream(decoder_name.clone())
+        .on_packet(move |pkt, info, source_id, router| {
+            demux_pkt_stats
+                .demux_packets
+                .fetch_add(1, Ordering::Relaxed);
+            let frame = make_decode_frame(source_id, &pkt, info);
+            router.send(EncodedMsg::Frame {
+                frame,
+                payload: Some(pkt.data),
+            });
+            Ok(())
+        })
+        .build()?;
+    sys.register_source(demux_src)?;
+
+    // ── Decoder actor ───────────────────────────────────────────────────
+    //
+    // The `Decoder` template never sends: every variant hook
+    // below is the user-facing send site.  Because every hook receives
+    // `&Router<PipelineMsg>`, source-id-based routing (e.g.
+    // `router.send_to(&engine_for(&sealed), PipelineMsg::Delivery(sealed))`
+    // for fan-out to multiple inference engines) would plug in here.
+    //
+    // Only `on_frame` needs sample-specific code (forward + stage
+    // tick).  `on_source_eos`, `on_parameter_change`, `on_skipped`,
+    // `on_orphan_frame`, `on_decoder_event` and `on_decoder_error`
+    // fall through to the template's `Decoder::default_on_*`
+    // forwarders/loggers, installed automatically by the builder
+    // when their setters are omitted.
+    let decoder_stage_tick = decoder_stage.clone();
+    let decoder = Decoder::builder(decoder_name.clone(), cli.channel_cap)
+        .downstream(infer_name.clone())
+        .gpu_id(cli.gpu)
+        .on_frame(move |sealed, router| {
+            if router.send(PipelineMsg::Delivery(sealed)) {
+                tick_stage(&decoder_stage_tick, 1, 0);
+            }
+        })
+        .build()?;
+    sys.register_actor(decoder)?;
+
+    // ── NvInfer actor ───────────────────────────────────────────────────
+    //
+    // Routing style 1 — DEFAULT PEER.  `.downstream(tracker_name)`
+    // installs a default peer on the actor's `Router<PipelineMsg>`,
+    // so `router.send(msg)` inside the output callback always
+    // targets the tracker.  This is the terse, config-once idiom for
+    // stages whose downstream is known at build time.
+    let infer_cfg = build_nvinfer_config(cli.gpu)?;
+    let infer_batch_cb = build_infer_batch_formation();
+    let converter = build_yolo_converter(cli.conf, cli.iou);
+    let gpu = cli.gpu;
+    let infer = NvInfer::builder(infer_name.clone(), cli.channel_cap)
+        .downstream(tracker_name.clone())
+        .operator_factory(move |_bx, result_cb| {
+            let (op, _elapsed) =
+                prepare_nvinfer_operator(gpu, infer_cfg, infer_batch_cb, result_cb)?;
+            Ok(op)
+        })
+        // Only the Inference branch needs sample-specific code — YOLO
+        // decode + stats tick.  Source-EOS propagation and operator-
+        // error logging fall through to the template defaults
+        // (`NvInfer::default_on_source_eos` /
+        // `NvInfer::default_on_error`), installed automatically
+        // by the builder when their setters are omitted.
+        .on_inference({
+            let converter = converter.clone();
+            let infer_stats = infer_stats.clone();
+            let infer_stage = infer_stage.clone();
+            let infer_name = infer_name.clone();
+            move |inf, router: &Router<PipelineMsg>| {
+                let frame_count = inf.frames().len() as u64;
+                let det_before = infer_stats.detections();
+                let send_fn = |msg: PipelineMsg| router.send(msg);
+                process_infer_output(
+                    inf,
+                    converter.as_ref(),
+                    &send_fn,
+                    Some(infer_stats.as_ref()),
+                    &infer_name,
+                );
+                if frame_count > 0 {
+                    let det_after = infer_stats.detections();
+                    tick_stage(
+                        &infer_stage,
+                        frame_count as usize,
+                        det_after.saturating_sub(det_before) as usize,
+                    );
+                }
+            }
+        })
+        .build()?;
+    sys.register_actor(infer)?;
+
+    // ── NvTracker actor ─────────────────────────────────────────────────
+    //
+    // Routing style 2 — EXPLICIT PEER BY NAME.  The tracker's
+    // downstream is chosen at runtime from CLI flags
+    // (`tail_actor_name` above), so we deliberately DO NOT call
+    // `.downstream(...)` on the builder.  Instead, the output
+    // callback uses `router.send_to(&tail_actor_name, msg)` to
+    // resolve the target by name.  The first call pays one registry
+    // lookup; every subsequent call is a cached
+    // `OperatorSink::send`.  This idiom makes the routing decision
+    // visible right at the send site — handy when the destination is
+    // a proper dependency of the decision rather than a static
+    // config default.
+    let tracker_cfg = build_tracker_config(cli.gpu)?;
+    let tracker_batch_cb = build_tracker_batch_formation();
+    let tracker = NvTracker::builder(tracker_name.clone(), cli.channel_cap)
+        .operator_factory(move |_bx, result_cb| {
+            // NvDCF comes up in well under a second, so no heartbeat
+            // wrapper is warranted here — unlike the nvinfer path,
+            // which may spend minutes rebuilding the TensorRT plan.
+            deepstream_nvtracker::NvTrackerBatchingOperator::new(
+                tracker_cfg,
+                tracker_batch_cb,
+                result_cb,
+            )
+            .map_err(|e| anyhow::anyhow!("build NvTrackerBatchingOperator: {e}"))
+        })
+        // Tracking branch routes explicitly to the tail peer by name
+        // (see routing style 2 above).  Source-EOS and operator
+        // errors use the template defaults — but we need `SourceEos`
+        // to flow to the *same* tail peer we chose at runtime, so we
+        // install an explicit `on_source_eos` that routes by name.
+        .on_tracking({
+            let tracker_stats = tracker_stats.clone();
+            let tracker_name = tracker_name.clone();
+            let track_stage = track_stage.clone();
+            let tail_peer = tail_actor_name.clone();
+            move |tracking, router: &Router<PipelineMsg>| {
+                let frame_count = tracking.frames().len() as u64;
+                let send_fn = |msg: PipelineMsg| router.send_to(&tail_peer, msg).unwrap_or(false);
+                process_tracker_output(
+                    tracking,
+                    &send_fn,
+                    Some(tracker_stats.as_ref()),
+                    &tracker_name,
+                );
+                if frame_count > 0 {
+                    tick_stage(&track_stage, frame_count as usize, 0);
+                }
+            }
+        })
+        .on_source_eos({
+            let tail_peer = tail_actor_name.clone();
+            move |source_id, router: &Router<PipelineMsg>| {
+                log::info!("TrackerOperatorOutput::Eos for source_id={source_id}; propagating");
+                let msg = PipelineMsg::SourceEos {
+                    source_id: source_id.to_string(),
+                };
+                if !router.send_to(&tail_peer, msg).unwrap_or(false) {
+                    log::warn!("downstream closed; dropping SourceEos({source_id})");
+                }
+            }
+        })
+        .build()?;
+    sys.register_actor(tracker)?;
+
+    // ── Pipeline tail ───────────────────────────────────────────────────
+    //
+    // Back to routing style 1 — `.downstream(mp4_mux_name)` installs
+    // the muxer as the picasso router's default peer, so
+    // `router.send(msg)` inside `StatsEncodedSink::call` dispatches
+    // there.
+    if cli.picasso_enabled {
+        let draw_enabled = cli.draw_enabled;
+        let picasso = Picasso::builder(picasso_name.clone(), cli.channel_cap)
+            .downstream(mp4_mux_name.clone())
+            .engine_factory({
+                let stats = stats.clone();
+                let tail_stage = tail_stage.clone();
+                let core_stats = core_stats.clone();
+                let owner = picasso_name.clone();
+                move |_bx, router| {
+                    let on_encoded = StatsEncodedSink {
+                        router,
+                        stats,
+                        stage: tail_stage,
+                        core_stats,
+                        owner,
+                    };
+                    let callbacks = Callbacks::builder().on_encoded_frame(on_encoded).build();
+                    let general = GeneralSpec::builder()
+                        .name("cars-demo")
+                        .idle_timeout_secs(600)
+                        .inflight_queue_size(8)
+                        .build();
+                    Ok(Arc::new(PicassoEngine::new(general, callbacks)))
+                }
+            })
+            .source_spec_factory(move |_sid, w, h, fn_, fd| {
+                build_source_spec(w, h, fn_, fd, draw_enabled)
+            })
+            .on_frame_preprocess(move |frame: &VideoFrameProxy, counter, _ctx| {
+                if draw_enabled {
+                    if let Err(e) = attach_frame_id_overlay(frame, counter) {
+                        log::warn!("attach_frame_id_overlay failed: {e}");
+                    }
+                }
+                Ok(())
+            })
+            .build()?;
+        sys.register_actor(picasso)?;
+
+        let output_path = cli
+            .output
+            .as_ref()
+            .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?
+            .to_string_lossy()
+            .into_owned();
+        let muxer = Mp4Muxer::builder(mp4_mux_name.clone(), cli.channel_cap)
+            .output(output_path)
+            .framerate(cli.fps_num, cli.fps_den)
+            .build()?;
+        sys.register_actor(muxer)?;
+    } else {
+        let tail_stage_inner = tail_stage.clone();
+        let core_stats_inner = core_stats.clone();
+        let sink = Sink::builder(blackhole_name.clone(), cli.channel_cap)
+            .on_delivery(move |pairs, _ctx| {
+                for _ in 0..pairs.len() {
+                    tick_stage(&tail_stage_inner, 1, 0);
+                    core_stats_inner.register_frame(0);
+                }
+                drop(pairs);
+                Ok(())
+            })
+            // Terminus semantics: the blackhole is the last stage in the
+            // --no-picasso path, so the first `SourceEos` means upstream
+            // has drained — exit the loop so the supervisor's
+            // `cars_shutdown_handler` can broadcast Shutdown to everyone else.
+            .on_source_eos(|source_id, ctx| {
+                log::info!(
+                    "[{}] SourceEos {source_id}: terminus exiting",
+                    ctx.own_name()
+                );
+                Ok(Flow::Stop)
+            })
+            .build();
+        sys.register_actor(sink)?;
+    }
+
+    // ── Kick off FPS reporter + run ─────────────────────────────────────
     core_stats.kick_off();
     let pipeline_t0 = Instant::now();
 
-    // Sender clones retained by the orchestrator so
-    // [`broadcast_shutdown`] can inject a cooperative `Shutdown`
-    // sentinel onto every inter-actor channel.  Each clone targets
-    // the channel that the corresponding downstream actor *reads
-    // from*:
-    //
-    //   shutdown_tx_demux   -> decoder  reads this (EncodedMsg::Shutdown)
-    //   shutdown_tx_decoded -> infer    reads this (PipelineMsg::Shutdown)
-    //   shutdown_tx_infer   -> tracker  reads this (PipelineMsg::Shutdown)
-    //   shutdown_tx_tracker -> picasso/blackhole reads this (PipelineMsg::Shutdown)
-    //   shutdown_tx_encoded -> mp4_mux  reads this (EncodedMsg::Shutdown) — only
-    //                          when picasso is enabled.
-    let shutdown_tx_demux = tx_demux.clone();
-    let shutdown_tx_decoded = tx_decoded.clone();
-    let shutdown_tx_infer = infer_drain_tx.clone();
-    let shutdown_tx_tracker = tracker_drain_tx.clone();
-    let shutdown_tx_encoded = tx_encoded.as_ref().cloned();
-    drop(tx_encoded);
+    let report = sys.run()?;
 
-    // ── Supervisor back-channel ────────────────────────────────────────
-    //
-    // Every stage thread owns a `StageExitGuard` that pushes a
-    // `StageExit { stage }` onto this channel when it drops — on
-    // `Ok`, on `Err`, and during a panic unwind.  The orchestrator
-    // blocks on `exit_rx.recv()` for the *first* signal, then
-    // broadcasts `Shutdown { grace: None }` on every inter-actor
-    // channel and joins every thread.
-    //
-    // Ctrl+C is routed through the same back-channel (synthetic
-    // `StageKind::CtrlC`) so user-cancel flows through one uniform
-    // recv-point alongside natural exits and fatal stage errors.
-    // A second Ctrl+C falls through to the default SIGINT handler
-    // and aborts the process.
-    //
-    // Back-channel is unbounded — `StageExitGuard::drop` must never
-    // block, including during a panic unwind.  See the module-level
-    // `Why unbounded?` note in [`super::supervisor`].
-    let (exit_tx, exit_rx) = exit_channel();
-    {
-        let exit_tx_ctrl = exit_tx.clone();
-        if let Err(e) = ctrlc::try_set_handler(move || {
-            log::warn!("[ctrl-c] received; notifying supervisor");
-            let _ = exit_tx_ctrl.send(StageExit {
-                stage: StageName::unnamed(StageKind::CtrlC),
-            });
-        }) {
-            log::warn!("[ctrl-c] could not install handler: {e}");
-        }
-    }
-
-    // This pipeline runs a single actor of each [`StageKind`], so
-    // every stage gets an unnamed [`StageName`] (see the block
-    // above where the names are bound).  A pipeline hosting
-    // several nvinfer models (e.g. `yolo11n` + `person_attr`)
-    // would bind those locals with
-    // `StageName::new(StageKind::Infer, "yolo11n")` etc. to
-    // disambiguate back-channel signals and log records.
-    let mp4_demux_handle = spawn_mp4_demux_thread(
-        SOURCE_ID.to_string(),
-        cli.input.to_string_lossy().into_owned(),
-        tx_demux,
-        stats.clone(),
-        exit_tx.clone(),
-        mp4_demux_name,
-    )?;
-
-    let decoder_handle = spawn_decoder_thread(
-        cli.gpu,
-        rx_demux,
-        tx_decoded,
-        decoder_stage.clone(),
-        exit_tx.clone(),
-        decoder_name,
-    )?;
-
-    // Clones kept for the end-of-run summary (the originals are
-    // moved into the stage threads below).
-    let infer_stats_summary = infer_stats.clone();
-    let tracker_stats_summary = tracker_stats.clone();
-
-    let infer_handle = spawn_infer_thread(
-        InferThreadArgs {
-            operator: infer_operator,
-            rx: rx_decoded,
-            drain_tx: infer_drain_tx,
-            converter,
-            stats: infer_stats,
-            stage: infer_stage.clone(),
-        },
-        exit_tx.clone(),
-        infer_name,
-    )?;
-
-    let tracker_handle = spawn_tracker_thread(
-        tracker_operator,
-        rx_infer,
-        tracker_drain_tx,
-        tracker_stats,
-        track_stage.clone(),
-        exit_tx.clone(),
-        tracker_name,
-    )?;
-
-    // Picasso (optional) + terminus (mux or drain).
-    //
-    //   * Picasso enabled  — picasso feeds mux via the encoded
-    //     channel; mux is the pipeline terminus.
-    //   * --no-picasso     — drain is the terminus, no picasso.
-    //
-    // The orchestrator no longer treats the terminus specially at
-    // join time: the supervisor back-channel decides *when* to
-    // start winding down, then every handle is joined in
-    // downstream -> upstream order for a deterministic summary.
-    let (picasso_handle, terminus_handle) = match picasso {
-        Some(engine) => {
-            let picasso_stage = spawn_picasso_thread(
-                engine,
-                rx_tracker,
-                cli.draw_enabled,
-                exit_tx.clone(),
-                picasso_name,
-            )?;
-            let out = cli
-                .output
-                .as_ref()
-                .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?
-                .to_string_lossy()
-                .into_owned();
-            let rx_encoded = rx_encoded
-                .ok_or_else(|| anyhow!("picasso enabled but encoded channel is missing"))?;
-            let mux = spawn_mp4_mux_thread(
-                out,
-                cli.fps_num,
-                cli.fps_den,
-                rx_encoded,
-                stats.clone(),
-                exit_tx.clone(),
-                mp4_mux_name,
-            )?;
-            (Some(picasso_stage), mux)
-        }
-        None => {
-            let drain = spawn_blackhole_thread(
-                rx_tracker,
-                tail_stage.clone(),
-                core_stats.clone(),
-                exit_tx.clone(),
-                blackhole_name,
-            )?;
-            (None, drain)
-        }
-    };
-
-    // Drop our local `exit_tx`: the only remaining senders now are
-    // the per-stage guards (and the Ctrl+C handler's clone, which
-    // stays alive for the lifetime of the program).  This keeps
-    // `exit_rx` live until all stages have dropped their guards.
-    drop(exit_tx);
-
-    // ── Supervisor: first exit → quiescence grace → broadcast Shutdown ─
-    //
-    // Every [`StageExit`] is treated as shutdown-worthy in this
-    // sample — the demuxer draining a finite input file is the
-    // normal trigger.  The [`StageKind`] + instance tag carried on
-    // [`StageName`] is still threaded through every log record so
-    // operators can see *which* stage won the race, which matters
-    // as soon as the pipeline hosts multiple actors of the same
-    // kind.
-    //
-    // After observing the first exit the supervisor sleeps for
-    // [`SUPERVISOR_QUIESCENCE_GRACE`] before broadcasting.  The
-    // grace matters because the first exit is usually `mp4_demux`
-    // racing to end-of-file while many unconsumed packets are
-    // still buffered inside NVDEC + downstream channels.  The
-    // in-band `SourceEos` is always *behind* those packets on the
-    // same channel (FIFO, same producer), but the supervisor's
-    // `Shutdown` is a *parallel* producer on the same channels, so
-    // without a grace window it can overtake the in-band drain
-    // and force-exit stages while packets still linger.  Sleeping
-    // briefly lets the natural drain reach each stage first;
-    // anything still blocked afterwards (e.g. the blackhole, which
-    // intentionally never self-terminates) is unblocked by the
-    // broadcast.
-    //
-    // `recv()` can only return `Err` if every sender (including the
-    // Ctrl+C handler's clone) has been dropped without pushing a
-    // signal, which is impossible given every stage thread holds a
-    // guard.  We still handle it defensively so the orchestrator
-    // degrades to "broadcast anyway" rather than hanging.
-    let first_exit = match exit_rx.recv() {
-        Ok(exit) => {
-            log::info!(
-                "[supervisor] stage exit observed from [{}]; waiting {:?} for natural drain before broadcasting Shutdown",
-                exit.stage,
-                SUPERVISOR_QUIESCENCE_GRACE
-            );
-            Some(exit)
-        }
-        Err(e) => {
-            log::error!("[supervisor] back-channel closed before any exit signal: {e}");
-            None
-        }
-    };
-
-    std::thread::sleep(SUPERVISOR_QUIESCENCE_GRACE);
-
-    broadcast_shutdown(
-        &shutdown_tx_demux,
-        &shutdown_tx_decoded,
-        &shutdown_tx_infer,
-        &shutdown_tx_tracker,
-        shutdown_tx_encoded.as_ref(),
-        "supervisor",
-    );
-    // Drop our retained sender clones so the actors observe
-    // `Disconnected` after consuming the `Shutdown` sentinel.
-    drop(shutdown_tx_demux);
-    drop(shutdown_tx_decoded);
-    drop(shutdown_tx_infer);
-    drop(shutdown_tx_tracker);
-    drop(shutdown_tx_encoded);
-
-    // Join every stage.  Order is downstream -> upstream so a panic
-    // log surfaces at the leaf first, but correctness no longer
-    // depends on the order — Shutdown has been broadcast and every
-    // stage has either drained naturally or observed the sentinel.
-    let terminus_result = terminus_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("terminus panic")));
-    let picasso_result = match picasso_handle {
-        Some(h) => h.join().unwrap_or_else(|_| Err(anyhow!("picasso panic"))),
-        None => Ok(()),
-    };
-    let tracker_result = tracker_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("tracker panic")));
-    let infer_result = infer_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("infer panic")));
-    let decoder_result = decoder_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("decoder panic")));
-    let mp4_demux_result = mp4_demux_handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("mp4_demux panic")));
-
-    // Drain any residual exit signals for diagnostic visibility.
-    // Every joined thread fired its guard; we already consumed the
-    // first, the rest sit in the back-channel.
-    if let Some(first) = first_exit {
-        log::debug!("[supervisor] triggering stage: {}", first.stage);
-    }
-    while let Ok(extra) = exit_rx.try_recv() {
-        log::debug!("[supervisor] subsequent exit from [{}]", extra.stage);
-    }
-
+    // ── Summary ─────────────────────────────────────────────────────────
     core_stats.log_final_fps();
 
     let pipeline_elapsed = pipeline_t0.elapsed();
@@ -520,106 +459,128 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
         stage_frames(&infer_stage),
         stage_objects(&infer_stage),
         stage_frames(&track_stage),
-        tracker_stats_summary.unique_tracks(),
-        tracker_stats_summary.unmatched_updates(),
+        tracker_stats.unique_tracks(),
+        tracker_stats.unmatched_updates(),
         tail_stage_name,
         tail_frames,
         stats.encoded_bytes.load(Ordering::Relaxed),
     );
     log::debug!(
         "final InferStats: frames={} detections={}",
-        infer_stats_summary.frames(),
-        infer_stats_summary.detections()
+        infer_stats.frames(),
+        infer_stats.detections()
     );
     drop(core_stats);
 
-    let terminus_label = if cli.picasso_enabled {
-        "mp4_mux"
-    } else {
-        "blackhole"
-    };
-    for (name, r) in [
-        ("mp4_demux", &mp4_demux_result),
-        ("decoder", &decoder_result),
-        ("infer", &infer_result),
-        ("tracker", &tracker_result),
-        ("picasso", &picasso_result),
-        (terminus_label, &terminus_result),
-    ] {
-        if let Err(e) = r {
-            log::error!("[{name}] stage error: {e:#}");
-        }
-    }
-    mp4_demux_result?;
-    decoder_result?;
-    infer_result?;
-    tracker_result?;
-    picasso_result?;
-    terminus_result?;
-    Ok(())
+    report.into_result()
 }
 
-/// Fan an immediate cooperative `Shutdown` sentinel out to every
-/// inter-actor channel.  Sends are best-effort — receivers may have
-/// already exited (e.g. the stage observed `Disconnected` after its
-/// upstream dropped) and a closed channel is not a failure.  The
-/// orchestrator calls this once it observes the first back-channel
-/// stage exit.
-fn broadcast_shutdown(
-    tx_demux: &crossbeam::channel::Sender<EncodedMsg>,
-    tx_decoded: &crossbeam::channel::Sender<PipelineMsg>,
-    tx_infer: &crossbeam::channel::Sender<PipelineMsg>,
-    tx_tracker: &crossbeam::channel::Sender<PipelineMsg>,
-    tx_encoded: Option<&crossbeam::channel::Sender<EncodedMsg>>,
-    reason: &'static str,
-) {
-    log::info!("[shutdown] broadcasting immediate Shutdown: reason={reason}");
-    let r: Cow<'static, str> = Cow::Borrowed(reason);
-    if tx_demux
-        .send(EncodedMsg::Shutdown {
-            grace: None,
-            reason: r.clone(),
-        })
-        .is_err()
-    {
-        log::debug!("[shutdown] tx_demux already closed");
-    }
-    if tx_decoded
-        .send(PipelineMsg::Shutdown {
-            grace: None,
-            reason: r.clone(),
-        })
-        .is_err()
-    {
-        log::debug!("[shutdown] tx_decoded already closed");
-    }
-    if tx_infer
-        .send(PipelineMsg::Shutdown {
-            grace: None,
-            reason: r.clone(),
-        })
-        .is_err()
-    {
-        log::debug!("[shutdown] tx_infer already closed");
-    }
-    if tx_tracker
-        .send(PipelineMsg::Shutdown {
-            grace: None,
-            reason: r.clone(),
-        })
-        .is_err()
-    {
-        log::debug!("[shutdown] tx_tracker already closed");
-    }
-    if let Some(tx_encoded) = tx_encoded {
-        if tx_encoded
-            .send(EncodedMsg::Shutdown {
+/// Custom [`ShutdownHandler`](crate::framework::shutdown::ShutdownHandler)
+/// policy for the `cars_tracking` sample.
+///
+/// Pipeline shape: `Mp4Demuxer → Decoder → NvInfer → NvTracker →
+/// (Picasso → Mp4Muxer | Blackhole Sink)`.  The demuxer finishing
+/// its input file is an **expected** event — it emits an in-band
+/// `SourceEos` sentinel that propagates through every stage to the
+/// terminus (Mp4Muxer or blackhole Sink).  The terminus then
+/// self-terminates on that EOS (`Flow::Stop`), which is the real
+/// "pipeline drained" signal.
+///
+/// The policy therefore:
+///
+/// * Ignores `StageExit { stage.kind == Mp4Demux }` — the demuxer
+///   is expected to exit first; wait for the terminus.
+/// * On any other `StageExit` (terminus drained, mid-pipeline
+///   error, or a stage panic) broadcasts a `Shutdown { grace:
+///   None }` immediately — no quiescence pause is needed because
+///   the terminus only exits *after* upstream has drained.
+/// * On `CtrlC`, broadcasts immediately — the user asked to stop.
+fn cars_shutdown_handler(
+    cause: ShutdownCause,
+    _ctx: &mut ShutdownCtx<'_>,
+) -> Result<ShutdownAction> {
+    match cause {
+        ShutdownCause::StageExit { stage } if stage.kind == StageKind::Mp4Demux => {
+            log::info!(
+                "[supervisor] {stage} exited naturally (end-of-input); \
+                 waiting for terminus to drain before broadcasting Shutdown"
+            );
+            Ok(ShutdownAction::Ignore)
+        }
+        ShutdownCause::StageExit { stage } => {
+            log::info!("[supervisor] {stage} exited; broadcasting Shutdown");
+            Ok(ShutdownAction::Broadcast {
                 grace: None,
-                reason: r,
+                reason: std::borrow::Cow::Owned(format!("{stage} exited")),
             })
-            .is_err()
-        {
-            log::debug!("[shutdown] tx_encoded already closed");
+        }
+        ShutdownCause::CtrlC => {
+            log::warn!("[supervisor] Ctrl+C received; broadcasting Shutdown");
+            Ok(ShutdownAction::Broadcast {
+                grace: None,
+                reason: std::borrow::Cow::Borrowed("ctrl-c"),
+            })
+        }
+    }
+}
+
+/// `OnEncodedFrame` implementation used when Picasso is active.
+/// Wraps a [`Router<EncodedMsg>`] and drives the pipeline-tail
+/// metrics — per-frame tail counter, time-based FPS via
+/// [`Stats::register_frame`], and encoded-byte accounting.
+///
+/// Mirrors the legacy [`picasso::EncodedSink`] but uses the framework
+/// [`Router`](crate::framework::router::Router) for forwarding so the
+/// default-peer + cached-name-routing contract is enforced in one place.
+struct StatsEncodedSink {
+    router: Router<EncodedMsg>,
+    stats: Arc<PipelineStats>,
+    stage: StageStats,
+    core_stats: Arc<Stats>,
+    owner: StageName,
+}
+
+impl OnEncodedFrame for StatsEncodedSink {
+    fn call(&self, output: OutputMessage) {
+        match output {
+            OutputMessage::VideoFrame(frame) => {
+                let bytes = match frame.get_content().as_ref() {
+                    VideoFrameContent::Internal(d) => d.len(),
+                    other => {
+                        log::error!(
+                            "[{}/encode-cb] unexpected content variant: {:?}",
+                            self.owner,
+                            std::mem::discriminant(other)
+                        );
+                        return;
+                    }
+                };
+                tick_stage(&self.stage, 1, 0);
+                self.core_stats.register_frame(0);
+                self.stats
+                    .encoded_bytes
+                    .fetch_add(bytes as u64, Ordering::Relaxed);
+                log::debug!(
+                    "[{}/encode-cb] frame source_id={} pts={} bytes={bytes}",
+                    self.owner,
+                    frame.get_source_id(),
+                    frame.get_pts(),
+                );
+                let _ = self.router.send(EncodedMsg::Frame {
+                    frame,
+                    payload: None,
+                });
+            }
+            OutputMessage::EndOfStream(eos) => {
+                log::info!(
+                    "[{}/encode-cb] EndOfStream source_id={}",
+                    self.owner,
+                    eos.source_id
+                );
+                let _ = self.router.send(EncodedMsg::SourceEos {
+                    source_id: eos.source_id,
+                });
+            }
         }
     }
 }
@@ -628,6 +589,94 @@ fn broadcast_shutdown(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// Demuxer natural exit must not trigger a pipeline shutdown —
+    /// the terminus is still draining in-band.
+    #[test]
+    fn shutdown_handler_ignores_mp4_demux_stage_exit() {
+        let stages: [StageName; 0] = [];
+        let history: [ShutdownCause; 0] = [];
+        let mut ctx = ShutdownCtx::fake(&stages, &history);
+        let cause = ShutdownCause::StageExit {
+            stage: StageName::unnamed(StageKind::Mp4Demux),
+        };
+        let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
+        assert!(matches!(action, ShutdownAction::Ignore));
+    }
+
+    /// Mp4Muxer (picasso path terminus) draining triggers an
+    /// immediate broadcast with no grace.
+    #[test]
+    fn shutdown_handler_broadcasts_on_mp4_mux_exit() {
+        let stages: [StageName; 0] = [];
+        let history: [ShutdownCause; 0] = [];
+        let mut ctx = ShutdownCtx::fake(&stages, &history);
+        let cause = ShutdownCause::StageExit {
+            stage: StageName::unnamed(StageKind::Mp4Mux),
+        };
+        let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
+        match action {
+            ShutdownAction::Broadcast { grace, reason } => {
+                assert_eq!(grace, None, "no quiescence pause needed on terminus exit");
+                assert!(reason.contains("mp4_mux"), "unexpected reason: {reason}");
+            }
+            other => panic!("expected Broadcast, got {other:?}"),
+        }
+    }
+
+    /// Blackhole (--no-picasso terminus) draining triggers an
+    /// immediate broadcast with no grace.
+    #[test]
+    fn shutdown_handler_broadcasts_on_blackhole_exit() {
+        let stages: [StageName; 0] = [];
+        let history: [ShutdownCause; 0] = [];
+        let mut ctx = ShutdownCtx::fake(&stages, &history);
+        let cause = ShutdownCause::StageExit {
+            stage: StageName::unnamed(StageKind::Blackhole),
+        };
+        let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
+        match action {
+            ShutdownAction::Broadcast { grace, reason } => {
+                assert_eq!(grace, None);
+                assert!(reason.contains("blackhole"), "unexpected reason: {reason}");
+            }
+            other => panic!("expected Broadcast, got {other:?}"),
+        }
+    }
+
+    /// A mid-pipeline stage exiting (e.g. a panic or fatal error
+    /// in the tracker) also triggers a broadcast — the demuxer is
+    /// the *only* kind whose natural exit is ignored.
+    #[test]
+    fn shutdown_handler_broadcasts_on_midpipeline_stage_exit() {
+        let stages: [StageName; 0] = [];
+        let history: [ShutdownCause; 0] = [];
+        let mut ctx = ShutdownCtx::fake(&stages, &history);
+        let cause = ShutdownCause::StageExit {
+            stage: StageName::unnamed(StageKind::Tracker),
+        };
+        let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
+        assert!(matches!(
+            action,
+            ShutdownAction::Broadcast { grace: None, .. }
+        ));
+    }
+
+    /// Ctrl+C immediately broadcasts Shutdown — no quiescence sleep.
+    #[test]
+    fn shutdown_handler_broadcasts_on_ctrlc() {
+        let stages: [StageName; 0] = [];
+        let history: [ShutdownCause; 0] = [];
+        let mut ctx = ShutdownCtx::fake(&stages, &history);
+        let action = cars_shutdown_handler(ShutdownCause::CtrlC, &mut ctx).unwrap();
+        match action {
+            ShutdownAction::Broadcast { grace, reason } => {
+                assert_eq!(grace, None);
+                assert_eq!(reason, "ctrl-c");
+            }
+            other => panic!("expected Broadcast, got {other:?}"),
+        }
+    }
 
     /// Integration guard: the orchestrator must fail fast when the
     /// input file is missing, before touching GStreamer / CUDA.

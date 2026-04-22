@@ -1,47 +1,53 @@
-//! End-to-end *car-tracking* sample: MP4 -> YOLO11n -> NvDCF -> Picasso -> MP4.
+//! End-to-end *car-tracking* sample: MP4 → YOLO11n → NvDCF → Picasso → MP4.
 //!
-//! The sample is frame-by-frame (no batching: inference and tracking both use
-//! `max_batch_size = 1`, `max_batch_wait = 0`) so that latency stays low and
-//! memory remains bounded regardless of input length.  Every stage boundary
-//! is a bounded [`crossbeam::channel`].
+//! The sample is frame-by-frame (no batching: inference and tracking
+//! both use `max_batch_size = 1`, `max_batch_wait = 0`) so that
+//! latency stays low and memory remains bounded regardless of input
+//! length.  Every stage boundary is a bounded [`crossbeam::channel`].
 //!
-//! # Actor / carrier architecture
+//! # Architecture
 //!
-//! Each actor module encapsulates one **actor** — its behavior, operator
-//! lifecycle, and the message type it emits downstream.  The bounded
-//! `crossbeam::channel` between actors is the **carrier** — pure
-//! infrastructure.  A given actor is responsible for:
+//! The pipeline is an [`crate::framework`] actor system.  The
+//! orchestrator in [`pipeline`] registers one source (the MP4
+//! demuxer), one actor per stage (decoder, infer, tracker, either
+//! Picasso followed by an MP4 muxer or a blackhole terminus), and
+//! delegates thread spawning, channel allocation, address
+//! publication, cooperative shutdown, and join to
+//! [`crate::framework::System`].
 //!
-//! 1. Driving its operator (if any): `add_frame` + `send_eos` +
-//!    `graceful_shutdown`.
-//! 2. Translating upstream messages (deliveries and the in-band
-//!    `SourceEos { source_id }` sentinel) into operator calls.
-//! 3. Forwarding *its own* downstream message type on its output
-//!    channel — including the terminal `SourceEos` after local
-//!    drain.
+//! Sample-specific logic stays in sibling submodules as small,
+//! reusable helpers:
 //!
-//! [`pipeline`] is the orchestrator: it creates channels, spawns
-//! actors, and joins them.  Every actor lives as a submodule of
-//! [`pipeline`] (see `cars_tracking/pipeline/<actor>.rs`).
+//! * [`pipeline::infer::model`] — YOLO11n nvinfer config + class
+//!   tables.
+//! * [`pipeline::infer::output`] — YOLO tensor → detections
+//!   conversion, `process_infer_output` dispatcher, and
+//!   [`InferStats`](pipeline::infer::output::InferStats).
+//! * [`pipeline::tracker`] — NvDCF config + batch formation +
+//!   `process_tracker_output` reconciler + [`TrackerStats`](pipeline::tracker::TrackerStats).
+//! * [`pipeline::picasso`] + [`pipeline::picasso::draw_spec`] —
+//!   per-source `SourceSpec` builder + vehicle draw spec + frame-id
+//!   overlay.
 //!
 //! # Module layout
 //!
-//! - [`message`]     – unified ingress message (`PipelineMsg`) shared by
-//!   the infer/tracker/picasso stages
-//! - [`stats`]       – shared stage counters + sample-level counters
-//! - [`supervisor`]  – back-channel + Drop-based `StageExitGuard` used by
-//!   the orchestrator to learn about stage exits
-//! - [`warmup`]      – engine preparation phase (TensorRT build/load + heartbeat)
-//! - [`pipeline`]    – orchestration glue (`run`) + per-actor submodules:
-//!   [`pipeline::mp4_demux`], [`pipeline::decoder`],
-//!   [`pipeline::infer`] (with [`pipeline::infer::model`] — YOLO11n
-//!   nvinfer config + properties), [`pipeline::tracker`],
-//!   [`pipeline::picasso`] (with [`pipeline::picasso::draw_spec`]),
-//!   [`pipeline::blackhole`] (`--no-picasso` terminus), and
-//!   [`pipeline::mp4_mux`].
+//! - [`stats`]      — shared stage counters + sample-level
+//!   [`stats::PipelineStats`] (demux packets / encoded bytes).
+//! - [`warmup`]     — TensorRT/NvDCF engine preparation with
+//!   progress heartbeats.
+//! - [`pipeline`]   — orchestrator (`run`) + per-stage helper
+//!   submodules.
+//!
+//! The unified ingress envelopes ([`PipelineMsg`](crate::framework::envelopes::PipelineMsg)
+//! and [`EncodedMsg`](crate::framework::envelopes::EncodedMsg)) plus their
+//! [`Envelope`](crate::framework::Envelope) /
+//! [`Dispatch`](crate::framework::Dispatch) integration now live in
+//! [`crate::framework::envelopes`].
+//!
+//! Back-channel / guard / stage-name types live under
+//! [`crate::framework::supervisor`] — this sample imports them
+//! directly rather than re-exporting.
 
-pub mod message;
 pub mod pipeline;
 pub mod stats;
-pub mod supervisor;
 pub mod warmup;

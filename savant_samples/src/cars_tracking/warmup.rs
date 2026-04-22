@@ -8,8 +8,9 @@
 //! happily log "0 FPS" throughout that blocking window, which is
 //! confusing for the user and indistinguishable from a stall.
 //!
-//! This module separates the *engine preparation* phase from the
-//! *pipeline run* phase:
+//! This module wraps the blocking nvinfer constructor in a heartbeat
+//! helper so the user sees progress lines while TensorRT builds or
+//! loads its plan:
 //!
 //! - [`prepare_nvinfer_operator`] logs whether a cached plan exists
 //!   (so the user knows up-front whether a multi-minute rebuild is
@@ -17,24 +18,21 @@
 //!   `"… still working (Ns elapsed)"` every
 //!   [`HEARTBEAT_PERIOD`] seconds, builds the operator, and on success
 //!   promotes the freshly-built plan into the cache.
-//! - [`prepare_nvtracker_operator`] mirrors the pattern for NvDCF
-//!   (which typically initializes in well under a second but still
-//!   gets a heartbeat for consistency and to surface any unexpected
-//!   stall).
+//!
+//! The NvDCF tracker is constructed inline in the orchestrator
+//! without a heartbeat — it reliably initializes in well under a
+//! second and never triggers the "looks stalled" failure mode the
+//! heartbeat is there to suppress.
 //!
 //! The orchestrator ([`crate::cars_tracking::pipeline::run`]) calls
-//! both preparation helpers *before* [`savant_core::pipeline::stats::Stats::kick_off`],
-//! so the periodic FPS lines only start emitting once real frames are
-//! flowing.
+//! [`prepare_nvinfer_operator`] *before*
+//! [`savant_core::pipeline::stats::Stats::kick_off`], so the periodic
+//! FPS lines only start emitting once real frames are flowing.
 
 use anyhow::{anyhow, Result};
 use deepstream_nvinfer::prelude::NvInferBatchingOperator;
 use deepstream_nvinfer::{
     BatchFormationCallback, NvInferBatchingOperatorConfig, OperatorResultCallback,
-};
-use deepstream_nvtracker::{
-    NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig, TrackerBatchFormationCallback,
-    TrackerOperatorResultCallback,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -151,33 +149,6 @@ pub fn prepare_nvinfer_operator(
         log::warn!("[warmup/nvinfer] engine promotion failed (will rebuild next run): {e:#}");
     }
 
-    Ok((operator, elapsed))
-}
-
-/// Prepare the nvtracker operator for the cars-tracking sample.
-///
-/// NvDCF initialization is usually sub-second, but we wrap it in the
-/// same heartbeat pattern as [`prepare_nvinfer_operator`] to surface
-/// any unexpected stall (e.g. missing low-level library, slow
-/// filesystem) and to keep logging consistent across the preparation
-/// phase.  Returns the wall-clock build duration alongside the
-/// operator.
-pub fn prepare_nvtracker_operator(
-    cfg: NvTrackerBatchingOperatorConfig,
-    batch_cb: TrackerBatchFormationCallback,
-    result_cb: TrackerOperatorResultCallback,
-) -> Result<(NvTrackerBatchingOperator, Duration)> {
-    log::info!("[warmup/nvtracker] initializing NvDCF tracker");
-    let start = Instant::now();
-    let operator = with_heartbeat("[warmup/nvtracker]", HEARTBEAT_PERIOD, || {
-        NvTrackerBatchingOperator::new(cfg, batch_cb, result_cb)
-    })
-    .map_err(|e| anyhow!("build NvTrackerBatchingOperator: {e}"))?;
-    let elapsed = start.elapsed();
-    log::info!(
-        "[warmup/nvtracker] tracker ready ({:.2}s)",
-        elapsed.as_secs_f64()
-    );
     Ok((operator, elapsed))
 }
 

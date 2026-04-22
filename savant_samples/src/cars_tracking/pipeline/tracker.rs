@@ -1,8 +1,8 @@
-//! NvDCF tracker stage for the `cars_tracking` sample.
+//! NvDCF tracker helpers for the `cars_tracking` sample.
 //!
 //! The tracker runs one frame at a time (`max_batch_size = 1`,
 //! `max_batch_wait = 0`) to match the file-driven frame-by-frame
-//! throughput of the rest of the pipeline.  The result callback
+//! throughput of the rest of the pipeline.  [`process_tracker_output`]
 //! delegates each per-frame output to
 //! [`deepstream_nvtracker::TrackerOperatorFrameOutput::apply_to_frame`]
 //! — a pure transform that maps each [`TrackedObject`] via
@@ -12,40 +12,29 @@
 //! [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info).
 //! Any [`TrackUpdate`](savant_core::primitives::misc_track::TrackUpdate)
 //! whose `object_id` does not resolve is forwarded in the returned
-//! `unmatched` vec; the sample logs each via the
-//! [`std::fmt::Display`] impl and ticks the `unmatched_updates`
-//! counter.  The batch's [`SealedDeliveries`] are then forwarded on a
-//! bounded channel; a dedicated consumer thread in
-//! [`crate::cars_tracking::pipeline`] unseals each handle and submits
-//! the frame to Picasso.
+//! `unmatched` vec; the sample logs each via the [`std::fmt::Display`]
+//! impl and ticks the `unmatched_updates` counter.  The batch's
+//! [`SealedDeliveries`](deepstream_nvtracker::SealedDeliveries) are
+//! then forwarded on the downstream channel via the `forward` closure.
 //!
-//! Source-EOS propagation is **stream-aligned** — the sentinel leaves
-//! the stage only *after* the last delivery for that source has left
-//! the stage.  The operator's callback is the only vantage point
-//! where that invariant holds: the operator delivers
-//! [`TrackerOperatorOutput::Tracking`] in per-source order and emits
-//! [`TrackerOperatorOutput::Eos { source_id }`](TrackerOperatorOutput::Eos)
-//! strictly after the last delivery for that source.  So:
-//!
-//! * **Tracker thread** — on upstream [`PipelineMsg::SourceEos`] calls
-//!   [`NvTrackerBatchingOperator::send_eos`] to *initiate* the drain.
-//!   It does **not** touch the downstream channel.
-//! * **Operator callback** — on
-//!   [`TrackerOperatorOutput::Eos { source_id }`](TrackerOperatorOutput::Eos)
-//!   forwards a single
-//!   [`PipelineMsg::SourceEos { source_id }`](PipelineMsg::SourceEos) on
-//!   the downstream channel, keeping the sentinel in-band with the
-//!   delivery stream.
+//! Source-EOS + operator-error propagation is handled by the
+//! framework's per-variant defaults on
+//! [`NvTracker`](crate::framework::templates::NvTracker),
+//! so [`process_tracker_output`] here is scoped to the `Tracking`
+//! payload only.  Stream alignment still holds: the operator
+//! guarantees that
+//! [`TrackerOperatorOutput::Eos`](deepstream_nvtracker::TrackerOperatorOutput::Eos)
+//! fires strictly after the last `Tracking` output for the same
+//! source, and the template dispatches `Eos` to
+//! [`NvTracker::default_on_source_eos`](crate::framework::templates::NvTracker::default_on_source_eos)
+//! (or a user override) through the same shared router.
 
-use anyhow::{anyhow, Context, Result};
-use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
+use anyhow::{anyhow, Result};
 use deepstream_buffers::SavantIdMetaKind;
 use deepstream_nvtracker::{
-    default_ll_lib_path, NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig,
-    NvTrackerConfig, Roi, TrackedObject, TrackerBatchFormationCallback,
-    TrackerBatchFormationResult, TrackerOperatorOutput, TrackerOperatorResultCallback,
+    default_ll_lib_path, NvTrackerBatchingOperatorConfig, NvTrackerConfig, Roi, TrackedObject,
+    TrackerBatchFormationCallback, TrackerBatchFormationResult, TrackerOperatorTrackingOutput,
 };
-use savant_core::pipeline::stats::StageStats;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::RBBox;
@@ -56,24 +45,12 @@ use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::assets;
-use crate::cars_tracking::message::{apply_shutdown_signal, PipelineMsg};
 use crate::cars_tracking::pipeline::infer::model::DETECTION_NAMESPACE;
-use crate::cars_tracking::stats::{stage_frames, tick_stage};
-use crate::cars_tracking::supervisor::{ExitSender, StageExitGuard, StageName};
-// `name` is supplied per spawn so multi-lane tracker setups can tag
-// their back-channel signals individually (e.g. `tracker[lane_a]`).
-
-/// Maximum time [`NvTrackerBatchingOperator::graceful_shutdown`] waits
-/// for in-flight batches to complete on pipeline shutdown.
-const TRACKER_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
-/// Receive poll timeout.  Matches the rationale in
-/// [`crate::cars_tracking::infer`]: the tracker is multiplexed
-/// and never terminates on a per-source EOS.
-const TRACKER_RECV_POLL: Duration = Duration::from_millis(100);
+use crate::framework::envelopes::PipelineMsg;
+use crate::framework::supervisor::StageName;
 
 /// Tracker dimensions (NvDCF working canvas, independent of source resolution).
 pub const TRACKER_WIDTH: u32 = 960;
@@ -141,11 +118,18 @@ pub fn build_batch_formation() -> TrackerBatchFormationCallback {
 
 /// Aggregate counters tracked across the tracking stage.
 ///
-/// Cheap to clone (atomics + a small mutex-guarded set) and cheap to tick.
+/// Cheap to clone (one atomic + a small mutex-guarded set) and cheap
+/// to tick.  Only the counters the orchestrator's end-of-run summary
+/// actually reads are exposed:
+///
+/// * [`unique_tracks`](Self::unique_tracks) — cardinality of the set
+///   of distinct `track_id`s observed across the run.
+/// * [`unmatched_updates`](Self::unmatched_updates) — tracker-produced
+///   updates whose `object_id` did not resolve to an existing
+///   `VideoObject` on the frame (per the `misc_obj_info[0]`
+///   preservation contract this should be 0 in normal operation).
 #[derive(Default, Debug)]
 pub struct TrackerStats {
-    frames: std::sync::atomic::AtomicU64,
-    tracks_emitted: std::sync::atomic::AtomicU64,
     unmatched_updates: std::sync::atomic::AtomicU64,
     unique_track_ids: parking_lot::Mutex<hashbrown::HashSet<i64>>,
 }
@@ -156,142 +140,87 @@ impl TrackerStats {
         Self::default()
     }
 
-    /// Record a single tracked frame and each tracked object's id.
+    /// Record each tracked object's id on a single frame.
     pub fn record_frame<'a, I: IntoIterator<Item = &'a TrackedObject>>(&self, tracks: I) {
-        use std::sync::atomic::Ordering;
-        self.frames.fetch_add(1, Ordering::Relaxed);
         let mut guard = self.unique_track_ids.lock();
         for t in tracks {
             guard.insert(t.object_id as i64);
-            self.tracks_emitted.fetch_add(1, Ordering::Relaxed);
         }
     }
 
-    /// Record `n` unmatched [`TrackUpdate`](savant_core::primitives::misc_track::TrackUpdate)s
+    /// Record `n` unmatched
+    /// [`TrackUpdate`](savant_core::primitives::misc_track::TrackUpdate)s
     /// returned by
-    /// [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info)
-    /// (via the nvtracker bridge).  Per the `misc_obj_info[0]`
-    /// preservation contract this should be 0 in normal operation; a
-    /// non-zero value flags a tracker-config drift worth investigating.
+    /// [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info).
+    /// Per the `misc_obj_info[0]` preservation contract this should
+    /// be 0 in normal operation; a non-zero value flags a
+    /// tracker-config drift worth investigating.
     pub fn record_unmatched_updates(&self, n: usize) {
         self.unmatched_updates
             .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// Frames seen by the tracker stage.
-    pub fn frames(&self) -> u64 {
-        self.frames.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// Total number of (per-frame) tracked-object emissions.
-    pub fn tracks_emitted(&self) -> u64 {
-        self.tracks_emitted
-            .load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// Number of distinct track ids seen.
+    /// Number of distinct track ids seen across the run.
     pub fn unique_tracks(&self) -> usize {
         self.unique_track_ids.lock().len()
     }
 
     /// Total number of tracker-produced updates whose `object_id` did
-    /// not resolve to an existing `VideoObject` on the frame (see
-    /// [`Self::record_unmatched_updates`]).
+    /// not resolve to an existing `VideoObject` on the frame.
     pub fn unmatched_updates(&self) -> u64 {
         self.unmatched_updates
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
-/// Process a single [`TrackerOperatorOutput`]: reconcile tracker results
-/// with detections, forward the resulting [`SealedDeliveries`], and —
-/// critically — forward the in-band [`PipelineMsg::SourceEos`] sentinel
-/// when the operator emits [`TrackerOperatorOutput::Eos`].
+/// Process a single [`TrackerOperatorTrackingOutput`]: reconcile
+/// tracker updates with detections and forward the resulting
+/// [`SealedDeliveries`] via the supplied `forward` closure.
 ///
-/// Shared by the result callback and the orchestrator's drain step (which
-/// receives a `Vec<TrackerOperatorOutput>` from `graceful_shutdown`).
+/// Called by the `on_tracking` hook installed on
+/// [`NvTracker`](crate::framework::templates::NvTracker).
+/// Source-EOS and operator errors are handled by the framework's
+/// per-variant defaults — see
+/// [`NvTracker::default_on_source_eos`](crate::framework::templates::NvTracker::default_on_source_eos)
+/// and [`NvTracker::default_on_error`](crate::framework::templates::NvTracker::default_on_error) —
+/// so this sample-side processor only handles the tracking variant.
 ///
-/// `SourceEos` propagation happens **here**, not in the tracker
-/// thread's main loop, because the operator guarantees that
-/// `Eos { source_id }` fires strictly after the last
-/// `Tracking` output for the same source.  Forwarding the sentinel
-/// from the main loop would race ahead of in-flight deliveries and
-/// make `SourceEos` out-of-band on the tracker->picasso channel.
+/// [`SealedDeliveries`]: deepstream_nvtracker::SealedDeliveries
 pub fn process_tracker_output(
-    output: TrackerOperatorOutput,
-    forward: &Sender<PipelineMsg>,
+    mut tracking_output: TrackerOperatorTrackingOutput,
+    forward: &dyn Fn(PipelineMsg) -> bool,
     stats: Option<&TrackerStats>,
     stage: &StageName,
 ) {
-    match output {
-        TrackerOperatorOutput::Tracking(mut tracking_output) => {
-            for frame_output in tracking_output.frames() {
-                match frame_output.apply_to_frame() {
-                    Ok(unmatched) => {
-                        if !unmatched.is_empty() {
-                            if let Some(s) = stats {
-                                s.record_unmatched_updates(unmatched.len());
-                            }
-                            for tu in &unmatched {
-                                log::warn!("[{stage}] unmatched {tu}");
-                            }
-                        }
+    for frame_output in tracking_output.frames() {
+        match frame_output.apply_to_frame() {
+            Ok(unmatched) => {
+                if !unmatched.is_empty() {
+                    if let Some(s) = stats {
+                        s.record_unmatched_updates(unmatched.len());
                     }
-                    Err(err) => log::warn!("[{stage}] apply_to_frame failed: {err}"),
-                }
-                log::debug!(
-                    "[{stage}] frame source={} tracks={}",
-                    frame_output.frame.get_source_id(),
-                    frame_output.tracked_objects.len()
-                );
-                if let Some(s) = stats {
-                    s.record_frame(frame_output.tracked_objects.iter());
+                    for tu in &unmatched {
+                        log::warn!("[{stage}] unmatched {tu}");
+                    }
                 }
             }
-            if let Some(sealed) = tracking_output.take_deliveries() {
-                drop(tracking_output);
-                if forward
-                    .send(PipelineMsg::Deliveries(Box::new(sealed)))
-                    .is_err()
-                {
-                    log::warn!("[{stage}] result receiver closed; dropping sealed batch");
-                }
-            }
+            Err(err) => log::warn!("[{stage}] apply_to_frame failed: {err}"),
         }
-        TrackerOperatorOutput::Eos { source_id } => {
-            // Stream-aligned propagation (see function docs).
-            log::info!(
-                "[{stage}/cb] TrackerOperatorOutput::Eos for source_id={source_id}; propagating"
-            );
-            if forward
-                .send(PipelineMsg::SourceEos {
-                    source_id: source_id.clone(),
-                })
-                .is_err()
-            {
-                log::warn!("[{stage}/cb] downstream closed; dropping SourceEos({source_id})");
-            }
-        }
-        TrackerOperatorOutput::Error(err) => {
-            log::error!("[{stage}] operator error: {err}");
+        log::debug!(
+            "[{stage}] frame source={} tracks={}",
+            frame_output.frame.get_source_id(),
+            frame_output.tracked_objects.len()
+        );
+        if let Some(s) = stats {
+            s.record_frame(frame_output.tracked_objects.iter());
         }
     }
-}
-
-/// Build the result callback — thin wrapper over [`process_tracker_output`].
-///
-/// `stage` is captured so every log record emitted by
-/// [`process_tracker_output`] carries the actor's configured
-/// [`StageName`] (kind + instance tag) — concurrent tracker actors
-/// in the same pipeline stay distinguishable in the logs.
-pub fn build_result_callback(
-    forward: Sender<PipelineMsg>,
-    stats: Option<Arc<TrackerStats>>,
-    stage: StageName,
-) -> TrackerOperatorResultCallback {
-    Box::new(move |output: TrackerOperatorOutput| {
-        process_tracker_output(output, &forward, stats.as_deref(), &stage)
-    })
+    if let Some(sealed) = tracking_output.take_deliveries() {
+        drop(tracking_output);
+        if !forward(PipelineMsg::Deliveries(Box::new(sealed))) {
+            log::warn!("[{stage}] result receiver closed; dropping sealed batch");
+        }
+    }
 }
 
 fn vehicle_class_id(label: &str) -> i32 {
@@ -311,131 +240,6 @@ fn detection_to_roi(index: i64, det_box: &RBBox) -> Roi {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-//  Tracker actor thread
-// ═══════════════════════════════════════════════════════════════════════
-
-/// Spawn the tracker actor.
-///
-/// Multiplexed: the receive loop serves every `source_id`.  Per-source
-/// events translate to operator calls only — downstream propagation is
-/// the operator callback's job (see [`process_tracker_output`]):
-///
-/// * [`PipelineMsg::Delivery`] — unsealed pairs fed to
-///   [`NvTrackerBatchingOperator::add_frame`].
-/// * [`PipelineMsg::SourceEos { source_id }`](PipelineMsg::SourceEos) —
-///   calls `operator.send_eos(&source_id)` to initiate the per-source
-///   drain.  The callback emits [`PipelineMsg::SourceEos`] once the
-///   last result for that source has been delivered.  The loop does
-///   **not** break — other sources may still have deliveries in flight.
-/// * [`PipelineMsg::Shutdown`] — cooperative-exit sentinel broadcast by
-///   the orchestrator's shutdown manager.  `None` grace breaks after
-///   the current message; `Some(d)` sets a deadline.
-///
-/// After the main loop exits, [`NvTrackerBatchingOperator::graceful_shutdown`]
-/// runs once to drain pending outputs through
-/// [`process_tracker_output`].
-pub fn spawn_tracker_thread(
-    operator: NvTrackerBatchingOperator,
-    rx: Receiver<PipelineMsg>,
-    drain_tx: Sender<PipelineMsg>,
-    stats: Arc<TrackerStats>,
-    stage: StageStats,
-    exit_tx: ExitSender,
-    name: StageName,
-) -> Result<JoinHandle<Result<()>>> {
-    let guard_name = name.clone();
-    thread::Builder::new()
-        .name("cars-tracker".into())
-        .spawn(move || {
-            let _exit_guard = StageExitGuard::new(guard_name, exit_tx);
-            tracker_thread(operator, rx, drain_tx, stats, stage, name)
-        })
-        .context("spawn tracker thread")
-}
-
-fn tracker_thread(
-    mut operator: NvTrackerBatchingOperator,
-    rx: Receiver<PipelineMsg>,
-    drain_tx: Sender<PipelineMsg>,
-    stats: Arc<TrackerStats>,
-    stage: StageStats,
-    name: StageName,
-) -> Result<()> {
-    log::info!("[{name}] starting");
-    let mut deadline: Option<Instant> = None;
-    let mut break_now = false;
-    loop {
-        match rx.recv_timeout(TRACKER_RECV_POLL) {
-            Ok(msg @ (PipelineMsg::Delivery(_) | PipelineMsg::Deliveries(_))) => {
-                // Generalized ingress: both delivery shapes are
-                // normalized to a flat `Vec<(frame, buffer)>` via
-                // [`PipelineMsg::into_pairs`].  See
-                // [`crate::cars_tracking::message`] for the
-                // rationale.
-                for (frame, buffer) in msg.into_pairs() {
-                    if let Err(e) = operator.add_frame(frame, buffer) {
-                        log::error!("[{name}] add_frame failed: {e}");
-                        return Err(anyhow!("track add_frame: {e}"));
-                    }
-                    tick_stage(&stage, 1, 0);
-                }
-            }
-            Ok(PipelineMsg::SourceEos { source_id }) => {
-                log::info!("[{name}] SourceEos {source_id}: initiating operator drain");
-                if let Err(e) = operator.send_eos(&source_id) {
-                    log::warn!("[{name}] send_eos({source_id}) failed: {e}");
-                }
-            }
-            Ok(PipelineMsg::Shutdown { grace, reason }) => {
-                apply_shutdown_signal(&name, grace, &reason, &mut deadline, &mut break_now);
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if let Err(e) = operator.flush_idle() {
-                    log::warn!("[{name}] flush_idle failed: {e}");
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                log::info!("[{name}] upstream channel disconnected; exiting receive loop");
-                break;
-            }
-        }
-        // Per-iteration exit checks (see decode.rs for rationale —
-        // the grace deadline must not be gated on the `Timeout`
-        // branch, otherwise a chatty upstream would keep us alive
-        // past the deadline).
-        if break_now {
-            break;
-        }
-        if let Some(d) = deadline {
-            if Instant::now() >= d {
-                log::info!("[{name}] grace deadline expired; exiting receive loop");
-                break;
-            }
-        }
-    }
-
-    match operator.graceful_shutdown(TRACKER_DRAIN_TIMEOUT) {
-        Ok(drained) => {
-            log::info!("[{name}] drained {} remaining outputs", drained.len());
-            for out in drained {
-                process_tracker_output(out, &drain_tx, Some(&stats), &name);
-            }
-        }
-        Err(e) => {
-            log::error!("[{name}] graceful_shutdown failed: {e}");
-        }
-    }
-    drop(drain_tx);
-    drop(operator);
-    log::info!(
-        "[{name}] finished: frames={} unique_tracks={}",
-        stage_frames(&stage),
-        stats.unique_tracks()
-    );
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,27 +255,5 @@ mod tests {
         let cfg = build_tracker_config(0).expect("tracker config should resolve");
         assert_eq!(cfg.max_batch_size, 1);
         assert_eq!(cfg.max_batch_wait, Duration::from_millis(0));
-    }
-
-    /// The callback is the only place that emits `PipelineMsg::SourceEos`
-    /// because it is the only vantage point where "no more deliveries
-    /// for this source will follow" is an invariant (the operator
-    /// guarantees the `Eos` output fires strictly after the last
-    /// `Tracking` output for the same source_id).
-    #[test]
-    fn callback_forwards_source_eos() {
-        use crate::cars_tracking::supervisor::StageKind;
-        let (tx, rx) = crossbeam::channel::bounded::<PipelineMsg>(1);
-        let stage = StageName::unnamed(StageKind::Tracker);
-        let mut cb = build_result_callback(tx, None, stage);
-        cb(TrackerOperatorOutput::Eos {
-            source_id: "cam-1".to_string(),
-        });
-        match rx.try_recv().expect("expected SourceEos on the channel") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
-            PipelineMsg::Delivery(_) => panic!("unexpected Delivery on Eos"),
-            PipelineMsg::Deliveries(_) => panic!("unexpected Deliveries on Eos"),
-            PipelineMsg::Shutdown { .. } => panic!("unexpected Shutdown on Eos"),
-        }
     }
 }
