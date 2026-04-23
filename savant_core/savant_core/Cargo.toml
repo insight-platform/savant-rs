@@ -107,6 +107,10 @@ harness = false
 name = "bench_zmq"
 harness = false
 
+[[bench]]
+name = "bench_wal"
+harness = false
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
