@@ -533,9 +533,12 @@ fn sealed_deliveries_debug_format() {
     let mut output = make_test_output(2);
     let sealed = output.take_deliveries().unwrap();
     let dbg = format!("{sealed:?}");
-    assert!(dbg.contains("SealedDeliveries"));
-    assert!(dbg.contains("len"));
-    assert!(dbg.contains("released"));
+    // `SealedDeliveries` is `Sealed<Vec<(VideoFrameProxy, SharedBuffer)>>`
+    // — the generic Debug impl prints the payload type name and the
+    // seal state.
+    assert!(dbg.contains("Sealed"), "got: {dbg}");
+    assert!(dbg.contains("Vec"), "got: {dbg}");
+    assert!(dbg.contains("released"), "got: {dbg}");
     drop(output);
 }
 

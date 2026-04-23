@@ -67,7 +67,7 @@ not burn ids.
   whose `submit()` sleeps and observes ordering).
 - `SubmitGate` itself carries a concurrent-monotonicity unit test in
   `savant-gstreamer` (`submit_gate::tests::concurrent_submitters_see_monotonic_counter`).
-- End-to-end reproduction path: `savant_samples/bin/cars-demo` on a
+- End-to-end reproduction path: `savant_perception` `cars-demo` example on a
   dGPU with a single-source, single-FPS H.264 clip.  Before the fix
   this crashed with `StrictPts` and/or produced floods of
   `[encode-cb] muxer closed` warnings; after the fix it reports

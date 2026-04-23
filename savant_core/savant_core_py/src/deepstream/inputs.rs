@@ -330,26 +330,22 @@ impl PySealedDelivery {
 
 fn delivery_to_py(
     py: Python<'_>,
-    pair: Option<(
+    pair: (
         savant_core::primitives::frame::VideoFrameProxy,
         deepstream_buffers::SharedBuffer,
-    )>,
-) -> PyResult<Option<Py<PyTuple>>> {
-    match pair {
-        Some((proxy, buf)) => {
-            let py_frame = VideoFrame(proxy);
-            let py_buf = PySharedBuffer::from_rust(buf);
-            let tup = PyTuple::new(
-                py,
-                [
-                    py_frame.into_pyobject(py)?.into_any(),
-                    py_buf.into_pyobject(py)?.into_any(),
-                ],
-            )?;
-            Ok(Some(tup.unbind()))
-        }
-        None => Ok(None),
-    }
+    ),
+) -> PyResult<Py<PyTuple>> {
+    let (proxy, buf) = pair;
+    let py_frame = VideoFrame(proxy);
+    let py_buf = PySharedBuffer::from_rust(buf);
+    let tup = PyTuple::new(
+        py,
+        [
+            py_frame.into_pyobject(py)?.into_any(),
+            py_buf.into_pyobject(py)?.into_any(),
+        ],
+    )?;
+    Ok(tup.unbind())
 }
 
 #[pymethods]
@@ -374,7 +370,7 @@ impl PySealedDelivery {
     ///     RuntimeError: If already consumed by a previous call.
     ///     TimeoutError: If the timeout expires before the seal is released.
     #[pyo3(signature = (timeout_ms=None))]
-    fn unseal(&mut self, py: Python<'_>, timeout_ms: Option<u64>) -> PyResult<Option<Py<PyTuple>>> {
+    fn unseal(&mut self, py: Python<'_>, timeout_ms: Option<u64>) -> PyResult<Py<PyTuple>> {
         let sealed = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SealedDelivery already consumed")
         })?;
@@ -408,7 +404,7 @@ impl PySealedDelivery {
             pyo3::exceptions::PyRuntimeError::new_err("SealedDelivery already consumed")
         })?;
         match sealed.try_unseal() {
-            Ok(pair) => delivery_to_py(py, pair),
+            Ok(pair) => delivery_to_py(py, pair).map(Some),
             Err(still_sealed) => {
                 self.0 = Some(still_sealed);
                 Ok(None)

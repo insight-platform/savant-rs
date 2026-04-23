@@ -5,6 +5,7 @@
 //! ```
 
 pub use crate::cuda_stream::CudaStream;
+pub use crate::sealed::{Sealed, SealedDeliveries, SealedDelivery};
 pub use crate::shared_buffer::SharedBuffer;
 pub use crate::surface_view::SurfaceView;
 pub use crate::transform::{

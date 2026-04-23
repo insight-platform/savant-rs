@@ -34,12 +34,14 @@ pub mod transform;
 
 pub mod buffers;
 pub mod pipeline;
+pub mod sealed;
 pub mod shared_buffer;
 pub mod surface_readers;
 pub mod surface_view;
 
 pub use cuda_stream::CudaStream;
 pub use meta_clear_policy::MetaClearPolicy;
+pub use sealed::{Sealed, SealedDeliveries, SealedDelivery};
 pub use shared_buffer::SharedBuffer;
 pub use surface_view::SurfaceView;
 

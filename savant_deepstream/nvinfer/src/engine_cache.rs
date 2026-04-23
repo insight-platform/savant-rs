@@ -10,7 +10,7 @@
 //! subsequent runs reuse it.
 //!
 //! [`promote_built_engine`] is the single helper for that operation.  It
-//! is used by the nvinfer integration tests and by the `savant_samples`
+//! is used by the nvinfer integration tests and by the `savant_perception`
 //! crate to keep engine-cache management in one place.
 //!
 //! # Replacement semantics
