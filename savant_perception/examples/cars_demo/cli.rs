@@ -129,14 +129,44 @@ impl Cli {
     ///   its parent directory must exist.
     /// - When `--no-picasso` is set, `--output` is ignored (a warning
     ///   is logged if the user supplied one) and this returns `None`.
+    /// - The literal string `null` is a sentinel meaning "run the
+    ///   Picasso encoder but do not write an MP4" — it returns
+    ///   `None` without checking the filesystem.  Combining
+    ///   `--no-picasso --output null` is rejected as a clash: the
+    ///   two ways to disable output are not composable.
+    #[allow(dead_code)] // public symmetry with `resolved_input`
     pub fn resolved_output(&self) -> Result<Option<PathBuf>> {
+        let (output, _is_null) = self.resolve_output_mode()?;
+        Ok(output)
+    }
+
+    /// Combined output resolver returning both the path (`None`
+    /// when no file should be written) and a flag marking the
+    /// `--output null` sentinel.  Used by [`Cli::resolve`] to
+    /// populate both [`ResolvedCli::output`] and
+    /// [`ResolvedCli::output_is_null`] in a single pass.
+    fn resolve_output_mode(&self) -> Result<(Option<PathBuf>, bool)> {
+        let is_null_sentinel = self
+            .output
+            .as_deref()
+            .map(|p| p.as_os_str() == "null")
+            .unwrap_or(false);
         if self.no_picasso {
+            if is_null_sentinel {
+                bail!(
+                    "--output null cannot be combined with --no-picasso; \
+                     both disable output on their own"
+                );
+            }
             if self.output.is_some() {
                 log::warn!(
                     "--output is ignored when --no-picasso is set (no file will be written)"
                 );
             }
-            return Ok(None);
+            return Ok((None, false));
+        }
+        if is_null_sentinel {
+            return Ok((None, true));
         }
         let path = self
             .output
@@ -147,7 +177,7 @@ impl Cli {
                 bail!("output directory does not exist: {}", parent.display());
             }
         }
-        Ok(Some(path))
+        Ok((Some(path), false))
     }
 
     /// Validate all numeric knobs (channel capacity, thresholds).  Runs
@@ -175,7 +205,7 @@ impl Cli {
     pub fn resolve(&self) -> Result<ResolvedCli> {
         self.validate_knobs()?;
         let input = self.resolved_input()?;
-        let output = self.resolved_output()?;
+        let (output, output_is_null) = self.resolve_output_mode()?;
         // `--no-picasso` implies `draw_enabled = false` because the
         // draw stage lives inside Picasso; with Picasso excluded
         // there is simply nothing to draw onto.
@@ -193,6 +223,7 @@ impl Cli {
             fps_den: self.fps_den,
             draw_enabled,
             picasso_enabled,
+            output_is_null,
         })
     }
 }
@@ -232,6 +263,17 @@ pub struct ResolvedCli {
     /// still run, but no transform / overlay / encode / mux stages
     /// are spun up and no output file is produced.
     pub picasso_enabled: bool,
+    /// Set by the `--output null` sentinel: Picasso still runs
+    /// (decode + infer + track + transform + encode), but instead
+    /// of writing an MP4 the encoded bitstream is routed into a
+    /// [`BitstreamFunction`](savant_perception::templates::BitstreamFunction)
+    /// terminus that tallies packet counts and encoded byte totals.
+    ///
+    /// Only meaningful when [`Self::picasso_enabled`] is `true`;
+    /// combining it with `--no-picasso` is rejected by
+    /// [`Cli::resolve`] (the two ways to disable output are not
+    /// composable).
+    pub output_is_null: bool,
 }
 
 impl ResolvedCli {
@@ -385,5 +427,74 @@ mod tests {
         .unwrap();
         let err = cli.resolve().unwrap_err();
         assert!(err.to_string().contains("--channel-cap"));
+    }
+
+    /// `--output null` keeps Picasso enabled, suppresses the
+    /// filesystem check (the parent directory of `"null"` does
+    /// not need to exist), resolves to `output = None`, and
+    /// flips `output_is_null = true` on the resolved struct.
+    #[test]
+    fn output_null_sentinel_disables_file_but_keeps_picasso() {
+        let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/cars_demo/cars_tracking.rs");
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            exe_dir.to_str().unwrap(),
+            "--output",
+            "null",
+        ])
+        .unwrap();
+        let resolved = cli.resolve().expect("--output null must resolve");
+        assert!(resolved.picasso_enabled);
+        assert!(resolved.output.is_none());
+        assert!(resolved.output_is_null);
+    }
+
+    /// `--no-picasso --output null` is rejected — both disable
+    /// output on their own and the resolver refuses to pick one
+    /// silently.
+    #[test]
+    fn no_picasso_rejects_output_null() {
+        let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/cars_demo/cars_tracking.rs");
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            exe_dir.to_str().unwrap(),
+            "--no-picasso",
+            "--output",
+            "null",
+        ])
+        .unwrap();
+        let err = cli
+            .resolve()
+            .expect_err("--no-picasso + --output null must be rejected as a clash");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--output null") && msg.contains("--no-picasso"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    /// A regular file path still produces a non-null resolved
+    /// output (so the default `output_is_null = false` path is
+    /// unaffected by the sentinel plumbing).
+    #[test]
+    fn regular_output_has_output_is_null_false() {
+        let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/cars_demo/cars_tracking.rs");
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            exe_dir.to_str().unwrap(),
+            "--output",
+            "/tmp/out.mp4",
+        ])
+        .unwrap();
+        let resolved = cli.resolve().expect("regular output must resolve");
+        assert!(resolved.picasso_enabled);
+        assert!(!resolved.output_is_null);
+        assert!(resolved.output.is_some());
     }
 }
