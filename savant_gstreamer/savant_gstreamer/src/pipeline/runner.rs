@@ -446,6 +446,7 @@ impl GstPipeline {
                 pending_rescue_events.clone(),
                 appsink_sink_pad.clone(),
                 shutdown.clone(),
+                draining.clone(),
                 failed.clone(),
             )
         });
@@ -515,8 +516,9 @@ impl GstPipeline {
     ///
     /// # Returns
     ///
-    /// Number of events flushed.  `Ok(0)` means either "nothing pending"
-    /// or "pipeline busy" — both are non-errors.
+    /// Number of events flushed.  `Ok(0)` means either "nothing pending",
+    /// "pipeline busy", or "pipeline in a terminal state (failed /
+    /// draining)" — all are non-errors.
     ///
     /// # Ordering note
     ///
@@ -529,7 +531,12 @@ impl GstPipeline {
     /// buffer for that source), and matches the semantics already
     /// established by the EOS rescue path.
     pub fn flush_idle(&self) -> Result<usize, PipelineError> {
-        if self.is_shut_down.load(Ordering::Acquire) || self.failed.load(Ordering::Acquire) {
+        // Must check `draining` (set at the *start* of `graceful_shutdown`,
+        // before the drain loop) rather than `is_shut_down` (only set after
+        // drain completes).  Otherwise `flush_idle` would keep pushing
+        // rescue events onto the peer pad during the entire drain phase,
+        // violating the documented no-op-during-drain contract.
+        if self.draining.load(Ordering::Acquire) || self.failed.load(Ordering::Acquire) {
             return Ok(0);
         }
         if !self.in_flight.lock().is_empty() {
@@ -876,6 +883,7 @@ fn wait_for_finalization(label: &str, done: &Receiver<()>) {
 /// Terminates when `shutdown` or `failed` becomes `true`.  Uses a short
 /// polling sleep (`POLL_INTERVAL`) so shutdown is observed within ~10 ms
 /// regardless of `interval`.
+#[allow(clippy::too_many_arguments)]
 fn spawn_idle_flush_thread(
     thread_name: String,
     interval: Duration,
@@ -883,6 +891,7 @@ fn spawn_idle_flush_thread(
     pending_rescue_events: Arc<Mutex<Vec<gst::Event>>>,
     appsink_sink_pad: gst::Pad,
     shutdown: Arc<AtomicBool>,
+    draining: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
 ) -> Option<JoinHandle<()>> {
     const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -903,8 +912,13 @@ fn spawn_idle_flush_thread(
                 }
 
                 // Mirror GstPipeline::flush_idle semantics: skip if busy,
+                // skip if draining (graceful shutdown in progress — EOS is
+                // flowing downstream and new rescue pushes would race it),
                 // skip if nothing to rescue, otherwise push each pending
                 // event on the appsink peer's src pad.
+                if draining.load(Ordering::Acquire) {
+                    continue;
+                }
                 if !in_flight.lock().is_empty() {
                     continue;
                 }
@@ -955,4 +969,112 @@ fn check_pts_policy(
     }
     *last_key = Some(current);
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pipeline::build_source_eos_event;
+    use crate::pipeline::config::PipelineConfig;
+    use std::sync::Once;
+
+    static GST_INIT: Once = Once::new();
+    fn init_gst() {
+        GST_INIT.call_once(|| {
+            gst::init().expect("gstreamer init failed");
+        });
+    }
+
+    fn build_identity(name: &str) -> gst::Element {
+        gst::ElementFactory::make("identity")
+            .name(name)
+            .build()
+            .expect("identity must be available")
+    }
+
+    fn make_config(name: &str, idle_flush_interval: Option<Duration>) -> PipelineConfig {
+        PipelineConfig {
+            name: name.to_string(),
+            appsrc_caps: gst::Caps::builder("application/octet-stream").build(),
+            elements: vec![build_identity("id")],
+            input_channel_capacity: 4,
+            output_channel_capacity: 4,
+            operation_timeout: None,
+            drain_poll_interval: Duration::from_millis(10),
+            idle_flush_interval,
+            appsrc_probe: None,
+            pts_policy: None,
+            leak_on_finalize: false,
+        }
+    }
+
+    /// Regression test: `flush_idle` must return `Ok(0)` without touching
+    /// the peer pad once `draining` has been flipped (e.g. by
+    /// `graceful_shutdown`), even while `is_shut_down` is still false
+    /// (the window where drain is in progress).
+    #[test]
+    fn flush_idle_is_noop_during_draining_window() {
+        init_gst();
+        let (_tx, _rx, mut pipeline) =
+            GstPipeline::start(make_config("flush-idle-drain-test", None)).expect("pipeline start");
+
+        // Simulate the state established at the very start of
+        // `graceful_shutdown`: `draining=true` but `is_shut_down=false`.
+        pipeline.draining.store(true, Ordering::Release);
+        assert!(
+            pipeline.is_draining(),
+            "precondition: draining flag must be set"
+        );
+        assert!(
+            !pipeline.is_shut_down.load(Ordering::Acquire),
+            "precondition: shutdown must NOT yet be set during drain"
+        );
+
+        // Inject a rescue-eligible event directly into the pending list
+        // — if `flush_idle` incorrectly ran during drain, it would
+        // consume this vector and push the event onto the peer pad.
+        {
+            let mut pending = pipeline.pending_rescue_events.lock();
+            pending.push(build_source_eos_event("cam-drain-test"));
+        }
+
+        let n = pipeline.flush_idle().expect("flush_idle returns ok");
+        assert_eq!(n, 0, "flush_idle must be a no-op while `draining` is true");
+        assert_eq!(
+            pipeline.pending_rescue_events.lock().len(),
+            1,
+            "pending rescue events must be preserved across a drain-phase flush_idle"
+        );
+
+        // Clean teardown — `shutdown()` must still work after our manual
+        // flag manipulation.
+        let _ = pipeline.shutdown();
+    }
+
+    /// Regression test: `flush_idle` must also no-op once the pipeline
+    /// has failed (e.g. bus watcher posted an error).  This path was
+    /// already covered by the `failed` check, but we guard it here so a
+    /// future refactor cannot silently regress it alongside the
+    /// `draining` fix.
+    #[test]
+    fn flush_idle_is_noop_once_failed() {
+        init_gst();
+        let (_tx, _rx, mut pipeline) =
+            GstPipeline::start(make_config("flush-idle-failed-test", None))
+                .expect("pipeline start");
+
+        pipeline.failed.store(true, Ordering::Release);
+        assert!(pipeline.is_failed());
+
+        {
+            let mut pending = pipeline.pending_rescue_events.lock();
+            pending.push(build_source_eos_event("cam-fail-test"));
+        }
+
+        let n = pipeline.flush_idle().expect("flush_idle returns ok");
+        assert_eq!(n, 0, "flush_idle must no-op once `failed` is true");
+        assert_eq!(pipeline.pending_rescue_events.lock().len(), 1);
+
+        let _ = pipeline.shutdown();
+    }
 }
