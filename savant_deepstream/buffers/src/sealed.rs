@@ -64,20 +64,36 @@ use crate::SharedBuffer;
 /// producer (whose `Drop` releases it).  Consumers wait on the seal
 /// before seeing the payload.
 ///
+/// # Thread safety
+///
+/// `Sealed<T>` does not implement [`Send`]/[`Sync`] manually — both are
+/// derived automatically from the fields.  Because [`ReleaseSeal`] is
+/// `Send + Sync`, `Sealed<T>: Send` iff `T: Send` and `Sealed<T>: Sync`
+/// iff `T: Sync`.  Payloads that contain raw pointers (e.g. FFI handles)
+/// must provide their own targeted `unsafe impl Send` / `unsafe impl
+/// Sync` on the payload type; do **not** add a blanket
+/// `unsafe impl<T> Send for Sealed<T>` here — that would override the
+/// compiler's auto-trait analysis and make it possible to send
+/// `Sealed<Rc<_>>` (and other `!Send` payloads) across threads, causing
+/// undefined behaviour.
+///
+/// The following must **not** compile (regression guard):
+///
+/// ```compile_fail
+/// use std::rc::Rc;
+/// use std::sync::Arc;
+/// use deepstream_buffers::sealed::Sealed;
+/// use savant_core::utils::release_seal::ReleaseSeal;
+///
+/// fn assert_send<T: Send>() {}
+/// assert_send::<Sealed<Rc<u32>>>();
+/// ```
+///
 /// See the [module docs](self) for the full protocol.
 pub struct Sealed<T> {
     payload: T,
     seal: Arc<ReleaseSeal>,
 }
-
-// SAFETY: `ReleaseSeal` uses `parking_lot::Mutex` + `Condvar`, both
-// `Send + Sync`.  We only require `Send` here; payload constraints are
-// checked at the use-site via the compiler's automatic `Send` analysis
-// when the concrete `T` is `Send`.  The explicit `unsafe impl Send`
-// mirrors the previous per-crate implementations (which compensated
-// for raw pointers in payloads that the compiler cannot verify as
-// `Send`).
-unsafe impl<T> Send for Sealed<T> {}
 
 impl<T> Sealed<T> {
     /// Wrap `payload` with the provided seal.  Callers typically clone
@@ -226,5 +242,18 @@ mod tests {
         assert!(!sealed.is_released());
         seal.release();
         assert!(sealed.is_released());
+    }
+
+    /// Compile-time positive check: `Sealed<T>` must be `Send`/`Sync`
+    /// when `T` is, and the domain aliases must be `Send` too.
+    #[test]
+    fn send_sync_positive_bounds() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<Sealed<u32>>();
+        assert_sync::<Sealed<u32>>();
+        assert_send::<SealedDelivery>();
+        assert_send::<SealedDeliveries>();
     }
 }
