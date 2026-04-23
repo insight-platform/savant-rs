@@ -44,7 +44,7 @@ CLAUDE.md
 .cursor
 .claude
 
-savant_samples/assets/cache
+savant_perception/assets/cache
 
 # Transient TensorRT engines auto-built by DeepStream next to the ONNX.
 # The nvinfer test harness (`common::promote_built_engine`) moves them

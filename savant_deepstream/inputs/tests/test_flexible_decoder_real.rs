@@ -985,9 +985,7 @@ fn test_sealed_delivery_cross_thread_unseal() {
                         expected_count
                     )
                 });
-            let (proxy, buffer) = sealed
-                .unseal()
-                .expect("SealedDelivery must contain a delivery");
+            let (proxy, buffer) = sealed.unseal();
             assert!(proxy.get_uuid_u128() != 0, "proxy UUID must be non-zero");
             let guard = buffer.lock();
             assert!(

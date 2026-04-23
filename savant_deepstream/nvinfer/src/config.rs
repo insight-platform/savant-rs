@@ -78,6 +78,13 @@ pub struct NvInferConfig {
     /// How often the framework drain thread polls `appsink.try_pull_sample`.
     /// Default: 100 ms.
     pub drain_poll_interval: Duration,
+    /// When `Some`, the inner [`savant_gstreamer::pipeline::GstPipeline`]
+    /// auto-invokes
+    /// [`flush_idle`](savant_gstreamer::pipeline::GstPipeline::flush_idle)
+    /// every interval in a background thread.  Ensures per-source EOS
+    /// markers escape `nvinfer` without requiring an explicit caller
+    /// flush or a full graceful_shutdown.  Default: 100 ms.
+    pub idle_flush_interval: Option<Duration>,
 }
 
 impl NvInferConfig {
@@ -120,6 +127,7 @@ impl NvInferConfig {
             input_channel_capacity: 16,
             output_channel_capacity: 16,
             drain_poll_interval: Duration::from_millis(100),
+            idle_flush_interval: Some(Duration::from_millis(10)),
         }
     }
 
@@ -183,6 +191,13 @@ impl NvInferConfig {
     /// Set how often the framework drain thread polls appsink.
     pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
         self.drain_poll_interval = interval;
+        self
+    }
+
+    /// Enable or disable the auto-flush thread for pending custom
+    /// downstream events.  See [`NvInferConfig::idle_flush_interval`].
+    pub fn idle_flush_interval(mut self, interval: Option<Duration>) -> Self {
+        self.idle_flush_interval = interval;
         self
     }
 

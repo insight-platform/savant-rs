@@ -272,9 +272,7 @@ class TestSealedDeliveryCrossThread:
         def consumer():
             try:
                 sealed = delivery_queue.get(timeout=10)
-                pair = sealed.unseal(timeout_ms=15_000)
-                assert pair is not None
-                vf, buf = pair
+                vf, buf = sealed.unseal(timeout_ms=15_000)
                 assert vf.source_id == "cam-1"
                 unseal_results.append((vf, buf))
             except Exception as e:

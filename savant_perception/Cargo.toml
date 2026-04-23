@@ -1,0 +1,47 @@
+[package]
+name = "savant-perception-framework"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Synchronous actor framework for real-time video-analytics pipelines (decode -> infer -> track -> render -> encode), with end-to-end samples."
+keywords = ["savant", "video", "actor", "pipeline", "deepstream"]
+categories = ["multimedia::video", "asynchronous", "concurrency"]
+readme = "README.md"
+include = ["src/**/*", "README.md", "LICENSE", "Cargo.toml"]
+
+[lib]
+name = "savant_perception"
+path = "src/lib.rs"
+
+[[example]]
+name = "cars-demo"
+path = "examples/cars_demo/main.rs"
+
+[dependencies]
+deepstream_inputs = { workspace = true }
+deepstream_decoders = { workspace = true }
+deepstream_nvinfer = { workspace = true }
+deepstream_nvtracker = { workspace = true }
+deepstream_encoders = { workspace = true }
+deepstream_buffers = { workspace = true }
+nvidia_gpu_utils = { workspace = true }
+picasso = { workspace = true }
+savant_core = { workspace = true }
+savant_gstreamer = { workspace = true }
+
+anyhow = { workspace = true }
+log = { workspace = true }
+crossbeam = { workspace = true }
+ctrlc = { workspace = true }
+gstreamer = { workspace = true }
+hashbrown = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+clap = { workspace = true }
+env_logger = { workspace = true }
+serial_test = { workspace = true }

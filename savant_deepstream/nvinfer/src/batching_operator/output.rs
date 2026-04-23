@@ -2,7 +2,7 @@ use crate::error::NvInferError;
 use crate::model_input_scaling::ModelInputScaling;
 use crate::output::ElementOutput;
 use deepstream::clear_all_frame_objects;
-use deepstream_buffers::SharedBuffer;
+use deepstream_buffers::{Sealed, SharedBuffer};
 use deepstream_sys::GstBuffer;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::RBBox;
@@ -12,6 +12,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use super::scaler::CoordinateScaler;
+
+pub use deepstream_buffers::SealedDeliveries;
 
 /// Output delivered by [`crate::batching_operator::OperatorResultCallback`].
 pub enum OperatorOutput {
@@ -166,94 +168,6 @@ pub struct OperatorFrameOutput {
 unsafe impl Send for OperatorFrameOutput {}
 
 // ---------------------------------------------------------------------------
-// SealedDeliveries
-// ---------------------------------------------------------------------------
-
-/// A batch of `(VideoFrameProxy, SharedBuffer)` pairs sealed until the
-/// associated [`OperatorInferenceOutput`] is dropped.
-///
-/// The inner `Vec` is private; individual buffers are inaccessible while
-/// sealed.  Call [`unseal`](Self::unseal) (blocking) or
-/// [`try_unseal`](Self::try_unseal) (non-blocking) to obtain the pairs.
-///
-/// # Drop safety
-///
-/// Dropping `SealedDeliveries` without calling `unseal()` is safe — the
-/// contained `SharedBuffer`s are freed and the `Condvar::notify_all` in
-/// [`OperatorInferenceOutput::drop`] runs against zero waiters (a no-op).
-pub struct SealedDeliveries {
-    deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
-    seal: Arc<ReleaseSeal>,
-}
-
-// SAFETY: All fields are `Send`.  `ReleaseSeal` uses `parking_lot::Mutex` +
-// `Condvar` which are `Send + Sync`.  `VideoFrameProxy` and `SharedBuffer`
-// are `Send`.
-unsafe impl Send for SealedDeliveries {}
-
-impl SealedDeliveries {
-    /// Number of frames in the sealed batch.
-    pub fn len(&self) -> usize {
-        self.deliveries.len()
-    }
-
-    /// Whether the batch is empty.
-    pub fn is_empty(&self) -> bool {
-        self.deliveries.is_empty()
-    }
-
-    /// Whether the seal has been released (non-blocking check).
-    pub fn is_released(&self) -> bool {
-        self.seal.is_released()
-    }
-
-    /// Block until the [`OperatorInferenceOutput`] is dropped, then return
-    /// all deliveries as `(frame, buffer)` pairs.
-    ///
-    /// After unsealing, each `SharedBuffer` should have a single strong
-    /// reference, allowing `buffer.into_buffer()` for sole ownership.
-    pub fn unseal(self) -> Vec<(VideoFrameProxy, SharedBuffer)> {
-        self.seal.wait();
-        self.deliveries
-    }
-
-    /// Block until the seal is released, with a timeout.
-    ///
-    /// Returns the deliveries if the seal is released within `timeout`,
-    /// or returns `Err(self)` if the timeout expires (so the caller
-    /// can retry or drop).
-    pub fn unseal_timeout(
-        self,
-        timeout: std::time::Duration,
-    ) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {
-        if self.seal.wait_timeout(timeout) {
-            Ok(self.deliveries)
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Non-blocking attempt to unseal.  Returns `Err(self)` if the seal
-    /// has not yet been released.
-    pub fn try_unseal(self) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {
-        if self.seal.is_released() {
-            Ok(self.deliveries)
-        } else {
-            Err(self)
-        }
-    }
-}
-
-impl std::fmt::Debug for SealedDeliveries {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SealedDeliveries")
-            .field("len", &self.deliveries.len())
-            .field("released", &self.seal.is_released())
-            .finish()
-    }
-}
-
-// ---------------------------------------------------------------------------
 // OperatorInferenceOutput
 // ---------------------------------------------------------------------------
 
@@ -325,10 +239,9 @@ impl OperatorInferenceOutput {
     /// The returned [`SealedDeliveries`] blocks on [`unseal()`](SealedDeliveries::unseal)
     /// until this `OperatorInferenceOutput` is dropped.
     pub fn take_deliveries(&mut self) -> Option<SealedDeliveries> {
-        self.deliveries.take().map(|d| SealedDeliveries {
-            deliveries: d,
-            seal: self.seal.clone(),
-        })
+        self.deliveries
+            .take()
+            .map(|d| Sealed::new(d, self.seal.clone()))
     }
 }
 

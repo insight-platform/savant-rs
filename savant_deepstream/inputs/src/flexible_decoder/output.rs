@@ -1,12 +1,13 @@
 //! Callback output types for [`super::FlexibleDecoder`].
 
-use deepstream_buffers::SharedBuffer;
 use deepstream_decoders::DecoderError;
 use gstreamer as gst;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::sync::Arc;
+
+pub use deepstream_buffers::{Sealed, SealedDelivery};
 
 /// VideoCodec, width and height snapshot for a decoder session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,8 +79,9 @@ impl FlexibleDecoderOutput {
     /// been taken by a prior call.
     ///
     /// The [`VideoFrameProxy`] is **cloned** (cheap Arc bump) and the
-    /// [`SharedBuffer`] is **taken** from the `DecodedFrame`.  Scalar fields
-    /// on `decoded` (`pts_ns`, `codec`, `format`, …) remain readable.
+    /// [`deepstream_buffers::SharedBuffer`] is **taken** from the
+    /// `DecodedFrame`.  Scalar fields on `decoded` (`pts_ns`, `codec`,
+    /// `format`, …) remain readable.
     ///
     /// This mirrors the `take_deliveries()` pattern on the nvinfer / nvtracker
     /// batching operators.  Because `FlexibleDecoder` is single-stream, at most
@@ -92,10 +94,7 @@ impl FlexibleDecoderOutput {
                 seal,
             } => {
                 let buffer = decoded.buffer.take()?;
-                Some(SealedDelivery {
-                    delivery: Some((frame.clone(), buffer)),
-                    seal: Arc::clone(seal),
-                })
+                Some(Sealed::new((frame.clone(), buffer), Arc::clone(seal)))
             }
             _ => None,
         }
@@ -107,73 +106,6 @@ impl Drop for FlexibleDecoderOutput {
         if let Self::Frame { seal, .. } = self {
             seal.release();
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// SealedDelivery
-// ---------------------------------------------------------------------------
-
-/// A single `(VideoFrameProxy, SharedBuffer)` pair sealed until the
-/// associated [`FlexibleDecoderOutput`] is dropped.
-///
-/// # Drop safety
-///
-/// Dropping `SealedDelivery` without calling `unseal()` is safe — the
-/// contained `SharedBuffer` is freed and the `Condvar::notify_all` in
-/// [`FlexibleDecoderOutput::drop`] runs against zero waiters (a no-op).
-pub struct SealedDelivery {
-    delivery: Option<(VideoFrameProxy, SharedBuffer)>,
-    seal: Arc<ReleaseSeal>,
-}
-
-unsafe impl Send for SealedDelivery {}
-
-impl SealedDelivery {
-    /// Whether the seal has been released (non-blocking check).
-    pub fn is_released(&self) -> bool {
-        self.seal.is_released()
-    }
-
-    /// Block until the [`FlexibleDecoderOutput`] is dropped, then return
-    /// the `(frame, buffer)` pair.
-    pub fn unseal(self) -> Option<(VideoFrameProxy, SharedBuffer)> {
-        self.seal.wait();
-        self.delivery
-    }
-
-    /// Block until the seal is released, with a timeout.
-    ///
-    /// Returns the delivery if released within `timeout`, or returns
-    /// `Err(self)` if the timeout expires (so the caller can retry or drop).
-    pub fn unseal_timeout(
-        self,
-        timeout: std::time::Duration,
-    ) -> Result<Option<(VideoFrameProxy, SharedBuffer)>, Self> {
-        if self.seal.wait_timeout(timeout) {
-            Ok(self.delivery)
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Non-blocking attempt to unseal.  Returns `Err(self)` if the seal
-    /// has not yet been released.
-    pub fn try_unseal(self) -> Result<Option<(VideoFrameProxy, SharedBuffer)>, Self> {
-        if self.seal.is_released() {
-            Ok(self.delivery)
-        } else {
-            Err(self)
-        }
-    }
-}
-
-impl std::fmt::Debug for SealedDelivery {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SealedDelivery")
-            .field("has_delivery", &self.delivery.is_some())
-            .field("released", &self.seal.is_released())
-            .finish()
     }
 }
 

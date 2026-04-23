@@ -49,7 +49,7 @@ holding the gate.
 ## Related
 
 - `kb/nvinfer-rust/submit_ordering.md`
-- `kb/savant-samples/submit_serialisation.md`
+- `kb/savant-perception/submit_serialisation.md`
   (cross-crate symptom walk-through and end-to-end verification).
 - `kb/savant-gstreamer-rust/submit_gate.md`
   (primitive-level rationale and API shape).

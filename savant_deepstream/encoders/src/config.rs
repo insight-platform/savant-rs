@@ -459,6 +459,15 @@ pub struct NvEncoderConfig {
     pub output_channel_capacity: usize,
     pub operation_timeout: Duration,
     pub drain_poll_interval: Duration,
+    /// When `Some`, the inner [`savant_gstreamer::pipeline::GstPipeline`]
+    /// auto-invokes
+    /// [`flush_idle`](savant_gstreamer::pipeline::GstPipeline::flush_idle)
+    /// every interval in a background thread.
+    ///
+    /// Ensures per-source EOS markers escape the encoder element without
+    /// requiring an explicit caller flush or a full graceful_shutdown,
+    /// mirroring [`deepstream_decoders::NvDecoderConfig::idle_flush_interval`].
+    pub idle_flush_interval: Option<Duration>,
 }
 
 impl NvEncoderConfig {
@@ -472,6 +481,7 @@ impl NvEncoderConfig {
             output_channel_capacity: 16,
             operation_timeout: Duration::from_secs(30),
             drain_poll_interval: Duration::from_millis(100),
+            idle_flush_interval: Some(Duration::from_millis(10)),
         }
     }
 
@@ -502,6 +512,13 @@ impl NvEncoderConfig {
 
     pub fn drain_poll_interval(mut self, interval: Duration) -> Self {
         self.drain_poll_interval = interval;
+        self
+    }
+
+    /// Enable or disable the auto-flush thread for pending custom
+    /// downstream events.  See [`NvEncoderConfig::idle_flush_interval`].
+    pub fn idle_flush_interval(mut self, interval: Option<Duration>) -> Self {
+        self.idle_flush_interval = interval;
         self
     }
 }

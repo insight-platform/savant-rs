@@ -192,6 +192,7 @@ impl NvTracker {
             output_channel_capacity: config.output_channel_capacity,
             operation_timeout: Some(config.operation_timeout),
             drain_poll_interval: config.drain_poll_interval,
+            idle_flush_interval: config.idle_flush_interval,
             appsrc_probe,
             pts_policy: Some(PtsPolicy::StrictPts),
             leak_on_finalize: true,
@@ -311,6 +312,17 @@ impl NvTracker {
 
     pub fn is_failed(&self) -> bool {
         self.pipeline.lock().is_failed()
+    }
+
+    /// Force-flush pending rescue-eligible custom-downstream events
+    /// (including `savant.pipeline.source_eos`) through `nvtracker` when
+    /// no buffers are in flight.
+    ///
+    /// See [`savant_gstreamer::pipeline::GstPipeline::flush_idle`] for
+    /// semantics.  Returns the number of events flushed; `Ok(0)` means
+    /// "nothing pending" or "tracker still busy".
+    pub fn flush_idle(&self) -> Result<usize> {
+        Ok(self.pipeline.lock().flush_idle()?)
     }
 
     /// Graceful shutdown: reject new input, send EOS, drain outputs within `timeout`, stop pipeline.

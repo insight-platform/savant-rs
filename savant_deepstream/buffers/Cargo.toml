@@ -24,6 +24,7 @@ thiserror = { workspace = true }
 log = { workspace = true }
 lru = { workspace = true }
 parking_lot = { workspace = true }
+savant_core = { workspace = true }
 savant_gstreamer = { workspace = true }
 
 # Skia rendering (optional)
@@ -47,7 +48,6 @@ nvidia_gpu_utils = { path = "../nvidia_gpu_utils", package = "savant-nvidia-gpu-
 criterion = { workspace = true }
 serial_test = { workspace = true }
 rand = { workspace = true }
-savant_core = { workspace = true }
 
 [[bench]]
 name = "non_uniform_batch"

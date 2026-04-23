@@ -1,10 +1,12 @@
 use crate::error::NvTrackerError;
 use crate::{MiscTrackData, TrackedObject};
-use deepstream_buffers::SharedBuffer;
+use deepstream_buffers::{Sealed, SharedBuffer};
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::misc_track::TrackUpdate;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::sync::Arc;
+
+pub use deepstream_buffers::SealedDeliveries;
 
 /// Per-frame tracking result.
 ///
@@ -65,72 +67,6 @@ impl TrackerOperatorFrameOutput {
     }
 }
 
-/// A batch of `(VideoFrameProxy, SharedBuffer)` pairs sealed until the
-/// associated [`TrackerOperatorTrackingOutput`] is dropped.
-pub struct SealedDeliveries {
-    deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
-    seal: Arc<ReleaseSeal>,
-}
-
-unsafe impl Send for SealedDeliveries {}
-
-impl SealedDeliveries {
-    /// Number of frames in the sealed batch.
-    pub fn len(&self) -> usize {
-        self.deliveries.len()
-    }
-
-    /// Whether the batch is empty.
-    pub fn is_empty(&self) -> bool {
-        self.deliveries.is_empty()
-    }
-
-    /// Whether the seal has been released (non-blocking check).
-    pub fn is_released(&self) -> bool {
-        self.seal.is_released()
-    }
-
-    /// Block until the [`TrackerOperatorTrackingOutput`] is dropped, then return all
-    /// deliveries as `(frame, buffer)` pairs.
-    pub fn unseal(self) -> Vec<(VideoFrameProxy, SharedBuffer)> {
-        self.seal.wait();
-        self.deliveries
-    }
-
-    /// Block until the seal is released, with a timeout.
-    ///
-    /// Returns the deliveries if the seal is released within `timeout`,
-    /// or returns `Err(self)` if the timeout expires.
-    pub fn unseal_timeout(
-        self,
-        timeout: std::time::Duration,
-    ) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {
-        if self.seal.wait_timeout(timeout) {
-            Ok(self.deliveries)
-        } else {
-            Err(self)
-        }
-    }
-
-    /// Non-blocking attempt to unseal.
-    pub fn try_unseal(self) -> Result<Vec<(VideoFrameProxy, SharedBuffer)>, Self> {
-        if self.seal.is_released() {
-            Ok(self.deliveries)
-        } else {
-            Err(self)
-        }
-    }
-}
-
-impl std::fmt::Debug for SealedDeliveries {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SealedDeliveries")
-            .field("len", &self.deliveries.len())
-            .field("released", &self.seal.is_released())
-            .finish()
-    }
-}
-
 /// Full batch tracking result with sealed buffer delivery.
 pub struct TrackerOperatorTrackingOutput {
     frames: Vec<TrackerOperatorFrameOutput>,
@@ -162,10 +98,9 @@ impl TrackerOperatorTrackingOutput {
     ///
     /// Returns `Some(SealedDeliveries)` on the first call, otherwise `None`.
     pub fn take_deliveries(&mut self) -> Option<SealedDeliveries> {
-        self.deliveries.take().map(|d| SealedDeliveries {
-            deliveries: d,
-            seal: self.seal.clone(),
-        })
+        self.deliveries
+            .take()
+            .map(|d| Sealed::new(d, self.seal.clone()))
     }
 
     /// Apply every per-frame output via

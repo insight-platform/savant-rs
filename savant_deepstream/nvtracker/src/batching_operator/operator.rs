@@ -167,6 +167,20 @@ impl NvTrackerBatchingOperator {
         self.ctx.nvtracker.send_eos(source_id)
     }
 
+    /// Force-flush pending rescue-eligible custom-downstream events
+    /// inside the inner `nvtracker` pipeline when the GStreamer pipeline
+    /// is idle.
+    ///
+    /// Delegates to [`NvTracker::flush_idle`]; see that method and
+    /// [`savant_gstreamer::pipeline::GstPipeline::flush_idle`] for full
+    /// semantics.  Returns the number of events flushed.
+    pub fn flush_idle(&self) -> Result<usize> {
+        if self.ctx.draining.load(Ordering::Acquire) {
+            return Err(NvTrackerError::OperatorShutdown);
+        }
+        self.ctx.nvtracker.flush_idle()
+    }
+
     /// Forward stream reset to the inner tracker.
     pub fn reset_stream(&self, source_id: &str) -> Result<()> {
         if self.ctx.draining.load(Ordering::Acquire) {

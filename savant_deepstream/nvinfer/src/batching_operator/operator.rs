@@ -176,6 +176,23 @@ impl NvInferBatchingOperator {
         self.ctx.nvinfer.send_eos(source_id)
     }
 
+    /// Force-flush pending rescue-eligible custom-downstream events
+    /// inside the inner `nvinfer` pipeline when the GStreamer pipeline
+    /// is idle.
+    ///
+    /// Delegates to [`NvInfer::flush_idle`]; see that method and
+    /// [`savant_gstreamer::pipeline::GstPipeline::flush_idle`] for full
+    /// semantics.  Callers typically invoke this from their own
+    /// `recv_timeout(Timeout)` branch so trailing per-source EOS markers
+    /// are not left stuck inside the nvinfer element until full
+    /// shutdown.  Returns the number of events flushed.
+    pub fn flush_idle(&self) -> Result<usize> {
+        if self.ctx.draining.load(Ordering::Acquire) {
+            return Err(NvInferError::OperatorShutdown);
+        }
+        self.ctx.nvinfer.flush_idle()
+    }
+
     /// Graceful shutdown: reject new frames, flush pending batch, collect in-flight
     /// operator outputs until `timeout`, then stop threads and [`NvInfer`].
     pub fn graceful_shutdown(&mut self, timeout: Duration) -> Result<Vec<OperatorOutput>> {

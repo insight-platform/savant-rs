@@ -1397,7 +1397,7 @@ class SealedDelivery:
 
     def unseal(
         self, timeout_ms: Optional[int] = None
-    ) -> Optional[Tuple[VideoFrame, SharedBuffer]]:
+    ) -> Tuple[VideoFrame, SharedBuffer]:
         """Block until the :class:`FlexibleDecoderOutput` is dropped, then
         return the ``(VideoFrame, SharedBuffer)`` pair.
 

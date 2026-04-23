@@ -1062,7 +1062,7 @@ fn test_take_delivery() {
     assert!(sealed.is_released());
 
     // Unseal and verify.
-    let (proxy, buffer) = sealed.unseal().expect("delivery must be present");
+    let (proxy, buffer) = sealed.unseal();
     assert_eq!(proxy.get_uuid_u128(), submitted_uuid);
     let guard = buffer.lock();
     assert!(guard.as_ref().size() > 0, "SharedBuffer must hold data");
