@@ -27,6 +27,7 @@
 //!
 //! See [`function`] for the canonical example.
 
+pub mod bitstream_function;
 pub mod decoder;
 pub mod function;
 pub mod mp4_demuxer;
@@ -35,6 +36,12 @@ pub mod nvinfer;
 pub mod nvtracker;
 pub mod picasso;
 
+pub use bitstream_function::{
+    BitstreamFunction, BitstreamFunctionBuilder, BitstreamFunctionCommon,
+    BitstreamFunctionCommonBuilder, BitstreamFunctionInbox, BitstreamFunctionInboxBuilder,
+    OnStartedHook as BitstreamFunctionOnStartedHook,
+    OnStoppingHook as BitstreamFunctionOnStoppingHook,
+};
 pub use decoder::{
     Decoder, DecoderBuilder, DecoderCommon, DecoderCommonBuilder, DecoderInbox,
     DecoderInboxBuilder, DecoderResults, DecoderResultsBuilder,

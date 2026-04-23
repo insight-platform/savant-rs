@@ -63,8 +63,9 @@ use savant_perception::shutdown::{ShutdownAction, ShutdownCause, ShutdownCtx};
 use savant_perception::supervisor::{StageKind, StageName};
 use savant_perception::templates::decoder::make_decode_frame;
 use savant_perception::templates::{
-    Decoder, DecoderResults, Function, FunctionInbox, Mp4DemuxerResults, Mp4DemuxerSource,
-    Mp4Muxer, NvInfer, NvInferResults, NvTracker, NvTrackerResults, Picasso, PicassoInbox,
+    BitstreamFunction, BitstreamFunctionInbox, Decoder, DecoderResults, Function, FunctionInbox,
+    Mp4DemuxerResults, Mp4DemuxerSource, Mp4Muxer, NvInfer, NvInferResults, NvTracker,
+    NvTrackerResults, Picasso, PicassoInbox,
 };
 use savant_perception::{Flow, HookCtx, System};
 
@@ -96,7 +97,14 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     if !cli.input.is_file() {
         bail!("input file does not exist: {}", cli.input.display());
     }
-    if cli.picasso_enabled {
+    // The `--output null` sentinel (`output_is_null = true`) keeps
+    // Picasso running but redirects the encoded bitstream into a
+    // `BitstreamFunction` terminus instead of an MP4 file, so in
+    // that mode `cli.output` is intentionally `None` and the
+    // filesystem check must be skipped.  Only require an output
+    // path when Picasso is enabled *and* the user did not opt into
+    // the null sentinel.
+    if cli.picasso_enabled && !cli.output_is_null {
         let out = cli
             .output
             .as_ref()
@@ -139,10 +147,10 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let decoder_stage = make_stage("decoder");
     let infer_stage = make_stage("infer");
     let track_stage = make_stage("track");
-    let tail_stage_name = if cli.picasso_enabled {
-        "encode"
-    } else {
-        "function"
+    let tail_stage_name = match (cli.picasso_enabled, cli.output_is_null) {
+        (true, true) => "bitstream",
+        (true, false) => "encode",
+        (false, _) => "function",
     };
     let tail_stage = make_stage(tail_stage_name);
     core_stats.add_stage_stats(decoder_stage.clone());
@@ -494,17 +502,74 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
             .build()?;
         sys.register_actor(picasso)?;
 
-        let output_path = cli
-            .output
-            .as_ref()
-            .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?
-            .to_string_lossy()
-            .into_owned();
-        let muxer = Mp4Muxer::builder(mp4_mux_name.clone(), cli.channel_cap)
-            .output(output_path)
-            .framerate(cli.fps_num, cli.fps_den)
-            .build()?;
-        sys.register_actor(muxer)?;
+        if cli.output_is_null {
+            // `--output null`: Picasso's encoder callback still
+            // produces `EncodedMsg::Frame` deliveries, but instead
+            // of muxing them into an MP4 we route them into a
+            // `BitstreamFunction` terminus that simply drops
+            // them.  The BitstreamFunction is registered under
+            // `mp4_mux_name` so picasso's already-installed
+            // default downstream peer resolves to it without any
+            // change in the picasso block above.
+            //
+            // IMPORTANT — stats accounting:
+            //
+            // In **every** picasso-enabled configuration
+            // (`--output <file>` *and* `--output null`) the
+            // canonical per-encoded-frame tick site is
+            // [`StatsEncodedSink::call`] on picasso's encoder
+            // thread: it increments the tail [`StageStats`], the
+            // core [`Stats`], and `PipelineStats.encoded_bytes`
+            // exactly once before routing the
+            // [`EncodedMsg::Frame`] onward.
+            //
+            // Because of that, the `on_frame` hook on the
+            // `BitstreamFunction` terminus **must not** tick
+            // stats — doing so would double-count every encoded
+            // frame (once on the encoder thread, once on the
+            // bitstream-terminus thread) and report 2× the real
+            // FPS / bytes.  The symptom was observed during
+            // bring-up (250 FPS instead of the ~125 FPS measured
+            // on the Mp4Muxer path).  We therefore leave
+            // `on_frame` / `on_packet` / `on_stream_info` at the
+            // default drop-on-receive no-op and only override
+            // `on_source_eos` to give the terminus the
+            // loop-exit semantics the supervisor needs.
+            let bitstream_terminus =
+                BitstreamFunction::builder(mp4_mux_name.clone(), cli.channel_cap)
+                    .inbox(
+                        BitstreamFunctionInbox::builder()
+                            // Terminus semantics: the first
+                            // `SourceEos` means the picasso
+                            // encoder has drained, so exit the
+                            // loop and let
+                            // `cars_shutdown_handler`
+                            // broadcast Shutdown to upstream
+                            // stages.
+                            .on_source_eos(|source_id, _router, ctx| {
+                                log::info!(
+                                    "[{}] SourceEos {source_id}: bitstream terminus exiting",
+                                    ctx.own_name()
+                                );
+                                Ok(Flow::Stop)
+                            })
+                            .build(),
+                    )
+                    .build();
+            sys.register_actor(bitstream_terminus)?;
+        } else {
+            let output_path = cli
+                .output
+                .as_ref()
+                .ok_or_else(|| anyhow!("picasso enabled but output path is missing"))?
+                .to_string_lossy()
+                .into_owned();
+            let muxer = Mp4Muxer::builder(mp4_mux_name.clone(), cli.channel_cap)
+                .output(output_path)
+                .framerate(cli.fps_num, cli.fps_den)
+                .build()?;
+            sys.register_actor(muxer)?;
+        }
     } else {
         let function = Function::builder(function_name.clone(), cli.channel_cap)
             .inbox(
@@ -809,6 +874,7 @@ mod tests {
             fps_den: 1,
             draw_enabled: true,
             picasso_enabled: true,
+            output_is_null: false,
         };
         let err = run(cli).unwrap_err();
         assert!(
