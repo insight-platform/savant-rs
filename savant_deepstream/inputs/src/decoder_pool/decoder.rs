@@ -212,6 +212,7 @@ impl FlexibleDecoderPool {
             match decoder.flush_idle() {
                 Ok(n) => total += n,
                 Err(e) => {
+                    log::warn!("flush_idle: decoder error: {e}");
                     if first_err.is_none() {
                         first_err = Some(e);
                     }
