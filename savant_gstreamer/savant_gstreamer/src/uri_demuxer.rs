@@ -114,21 +114,31 @@ fn insert_byte_stream_capsfilter(
         .add(&capsfilter)
         .map_err(|e| ParserChainError(format!("add capsfilter: {e}")))?;
 
-    let capsf_src = capsfilter
-        .static_pad("src")
-        .ok_or_else(|| ParserChainError("capsfilter src pad".into()))?;
-    capsf_src
-        .link(queue_sink_pad)
-        .map_err(|e| ParserChainError(format!("capsfilter->queue: {e}")))?;
+    let link_and_sync = (|| -> Result<gst::Pad, ParserChainError> {
+        let capsf_src = capsfilter
+            .static_pad("src")
+            .ok_or_else(|| ParserChainError("capsfilter src pad".into()))?;
+        capsf_src
+            .link(queue_sink_pad)
+            .map_err(|e| ParserChainError(format!("capsfilter->queue: {e}")))?;
 
-    capsfilter
-        .sync_state_with_parent()
-        .map_err(|_| ParserChainError("StateChangeFailed".into()))?;
+        capsfilter
+            .sync_state_with_parent()
+            .map_err(|_| ParserChainError("StateChangeFailed".into()))?;
 
-    let capsf_sink = capsfilter
-        .static_pad("sink")
-        .ok_or_else(|| ParserChainError("capsfilter sink pad missing".into()))?;
-    Ok(Some(capsf_sink))
+        capsfilter
+            .static_pad("sink")
+            .ok_or_else(|| ParserChainError("capsfilter sink pad missing".into()))
+    })();
+
+    match link_and_sync {
+        Ok(capsf_sink) => Ok(Some(capsf_sink)),
+        Err(e) => {
+            let _ = capsfilter.set_state(gst::State::Null);
+            let _ = pipeline.remove(&capsfilter);
+            Err(e)
+        }
+    }
 }
 
 /// Very cheap syntactic URI check: requires a leading scheme and `://`.
@@ -136,14 +146,16 @@ fn insert_byte_stream_capsfilter(
 /// This only rejects obviously malformed values up front; GStreamer does the
 /// real validation at state-change time.
 fn is_plausible_uri(uri: &str) -> bool {
-    let trimmed = uri.trim();
-    let Some(scheme_end) = trimmed.find("://") else {
+    let Some(scheme_end) = uri.find("://") else {
         return false;
     };
     if scheme_end == 0 {
         return false;
     }
-    let scheme = &trimmed[..scheme_end];
+    if uri.len() <= scheme_end + 3 {
+        return false;
+    }
+    let scheme = &uri[..scheme_end];
     scheme
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
@@ -371,15 +383,16 @@ impl UriDemuxer {
     {
         let _ = gst::init();
 
-        if config.uri.trim().is_empty() {
+        let uri = config.uri.trim().to_string();
+        if uri.is_empty() {
             return Err(UriDemuxerError::MissingUri);
         }
 
         // Validate the URI string: require a scheme separator. GStreamer itself
         // validates more strictly during state change, but we reject obviously
         // malformed values up front so the caller gets a typed error.
-        if !is_plausible_uri(&config.uri) {
-            return Err(UriDemuxerError::InvalidUri(config.uri.clone()));
+        if !is_plausible_uri(&uri) {
+            return Err(UriDemuxerError::InvalidUri(uri));
         }
 
         let pipeline = gst::Pipeline::new();
@@ -388,7 +401,7 @@ impl UriDemuxer {
             .name("uri-src")
             .build()
             .map_err(|e| UriDemuxerError::ElementCreation(format!("urisourcebin: {e}")))?;
-        urisrc.set_property("uri", &config.uri);
+        urisrc.set_property("uri", &uri);
 
         // Apply user-supplied bin properties.
         for (name, value) in &config.bin_properties {
@@ -477,10 +490,16 @@ impl UriDemuxer {
             let source_properties = config.source_properties.clone();
             let on_output_ss = on_output.clone();
             urisrc.connect("source-setup", false, move |args| {
-                let source = args
-                    .get(1)
-                    .and_then(|v| v.get::<gst::Element>().ok())
-                    .expect("source-setup provides the source element");
+                let Some(source) = args.get(1).and_then(|v| v.get::<gst::Element>().ok())
+                else {
+                    on_output_ss(UriDemuxerOutput::Error(UriDemuxerError::PipelineError {
+                        src: "urisourcebin".into(),
+                        msg: "source-setup signal: missing or invalid source element argument"
+                            .into(),
+                        debug: String::new(),
+                    }));
+                    return None;
+                };
                 let factory_name = source
                     .factory()
                     .map(|f| f.name().to_string())
@@ -566,6 +585,7 @@ impl UriDemuxer {
             let stream_info_fired_pad = stream_info_fired.clone();
             let info_pair_pad = info_pair.clone();
             let emit_stream_info_pad = emit_stream_info.clone();
+            let on_output_parse_pad = on_output.clone();
             let parsed = config.parsed;
             parsebin.connect_pad_added(move |_parsebin, src_pad| {
                 if linked_video_pad_closure.load(Ordering::SeqCst) {
@@ -618,7 +638,16 @@ impl UriDemuxer {
                     ) {
                         Ok(Some(capsf_sink)) => capsf_sink,
                         Ok(None) => queue_sink_pad_for_pad.clone(),
-                        Err(_) => queue_sink_pad_for_pad.clone(),
+                        Err(e) => {
+                            log::error!(
+                                "UriDemuxer: byte-stream capsfilter insertion failed: {:?}",
+                                e
+                            );
+                            on_output_parse_pad(UriDemuxerOutput::Error(
+                                UriDemuxerError::from(e),
+                            ));
+                            return;
+                        }
                     }
                 } else {
                     queue_sink_pad_for_pad.clone()
