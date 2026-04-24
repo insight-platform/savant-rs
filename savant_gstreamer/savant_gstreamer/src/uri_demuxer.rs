@@ -512,9 +512,40 @@ impl UriDemuxer {
                     return;
                 };
                 if parse_sink.is_linked() {
-                    // More than one stream from urisourcebin; parsebin already handles one.
                     return;
                 }
+
+                // For multi-stream sources (e.g. RTSP), urisourcebin emits
+                // separate pads per stream.  Only link non-audio pads so that
+                // an audio pad arriving first does not steal the single
+                // parsebin sink slot and cause the video stream to be dropped.
+                let is_audio = src_pad
+                    .current_caps()
+                    .or_else(|| Some(src_pad.query_caps(None)))
+                    .and_then(|caps| {
+                        caps.structure(0).map(|s| {
+                            let name = s.name();
+                            if name.starts_with("audio/") {
+                                return true;
+                            }
+                            if name == "application/x-rtp" {
+                                if let Ok(media) = s.get::<&str>("media") {
+                                    return media == "audio";
+                                }
+                            }
+                            false
+                        })
+                    })
+                    .unwrap_or(false);
+
+                if is_audio {
+                    log::debug!(
+                        "UriDemuxer: skipping audio urisourcebin pad {}",
+                        src_pad.name()
+                    );
+                    return;
+                }
+
                 if let Err(e) = src_pad.link(&parse_sink) {
                     on_output_uri_pad(UriDemuxerOutput::Error(UriDemuxerError::LinkError(
                         format!("urisourcebin->parsebin: {e}"),
