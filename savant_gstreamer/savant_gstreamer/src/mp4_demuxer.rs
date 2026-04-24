@@ -29,30 +29,11 @@ use thiserror::Error;
 
 use savant_core::primitives::video_codec::VideoCodec;
 
-/// A single demuxed elementary stream packet.
-#[derive(Debug, Clone)]
-pub struct DemuxedPacket {
-    pub data: Vec<u8>,
-    pub pts_ns: u64,
-    pub dts_ns: Option<u64>,
-    pub duration_ns: Option<u64>,
-    pub is_keyframe: bool,
-}
-
-/// Video-stream metadata extracted from container caps at demux time.
-///
-/// Dimensions are the **encoded** width/height — QuickTime display-orientation
-/// metadata is NOT applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VideoInfo {
-    pub codec: VideoCodec,
-    pub width: u32,
-    pub height: u32,
-    /// Framerate numerator. `0` if the container does not advertise a rate.
-    pub framerate_num: u32,
-    /// Framerate denominator. `1` if the container does not advertise a rate.
-    pub framerate_den: u32,
-}
+use crate::demux::helpers::{
+    build_parser_chain, sample_to_packet, signal_done, signal_info_done, ParserChainError,
+    SampleError,
+};
+pub use crate::demux::{DemuxedPacket, VideoInfo};
 
 /// Errors that can occur during demuxing.
 #[derive(Debug, Error)]
@@ -194,15 +175,22 @@ impl Mp4Demuxer {
         let info_pair = Arc::new((Mutex::new(false), Condvar::new()));
         let done_pair = Arc::new((Mutex::new(false), Condvar::new()));
 
+        // Adapter: the shared helpers emit only `VideoInfo`; the mp4 demuxer wraps
+        // that into `Mp4DemuxerOutput::StreamInfo`.
+        let emit_stream_info: Arc<dyn Fn(VideoInfo) + Send + Sync> = {
+            let on_output = on_output.clone();
+            Arc::new(move |info: VideoInfo| on_output(Mp4DemuxerOutput::StreamInfo(info)))
+        };
+
         // Dynamic pad linking (qtdemux -> parser? -> queue)
         let linked_video_pad = Arc::new(AtomicBool::new(false));
         let linked_video_pad_closure = linked_video_pad.clone();
         let pipeline_for_pad = pipeline.clone();
-        let on_output_pad = on_output.clone();
         let detected_codec_pad = detected_codec.clone();
         let video_info_pad = video_info.clone();
         let stream_info_fired_pad = stream_info_fired.clone();
         let info_pair_pad = info_pair.clone();
+        let emit_stream_info_pad = emit_stream_info.clone();
         demux.connect_pad_added(move |_demux, src_pad| {
             if linked_video_pad_closure.load(Ordering::SeqCst) {
                 return;
@@ -222,13 +210,13 @@ impl Mp4Demuxer {
                 return;
             }
 
-            maybe_emit_stream_info_from_caps(
+            crate::demux::helpers::maybe_emit_stream_info_from_caps(
                 caps.as_ref().map(|c| c.as_ref()),
                 &detected_codec_pad,
                 &video_info_pad,
                 &stream_info_fired_pad,
                 &info_pair_pad,
-                on_output_pad.as_ref(),
+                emit_stream_info_pad.as_ref(),
             );
 
             if queue_sink_pad.is_linked() {
@@ -263,6 +251,7 @@ impl Mp4Demuxer {
             let finished_sample = finished.clone();
             let info_pair_sample = info_pair.clone();
             let done_pair_sample = done_pair.clone();
+            let emit_stream_info_sample = emit_stream_info.clone();
 
             let on_output_eos = on_output.clone();
             let finished_eos = finished.clone();
@@ -282,7 +271,7 @@ impl Mp4Demuxer {
                             &video_info_sample,
                             &stream_info_fired_sample,
                             &info_pair_sample,
-                            on_output_sample.as_ref(),
+                            emit_stream_info_sample.as_ref(),
                         ) {
                             Ok(pkt) => {
                                 on_output_sample(Mp4DemuxerOutput::Packet(pkt));
@@ -290,7 +279,9 @@ impl Mp4Demuxer {
                             }
                             Err(e) => {
                                 if !finished_sample.swap(true, Ordering::SeqCst) {
-                                    on_output_sample(Mp4DemuxerOutput::Error(e));
+                                    on_output_sample(Mp4DemuxerOutput::Error(
+                                        Mp4DemuxerError::from(e),
+                                    ));
                                     signal_info_done(&info_pair_sample);
                                     signal_done(&done_pair_sample);
                                 }
@@ -492,239 +483,20 @@ impl Drop for Mp4Demuxer {
     }
 }
 
-/// Notify the condvar that the demuxer is done.
-fn signal_done(done_pair: &(Mutex<bool>, Condvar)) {
-    let (lock, cvar) = done_pair;
-    *lock.lock().unwrap() = true;
-    cvar.notify_all();
-}
-
-/// Notify the condvar that stream info is known or unavailable because the
-/// pipeline has already terminated.
-fn signal_info_done(info_pair: &(Mutex<bool>, Condvar)) {
-    let (lock, cvar) = info_pair;
-    *lock.lock().unwrap() = true;
-    cvar.notify_all();
-}
-
-/// Build [`VideoInfo`] from caps, when enough fields are available.
-fn video_info_from_caps(caps: &gst::CapsRef) -> Option<VideoInfo> {
-    let codec = codec_from_caps(caps)?;
-    let s = caps.structure(0)?;
-    let width = s
-        .get::<i32>("width")
-        .ok()
-        .and_then(|v| u32::try_from(v).ok())?;
-    let height = s
-        .get::<i32>("height")
-        .ok()
-        .and_then(|v| u32::try_from(v).ok())?;
-    let (framerate_num, framerate_den) = s
-        .get::<gst::Fraction>("framerate")
-        .ok()
-        .map(|f| (u32::try_from(f.numer()).ok(), u32::try_from(f.denom()).ok()))
-        .map(|(num, den)| (num.unwrap_or(0), den.unwrap_or(1)))
-        .unwrap_or((0, 1));
-    Some(VideoInfo {
-        codec,
-        width,
-        height,
-        framerate_num,
-        framerate_den,
-    })
-}
-
-/// Try to detect and emit stream info from caps exactly once.
-fn maybe_emit_stream_info_from_caps<F>(
-    caps: Option<&gst::CapsRef>,
-    detected_codec: &Mutex<Option<VideoCodec>>,
-    video_info: &Mutex<Option<VideoInfo>>,
-    stream_info_fired: &AtomicBool,
-    info_pair: &(Mutex<bool>, Condvar),
-    on_output: &F,
-) where
-    F: Fn(Mp4DemuxerOutput) + Send + Sync + ?Sized,
-{
-    let Some(caps) = caps else {
-        return;
-    };
-
-    let maybe_codec = codec_from_caps(caps);
-    if let Some(codec) = maybe_codec {
-        let mut detected_codec_guard = detected_codec.lock().unwrap();
-        if detected_codec_guard.is_none() {
-            *detected_codec_guard = Some(codec);
+impl From<SampleError> for Mp4DemuxerError {
+    fn from(e: SampleError) -> Self {
+        Mp4DemuxerError::PipelineError {
+            src: e.src,
+            msg: e.msg,
+            debug: e.debug,
         }
     }
-
-    let Some(info) = video_info_from_caps(caps) else {
-        return;
-    };
-
-    // Write `video_info` before flipping `stream_info_fired` so readers that
-    // take the fast path (`stream_info_fired.load()` -> `video_info()`) never
-    // observe the atomic set without the corresponding `video_info` value.
-    {
-        let mut guard = video_info.lock().unwrap();
-        if guard.is_some() {
-            return;
-        }
-        *guard = Some(info);
-    }
-
-    if stream_info_fired
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_ok()
-    {
-        signal_info_done(info_pair);
-        on_output(Mp4DemuxerOutput::StreamInfo(info));
-    }
 }
 
-/// Convert a GStreamer sample to a [`DemuxedPacket`], updating
-/// `detected_codec` on the first sample with caps.
-fn sample_to_packet<F>(
-    sample: gst::Sample,
-    detected_codec: &Mutex<Option<VideoCodec>>,
-    video_info: &Mutex<Option<VideoInfo>>,
-    stream_info_fired: &AtomicBool,
-    info_pair: &(Mutex<bool>, Condvar),
-    on_output: &F,
-) -> Result<DemuxedPacket, Mp4DemuxerError>
-where
-    F: Fn(Mp4DemuxerOutput) + Send + Sync + ?Sized,
-{
-    maybe_emit_stream_info_from_caps(
-        sample.caps(),
-        detected_codec,
-        video_info,
-        stream_info_fired,
-        info_pair,
-        on_output,
-    );
-
-    let Some(buffer) = sample.buffer() else {
-        return Err(Mp4DemuxerError::PipelineError {
-            src: "appsink".to_string(),
-            msg: "sample has no buffer".to_string(),
-            debug: String::new(),
-        });
-    };
-    let map = buffer
-        .map_readable()
-        .map_err(|e| Mp4DemuxerError::PipelineError {
-            src: "appsink".to_string(),
-            msg: format!("unable to map buffer: {e}"),
-            debug: String::new(),
-        })?;
-    let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
-    let dts_ns = buffer.dts().map(|t| t.nseconds());
-    let duration_ns = buffer.duration().map(|t| t.nseconds());
-    let is_keyframe = !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT);
-    Ok(DemuxedPacket {
-        data: map.as_slice().to_vec(),
-        pts_ns,
-        dts_ns,
-        duration_ns,
-        is_keyframe,
-    })
-}
-
-/// Map GStreamer caps to a [`VideoCodec`] value.
-fn codec_from_caps(caps: &gst::CapsRef) -> Option<VideoCodec> {
-    let s = caps.structure(0)?;
-    match s.name().as_str() {
-        "video/x-h264" => Some(VideoCodec::H264),
-        "video/x-h265" => Some(VideoCodec::Hevc),
-        "video/x-av1" => Some(VideoCodec::Av1),
-        "video/x-vp8" => Some(VideoCodec::Vp8),
-        "video/x-vp9" => Some(VideoCodec::Vp9),
-        "image/jpeg" => Some(VideoCodec::Jpeg),
-        "image/png" => Some(VideoCodec::Png),
-        _ => None,
+impl From<ParserChainError> for Mp4DemuxerError {
+    fn from(e: ParserChainError) -> Self {
+        Mp4DemuxerError::ElementCreation(e.0)
     }
-}
-
-/// Dynamically insert a codec-specific parser (+ byte-stream capsfilter for
-/// H.264/HEVC) between the qtdemux pad and the queue.  Returns the parser's
-/// sink pad so the caller can link qtdemux's src_pad to it.
-fn build_parser_chain(
-    pipeline: &gst::Pipeline,
-    codec_name: Option<&str>,
-    queue_sink_pad: &gst::Pad,
-) -> Result<gst::Pad, Mp4DemuxerError> {
-    let (factory, needs_byte_stream_caps) = match codec_name {
-        Some("video/x-h264") => ("h264parse", true),
-        Some("video/x-h265") => ("h265parse", true),
-        Some("video/x-av1") => ("av1parse", false),
-        Some("video/x-vp8") => ("vp8parse", false),
-        Some("video/x-vp9") => ("vp9parse", false),
-        Some("image/jpeg") => ("jpegparse", false),
-        _ => return Err(Mp4DemuxerError::ElementCreation("no parser needed".into())),
-    };
-
-    let parser = gst::ElementFactory::make(factory)
-        .name("demux-parser")
-        .build()
-        .map_err(|e| Mp4DemuxerError::ElementCreation(format!("{factory}: {e}")))?;
-
-    if needs_byte_stream_caps {
-        parser.set_property("config-interval", -1i32);
-    }
-
-    pipeline
-        .add(&parser)
-        .map_err(|e| Mp4DemuxerError::LinkError(format!("add parser: {e}")))?;
-
-    if needs_byte_stream_caps {
-        let media = if factory == "h264parse" {
-            "video/x-h264"
-        } else {
-            "video/x-h265"
-        };
-        let caps = gst::Caps::builder(media)
-            .field("stream-format", "byte-stream")
-            .build();
-        let capsfilter = gst::ElementFactory::make("capsfilter")
-            .name("demux-parser-capsf")
-            .property("caps", &caps)
-            .build()
-            .map_err(|e| Mp4DemuxerError::ElementCreation(format!("capsfilter: {e}")))?;
-
-        pipeline
-            .add(&capsfilter)
-            .map_err(|e| Mp4DemuxerError::LinkError(format!("add capsfilter: {e}")))?;
-
-        parser
-            .link(&capsfilter)
-            .map_err(|e| Mp4DemuxerError::LinkError(format!("parser->capsfilter: {e}")))?;
-
-        let capsf_src = capsfilter
-            .static_pad("src")
-            .ok_or_else(|| Mp4DemuxerError::ElementCreation("capsfilter src pad".into()))?;
-        capsf_src
-            .link(queue_sink_pad)
-            .map_err(|e| Mp4DemuxerError::LinkError(format!("capsfilter->queue: {e}")))?;
-
-        capsfilter
-            .sync_state_with_parent()
-            .map_err(|_| Mp4DemuxerError::StateChangeFailed)?;
-    } else {
-        let parser_src = parser
-            .static_pad("src")
-            .ok_or_else(|| Mp4DemuxerError::ElementCreation("parser src pad".into()))?;
-        parser_src
-            .link(queue_sink_pad)
-            .map_err(|e| Mp4DemuxerError::LinkError(format!("parser->queue: {e}")))?;
-    }
-
-    parser
-        .sync_state_with_parent()
-        .map_err(|_| Mp4DemuxerError::StateChangeFailed)?;
-
-    parser
-        .static_pad("sink")
-        .ok_or_else(|| Mp4DemuxerError::ElementCreation("parser sink pad missing".into()))
 }
 
 #[cfg(test)]
@@ -758,6 +530,7 @@ mod tests {
 
     #[test]
     fn test_codec_from_caps_mapping() {
+        use crate::demux::helpers::codec_from_caps;
         let _ = gst::init();
         let h264 = gst::Caps::from_str("video/x-h264").unwrap();
         let hevc = gst::Caps::from_str("video/x-h265").unwrap();

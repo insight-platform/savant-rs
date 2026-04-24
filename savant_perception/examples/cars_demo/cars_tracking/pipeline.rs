@@ -1,8 +1,13 @@
 //! End-to-end streaming orchestrator for the `cars_tracking` sample.
 //!
 //! ```text
-//! Mp4Demuxer -> FlexibleDecoderPool -> NvInfer -> NvTracker -> Picasso -> Mp4Muxer
+//! Mp4Demuxer | UriDemuxer -> FlexibleDecoderPool -> NvInfer -> NvTracker -> Picasso -> Mp4Muxer
 //! ```
+//!
+//! The demuxer actor is selected from the resolved CLI input: a
+//! filesystem path uses [`Mp4DemuxerSource`] (bit-identical legacy
+//! behaviour); a URI (`file://`, `http://`, `rtsp://`, `rtmp://`,
+//! `hls://`, …) uses [`UriDemuxerSource`].
 //!
 //! This module is **orchestration only** — per-actor behaviour lives
 //! inside the framework Layer-B templates
@@ -56,7 +61,7 @@ use crate::cars_tracking::stats::{
     make_stage, stage_frames, stage_objects, tick_stage, PipelineStats,
 };
 use crate::cars_tracking::warmup::prepare_nvinfer_operator;
-use crate::cli::ResolvedCli;
+use crate::cli::{InputSource, ResolvedCli};
 use savant_perception::envelopes::{EncodedMsg, PipelineMsg};
 use savant_perception::router::Router;
 use savant_perception::shutdown::{ShutdownAction, ShutdownCause, ShutdownCtx};
@@ -65,7 +70,7 @@ use savant_perception::templates::decoder::make_decode_frame;
 use savant_perception::templates::{
     BitstreamFunction, BitstreamFunctionInbox, Decoder, DecoderResults, Function, FunctionInbox,
     Mp4DemuxerResults, Mp4DemuxerSource, Mp4Muxer, NvInfer, NvInferResults, NvTracker,
-    NvTrackerResults, Picasso, PicassoInbox,
+    NvTrackerResults, Picasso, PicassoInbox, UriDemuxerResults, UriDemuxerSource,
 };
 use savant_perception::{Flow, HookCtx, System};
 
@@ -94,8 +99,18 @@ const ROLE_TAIL: &str = "tail";
 /// Run the cars-tracking pipeline end-to-end.  Blocks until the input
 /// MP4 is fully processed and the output MP4 is finalized.
 pub fn run(cli: ResolvedCli) -> Result<()> {
-    if !cli.input.is_file() {
-        bail!("input file does not exist: {}", cli.input.display());
+    // Path inputs still need the existence / file-type guard here
+    // (the CLI validates existence, but re-checking at pipeline
+    // entry catches unit-test ResolvedCli literals and late
+    // filesystem changes).  URI inputs are opaque — any addressing
+    // error surfaces when the URI demuxer actually starts.
+    match &cli.input {
+        InputSource::Path(p) => {
+            if !p.is_file() {
+                bail!("input file does not exist: {}", p.display());
+            }
+        }
+        InputSource::Uri(_) => {}
     }
     // The `--output null` sentinel (`output_is_null = true`) keeps
     // Picasso running but redirects the encoded bitstream into a
@@ -121,7 +136,7 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
 
     log::info!(
         "cars-demo starting: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} picasso_enabled={} draw_enabled={} debug={}",
-        cli.input.display(),
+        cli.input,
         cli.output
             .as_ref()
             .map(|p| p.display().to_string())
@@ -162,7 +177,14 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
     let tracker_stats = Arc::new(TrackerStats::new());
 
     // ── Stage identities ────────────────────────────────────────────────
-    let demux_name = StageName::unnamed(StageKind::Mp4Demux);
+    //
+    // The demuxer's stage-kind tracks the resolved input variant so
+    // logs and supervisor policy can disambiguate `mp4_demux` vs
+    // `uri_demux` pipelines.
+    let demux_name = match &cli.input {
+        InputSource::Path(_) => StageName::unnamed(StageKind::Mp4Demux),
+        InputSource::Uri(_) => StageName::unnamed(StageKind::UriDemux),
+    };
     let decoder_name = StageName::unnamed(StageKind::Decoder);
     let infer_name = StageName::unnamed(StageKind::Infer);
     let tracker_name = StageName::unnamed(StageKind::Tracker);
@@ -209,41 +231,83 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
 
     // ── Demuxer source ──────────────────────────────────────────────────
     //
-    // The `Mp4DemuxerSource` template never calls `router.send` itself.
-    // Every downstream dispatch below happens inside user code — the
-    // variant hooks receive `&Router<EncodedMsg>` and the sample
-    // chooses the default peer via plain `router.send(...)`.  Source
-    // operators that need to route differently per `source_id` (e.g.
-    // fan out to distinct decoder pools) would call
+    // Neither the `Mp4DemuxerSource` nor the `UriDemuxerSource`
+    // template calls `router.send` itself.  Every downstream
+    // dispatch below happens inside user code — the variant hooks
+    // receive `&Router<EncodedMsg>` and the sample chooses the
+    // default peer via plain `router.send(...)`.  Source operators
+    // that need to route differently per `source_id` (e.g. fan out
+    // to distinct decoder pools) would call
     // `router.send_to(&decoder_for(&source_id), msg)` here instead.
     //
     // Note: we build the `VideoFrameProxy` on the **demuxer side**
     // via `make_decode_frame` + `EncodedMsg::Frame`.  Swap this for
-    // `Mp4DemuxerSource::default_on_packet()` if you want the
+    // `*DemuxerSource::default_on_packet()` if you want the
     // downstream decoder to own frame construction — the decoder
     // no longer tracks `VideoInfo` state, every
     // `EncodedMsg::Packet` carries it in-band instead.
-    let demux_src = Mp4DemuxerSource::builder(demux_name.clone())
-        .input(cli.input.to_string_lossy().into_owned())
-        .source_id(SOURCE_ID)
-        .downstream(decoder_name.clone())
-        .results(
-            Mp4DemuxerResults::builder()
-                .on_packet(|pkt, info, source_id, router, ctx| {
-                    if let Some(stats) = ctx.shared::<PipelineStats>() {
-                        stats.demux_packets.fetch_add(1, Ordering::Relaxed);
-                    }
-                    let frame = make_decode_frame(source_id, &pkt, info);
-                    router.send(EncodedMsg::Frame {
-                        frame,
-                        payload: Some(pkt.data),
-                    });
-                    Ok(())
-                })
-                .build(),
-        )
-        .build()?;
-    sys.register_source(demux_src)?;
+    //
+    // Dispatch on the resolved input variant to register the
+    // matching demuxer actor.  Both branches share the same
+    // `on_packet` body (envelope types are identical across the two
+    // demuxer templates); only the underlying GStreamer driver
+    // differs.
+    match cli.input.clone() {
+        InputSource::Path(path) => {
+            let demux_src = Mp4DemuxerSource::builder(demux_name.clone())
+                .input(path.to_string_lossy().into_owned())
+                .source_id(SOURCE_ID)
+                .downstream(decoder_name.clone())
+                .results(
+                    Mp4DemuxerResults::builder()
+                        .on_packet(|pkt, info, source_id, router, ctx| {
+                            if let Some(stats) = ctx.shared::<PipelineStats>() {
+                                stats.demux_packets.fetch_add(1, Ordering::Relaxed);
+                            }
+                            let frame = make_decode_frame(source_id, &pkt, info);
+                            router.send(EncodedMsg::Frame {
+                                frame,
+                                payload: Some(pkt.data),
+                            });
+                            Ok(())
+                        })
+                        .build(),
+                )
+                .build()?;
+            sys.register_source(demux_src)?;
+        }
+        InputSource::Uri(uri) => {
+            // `UriDemuxerSource` drives `urisourcebin` + `parsebin`
+            // under the hood and is suitable for file://, http://,
+            // rtsp://, rtmp://, hls://, … URIs.  Bin/source property
+            // maps are empty: defaults work for file:// and most
+            // public RTSP/HTTP sources.  Custom properties
+            // (e.g. `rtspsrc.latency`) can be plumbed through the
+            // builder's `.bin_properties(...)` /
+            // `.source_properties(...)` setters.
+            let demux_src = UriDemuxerSource::builder(demux_name.clone())
+                .input(uri)
+                .source_id(SOURCE_ID)
+                .downstream(decoder_name.clone())
+                .results(
+                    UriDemuxerResults::builder()
+                        .on_packet(|pkt, info, source_id, router, ctx| {
+                            if let Some(stats) = ctx.shared::<PipelineStats>() {
+                                stats.demux_packets.fetch_add(1, Ordering::Relaxed);
+                            }
+                            let frame = make_decode_frame(source_id, &pkt, info);
+                            router.send(EncodedMsg::Frame {
+                                frame,
+                                payload: Some(pkt.data),
+                            });
+                            Ok(())
+                        })
+                        .build(),
+                )
+                .build()?;
+            sys.register_source(demux_src)?;
+        }
+    }
 
     // ── Decoder actor ───────────────────────────────────────────────────
     //
@@ -650,18 +714,18 @@ pub fn run(cli: ResolvedCli) -> Result<()> {
 /// Custom [`ShutdownHandler`](savant_perception::shutdown::ShutdownHandler)
 /// policy for the `cars_tracking` sample.
 ///
-/// Pipeline shape: `Mp4Demuxer → Decoder → NvInfer → NvTracker →
-/// (Picasso → Mp4Muxer | Function terminus)`.  The demuxer finishing
-/// its input file is an **expected** event — it emits an in-band
-/// `SourceEos` sentinel that propagates through every stage to the
-/// terminus (Mp4Muxer or Function).  The terminus then
-/// self-terminates on that EOS (`Flow::Stop`), which is the real
-/// "pipeline drained" signal.
+/// Pipeline shape: `(Mp4Demuxer | UriDemuxer) → Decoder → NvInfer →
+/// NvTracker → (Picasso → Mp4Muxer | Function terminus)`.  Either
+/// demuxer finishing its input is an **expected** event — it emits
+/// an in-band `SourceEos` sentinel that propagates through every
+/// stage to the terminus (Mp4Muxer or Function).  The terminus
+/// then self-terminates on that EOS (`Flow::Stop`), which is the
+/// real "pipeline drained" signal.
 ///
 /// The policy therefore:
 ///
-/// * Ignores `StageExit { stage.kind == Mp4Demux }` — the demuxer
-///   is expected to exit first; wait for the terminus.
+/// * Ignores `StageExit { stage.kind == Mp4Demux | UriDemux }` —
+///   the demuxer is expected to exit first; wait for the terminus.
 /// * On any other `StageExit` (terminus drained, mid-pipeline
 ///   error, or a stage panic) broadcasts a `Shutdown { grace:
 ///   None }` immediately — no quiescence pause is needed because
@@ -672,7 +736,9 @@ fn cars_shutdown_handler(
     _ctx: &mut ShutdownCtx<'_>,
 ) -> Result<ShutdownAction> {
     match cause {
-        ShutdownCause::StageExit { stage } if stage.kind == StageKind::Mp4Demux => {
+        ShutdownCause::StageExit { stage }
+            if matches!(stage.kind, StageKind::Mp4Demux | StageKind::UriDemux) =>
+        {
             log::info!(
                 "[supervisor] {stage} exited naturally (end-of-input); \
                  waiting for terminus to drain before broadcasting Shutdown"
@@ -863,7 +929,7 @@ mod tests {
     #[test]
     fn run_rejects_missing_input() {
         let cli = ResolvedCli {
-            input: PathBuf::from("/definitely/does/not/exist.mp4"),
+            input: InputSource::Path(PathBuf::from("/definitely/does/not/exist.mp4")),
             output: Some(std::env::temp_dir().join("savant_perception_pipeline_out.mp4")),
             gpu: 0,
             conf: 0.25,
@@ -881,5 +947,20 @@ mod tests {
             err.to_string().contains("input file does not exist"),
             "unexpected error: {err:#}"
         );
+    }
+
+    /// Natural exit of the URI demuxer stage must be treated the
+    /// same as the MP4 demuxer: ignored so the terminus can drain
+    /// the in-band `SourceEos` before a broadcast fires.
+    #[test]
+    fn shutdown_handler_ignores_uri_demux_stage_exit() {
+        let stages: [StageName; 0] = [];
+        let history: [ShutdownCause; 0] = [];
+        let mut ctx = ShutdownCtx::fake(&stages, &history);
+        let cause = ShutdownCause::StageExit {
+            stage: StageName::unnamed(StageKind::UriDemux),
+        };
+        let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
+        assert!(matches!(action, ShutdownAction::Ignore));
     }
 }

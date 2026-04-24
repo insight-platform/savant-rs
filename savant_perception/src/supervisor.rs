@@ -57,6 +57,12 @@ use std::fmt;
 pub enum StageKind {
     /// [`mp4_demux`](super::pipeline::mp4_demux) actor — `Mp4Demuxer` wrapper.
     Mp4Demux,
+    /// URI demuxer source — `UriDemuxer` wrapper around
+    /// `urisourcebin` / `parsebin` for file://, http://, rtsp://,
+    /// rtmp://, hls://, … inputs.  Shares the
+    /// "natural exit is expected" policy with `Mp4Demux` in
+    /// sample shutdown handlers.
+    UriDemux,
     /// [`decoder`](super::pipeline::decoder) actor — `FlexibleDecoderPool` wrapper.
     Decoder,
     /// [`infer`](super::pipeline::infer) actor — nvinfer batching operator.
@@ -81,6 +87,7 @@ impl StageKind {
     pub const fn as_str(&self) -> &'static str {
         match self {
             StageKind::Mp4Demux => "mp4_demux",
+            StageKind::UriDemux => "uri_demux",
             StageKind::Decoder => "decoder",
             StageKind::Infer => "infer",
             StageKind::Tracker => "tracker",
@@ -319,6 +326,7 @@ mod tests {
     fn stage_kind_as_str_covers_every_variant() {
         for (kind, expected) in [
             (StageKind::Mp4Demux, "mp4_demux"),
+            (StageKind::UriDemux, "uri_demux"),
             (StageKind::Decoder, "decoder"),
             (StageKind::Infer, "infer"),
             (StageKind::Tracker, "tracker"),

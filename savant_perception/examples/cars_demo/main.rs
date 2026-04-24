@@ -37,7 +37,7 @@ fn main() -> Result<()> {
     let resolved = cli.resolve()?;
     log::info!(
         "cars-demo: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} picasso_enabled={} draw_enabled={} debug={}",
-        resolved.input().display(),
+        resolved.input(),
         resolved
             .output()
             .map(|p| p.display().to_string())

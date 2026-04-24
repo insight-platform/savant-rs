@@ -30,5 +30,6 @@ savant_core = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+cros-codecs = { workspace = true }
 crossbeam = { workspace = true }
 env_logger = "0.11"

@@ -1,34 +1,43 @@
-//! [`Mp4DemuxerSource`] — an MP4 (and any other GStreamer-parsable
-//! container) source that surfaces every demuxed output variant to
-//! user code, along with the stage's [`Router<EncodedMsg>`].
+//! [`UriDemuxerSource`] — a URI-based source (file://, http://,
+//! rtsp://, rtmp://, hls://, …) that surfaces every demuxed output
+//! variant to user code, along with the stage's
+//! [`Router<EncodedMsg>`].
 //!
-//! Direct replacement for
-//! `cars_tracking/pipeline/mp4_demux.rs` — the template hides:
+//! API-symmetric with
+//! [`Mp4DemuxerSource`](super::mp4_demuxer::Mp4DemuxerSource): the
+//! two templates differ only in the underlying demuxer driver
+//! ([`savant_gstreamer::uri_demuxer::UriDemuxer`] vs
+//! [`savant_gstreamer::mp4_demuxer::Mp4Demuxer`]) and in the error
+//! type surfaced by the `on_error` classifier. Every envelope
+//! variant ([`EncodedMsg::StreamInfo`], [`EncodedMsg::Packet`],
+//! [`EncodedMsg::Frame`], [`EncodedMsg::SourceEos`]) is identical;
+//! `DemuxedPacket` / `VideoInfo` / `VideoCodec` are shared types
+//! (see [`savant_gstreamer::demux`]).
 //!
-//! * `Arc<AtomicBool>` abort flag (becomes [`SourceContext::is_stopping`]).
-//! * Manual exit-guard wiring (the framework installs it around
-//!   [`Source::run`]).
-//! * The first-error latch (still present, but hidden in the
-//!   template body).
+//! Compared to [`Mp4DemuxerSource`](super::mp4_demuxer::Mp4DemuxerSource),
+//! [`UriDemuxerSource`] additionally exposes:
 //!
-//! The template itself never calls `router.send` — **every send
-//! site for this stage lives in user code**.  That lets source-side
-//! routing (for instance "pick a decoder pool by source_id" or
-//! "broadcast the same packet to multiple decoders via
-//! `router.send_to(&peer, msg)`") stay visible at the callsite.
-//!
-//! The user-facing surface is a fluent builder with grouped
-//! hook bundles — [`Mp4DemuxerResults`] for the four demuxed-output
-//! variants and [`Mp4DemuxerCommon`] for the user shutdown hook:
+//! * `.parsed(bool)` — forwarded to
+//!   [`UriDemuxerConfig::with_parsed`]. Defaults to `true`.
+//! * `.bin_properties(Vec<(String, PropertyValue)>)` — applied to
+//!   the top-level `urisourcebin` element
+//!   (e.g. `buffer-size`, `use-buffering`, `connection-speed`).
+//! * `.source_properties(Vec<(String, PropertyValue)>)` — applied
+//!   to the dynamically-created inner source element via the
+//!   `source-setup` signal (e.g. `rtspsrc.latency`,
+//!   `souphttpsrc.user-agent`).
 //!
 //! ```ignore
 //! sys.register_source(
-//!     Mp4DemuxerSource::builder(StageName::unnamed(StageKind::Mp4Demux))
-//!         .input(input_path)
+//!     UriDemuxerSource::builder(StageName::unnamed(StageKind::UriDemux))
+//!         .input("rtsp://cam/stream")
 //!         .source_id("cam1")
 //!         .downstream(StageName::unnamed(StageKind::Decoder))
+//!         .source_properties(vec![
+//!             ("latency".into(), PropertyValue::U64(200)),
+//!         ])
 //!         .results(
-//!             Mp4DemuxerResults::builder()
+//!             UriDemuxerResults::builder()
 //!                 .on_packet(|pkt, info, source_id, router, _ctx| {
 //!                     router.send(EncodedMsg::Packet {
 //!                         source_id: source_id.to_string(),
@@ -45,77 +54,24 @@
 //!
 //! # Default forwarders
 //!
-//! For the common "forward this variant to the default peer
-//! unchanged" case, [`Mp4DemuxerSource`] ships four ready-made hook
-//! closures:
+//! Mirror the mp4 template:
 //!
-//! * [`Mp4DemuxerSource::default_on_stream_info`] — sends
-//!   [`EncodedMsg::StreamInfo`](crate::envelopes::EncodedMsg::StreamInfo).
-//! * [`Mp4DemuxerSource::default_on_packet`] — sends
-//!   [`EncodedMsg::Packet`](crate::envelopes::EncodedMsg::Packet).
-//!   Use when the downstream decoder owns frame construction.
-//! * [`Mp4DemuxerSource::default_on_packet_as_frame`] — constructs
-//!   a [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
-//!   on the demuxer side (via
-//!   [`make_decode_frame`](super::decoder::make_decode_frame)) and
-//!   sends
-//!   [`EncodedMsg::Frame`](crate::envelopes::EncodedMsg::Frame).
-//!   Use when you want upstream frame construction so the decoder
-//!   can stay stateless w.r.t. [`VideoInfo`].
-//! * [`Mp4DemuxerSource::default_on_source_eos`] — sends
-//!   [`EncodedMsg::SourceEos`](crate::envelopes::EncodedMsg::SourceEos).
-//!
-//! Pick exactly one of `default_on_packet` / `default_on_packet_as_frame`
-//! per source — the two differ only in whether the
-//! [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
-//! is built upstream or downstream.
-//!
-//! Because each one is an associated function that returns an owned
-//! closure, the send still lives in user code (the user names the
-//! forwarder at the call site) — the template just factors out the
-//! one-line body.  Reach for a hand-written closure when you need
-//! to observe the variant, suppress it, or route via
-//! `router.send_to(&peer, msg)`.
+//! * [`UriDemuxerSource::default_on_stream_info`]
+//! * [`UriDemuxerSource::default_on_packet`]
+//! * [`UriDemuxerSource::default_on_packet_as_frame`]
+//! * [`UriDemuxerSource::default_on_source_eos`]
+//! * [`UriDemuxerSource::default_on_error`]
+//! * [`UriDemuxerSource::default_stopping`]
 //!
 //! ## Always-set invariant
 //!
-//! [`Mp4DemuxerSource`] stores its four variant hooks
-//! (`on_stream_info`, `on_packet`, `on_source_eos`, `on_error`) as
-//! non-`Option` fields.  Omitting a setter on
-//! [`Mp4DemuxerBuilder`] is **equivalent to calling it with the
-//! matching** `Mp4DemuxerSource::default_on_*` forwarder — the
-//! builder substitutes the default in [`Mp4DemuxerBuilder::build`]
-//! before constructing the source.  In particular:
-//!
-//! * `on_packet` defaults to
-//!   [`Mp4DemuxerSource::default_on_packet_as_frame`] (upstream
-//!   frame construction).  Call `.on_packet(...)` with a custom
-//!   closure to opt into any other policy.
-//! * `on_error` defaults to
-//!   [`Mp4DemuxerSource::default_on_error`], which returns
-//!   [`ErrorAction::Fatal`] for every
-//!   [`Mp4DemuxerError`] — matching the legacy "first error
-//!   latches and aborts the sink" behaviour.
-//!
-//! There is therefore no runtime code path in which a demuxer
-//! variant is dropped on the floor because the corresponding setter
-//! was not called.  The builder's internal `Option<Hook>` fields
-//! exist purely as a "was the setter called?" marker and are
-//! collapsed to non-`Option` before the source is constructed.
-//!
-//! ```ignore
-//! Mp4DemuxerSource::builder(name)
-//!     .input(path).source_id("cam1")
-//!     .downstream(decoder_name)
-//!     .results(
-//!         Mp4DemuxerResults::builder()
-//!             .on_stream_info(Mp4DemuxerSource::default_on_stream_info())
-//!             .on_packet(Mp4DemuxerSource::default_on_packet_as_frame())
-//!             .on_source_eos(Mp4DemuxerSource::default_on_source_eos())
-//!             .build(),
-//!     )
-//!     .build()?;
-//! ```
+//! As with [`Mp4DemuxerSource`](super::mp4_demuxer::Mp4DemuxerSource),
+//! the four variant hooks (`on_stream_info`, `on_packet`,
+//! `on_source_eos`, `on_error`) are stored as non-`Option` fields.
+//! Omitted setters on [`UriDemuxerBuilder`] are substituted with the
+//! matching `UriDemuxerSource::default_on_*` in
+//! [`UriDemuxerBuilder::build`] — so no runtime code path can drop a
+//! demuxer variant on the floor.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -123,9 +79,13 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 use parking_lot::Mutex;
-use savant_gstreamer::mp4_demuxer::{
-    DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput, VideoInfo,
+use savant_gstreamer::uri_demuxer::{
+    PropertyValue, UriDemuxer, UriDemuxerConfig, UriDemuxerError, UriDemuxerOutput,
 };
+// `DemuxedPacket` and `VideoInfo` are shared between demuxers —
+// import them through the mp4 template's re-exports so both
+// templates stay pinned to the same type identity.
+use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
 use crate::envelopes::EncodedMsg;
 use crate::router::Router;
@@ -143,7 +103,7 @@ pub type OnStreamInfoHook =
 
 /// Closure type for `on_packet` — receives each demuxed access
 /// unit, the stream-level [`VideoInfo`] (as seen in the preceding
-/// [`Mp4DemuxerOutput::StreamInfo`]), the `source_id`, and the
+/// [`UriDemuxerOutput::StreamInfo`]), the `source_id`, and the
 /// router.  Typical use:
 /// `router.send(EncodedMsg::Packet { source_id: source_id.into(), info: *info, packet: pkt })`.
 ///
@@ -153,7 +113,7 @@ pub type OnStreamInfoHook =
 /// [`Decoder`](super::decoder::Decoder)) never have to
 /// maintain a per-source cache of stream parameters.  The same
 /// `info` also unlocks upstream frame construction (for instance
-/// via [`Mp4DemuxerSource::default_on_packet_as_frame`]).
+/// via [`UriDemuxerSource::default_on_packet_as_frame`]).
 /// Returning `Err(_)` is fatal.
 pub type OnPacketHook = Box<
     dyn FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
@@ -184,7 +144,7 @@ pub type OnSourceEosHook =
 
 /// Closure type for `on_error`: classify a GStreamer pipeline
 /// error.  The callback receives the structured
-/// [`Mp4DemuxerError`], the stage's [`Router<EncodedMsg>`] (so
+/// [`UriDemuxerError`], the stage's [`Router<EncodedMsg>`] (so
 /// users can translate errors into downstream control messages
 /// uniformly with the other egress error hooks), and the
 /// [`HookCtx`].
@@ -197,7 +157,7 @@ pub type OnSourceEosHook =
 /// error but keeps the demuxer running, and `Swallow` drops the
 /// error entirely.
 pub type OnErrorHook =
-    Box<dyn FnMut(&Mp4DemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static>;
+    Box<dyn FnMut(&UriDemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static>;
 
 /// User shutdown hook fired after the demuxer has completed
 /// ([`Source::run`]'s `demuxer.wait()` returned), whether
@@ -210,26 +170,30 @@ pub type OnErrorHook =
 /// implement [`Source`] directly on a bespoke struct.
 pub type OnStoppingHook = Box<dyn FnMut(&SourceContext) + Send + 'static>;
 
-/// A no-inbox [`Source`] that drives a `savant_gstreamer::Mp4Demuxer`
-/// and forwards its output downstream as
+/// A no-inbox [`Source`] that drives a
+/// [`savant_gstreamer::uri_demuxer::UriDemuxer`] and forwards its
+/// output downstream as
 /// [`EncodedMsg`](crate::envelopes::EncodedMsg).
 ///
-/// Construct via [`Mp4DemuxerSource::builder`].
+/// Construct via [`UriDemuxerSource::builder`].
 ///
 /// # Runtime invariant
 ///
 /// All four variant hooks are **always populated** at runtime.  The
 /// builder's `Option<...>` fields are an internal "was the setter
 /// called?" marker;
-/// [`Mp4DemuxerBuilder::build`](Mp4DemuxerBuilder::build) always
-/// substitutes the matching `Mp4DemuxerSource::default_on_*` before
+/// [`UriDemuxerBuilder::build`](UriDemuxerBuilder::build) always
+/// substitutes the matching `UriDemuxerSource::default_on_*` before
 /// constructing the source.  The GStreamer callback therefore never
 /// inspects an `Option` — every demuxed variant is dispatched to a
 /// hook.
-pub struct Mp4DemuxerSource {
-    input: String,
+pub struct UriDemuxerSource {
+    uri: String,
     source_id: String,
     downstream: Option<StageName>,
+    parsed: bool,
+    bin_properties: Vec<(String, PropertyValue)>,
+    source_properties: Vec<(String, PropertyValue)>,
     on_stream_info: OnStreamInfoHook,
     on_packet: OnPacketHook,
     on_source_eos: OnSourceEosHook,
@@ -237,34 +201,16 @@ pub struct Mp4DemuxerSource {
     stopping: OnStoppingHook,
 }
 
-impl Mp4DemuxerSource {
-    /// Start a fluent [`Mp4DemuxerBuilder`] registered under `name`.
-    pub fn builder(name: StageName) -> Mp4DemuxerBuilder {
-        Mp4DemuxerBuilder::new(name)
+impl UriDemuxerSource {
+    /// Start a fluent [`UriDemuxerBuilder`] registered under `name`.
+    pub fn builder(name: StageName) -> UriDemuxerBuilder {
+        UriDemuxerBuilder::new(name)
     }
 
     /// Default `on_stream_info` forwarder.  The returned closure
     /// sends
     /// [`EncodedMsg::StreamInfo { source_id, info }`](crate::envelopes::EncodedMsg::StreamInfo)
     /// via `router.send(...)` — the router's default peer.
-    ///
-    /// Use it as a one-liner when the stream-info sentinel should
-    /// flow unchanged to the downstream stage:
-    ///
-    /// ```ignore
-    /// Mp4DemuxerSource::builder(name)
-    ///     .input(path)
-    ///     .source_id("cam1")
-    ///     .downstream(decoder_name)
-    ///     .on_stream_info(Mp4DemuxerSource::default_on_stream_info())
-    ///     // ...
-    ///     .build()?;
-    /// ```
-    ///
-    /// For name-based routing replace `router.send(msg)` with
-    /// `router.send_to(&peer, msg)` inside a bespoke closure; for
-    /// per-variant metrics wrap this forwarder in a closure that
-    /// bumps counters before (or after) calling it.
     pub fn default_on_stream_info(
     ) -> impl FnMut(VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()> + Send + 'static
     {
@@ -281,22 +227,17 @@ impl Mp4DemuxerSource {
     /// [`EncodedMsg::Packet { source_id, info, packet }`](crate::envelopes::EncodedMsg::Packet)
     /// via `router.send(...)`, stamping every access unit with the
     /// stream-level [`VideoInfo`] observed on the preceding
-    /// [`Mp4DemuxerOutput::StreamInfo`].
+    /// [`UriDemuxerOutput::StreamInfo`].
     ///
     /// Attaching the [`VideoInfo`] in-band lets downstream consumers
     /// (notably the framework's
     /// [`Decoder`](super::decoder::Decoder)) construct
     /// decode frames on the fly without maintaining a per-source
     /// [`VideoInfo`] cache — the message is self-describing.  Use
-    /// [`Mp4DemuxerSource::default_on_packet_as_frame`] instead
+    /// [`UriDemuxerSource::default_on_packet_as_frame`] instead
     /// when you want the demuxer to build the
     /// [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
     /// upstream.
-    ///
-    /// For per-source dispatch across multiple decoders, replace
-    /// `router.send(msg)` with
-    /// `router.send_to(&decoder_for(source_id), msg)` in your own
-    /// closure.
     pub fn default_on_packet(
     ) -> impl FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
            + Send
@@ -318,20 +259,8 @@ impl Mp4DemuxerSource {
     /// sends
     /// [`EncodedMsg::Frame { frame, payload: Some(bytes) }`](crate::envelopes::EncodedMsg::Frame).
     ///
-    /// The downstream decoder consumes the variant via its
-    /// [`Handler<FramePayload>`](crate::Handler) path and
-    /// therefore does not need to maintain its own
-    /// [`VideoInfo`]-stash — the frame arrives fully populated
-    /// (codec, dims, fps, pts/dts/duration, keyframe flag all set
-    /// from the demuxer's stream info + packet metadata).
-    ///
-    /// Swap for [`Mp4DemuxerSource::default_on_packet`] when you
-    /// want the decoder to own frame construction instead.  For
-    /// per-variant metrics or source-id-based fanout, wrap this
-    /// forwarder in a custom closure that performs the side effect
-    /// and then constructs / dispatches the frame itself, or
-    /// replace `router.send(msg)` with
-    /// `router.send_to(&peer, msg)`.
+    /// Swap for [`UriDemuxerSource::default_on_packet`] when you
+    /// want the decoder to own frame construction instead.
     pub fn default_on_packet_as_frame(
     ) -> impl FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
            + Send
@@ -362,46 +291,35 @@ impl Mp4DemuxerSource {
 
     /// Default `on_error` classifier.  Returns
     /// [`ErrorAction::Fatal`] for every
-    /// [`Mp4DemuxerError`] — matches the legacy "first error latches,
-    /// sink aborts, `Source::run` returns `Err`" behaviour.  Override
-    /// with a custom closure to downgrade specific error variants to
+    /// [`UriDemuxerError`].  Override with a custom closure to
+    /// downgrade specific error variants to
     /// [`ErrorAction::LogAndContinue`] or [`ErrorAction::Swallow`].
-    ///
-    /// The closure takes `&Router<EncodedMsg>` for API parity with
-    /// the other egress error hooks (Decoder / NvInfer / NvTracker)
-    /// but the default ignores it.
     pub fn default_on_error(
-    ) -> impl FnMut(&Mp4DemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static
+    ) -> impl FnMut(&UriDemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static
     {
         |_err, _router, _ctx| ErrorAction::Fatal
     }
 
-    /// Default user shutdown hook — a no-op.  The template's own
-    /// post-drain cleanup (first-error surfacing, codec check)
-    /// always runs *before* this hook fires, so omitting the
-    /// [`Mp4DemuxerCommonBuilder::stopping`] setter simply means
-    /// "don't add any extra cleanup on top of the built-in
-    /// sequence".
+    /// Default user shutdown hook — a no-op.
     pub fn default_stopping() -> impl FnMut(&SourceContext) + Send + 'static {
         |_ctx| {}
     }
 }
 
 /// Container for the hook closures plus the last-seen
-/// [`VideoInfo`].  The [`Mp4Demuxer`] callback needs `Fn + Send +
+/// [`VideoInfo`].  The [`UriDemuxer`] callback needs `Fn + Send +
 /// Sync + 'static`; our hooks are `FnMut`, so we park them behind a
 /// [`parking_lot::Mutex`] that the callback takes each time it
-/// fires.  Multi-threaded re-entrance is serialised by the mutex —
-/// matching the legacy demux actor's use of an `AtomicBool` +
-/// `Mutex<Option<String>>` for its own internal state.
+/// fires.
 ///
 /// The four variant hooks are non-`Option` by construction — see the
-/// runtime invariant on [`Mp4DemuxerSource`].  `last_stream_info` is
+/// runtime invariant on [`UriDemuxerSource`].  `last_stream_info` is
 /// the one genuinely optional field: it is `None` until the demuxer
-/// emits its first [`Mp4DemuxerOutput::StreamInfo`] and is read by
-/// every subsequent [`Mp4DemuxerOutput::Packet`] so `on_packet` hooks
-/// can see the stream-level metadata without managing it themselves.
-struct Mp4DemuxerHooks {
+/// emits its first [`UriDemuxerOutput::StreamInfo`] and is read by
+/// every subsequent [`UriDemuxerOutput::Packet`] so `on_packet`
+/// hooks can see the stream-level metadata without managing it
+/// themselves.
+struct UriDemuxerHooks {
     on_stream_info: OnStreamInfoHook,
     on_packet: OnPacketHook,
     on_source_eos: OnSourceEosHook,
@@ -409,12 +327,15 @@ struct Mp4DemuxerHooks {
     last_stream_info: Option<VideoInfo>,
 }
 
-impl Source for Mp4DemuxerSource {
+impl Source for UriDemuxerSource {
     fn run(self, ctx: SourceContext) -> Result<()> {
-        let Mp4DemuxerSource {
-            input,
+        let UriDemuxerSource {
+            uri,
             source_id,
             downstream,
+            parsed,
+            bin_properties,
+            source_properties,
             on_stream_info,
             on_packet,
             on_source_eos,
@@ -428,12 +349,12 @@ impl Source for Mp4DemuxerSource {
         let default_sink = router.default_sink();
         let stop_flag = ctx.stop_flag();
 
-        log::info!("[{own_name}] starting source_id={source_id} input={input}");
+        log::info!("[{own_name}] starting source_id={source_id} uri={uri} parsed={parsed}");
 
         // Local latch — first error seen on the pipeline bus is
         // the diagnostically useful one.
         let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-        let hooks: Arc<Mutex<Mp4DemuxerHooks>> = Arc::new(Mutex::new(Mp4DemuxerHooks {
+        let hooks: Arc<Mutex<UriDemuxerHooks>> = Arc::new(Mutex::new(UriDemuxerHooks {
             on_stream_info,
             on_packet,
             on_source_eos,
@@ -450,13 +371,12 @@ impl Source for Mp4DemuxerSource {
         let own_name_cb = own_name.clone();
         let hook_ctx_cb = hook_ctx.clone();
 
-        let mut demuxer = Mp4Demuxer::new_parsed(&input, move |output| {
-            // Cooperative-stop / already-aborted short-circuit —
-            // matches the legacy `aborted` flag semantics.  Without a
-            // default peer only the stop flag matters.  The
-            // `stop_flag` is shared with [`HookCtx::request_stop`],
-            // so any hook (here or in an upstream stage) can ask the
-            // demuxer to wind down.
+        let mut cfg = UriDemuxerConfig::new(&uri).with_parsed(parsed);
+        cfg.bin_properties = bin_properties;
+        cfg.source_properties = source_properties;
+
+        let mut demuxer = UriDemuxer::new(cfg, move |output| {
+            // Cooperative-stop / already-aborted short-circuit.
             if stop_flag_cb.load(Ordering::Relaxed)
                 || default_sink_cb
                     .as_ref()
@@ -467,7 +387,7 @@ impl Source for Mp4DemuxerSource {
             }
             let mut h = hooks_cb.lock();
             match output {
-                Mp4DemuxerOutput::StreamInfo(info) => {
+                UriDemuxerOutput::StreamInfo(info) => {
                     log::info!(
                         "[{own_name_cb}] stream info: source_id={source_id_cb} {}x{} @ {}/{} codec={:?}",
                         info.width,
@@ -490,7 +410,7 @@ impl Source for Mp4DemuxerSource {
                         }
                     }
                 }
-                Mp4DemuxerOutput::Packet(pkt) => {
+                UriDemuxerOutput::Packet(pkt) => {
                     if let Some(info) = h.last_stream_info {
                         if let Err(e) =
                             (h.on_packet)(pkt, &info, &source_id_cb, &router_cb, &hook_ctx_cb)
@@ -510,7 +430,7 @@ impl Source for Mp4DemuxerSource {
                         }
                     }
                 }
-                Mp4DemuxerOutput::Eos => {
+                UriDemuxerOutput::Eos => {
                     log::info!("[{own_name_cb}] EOS (source_id={source_id_cb})");
                     match (h.on_source_eos)(&source_id_cb, &router_cb, &hook_ctx_cb) {
                         Ok(Flow::Cont) => {}
@@ -534,7 +454,7 @@ impl Source for Mp4DemuxerSource {
                         }
                     }
                 }
-                Mp4DemuxerOutput::Error(e) => {
+                UriDemuxerOutput::Error(e) => {
                     let msg = e.to_string();
                     log::error!("[{own_name_cb}] pipeline error: {msg}");
                     let action = (h.on_error)(&e, &router_cb, &hook_ctx_cb);
@@ -556,16 +476,16 @@ impl Source for Mp4DemuxerSource {
                 }
             }
         })
-        .map_err(|e| anyhow!("Mp4Demuxer::new_parsed: {e}"))?;
+        .map_err(|e| anyhow!("UriDemuxer::new: {e}"))?;
 
         // Poll the demuxer's "finished" condvar with a short
         // timeout so an external stop request (Ctrl+C,
         // cooperative-stop from a hook, or a supervisor broadcast
-        // that flips the shared `stop_flag`) is observed even for
-        // very long files or sources that would otherwise take a
-        // while to drain.  Without this, `wait()` would block on
-        // the condvar until natural EOS and the source thread
-        // would prevent `System::run` from joining on shutdown.
+        // that flips the shared `stop_flag`) is observed even when
+        // the underlying source produces no EOS — e.g. live RTSP /
+        // HTTP streams.  Without this, `wait()` would block on the
+        // condvar indefinitely and the source thread would prevent
+        // `System::run` from joining on shutdown.
         //
         // `POLL_INTERVAL` is short enough (100 ms) to keep Ctrl+C
         // latency negligible while avoiding a busy loop.
@@ -574,14 +494,17 @@ impl Source for Mp4DemuxerSource {
         while !demuxer.wait_timeout(POLL_INTERVAL) {
             if stop_flag.load(Ordering::Relaxed) {
                 log::info!(
-                    "[{own_name}] stop flag set; finishing MP4 demuxer (source_id={source_id})"
+                    "[{own_name}] stop flag set; finishing URI demuxer (source_id={source_id})"
                 );
                 stopped_by_flag = true;
                 break;
             }
         }
         // Tear the GStreamer pipeline down deterministically before
-        // `drop(demuxer)` would otherwise run it implicitly.
+        // `drop(demuxer)` would otherwise run it implicitly — this
+        // keeps the shutdown ordering explicit in the logs and lets
+        // the condvar wake any stragglers so the callback's last
+        // short-circuit returns immediately.
         demuxer.finish();
         let codec = demuxer.detected_codec();
         log::info!(
@@ -591,19 +514,18 @@ impl Source for Mp4DemuxerSource {
         drop(hooks); // release the hook mutex (and its contents) last
 
         // User stopping hook fires AFTER the demuxer has finished
-        // but BEFORE the first-error / codec-check exit path runs
-        // — symmetric with how `Actor::stopping` composes on top of
-        // the template's load-bearing cleanup in other templates.
+        // but BEFORE the first-error / codec-check exit path runs.
         (stopping)(&ctx);
 
         if let Some(err) = first_error.lock().take() {
             bail!("[{own_name}] demux error: {err}");
         }
         // A cooperative stop (Ctrl+C / supervisor broadcast) may
-        // fire before the underlying source ever reported caps;
-        // treat that as a clean exit and only flag the
-        // "empty stream?" case when the demuxer actually finished
-        // under its own steam with no codec ever seen.
+        // fire before the underlying source ever reported caps —
+        // typical for live URIs that are cancelled before the first
+        // STREAM-STARTED.  Treat that as a clean exit; only flag
+        // the "empty stream?" case when the demuxer actually
+        // finished under its own steam with no codec ever seen.
         if codec.is_none() && !stopped_by_flag {
             bail!("[{own_name}] demuxer did not detect a video codec (empty stream?)");
         }
@@ -618,52 +540,49 @@ fn latch_error(slot: &Arc<Mutex<Option<String>>>, msg: String) {
     }
 }
 
-/// Per-variant [`Mp4DemuxerOutput`] hook bundle — one branch per
+/// Per-variant [`UriDemuxerOutput`] hook bundle — one branch per
 /// demuxed variant plus the error classifier.
 ///
-/// Built through [`Mp4DemuxerResults::builder`] and handed to
-/// [`Mp4DemuxerBuilder::results`].  Omitted branches auto-install
-/// the matching `Mp4DemuxerSource::default_on_*` at build time, so
-/// the runtime invariant "every [`Mp4DemuxerOutput`] variant is
-/// always dispatched to a user-supplied or auto-installed hook"
-/// holds regardless of how much the user overrides.
-pub struct Mp4DemuxerResults {
+/// Built through [`UriDemuxerResults::builder`] and handed to
+/// [`UriDemuxerBuilder::results`].  Omitted branches auto-install
+/// the matching `UriDemuxerSource::default_on_*` at build time.
+pub struct UriDemuxerResults {
     on_stream_info: OnStreamInfoHook,
     on_packet: OnPacketHook,
     on_source_eos: OnSourceEosHook,
     on_error: OnErrorHook,
 }
 
-impl Mp4DemuxerResults {
+impl UriDemuxerResults {
     /// Start a builder that auto-installs every default on
-    /// [`Mp4DemuxerResultsBuilder::build`].
-    pub fn builder() -> Mp4DemuxerResultsBuilder {
-        Mp4DemuxerResultsBuilder::new()
+    /// [`UriDemuxerResultsBuilder::build`].
+    pub fn builder() -> UriDemuxerResultsBuilder {
+        UriDemuxerResultsBuilder::new()
     }
 }
 
-impl Default for Mp4DemuxerResults {
+impl Default for UriDemuxerResults {
     /// Every branch wired to its matching
-    /// `Mp4DemuxerSource::default_on_*`.  `on_packet` defaults to
-    /// [`Mp4DemuxerSource::default_on_packet_as_frame`] — upstream
+    /// `UriDemuxerSource::default_on_*`.  `on_packet` defaults to
+    /// [`UriDemuxerSource::default_on_packet_as_frame`] — upstream
     /// frame construction, matching today's "no setter called"
-    /// behaviour.
+    /// behaviour of the mp4 variant.
     fn default() -> Self {
-        Mp4DemuxerResultsBuilder::new().build()
+        UriDemuxerResultsBuilder::new().build()
     }
 }
 
-/// Fluent builder for [`Mp4DemuxerResults`].
-pub struct Mp4DemuxerResultsBuilder {
+/// Fluent builder for [`UriDemuxerResults`].
+pub struct UriDemuxerResultsBuilder {
     on_stream_info: Option<OnStreamInfoHook>,
     on_packet: Option<OnPacketHook>,
     on_source_eos: Option<OnSourceEosHook>,
     on_error: Option<OnErrorHook>,
 }
 
-impl Mp4DemuxerResultsBuilder {
+impl UriDemuxerResultsBuilder {
     /// Empty bundle — every hook defaults to its matching
-    /// `Mp4DemuxerSource::default_*` equivalent at
+    /// `UriDemuxerSource::default_*` equivalent at
     /// [`build`](Self::build) time.
     pub fn new() -> Self {
         Self {
@@ -674,9 +593,7 @@ impl Mp4DemuxerResultsBuilder {
         }
     }
 
-    /// Override the `on_stream_info` hook.  Omitting this setter is
-    /// equivalent to calling
-    /// `.on_stream_info(Mp4DemuxerSource::default_on_stream_info())`.
+    /// Override the `on_stream_info` hook.
     pub fn on_stream_info<F>(mut self, f: F) -> Self
     where
         F: FnMut(VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()> + Send + 'static,
@@ -687,13 +604,7 @@ impl Mp4DemuxerResultsBuilder {
 
     /// Override the `on_packet` hook.  Omitting this setter is
     /// equivalent to calling
-    /// `.on_packet(Mp4DemuxerSource::default_on_packet_as_frame())`
-    /// — the demuxer constructs a
-    /// [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
-    /// upstream and sends
-    /// [`EncodedMsg::Frame`](crate::envelopes::EncodedMsg::Frame).
-    /// Swap to [`Mp4DemuxerSource::default_on_packet`] for
-    /// downstream frame construction.
+    /// `.on_packet(UriDemuxerSource::default_on_packet_as_frame())`.
     pub fn on_packet<F>(mut self, f: F) -> Self
     where
         F: FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
@@ -704,13 +615,7 @@ impl Mp4DemuxerResultsBuilder {
         self
     }
 
-    /// Override the `on_source_eos` hook.  Omitting this setter is
-    /// equivalent to calling
-    /// `.on_source_eos(Mp4DemuxerSource::default_on_source_eos())`
-    /// — forward `EncodedMsg::SourceEos` downstream and return
-    /// `Ok(Flow::Cont)`.  Return `Ok(Flow::Stop)` to request
-    /// cooperative shutdown of the source; `Err(_)` is logged,
-    /// latched, and also requests shutdown.
+    /// Override the `on_source_eos` hook.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
         F: FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static,
@@ -719,16 +624,10 @@ impl Mp4DemuxerResultsBuilder {
         self
     }
 
-    /// Override the `on_error` classifier.  Omitting this setter is
-    /// equivalent to calling
-    /// `.on_error(Mp4DemuxerSource::default_on_error())` — classify
-    /// every error as [`ErrorAction::Fatal`], matching the legacy
-    /// mp4_demux behaviour.  The closure receives the router for
-    /// API parity with other egress error hooks; it is free to
-    /// ignore the router.
+    /// Override the `on_error` classifier.
     pub fn on_error<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&Mp4DemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static,
+        F: FnMut(&UriDemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static,
     {
         self.on_error = Some(Box::new(f));
         self
@@ -736,74 +635,64 @@ impl Mp4DemuxerResultsBuilder {
 
     /// Finalise the bundle, substituting defaults for every omitted
     /// branch.
-    pub fn build(self) -> Mp4DemuxerResults {
-        let Mp4DemuxerResultsBuilder {
+    pub fn build(self) -> UriDemuxerResults {
+        let UriDemuxerResultsBuilder {
             on_stream_info,
             on_packet,
             on_source_eos,
             on_error,
         } = self;
-        Mp4DemuxerResults {
+        UriDemuxerResults {
             on_stream_info: on_stream_info
-                .unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_on_stream_info())),
+                .unwrap_or_else(|| Box::new(UriDemuxerSource::default_on_stream_info())),
             on_packet: on_packet
-                .unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_on_packet_as_frame())),
+                .unwrap_or_else(|| Box::new(UriDemuxerSource::default_on_packet_as_frame())),
             on_source_eos: on_source_eos
-                .unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_on_source_eos())),
-            on_error: on_error.unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_on_error())),
+                .unwrap_or_else(|| Box::new(UriDemuxerSource::default_on_source_eos())),
+            on_error: on_error.unwrap_or_else(|| Box::new(UriDemuxerSource::default_on_error())),
         }
     }
 }
 
-impl Default for Mp4DemuxerResultsBuilder {
+impl Default for UriDemuxerResultsBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// Loop-level common knobs + user shutdown hook for
-/// [`Mp4DemuxerSource`].  Built through
-/// [`Mp4DemuxerCommon::builder`] and handed to
-/// [`Mp4DemuxerBuilder::common`].
-pub struct Mp4DemuxerCommon {
+/// [`UriDemuxerSource`].  Built through
+/// [`UriDemuxerCommon::builder`] and handed to
+/// [`UriDemuxerBuilder::common`].
+pub struct UriDemuxerCommon {
     stopping: OnStoppingHook,
 }
 
-impl Mp4DemuxerCommon {
+impl UriDemuxerCommon {
     /// Start a builder seeded with the no-op stopping hook.
-    pub fn builder() -> Mp4DemuxerCommonBuilder {
-        Mp4DemuxerCommonBuilder::new()
+    pub fn builder() -> UriDemuxerCommonBuilder {
+        UriDemuxerCommonBuilder::new()
     }
 }
 
-impl Default for Mp4DemuxerCommon {
-    /// No-op `stopping` — matches today's "no hook" behaviour.
+impl Default for UriDemuxerCommon {
     fn default() -> Self {
-        Mp4DemuxerCommonBuilder::new().build()
+        UriDemuxerCommonBuilder::new().build()
     }
 }
 
-/// Fluent builder for [`Mp4DemuxerCommon`].
-pub struct Mp4DemuxerCommonBuilder {
+/// Fluent builder for [`UriDemuxerCommon`].
+pub struct UriDemuxerCommonBuilder {
     stopping: Option<OnStoppingHook>,
 }
 
-impl Mp4DemuxerCommonBuilder {
+impl UriDemuxerCommonBuilder {
     /// Empty bundle — `stopping` defaults to a no-op.
     pub fn new() -> Self {
         Self { stopping: None }
     }
 
-    /// Override the user shutdown hook — fired once the demuxer
-    /// has finished (`demuxer.wait()` returned), **before** the
-    /// first-error / codec-check exit path runs.  Runs on the
-    /// source thread with access to the [`SourceContext`].  Use
-    /// for final metrics flushes, bespoke log lines, or custom
-    /// bookkeeping that must observe the demuxer's post-drain
-    /// state.  The template's own cleanup (demuxer drop,
-    /// first-error surfacing) is **load-bearing** and always runs
-    /// after this hook; users who need to replace that entirely
-    /// should implement [`Source`] directly on a bespoke struct.
+    /// Override the user shutdown hook.
     pub fn stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&SourceContext) + Send + 'static,
@@ -812,59 +701,62 @@ impl Mp4DemuxerCommonBuilder {
         self
     }
 
-    /// Finalise the bundle, substituting the no-op default for an
-    /// omitted `stopping` setter.
-    pub fn build(self) -> Mp4DemuxerCommon {
-        let Mp4DemuxerCommonBuilder { stopping } = self;
-        Mp4DemuxerCommon {
-            stopping: stopping.unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_stopping())),
+    /// Finalise the bundle.
+    pub fn build(self) -> UriDemuxerCommon {
+        let UriDemuxerCommonBuilder { stopping } = self;
+        UriDemuxerCommon {
+            stopping: stopping.unwrap_or_else(|| Box::new(UriDemuxerSource::default_stopping())),
         }
     }
 }
 
-impl Default for Mp4DemuxerCommonBuilder {
+impl Default for UriDemuxerCommonBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Fluent builder for [`Mp4DemuxerSource`].
+/// Fluent builder for [`UriDemuxerSource`].
 ///
-/// The builder only exposes wiring-level configuration at the top
-/// level (`input`, `source_id`, `downstream`).  Per-variant
-/// demuxer-output hooks live on [`Mp4DemuxerResults`]; the user
-/// shutdown hook lives on [`Mp4DemuxerCommon`].  Install them via
-/// [`Mp4DemuxerBuilder::results`] and [`Mp4DemuxerBuilder::common`].
-pub struct Mp4DemuxerBuilder {
+/// The builder exposes wiring-level configuration at the top level
+/// (`input`, `source_id`, `downstream`, `parsed`, `bin_properties`,
+/// `source_properties`).  Per-variant demuxer-output hooks live on
+/// [`UriDemuxerResults`]; the user shutdown hook lives on
+/// [`UriDemuxerCommon`].
+pub struct UriDemuxerBuilder {
     name: StageName,
     input: Option<String>,
     source_id: Option<String>,
     downstream: Option<StageName>,
-    results: Option<Mp4DemuxerResults>,
-    common: Option<Mp4DemuxerCommon>,
+    parsed: bool,
+    bin_properties: Vec<(String, PropertyValue)>,
+    source_properties: Vec<(String, PropertyValue)>,
+    results: Option<UriDemuxerResults>,
+    common: Option<UriDemuxerCommon>,
 }
 
-impl Mp4DemuxerBuilder {
-    /// Start a builder for a demux source registered under `name`.
-    ///
-    /// Every per-variant hook defaults to its
-    /// `Mp4DemuxerSource::default_on_*` equivalent; the user
-    /// shutdown hook defaults to a no-op.  The user only needs to
-    /// supply `input` and `source_id`; `downstream` / `results` /
-    /// `common` are optional and composable.
+impl UriDemuxerBuilder {
+    /// Start a builder for a URI demux source registered under
+    /// `name`.  `parsed` defaults to `true` (matches
+    /// [`UriDemuxerConfig::new`]); bin/source property vectors
+    /// default to empty.
     pub fn new(name: StageName) -> Self {
         Self {
             name,
             input: None,
             source_id: None,
             downstream: None,
+            parsed: true,
+            bin_properties: Vec::new(),
+            source_properties: Vec::new(),
             results: None,
             common: None,
         }
     }
 
-    /// Required: file path or URI passed to
-    /// [`Mp4Demuxer::new_parsed`].
+    /// Required: URI passed to
+    /// [`UriDemuxerConfig::new`] (e.g. `file:///path.mp4`,
+    /// `http://…/a.m3u8`, `rtsp://cam/stream`).
     pub fn input(mut self, input: impl Into<String>) -> Self {
         self.input = Some(input.into());
         self
@@ -881,63 +773,88 @@ impl Mp4DemuxerBuilder {
     }
 
     /// Optional default peer installed on the
-    /// [`Router<EncodedMsg>`] handed to every variant hook.  Hooks
-    /// call `router.send(msg)` to route to this peer and
-    /// `router.send_to(&peer, msg)` to address any other registered
-    /// actor by name.
+    /// [`Router<EncodedMsg>`] handed to every variant hook.
     pub fn downstream(mut self, peer: StageName) -> Self {
         self.downstream = Some(peer);
         self
     }
 
-    /// Install a [`Mp4DemuxerResults`] bundle — one branch per
-    /// demuxed variant.  Omitting this call is equivalent to
-    /// `.results(Mp4DemuxerResults::default())`, which wires every
-    /// branch to its matching `Mp4DemuxerSource::default_on_*`.
-    pub fn results(mut self, r: Mp4DemuxerResults) -> Self {
+    /// Whether to request a parsed (Annex-B / AU-aligned) elementary
+    /// stream from the underlying
+    /// [`savant_gstreamer::uri_demuxer::UriDemuxer`].  Forwarded to
+    /// [`UriDemuxerConfig::with_parsed`].  Defaults to `true`.
+    pub fn parsed(mut self, parsed: bool) -> Self {
+        self.parsed = parsed;
+        self
+    }
+
+    /// Properties applied to the top-level `urisourcebin`
+    /// (e.g. `buffer-size`, `use-buffering`, `connection-speed`).
+    /// Replaces any previously-accumulated bin-property set.
+    pub fn bin_properties(mut self, props: Vec<(String, PropertyValue)>) -> Self {
+        self.bin_properties = props;
+        self
+    }
+
+    /// Properties applied to the dynamically-created inner source
+    /// element via the `source-setup` signal
+    /// (e.g. `rtspsrc.latency`, `souphttpsrc.user-agent`).  Replaces
+    /// any previously-accumulated source-property set.
+    pub fn source_properties(mut self, props: Vec<(String, PropertyValue)>) -> Self {
+        self.source_properties = props;
+        self
+    }
+
+    /// Install a [`UriDemuxerResults`] bundle — one branch per
+    /// demuxed variant.
+    pub fn results(mut self, r: UriDemuxerResults) -> Self {
         self.results = Some(r);
         self
     }
 
-    /// Install a [`Mp4DemuxerCommon`] bundle — currently just the
-    /// `stopping` hook.  Omitting this call is equivalent to
-    /// `.common(Mp4DemuxerCommon::default())`.
-    pub fn common(mut self, c: Mp4DemuxerCommon) -> Self {
+    /// Install a [`UriDemuxerCommon`] bundle.
+    pub fn common(mut self, c: UriDemuxerCommon) -> Self {
         self.common = Some(c);
         self
     }
 
     /// Finalise the builder and obtain the Layer-A
-    /// [`SourceBuilder<Mp4DemuxerSource>`] ready for
+    /// [`SourceBuilder<UriDemuxerSource>`] ready for
     /// [`System::register_source`](super::super::System::register_source).
     ///
     /// # Errors
     ///
     /// Returns `Err` if `input` or `source_id` is missing.
     /// `downstream` is optional — omit it for a drain-only source.
-    pub fn build(self) -> Result<SourceBuilder<Mp4DemuxerSource>> {
-        let Mp4DemuxerBuilder {
+    pub fn build(self) -> Result<SourceBuilder<UriDemuxerSource>> {
+        let UriDemuxerBuilder {
             name,
             input,
             source_id,
             downstream,
+            parsed,
+            bin_properties,
+            source_properties,
             results,
             common,
         } = self;
-        let input = input.ok_or_else(|| anyhow!("Mp4DemuxerSource: missing input"))?;
-        let source_id = source_id.ok_or_else(|| anyhow!("Mp4DemuxerSource: missing source_id"))?;
-        let Mp4DemuxerResults {
+        let input = input.ok_or_else(|| anyhow!("UriDemuxerSource: missing input"))?;
+        let source_id = source_id.ok_or_else(|| anyhow!("UriDemuxerSource: missing source_id"))?;
+        let UriDemuxerResults {
             on_stream_info,
             on_packet,
             on_source_eos,
             on_error,
         } = results.unwrap_or_default();
-        let Mp4DemuxerCommon { stopping } = common.unwrap_or_default();
+        let UriDemuxerCommon { stopping } = common.unwrap_or_default();
         Ok(SourceBuilder::new(name).factory(move |_bx| {
-            Ok(Mp4DemuxerSource {
-                input,
+            Ok(UriDemuxerSource {
+                uri: input,
                 source_id,
                 downstream,
+                parsed,
+                bin_properties,
+                source_properties,
                 on_stream_info,
                 on_packet,
                 on_source_eos,
@@ -953,7 +870,7 @@ mod tests {
     use super::*;
     use crate::supervisor::{StageKind, StageName};
 
-    fn err_msg(result: Result<SourceBuilder<Mp4DemuxerSource>>) -> String {
+    fn err_msg(result: Result<SourceBuilder<UriDemuxerSource>>) -> String {
         match result {
             Err(e) => e.to_string(),
             Ok(_) => panic!("expected error"),
@@ -962,24 +879,23 @@ mod tests {
 
     #[test]
     fn builder_requires_input_and_source_id() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        assert!(err_msg(Mp4DemuxerSource::builder(name.clone()).build()).contains("missing input"));
+        let name = StageName::unnamed(StageKind::UriDemux);
+        assert!(err_msg(UriDemuxerSource::builder(name.clone()).build()).contains("missing input"));
         assert!(err_msg(
-            Mp4DemuxerSource::builder(name.clone())
-                .input("/tmp/x.mp4")
+            UriDemuxerSource::builder(name.clone())
+                .input("file:///tmp/x.mp4")
                 .build()
         )
         .contains("missing source_id"));
     }
 
-    /// `downstream` is optional now — a drain-only source (no
-    /// default peer) still builds.  The resulting source silently
-    /// drops all packets through the default `router.send(...)` path.
+    /// `downstream` is optional — a drain-only source (no default
+    /// peer) still builds.
     #[test]
     fn builder_without_downstream_is_accepted() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        let _ = Mp4DemuxerSource::builder(name)
-            .input("/tmp/x.mp4")
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let _ = UriDemuxerSource::builder(name)
+            .input("file:///tmp/x.mp4")
             .source_id("s")
             .build()
             .expect("no-downstream builder is accepted");
@@ -987,13 +903,16 @@ mod tests {
 
     #[test]
     fn builder_accepts_all_hooks() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        let sb = Mp4DemuxerSource::builder(name)
-            .input("/tmp/x.mp4")
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let sb = UriDemuxerSource::builder(name)
+            .input("file:///tmp/x.mp4")
             .source_id("cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
+            .parsed(true)
+            .bin_properties(vec![("buffer-size".into(), PropertyValue::I64(8192))])
+            .source_properties(vec![("latency".into(), PropertyValue::U64(200))])
             .results(
-                Mp4DemuxerResults::builder()
+                UriDemuxerResults::builder()
                     .on_stream_info(|info, sid, router, _ctx| {
                         router.send(EncodedMsg::StreamInfo {
                             source_id: sid.to_string(),
@@ -1016,7 +935,7 @@ mod tests {
                         Ok(Flow::Cont)
                     })
                     .on_error(
-                        |_err: &Mp4DemuxerError, _router: &Router<EncodedMsg>, _ctx: &HookCtx| {
+                        |_err: &UriDemuxerError, _router: &Router<EncodedMsg>, _ctx: &HookCtx| {
                             ErrorAction::Fatal
                         },
                     )
@@ -1024,8 +943,6 @@ mod tests {
             )
             .build()
             .unwrap();
-        // No way to run without a real file; this is a compile-shape
-        // test.  The SourceBuilder carries our factory.
         let _ = sb;
     }
 
@@ -1034,17 +951,17 @@ mod tests {
     /// generic hook bounds as-is.
     #[test]
     fn builder_accepts_default_forwarders() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        let sb = Mp4DemuxerSource::builder(name)
-            .input("/tmp/x.mp4")
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let sb = UriDemuxerSource::builder(name)
+            .input("file:///tmp/x.mp4")
             .source_id("cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .results(
-                Mp4DemuxerResults::builder()
-                    .on_stream_info(Mp4DemuxerSource::default_on_stream_info())
-                    .on_packet(Mp4DemuxerSource::default_on_packet())
-                    .on_source_eos(Mp4DemuxerSource::default_on_source_eos())
-                    .on_error(Mp4DemuxerSource::default_on_error())
+                UriDemuxerResults::builder()
+                    .on_stream_info(UriDemuxerSource::default_on_stream_info())
+                    .on_packet(UriDemuxerSource::default_on_packet())
+                    .on_source_eos(UriDemuxerSource::default_on_source_eos())
+                    .on_error(UriDemuxerSource::default_on_error())
                     .build(),
             )
             .build()
@@ -1056,17 +973,17 @@ mod tests {
     /// builder in place of `default_on_packet`.
     #[test]
     fn builder_accepts_default_on_packet_as_frame() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        let sb = Mp4DemuxerSource::builder(name)
-            .input("/tmp/x.mp4")
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let sb = UriDemuxerSource::builder(name)
+            .input("file:///tmp/x.mp4")
             .source_id("cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .results(
-                Mp4DemuxerResults::builder()
-                    .on_stream_info(Mp4DemuxerSource::default_on_stream_info())
-                    .on_packet(Mp4DemuxerSource::default_on_packet_as_frame())
-                    .on_source_eos(Mp4DemuxerSource::default_on_source_eos())
-                    .on_error(Mp4DemuxerSource::default_on_error())
+                UriDemuxerResults::builder()
+                    .on_stream_info(UriDemuxerSource::default_on_stream_info())
+                    .on_packet(UriDemuxerSource::default_on_packet_as_frame())
+                    .on_source_eos(UriDemuxerSource::default_on_source_eos())
+                    .on_error(UriDemuxerSource::default_on_error())
                     .build(),
             )
             .build()
@@ -1074,20 +991,20 @@ mod tests {
         let _ = sb;
     }
 
-    /// The [`Mp4DemuxerCommon`] bundle accepts a user-supplied
+    /// The [`UriDemuxerCommon`] bundle accepts a user-supplied
     /// `.stopping(F)` closure.
     #[test]
     fn builder_accepts_user_stopping() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let flag = Arc::new(AtomicBool::new(false));
         let flag_hook = flag.clone();
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        let _ = Mp4DemuxerSource::builder(name)
-            .input("/tmp/x.mp4")
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let _ = UriDemuxerSource::builder(name)
+            .input("file:///tmp/x.mp4")
             .source_id("cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .common(
-                Mp4DemuxerCommon::builder()
+                UriDemuxerCommon::builder()
                     .stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
@@ -1101,28 +1018,21 @@ mod tests {
     /// Runtime invariant: `build()` succeeds with only the three
     /// mandatory setters (`input`, `source_id`, `downstream`) and
     /// auto-installs all four `default_on_*` forwarders plus the
-    /// no-op stopping hook.  The `SourceFactory` resolves and
-    /// produces a `Mp4DemuxerSource` whose hook fields are
-    /// non-`Option` by construction — proving that no variant is
-    /// ever dispatched to `None` at runtime.
+    /// no-op stopping hook, defaulting `parsed = true` and empty
+    /// property vectors.
     #[test]
     fn builder_accepts_bare_minimum() {
         use crate::context::BuildCtx;
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::Mp4Demux);
-        let sb = Mp4DemuxerSource::builder(name.clone())
-            .input("/tmp/x.mp4")
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let sb = UriDemuxerSource::builder(name.clone())
+            .input("file:///tmp/x.mp4")
             .source_id("cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .build()
             .expect("bare-minimum builder is accepted");
-        // Tear the SourceBuilder apart and actually run the factory
-        // so the defaults installed in `build()` materialise into the
-        // runtime source struct.  This catches any future regression
-        // where a setter override path accidentally bypasses the
-        // `unwrap_or_else(default_*)` chain.
         let parts = sb.into_parts();
         assert_eq!(parts.name, name);
         let reg = Arc::new(Registry::new());
@@ -1130,19 +1040,22 @@ mod tests {
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
         let src = (parts.factory)(&bx).expect("factory resolves");
-        // Pattern-match proves every hook is non-`Option`; the
-        // compiler would refuse if any field were wrapped in
-        // `Option<_>`.  We also bind each hook to a variable to
-        // silence the unused-fields lint and document intent.
-        let Mp4DemuxerSource {
-            input: _,
+        // Pattern-match proves every hook is non-`Option`.
+        let UriDemuxerSource {
+            uri: _,
             source_id: _,
             downstream: _,
+            parsed,
+            bin_properties,
+            source_properties,
             on_stream_info: _,
             on_packet: _,
             on_source_eos: _,
             on_error: _,
             stopping: _,
         } = src;
+        assert!(parsed, "parsed defaults to true");
+        assert!(bin_properties.is_empty());
+        assert!(source_properties.is_empty());
     }
 }

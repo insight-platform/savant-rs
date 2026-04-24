@@ -35,6 +35,7 @@ pub mod mp4_muxer;
 pub mod nvinfer;
 pub mod nvtracker;
 pub mod picasso;
+pub mod uri_demuxer;
 
 pub use bitstream_function::{
     BitstreamFunction, BitstreamFunctionBuilder, BitstreamFunctionCommon,
@@ -75,4 +76,8 @@ pub use picasso::{
     DeliveryHook as PicassoDeliveryHook, OnStoppingHook as PicassoOnStoppingHook, Picasso,
     PicassoBuilder, PicassoCommon, PicassoCommonBuilder, PicassoEngineFactory, PicassoInbox,
     PicassoInboxBuilder, SourceSpecFactory, SrcRectProvider,
+};
+pub use uri_demuxer::{
+    OnStoppingHook as UriDemuxerOnStoppingHook, UriDemuxerBuilder, UriDemuxerCommon,
+    UriDemuxerCommonBuilder, UriDemuxerResults, UriDemuxerResultsBuilder, UriDemuxerSource,
 };
