@@ -6,9 +6,30 @@ use std::sync::{Condvar, Mutex};
 
 use savant_core::primitives::video_codec::VideoCodec;
 
-/// Error building the parser + capsfilter chain; caller maps to its demuxer error type.
+/// Error building the parser + capsfilter chain.
+///
+/// Variants are preserved as distinct categories so callers can map them to
+/// their own structured error types (e.g. `LinkError` vs `ElementCreation`)
+/// without losing the failure class.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ParserChainError(pub String);
+pub(crate) enum ParserChainError {
+    /// Failed to create or query a GStreamer element / pad.
+    ElementCreation(String),
+    /// Failed to add or link an element in the parser chain.
+    LinkError(String),
+    /// `sync_state_with_parent` (or equivalent) failed.
+    StateChangeFailed(String),
+}
+
+impl std::fmt::Display for ParserChainError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ElementCreation(s) => write!(f, "{s}"),
+            Self::LinkError(s) => write!(f, "{s}"),
+            Self::StateChangeFailed(s) => write!(f, "{s}"),
+        }
+    }
+}
 
 /// Error converting a GStreamer sample to a demuxed packet; caller maps to its demuxer error type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,13 +205,13 @@ pub(crate) fn build_parser_chain(
         Some("video/x-vp8") => ("vp8parse", false),
         Some("video/x-vp9") => ("vp9parse", false),
         Some("image/jpeg") => ("jpegparse", false),
-        _ => return Err(ParserChainError("no parser needed".into())),
+        _ => return Err(ParserChainError::ElementCreation("no parser needed".into())),
     };
 
     let parser = gst::ElementFactory::make(factory)
         .name("demux-parser")
         .build()
-        .map_err(|e| ParserChainError(format!("{factory}: {e}")))?;
+        .map_err(|e| ParserChainError::ElementCreation(format!("{factory}: {e}")))?;
 
     if needs_byte_stream_caps {
         parser.set_property("config-interval", -1i32);
@@ -198,7 +219,7 @@ pub(crate) fn build_parser_chain(
 
     pipeline
         .add(&parser)
-        .map_err(|e| ParserChainError(format!("add parser: {e}")))?;
+        .map_err(|e| ParserChainError::LinkError(format!("add parser: {e}")))?;
 
     if needs_byte_stream_caps {
         let media = if factory == "h264parse" {
@@ -213,40 +234,40 @@ pub(crate) fn build_parser_chain(
             .name("demux-parser-capsf")
             .property("caps", &caps)
             .build()
-            .map_err(|e| ParserChainError(format!("capsfilter: {e}")))?;
+            .map_err(|e| ParserChainError::ElementCreation(format!("capsfilter: {e}")))?;
 
         pipeline
             .add(&capsfilter)
-            .map_err(|e| ParserChainError(format!("add capsfilter: {e}")))?;
+            .map_err(|e| ParserChainError::LinkError(format!("add capsfilter: {e}")))?;
 
         parser
             .link(&capsfilter)
-            .map_err(|e| ParserChainError(format!("parser->capsfilter: {e}")))?;
+            .map_err(|e| ParserChainError::LinkError(format!("parser->capsfilter: {e}")))?;
 
         let capsf_src = capsfilter
             .static_pad("src")
-            .ok_or_else(|| ParserChainError("capsfilter src pad".into()))?;
+            .ok_or_else(|| ParserChainError::ElementCreation("capsfilter src pad".into()))?;
         capsf_src
             .link(queue_sink_pad)
-            .map_err(|e| ParserChainError(format!("capsfilter->queue: {e}")))?;
+            .map_err(|e| ParserChainError::LinkError(format!("capsfilter->queue: {e}")))?;
 
-        capsfilter
-            .sync_state_with_parent()
-            .map_err(|_| ParserChainError("StateChangeFailed".into()))?;
+        capsfilter.sync_state_with_parent().map_err(|_| {
+            ParserChainError::StateChangeFailed("capsfilter sync_state_with_parent".into())
+        })?;
     } else {
         let parser_src = parser
             .static_pad("src")
-            .ok_or_else(|| ParserChainError("parser src pad".into()))?;
+            .ok_or_else(|| ParserChainError::ElementCreation("parser src pad".into()))?;
         parser_src
             .link(queue_sink_pad)
-            .map_err(|e| ParserChainError(format!("parser->queue: {e}")))?;
+            .map_err(|e| ParserChainError::LinkError(format!("parser->queue: {e}")))?;
     }
 
     parser
         .sync_state_with_parent()
-        .map_err(|_| ParserChainError("StateChangeFailed".into()))?;
+        .map_err(|_| ParserChainError::StateChangeFailed("parser sync_state_with_parent".into()))?;
 
     parser
         .static_pad("sink")
-        .ok_or_else(|| ParserChainError("parser sink pad missing".into()))
+        .ok_or_else(|| ParserChainError::ElementCreation("parser sink pad missing".into()))
 }

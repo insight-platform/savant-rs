@@ -991,8 +991,7 @@ fn test_pre_idr_packets_skipped_not_replayed() {
         Some(true),
     );
     let idr_uuid = idr_frame.get_uuid_u128();
-    dec.submit(&idr_frame, Some(&idr.data))
-        .expect("submit IDR");
+    dec.submit(&idr_frame, Some(&idr.data)).expect("submit IDR");
 
     // Drain so the IDR-decoded frame surfaces through the callback.
     dec.graceful_shutdown().unwrap();
@@ -1029,7 +1028,9 @@ fn test_pre_idr_packets_skipped_not_replayed() {
     // The IDR itself must decode successfully.
     let idr_frames: Vec<&CollectedOutput> = outputs
         .iter()
-        .filter(|o| matches!(o, CollectedOutput::Frame { proxy_uuid, .. } if *proxy_uuid == idr_uuid))
+        .filter(
+            |o| matches!(o, CollectedOutput::Frame { proxy_uuid, .. } if *proxy_uuid == idr_uuid),
+        )
         .collect();
     assert_eq!(
         idr_frames.len(),

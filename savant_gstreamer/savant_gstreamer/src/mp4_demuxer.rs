@@ -495,7 +495,11 @@ impl From<SampleError> for Mp4DemuxerError {
 
 impl From<ParserChainError> for Mp4DemuxerError {
     fn from(e: ParserChainError) -> Self {
-        Mp4DemuxerError::ElementCreation(e.0)
+        match e {
+            ParserChainError::ElementCreation(s) => Mp4DemuxerError::ElementCreation(s),
+            ParserChainError::LinkError(s) => Mp4DemuxerError::LinkError(s),
+            ParserChainError::StateChangeFailed(_) => Mp4DemuxerError::StateChangeFailed,
+        }
     }
 }
 

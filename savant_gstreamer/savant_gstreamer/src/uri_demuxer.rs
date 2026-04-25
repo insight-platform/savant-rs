@@ -82,19 +82,37 @@ impl From<SampleError> for UriDemuxerError {
 
 impl From<ParserChainError> for UriDemuxerError {
     fn from(e: ParserChainError) -> Self {
-        UriDemuxerError::ElementCreation(e.0)
+        match e {
+            ParserChainError::ElementCreation(s) => UriDemuxerError::ElementCreation(s),
+            ParserChainError::LinkError(s) => UriDemuxerError::LinkError(s),
+            ParserChainError::StateChangeFailed(_) => UriDemuxerError::StateChangeFailed,
+        }
     }
 }
 
+/// Inserted byte-stream capsfilter wrapper.
+///
+/// Held by the caller so it can be torn down (unlink + Null + remove) if the
+/// subsequent attempt to link parsebin's src pad to `sink_pad` fails.  Without
+/// this the capsfilter would remain in the pipeline with its src linked to
+/// the queue and its sink dangling, permanently trapping the queue sink and
+/// stalling every later parsebin pad-added invocation.
+struct ByteStreamCapsfilter {
+    element: gst::Element,
+    sink_pad: gst::Pad,
+}
+
 /// Insert a byte-stream (Annex-B) capsfilter between parsebin's H.264/HEVC
-/// output and the queue. Returns `Ok(Some(capsfilter_sink_pad))` if the
-/// capsfilter was inserted, `Ok(None)` when the codec does not need one
-/// (passthrough to the queue), or `Err` on element creation/link failure.
+/// output and the queue. Returns `Ok(Some(_))` if the capsfilter was inserted
+/// (the caller links parsebin's src to `sink_pad`; on link failure it must
+/// call [`ByteStreamCapsfilter::remove_from`] to clean up), `Ok(None)` when
+/// the codec does not need one (passthrough to the queue), or `Err` on
+/// element creation / link failure.
 fn insert_byte_stream_capsfilter(
     pipeline: &gst::Pipeline,
     codec_name: Option<&str>,
     queue_sink_pad: &gst::Pad,
-) -> Result<Option<gst::Pad>, ParserChainError> {
+) -> Result<Option<ByteStreamCapsfilter>, ParserChainError> {
     let media = match codec_name {
         Some("video/x-h264") => "video/x-h264",
         Some("video/x-h265") => "video/x-h265",
@@ -108,35 +126,68 @@ fn insert_byte_stream_capsfilter(
         .name("uri-byte-stream-capsf")
         .property("caps", &caps)
         .build()
-        .map_err(|e| ParserChainError(format!("capsfilter: {e}")))?;
+        .map_err(|e| ParserChainError::ElementCreation(format!("capsfilter: {e}")))?;
 
     pipeline
         .add(&capsfilter)
-        .map_err(|e| ParserChainError(format!("add capsfilter: {e}")))?;
+        .map_err(|e| ParserChainError::LinkError(format!("add capsfilter: {e}")))?;
 
     let link_and_sync = (|| -> Result<gst::Pad, ParserChainError> {
         let capsf_src = capsfilter
             .static_pad("src")
-            .ok_or_else(|| ParserChainError("capsfilter src pad".into()))?;
+            .ok_or_else(|| ParserChainError::ElementCreation("capsfilter src pad".into()))?;
         capsf_src
             .link(queue_sink_pad)
-            .map_err(|e| ParserChainError(format!("capsfilter->queue: {e}")))?;
+            .map_err(|e| ParserChainError::LinkError(format!("capsfilter->queue: {e}")))?;
 
-        capsfilter
-            .sync_state_with_parent()
-            .map_err(|_| ParserChainError("StateChangeFailed".into()))?;
+        capsfilter.sync_state_with_parent().map_err(|_| {
+            ParserChainError::StateChangeFailed("capsfilter sync_state_with_parent".into())
+        })?;
 
         capsfilter
             .static_pad("sink")
-            .ok_or_else(|| ParserChainError("capsfilter sink pad missing".into()))
+            .ok_or_else(|| ParserChainError::ElementCreation("capsfilter sink pad missing".into()))
     })();
 
     match link_and_sync {
-        Ok(capsf_sink) => Ok(Some(capsf_sink)),
+        Ok(sink_pad) => Ok(Some(ByteStreamCapsfilter {
+            element: capsfilter,
+            sink_pad,
+        })),
         Err(e) => {
             let _ = capsfilter.set_state(gst::State::Null);
             let _ = pipeline.remove(&capsfilter);
             Err(e)
+        }
+    }
+}
+
+impl ByteStreamCapsfilter {
+    /// Tear down the capsfilter: unlink it from the queue, set it to `Null`,
+    /// and remove it from the pipeline.  Best-effort — every step is logged
+    /// but never bubbled up because this only runs on the failure path.
+    fn remove_from(self, pipeline: &gst::Pipeline) {
+        if let Some(src) = self.element.static_pad("src") {
+            if let Some(peer) = src.peer() {
+                if let Err(e) = src.unlink(&peer) {
+                    log::warn!(
+                        "UriDemuxer: failed to unlink orphan capsfilter src: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+        if let Err(e) = self.element.set_state(gst::State::Null) {
+            log::warn!(
+                "UriDemuxer: failed to set orphan capsfilter to Null: {:?}",
+                e
+            );
+        }
+        if let Err(e) = pipeline.remove(&self.element) {
+            log::warn!(
+                "UriDemuxer: failed to remove orphan capsfilter from pipeline: {:?}",
+                e
+            );
         }
     }
 }
@@ -522,6 +573,9 @@ impl UriDemuxer {
         {
             let parsebin_weak = parsebin.downgrade();
             let on_output_uri_pad = on_output.clone();
+            let finished_uri_pad = finished.clone();
+            let info_pair_uri_pad = info_pair.clone();
+            let done_pair_uri_pad = done_pair.clone();
             urisrc.connect_pad_added(move |_uri_src, src_pad| {
                 let Some(parsebin) = parsebin_weak.upgrade() else {
                     return;
@@ -566,9 +620,18 @@ impl UriDemuxer {
                 }
 
                 if let Err(e) = src_pad.link(&parse_sink) {
-                    on_output_uri_pad(UriDemuxerOutput::Error(UriDemuxerError::LinkError(
-                        format!("urisourcebin->parsebin: {e}"),
-                    )));
+                    // Failing to attach the only video src pad to parsebin is
+                    // terminal: no further packets can ever flow.  Mirror the
+                    // sample-error / EOS / bus-error paths so any caller
+                    // blocked on `wait()` / `wait_for_video_info()` is
+                    // released instead of hanging until an external timeout.
+                    if !finished_uri_pad.swap(true, Ordering::SeqCst) {
+                        on_output_uri_pad(UriDemuxerOutput::Error(UriDemuxerError::LinkError(
+                            format!("urisourcebin->parsebin: {e}"),
+                        )));
+                        signal_info_done(&info_pair_uri_pad);
+                        signal_done(&done_pair_uri_pad);
+                    }
                 }
             });
         }
@@ -629,14 +692,14 @@ impl UriDemuxer {
                 // For `parsed=true` we only pin byte-stream output via a
                 // capsfilter. Adding another parser here would double-insert
                 // the SPS/PPS preamble.
-                let target_pad = if parsed {
+                let (target_pad, inserted_capsfilter) = if parsed {
                     match insert_byte_stream_capsfilter(
                         &pipeline_for_pad,
                         codec_name.as_deref(),
                         &queue_sink_pad_for_pad,
                     ) {
-                        Ok(Some(capsf_sink)) => capsf_sink,
-                        Ok(None) => queue_sink_pad_for_pad.clone(),
+                        Ok(Some(capsf)) => (capsf.sink_pad.clone(), Some(capsf)),
+                        Ok(None) => (queue_sink_pad_for_pad.clone(), None),
                         Err(e) => {
                             log::error!(
                                 "UriDemuxer: byte-stream capsfilter insertion failed: {:?}",
@@ -647,11 +710,36 @@ impl UriDemuxer {
                         }
                     }
                 } else {
-                    queue_sink_pad_for_pad.clone()
+                    (queue_sink_pad_for_pad.clone(), None)
                 };
 
-                if src_pad.link(&target_pad).is_ok() {
-                    linked_video_pad_closure.store(true, Ordering::SeqCst);
+                match src_pad.link(&target_pad) {
+                    Ok(_) => {
+                        linked_video_pad_closure.store(true, Ordering::SeqCst);
+                    }
+                    Err(e) => {
+                        // The capsfilter (if we inserted one) already linked
+                        // its src pad to the queue.  Leaving it in place would
+                        // make `queue_sink_pad.is_linked()` return `true` on
+                        // every later `pad-added`, short-circuiting all
+                        // subsequent attempts to attach a video pad and
+                        // permanently stalling packet flow.  Tear it down so
+                        // the queue sink becomes available again.
+                        if let Some(capsf) = inserted_capsfilter {
+                            capsf.remove_from(&pipeline_for_pad);
+                        }
+                        log::error!(
+                            "UriDemuxer: failed to link parsebin src pad {} → target: {:?}",
+                            src_pad.name(),
+                            e
+                        );
+                        on_output_parse_pad(UriDemuxerOutput::Error(UriDemuxerError::LinkError(
+                            format!(
+                                "parsebin->{}: {e}",
+                                if parsed { "capsfilter" } else { "queue" }
+                            ),
+                        )));
+                    }
                 }
             });
         }
