@@ -918,6 +918,133 @@ fn test_h264_wrong_frame_dimensions() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  Pre-IDR skip (regression for watchdog timeout from replayed P-frames)
+// ═══════════════════════════════════════════════════════════════════
+
+/// When a stream starts with non-RAP packets (typical for live RTSP feeds
+/// joined mid-GOP), [`FlexibleDecoder`] must not replay them once the
+/// first IDR finally arrives — replaying P-frames without an anchor IDR
+/// strands their PTS in the GstPipeline `in_flight` map and trips the
+/// watchdog. They must instead be surfaced as
+/// [`SkipReason::WaitingForKeyframe`] when activation succeeds.
+///
+/// The test reorders a real H.264 Annex-B stream so the leading P-frames
+/// arrive before the IDR (which is normally first). It then verifies the
+/// pre-IDR P-frames produce `Skipped(WaitingForKeyframe)` and the IDR
+/// itself decodes successfully.
+#[test]
+#[serial]
+fn test_pre_idr_packets_skipped_not_replayed() {
+    init();
+    let manifest = load_manifest();
+    let Some(entry) = find_entry(&manifest, "test_h264_annexb_ip.h264") else {
+        return;
+    };
+
+    let collector = OutputCollector::new();
+    let dec = FlexibleDecoder::new(default_config(), collector.callback());
+    let aus = load_annexb_access_units(entry);
+    assert!(
+        aus.len() >= 6,
+        "test asset must have at least 6 access units"
+    );
+
+    // The first AU of an Annex-B IP stream carries SPS+PPS+IDR; skip it
+    // initially and feed the next 5 (pure P-frames) so the decoder enters
+    // `Detecting` and buffers them.
+    const NUM_PRE_IDR: usize = 5;
+    let vc = savant_core::primitives::video_codec::VideoCodec::H264;
+    let width = entry.width as i64;
+    let height = entry.height as i64;
+
+    let mut p_frame_uuids = Vec::with_capacity(NUM_PRE_IDR);
+    for au in aus.iter().skip(1).take(NUM_PRE_IDR) {
+        let frame = make_video_frame_ns(
+            SOURCE_ID,
+            vc,
+            width,
+            height,
+            au.pts_ns as i64,
+            au.dts_ns.map(|d| d as i64),
+            au.duration_ns.map(|d| d as i64),
+            None,
+        );
+        p_frame_uuids.push(frame.get_uuid_u128());
+        dec.submit(&frame, Some(&au.data))
+            .expect("submit pre-IDR P-frame");
+    }
+
+    // Now submit the IDR (AU[0]) → activation runs, buffered P-frames must
+    // be drained as `WaitingForKeyframe` and only the IDR submitted to the
+    // underlying NvDecoder.
+    let idr = &aus[0];
+    let idr_frame = make_video_frame_ns(
+        SOURCE_ID,
+        vc,
+        width,
+        height,
+        // Bump the IDR's PTS past the buffered P-frames so DTS ordering is
+        // monotonic at NvDecoder ingress (StrictDecodeOrder).
+        (NUM_PRE_IDR as u64 * 33_333_333 + idr.pts_ns) as i64,
+        Some((NUM_PRE_IDR as u64 * 33_333_333) as i64),
+        idr.duration_ns.map(|d| d as i64),
+        Some(true),
+    );
+    let idr_uuid = idr_frame.get_uuid_u128();
+    dec.submit(&idr_frame, Some(&idr.data))
+        .expect("submit IDR");
+
+    // Drain so the IDR-decoded frame surfaces through the callback.
+    dec.graceful_shutdown().unwrap();
+
+    let outputs = collector.drain();
+
+    let skipped: Vec<&CollectedOutput> = outputs
+        .iter()
+        .filter(|o| {
+            matches!(
+                o,
+                CollectedOutput::Skipped { reason } if reason.contains("WaitingForKeyframe")
+            )
+        })
+        .collect();
+    assert_eq!(
+        skipped.len(),
+        NUM_PRE_IDR,
+        "every pre-IDR P-frame must be skipped as WaitingForKeyframe; got {} of {}: {outputs:?}",
+        skipped.len(),
+        NUM_PRE_IDR
+    );
+
+    // Pre-IDR packets must NEVER reach NvDecoder, so no decoder errors.
+    let errors: Vec<&CollectedOutput> = outputs
+        .iter()
+        .filter(|o| matches!(o, CollectedOutput::Error(_)))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "pre-IDR drain must not emit decoder errors: {errors:?}"
+    );
+
+    // The IDR itself must decode successfully.
+    let idr_frames: Vec<&CollectedOutput> = outputs
+        .iter()
+        .filter(|o| matches!(o, CollectedOutput::Frame { proxy_uuid, .. } if *proxy_uuid == idr_uuid))
+        .collect();
+    assert_eq!(
+        idr_frames.len(),
+        1,
+        "IDR must be decoded exactly once; got {}: {outputs:?}",
+        idr_frames.len()
+    );
+
+    eprintln!(
+        "  OK test_pre_idr_packets_skipped_not_replayed: {} pre-IDR P-frames skipped, IDR decoded",
+        NUM_PRE_IDR
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Sealed delivery — cross-thread unseal
 // ═══════════════════════════════════════════════════════════════════
 

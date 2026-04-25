@@ -12,10 +12,17 @@ use super::state::{
 
 /// Handle a submit when the decoder is in `Detecting` state.
 ///
-/// On activation, replays buffered packets. If any replay submission fails,
-/// the entire activation is aborted: the decoder is torn down, all buffered
-/// packets (plus the current one) are emitted as `Skipped`, and the guard
-/// is committed to `Idle`.
+/// On the first random access point (IDR / I-frame) the decoder is activated
+/// and the current packet is submitted to it.  Any packets buffered during
+/// detection are **discarded** with [`SkipReason::WaitingForKeyframe`] —
+/// they cannot be decoded without the IDR as anchor and replaying them only
+/// leaks PTS entries into the underlying GstPipeline `in_flight` map, which
+/// later trips the watchdog.  If the user wants those frames anyway they
+/// can observe them through the `Skipped` callback.
+///
+/// If activation fails, both the buffered packets and the current one are
+/// emitted as `Skipped(DecoderCreationFailed)` and the state is reset to
+/// `Idle`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_detecting(
     guard: StateGuard<'_>,
@@ -35,46 +42,15 @@ pub(crate) fn handle_detecting(
             let real_gst_codec = cfg.codec();
             match activate(cfg, real_gst_codec, width, height, ctx.frame) {
                 Ok((decoder, worker_join, worker_stop)) => {
-                    let mut registered_ids: Vec<u128> = Vec::new();
-                    let mut replay_err: Option<String> = None;
-
-                    for pkt in &buffered {
-                        register_frame(frame_map, pkt.frame_id, &pkt.frame);
-                        registered_ids.push(pkt.frame_id);
-                        if let Err(e) = decoder.submit_packet(
-                            &pkt.data,
-                            pkt.frame_id,
-                            pkt.pts_ns,
-                            pkt.dts_ns,
-                            pkt.duration_ns,
-                        ) {
-                            replay_err = Some(format!("buffered packet replay failed: {e}"));
-                            break;
-                        }
-                    }
-
-                    if let Some(err_msg) = replay_err {
-                        teardown_activated(&decoder, worker_join, &worker_stop);
-                        {
-                            let mut fm = frame_map.lock();
-                            for id in &registered_ids {
-                                fm.remove(id);
-                            }
-                        }
-                        for pkt in buffered {
-                            pending.push(FlexibleDecoderOutput::Skipped {
-                                frame: pkt.frame,
-                                data: Some(pkt.data),
-                                reason: SkipReason::DecoderCreationFailed(err_msg.clone()),
-                            });
-                        }
+                    // Discard pre-RAP packets: they would never decode
+                    // without an anchor IDR and replaying them strands
+                    // their PTS in the GstPipeline watchdog map.
+                    for pkt in buffered.drain(..) {
                         pending.push(FlexibleDecoderOutput::Skipped {
-                            frame: ctx.frame.clone(),
-                            data: Some(ctx.payload.to_vec()),
-                            reason: SkipReason::DecoderCreationFailed(err_msg),
+                            frame: pkt.frame,
+                            data: Some(pkt.data),
+                            reason: SkipReason::WaitingForKeyframe,
                         });
-                        guard.commit(DecoderState::Idle);
-                        return Ok(());
                     }
 
                     register_frame(frame_map, ctx.frame_id, ctx.frame);
@@ -99,13 +75,7 @@ pub(crate) fn handle_detecting(
                         }
                         Err(e) => {
                             teardown_activated(&decoder, worker_join, &worker_stop);
-                            {
-                                let mut fm = frame_map.lock();
-                                for id in &registered_ids {
-                                    fm.remove(id);
-                                }
-                                fm.remove(&ctx.frame_id);
-                            }
+                            frame_map.lock().remove(&ctx.frame_id);
                             guard.commit(DecoderState::Idle);
                             return Err(e.into());
                         }
@@ -133,11 +103,7 @@ pub(crate) fn handle_detecting(
 
     buffered.push(BufferedPacket {
         frame: ctx.frame.clone(),
-        frame_id: ctx.frame_id,
         data: ctx.payload.to_vec(),
-        pts_ns: ctx.clk.submission_order_ns,
-        dts_ns: ctx.clk.dts_ns,
-        duration_ns: ctx.clk.duration_ns,
     });
 
     if buffered.len() > detect_buffer_limit {

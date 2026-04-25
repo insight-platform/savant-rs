@@ -272,6 +272,34 @@ pub type OnDecoderErrorHook = Arc<
     dyn Fn(&DecoderError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static,
 >;
 
+/// Hook fired for [`FlexibleDecoderOutput::Restarted`] — emitted when the
+/// underlying [`FlexibleDecoder`](deepstream_inputs::FlexibleDecoder)
+/// transparently restarted after the [`NvDecoder`] worker died (typically
+/// because the [`GstPipeline`](savant_gstreamer::pipeline::GstPipeline)
+/// watchdog tripped on stuck in-flight buffers).
+///
+/// Receives the `source_id` of the affected decoder, a human-readable
+/// reason, the number of in-flight frames lost during the restart, the
+/// router for optional downstream signalling, and the [`HookCtx`].  Runs
+/// on the pool's output callback thread.
+///
+/// Returns `Result<Flow>` so the hook can choose to keep running
+/// (`Ok(Flow::Cont)`) or escalate the restart into a cooperative pipeline
+/// stop (`Ok(Flow::Stop)` / `Err(_)`).  As with
+/// [`OnDecoderSourceEosHook`], a stop request translates into the
+/// dispatcher calling [`HookCtx::request_stop`] and aborting the default
+/// sink — the actor observes the cooperative intent on its next tick.
+///
+/// The default ([`Decoder::default_on_decoder_restart`]) is purely a
+/// `warn!` log line and `Ok(Flow::Cont)`, so transient watchdog-induced
+/// restarts do not stop the pipeline by themselves.
+pub type OnDecoderRestartHook = Arc<
+    dyn Fn(&str, &str, usize, &Router<PipelineMsg>, &HookCtx) -> Result<Flow>
+        + Send
+        + Sync
+        + 'static,
+>;
+
 /// User shutdown hook invoked from [`Actor::stopping`] *after* the
 /// template's built-in cleanup (guarded
 /// [`FlexibleDecoderPool::graceful_shutdown`]) has completed.
@@ -411,6 +439,36 @@ impl Decoder {
         |err, _router, ctx| {
             log::error!("[{}] decoder error: {err}", ctx.own_name());
             ErrorAction::LogAndContinue
+        }
+    }
+
+    /// Default `on_decoder_restart` logger — emits a single `warn!` line
+    /// reporting the affected `source_id`, the human-readable reason,
+    /// and the number of in-flight frames lost, prefixed by the stage
+    /// name pulled from the [`HookCtx`], and returns `Ok(Flow::Cont)`.
+    ///
+    /// Watchdog-induced restarts are typically transient (the underlying
+    /// [`FlexibleDecoder`](deepstream_inputs::FlexibleDecoder) re-runs
+    /// detection / activation for the next packet automatically), so the
+    /// default keeps the pipeline running.  Override to return
+    /// `Ok(Flow::Stop)` / `Err(_)` when a restart on this stage should
+    /// tear the pipeline down — for example:
+    ///
+    /// ```ignore
+    /// .on_decoder_restart(|sid, reason, lost, _r, _ctx| {
+    ///     log::error!("decoder {sid} restarted ({lost} frames lost): {reason} - aborting");
+    ///     Ok(Flow::Stop)
+    /// })
+    /// ```
+    pub fn default_on_decoder_restart(
+    ) -> impl Fn(&str, &str, usize, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static
+    {
+        |source_id, reason, lost_frames, _router, ctx| {
+            log::warn!(
+                "[{}] decoder restart: source_id={source_id} lost {lost_frames} in-flight frame(s); reason={reason}",
+                ctx.own_name()
+            );
+            Ok(Flow::Cont)
         }
     }
 
@@ -605,6 +663,7 @@ pub struct DecoderResults {
     on_orphan_frame: OnOrphanFrameHook,
     on_decoder_event: OnDecoderEventHook,
     on_decoder_error: OnDecoderErrorHook,
+    on_decoder_restart: OnDecoderRestartHook,
 }
 
 impl DecoderResults {
@@ -630,6 +689,7 @@ pub struct DecoderResultsBuilder {
     on_orphan_frame: Option<OnOrphanFrameHook>,
     on_decoder_event: Option<OnDecoderEventHook>,
     on_decoder_error: Option<OnDecoderErrorHook>,
+    on_decoder_restart: Option<OnDecoderRestartHook>,
 }
 
 impl DecoderResultsBuilder {
@@ -644,6 +704,7 @@ impl DecoderResultsBuilder {
             on_orphan_frame: None,
             on_decoder_event: None,
             on_decoder_error: None,
+            on_decoder_restart: None,
         }
     }
 
@@ -732,6 +793,23 @@ impl DecoderResultsBuilder {
         self
     }
 
+    /// Override the `on_decoder_restart` hook — fired for
+    /// [`FlexibleDecoderOutput::Restarted`].  Returns `Result<Flow>`;
+    /// the default ([`Decoder::default_on_decoder_restart`]) logs at
+    /// `warn!` and returns `Ok(Flow::Cont)` so the pipeline keeps
+    /// running.  Return `Ok(Flow::Stop)` / `Err(_)` to translate a
+    /// watchdog-induced restart into a cooperative pipeline stop.
+    pub fn on_decoder_restart<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&str, &str, usize, &Router<PipelineMsg>, &HookCtx) -> Result<Flow>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_decoder_restart = Some(Arc::new(f));
+        self
+    }
+
     /// Finalise the bundle, substituting defaults for every omitted
     /// setter.
     pub fn build(self) -> DecoderResults {
@@ -743,6 +821,7 @@ impl DecoderResultsBuilder {
             on_orphan_frame,
             on_decoder_event,
             on_decoder_error,
+            on_decoder_restart,
         } = self;
         DecoderResults {
             on_frame: on_frame.unwrap_or_else(|| Arc::new(Decoder::default_on_frame())),
@@ -757,6 +836,8 @@ impl DecoderResultsBuilder {
                 .unwrap_or_else(|| Arc::new(Decoder::default_on_decoder_event())),
             on_decoder_error: on_decoder_error
                 .unwrap_or_else(|| Arc::new(Decoder::default_on_decoder_error())),
+            on_decoder_restart: on_decoder_restart
+                .unwrap_or_else(|| Arc::new(Decoder::default_on_decoder_restart())),
         }
     }
 }
@@ -1032,6 +1113,7 @@ impl DecoderBuilder {
             on_orphan_frame,
             on_decoder_event,
             on_decoder_error,
+            on_decoder_restart,
         } = results.unwrap_or_default();
         let DecoderCommon {
             poll_timeout,
@@ -1045,6 +1127,7 @@ impl DecoderBuilder {
             on_orphan_frame,
             on_decoder_event,
             on_decoder_error,
+            on_decoder_restart,
         };
         Ok(ActorBuilder::new(name.clone(), capacity)
             .poll_timeout(poll_timeout)
@@ -1085,6 +1168,7 @@ struct VariantHooks {
     on_orphan_frame: OnOrphanFrameHook,
     on_decoder_event: OnDecoderEventHook,
     on_decoder_error: OnDecoderErrorHook,
+    on_decoder_restart: OnDecoderRestartHook,
 }
 
 /// Build the [`FlexibleDecoderPool`] with a callback that dispatches
@@ -1162,6 +1246,31 @@ fn build_pool(
                     }
                 }
                 ErrorAction::LogAndContinue | ErrorAction::Swallow => {}
+            }
+        }
+        FlexibleDecoderOutput::Restarted {
+            source_id,
+            reason,
+            lost_frames,
+        } => {
+            match (hooks.on_decoder_restart)(source_id, reason, *lost_frames, &router, &hook_ctx) {
+                Ok(Flow::Cont) => {}
+                Ok(Flow::Stop) => {
+                    log::info!(
+                        "[{owner_cb}/cb] on_decoder_restart requested stop; cooperatively shutting down"
+                    );
+                    hook_ctx.request_stop();
+                    if let Some(sink) = router.default_sink() {
+                        sink.abort();
+                    }
+                }
+                Err(e) => {
+                    log::error!("[{owner_cb}/cb] on_decoder_restart returned error: {e}");
+                    hook_ctx.request_stop();
+                    if let Some(sink) = router.default_sink() {
+                        sink.abort();
+                    }
+                }
             }
         }
     };
@@ -1294,6 +1403,7 @@ mod tests {
                     .on_orphan_frame(|_, _, _| {})
                     .on_decoder_event(|_, _, _| {})
                     .on_decoder_error(|_, _, _| ErrorAction::LogAndContinue)
+                    .on_decoder_restart(|_, _, _, _, _| Ok(Flow::Cont))
                     .build(),
             )
             .common(
@@ -1326,6 +1436,7 @@ mod tests {
                     .on_orphan_frame(Decoder::default_on_orphan_frame())
                     .on_decoder_event(Decoder::default_on_decoder_event())
                     .on_decoder_error(Decoder::default_on_decoder_error())
+                    .on_decoder_restart(Decoder::default_on_decoder_restart())
                     .build(),
             )
             .common(
@@ -1469,6 +1580,75 @@ mod tests {
                 }
             }
             ErrorAction::LogAndContinue | ErrorAction::Swallow => {}
+        }
+        assert!(stop_flag.load(Ordering::SeqCst));
+    }
+
+    /// `default_on_decoder_restart` is log-only — it returns
+    /// `Ok(Flow::Cont)` and must not route anything downstream so
+    /// transient watchdog-induced restarts do not crash the pipeline.
+    #[test]
+    fn default_on_decoder_restart_does_not_route() {
+        let hook = Decoder::default_on_decoder_restart();
+        let (router, rx) = router_with_default_peer();
+        let ctx = test_hook_ctx();
+        let flow = hook("cam-1", "worker thread exited", 8, &router, &ctx).expect("no error");
+        assert!(matches!(flow, Flow::Cont));
+        assert!(rx.try_recv().is_err(), "restarts must not be routed");
+    }
+
+    /// A user `on_decoder_restart` returning `Ok(Flow::Stop)` flips the
+    /// shared stop flag, mirroring the
+    /// [`on_decoder_error_fatal_requests_stop`] contract.
+    #[test]
+    fn on_decoder_restart_stop_requests_stop() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let ctx = HookCtx::new(
+            StageName::unnamed(StageKind::Decoder),
+            Arc::new(Registry::new()),
+            Arc::new(crate::shared::SharedStore::new()),
+            stop_flag.clone(),
+        );
+        let hook: OnDecoderRestartHook =
+            Arc::new(|_sid, _reason, _lost, _router, _ctx| Ok(Flow::Stop));
+        let (router, _rx) = router_with_default_peer();
+        match hook("cam-1", "worker thread exited", 4, &router, &ctx).expect("hook ok") {
+            Flow::Cont => {}
+            Flow::Stop => {
+                ctx.request_stop();
+                if let Some(sink) = router.default_sink() {
+                    sink.abort();
+                }
+            }
+        }
+        assert!(stop_flag.load(Ordering::SeqCst));
+    }
+
+    /// A user `on_decoder_restart` returning `Err(_)` likewise flips
+    /// the shared stop flag — the dispatcher treats it identically to
+    /// `Ok(Flow::Stop)`.
+    #[test]
+    fn on_decoder_restart_err_requests_stop() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let ctx = HookCtx::new(
+            StageName::unnamed(StageKind::Decoder),
+            Arc::new(Registry::new()),
+            Arc::new(crate::shared::SharedStore::new()),
+            stop_flag.clone(),
+        );
+        let hook: OnDecoderRestartHook =
+            Arc::new(|_sid, _reason, _lost, _router, _ctx| Err(anyhow!("boom")));
+        let (router, _rx) = router_with_default_peer();
+        match hook("cam-1", "worker thread exited", 0, &router, &ctx) {
+            Ok(Flow::Cont) => {}
+            Ok(Flow::Stop) | Err(_) => {
+                ctx.request_stop();
+                if let Some(sink) = router.default_sink() {
+                    sink.abort();
+                }
+            }
         }
         assert!(stop_flag.load(Ordering::SeqCst));
     }

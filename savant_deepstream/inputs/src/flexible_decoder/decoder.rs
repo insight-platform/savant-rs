@@ -188,6 +188,10 @@ impl FlexibleDecoder {
             super::output::DecoderParameters,
             super::output::DecoderParameters,
         )>;
+        // Set when handle_active observed a worker death and committed Idle:
+        // phase 2 below re-runs handle_idle for the current packet so the
+        // restart is transparent to callers of `submit`.
+        let mut restart_reentry: bool = false;
 
         let result = {
             let mut state = self.state.lock();
@@ -268,7 +272,9 @@ impl FlexibleDecoder {
                     let resolve_ref = resolve_opt.as_ref().unwrap();
                     match handle_active(
                         guard,
+                        &mut pending,
                         &self.frame_map,
+                        &self.config.source_id,
                         decoder,
                         worker_join,
                         worker_stop,
@@ -281,6 +287,7 @@ impl FlexibleDecoder {
                     ) {
                         ActiveResult::SteadyState(r) => {
                             drain_job = None;
+                            restart_reentry = false;
                             r
                         }
                         ActiveResult::NeedDrain {
@@ -289,6 +296,17 @@ impl FlexibleDecoder {
                             new_params,
                         } => {
                             drain_job = Some((old_decoder, old_params, new_params));
+                            restart_reentry = false;
+                            Ok(())
+                        }
+                        ActiveResult::Restarted => {
+                            // The dead decoder has been torn down, the
+                            // frame map drained, and the state committed
+                            // back to Idle.  Phase 2 below re-runs
+                            // handle_idle for the current packet so the
+                            // restart is transparent to the caller.
+                            drain_job = None;
+                            restart_reentry = true;
                             Ok(())
                         }
                     }
@@ -324,6 +342,22 @@ impl FlexibleDecoder {
                 });
             }
             handle_result
+        } else if restart_reentry {
+            // Worker died: handle_active has already torn down the dead
+            // decoder, drained the frame map, and emitted the Restarted
+            // event into `pending`.  Re-run handle_idle so the current
+            // packet is processed against a freshly Idle state — the
+            // restart is therefore transparent to the caller.
+            let mut state = self.state.lock();
+            let (guard2, _taken) = StateGuard::take(&mut state);
+            handle_idle(
+                guard2,
+                &mut pending,
+                &self.frame_map,
+                resolve_opt.take().unwrap(),
+                &ctx,
+                &activate_fn,
+            )
         } else {
             result
         };

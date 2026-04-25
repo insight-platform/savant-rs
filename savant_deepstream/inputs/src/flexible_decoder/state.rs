@@ -32,13 +32,17 @@ pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, VideoCodec, i64, i64, &Vi
     + 'a;
 
 /// Packet buffered during H.264/HEVC stream detection.
+///
+/// Pre-RAP packets cannot be decoded without an anchor IDR, so once the
+/// first random access point arrives the buffered queue is **drained as
+/// `Skipped(WaitingForKeyframe)`** rather than replayed (replaying would
+/// only strand PTS entries in the GstPipeline watchdog map).  Only
+/// `frame` (for the [`Skipped`](super::output::FlexibleDecoderOutput::Skipped)
+/// frame proxy) and `data` (for the [`Skipped::data`](super::output::FlexibleDecoderOutput::Skipped)
+/// payload) are needed downstream.
 pub(crate) struct BufferedPacket {
     pub frame: VideoFrameProxy,
-    pub frame_id: u128,
     pub data: Vec<u8>,
-    pub pts_ns: u64,
-    pub dts_ns: Option<u64>,
-    pub duration_ns: Option<u64>,
 }
 
 /// Internal decoder lifecycle state.

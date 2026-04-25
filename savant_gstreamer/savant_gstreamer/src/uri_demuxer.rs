@@ -490,8 +490,7 @@ impl UriDemuxer {
             let source_properties = config.source_properties.clone();
             let on_output_ss = on_output.clone();
             urisrc.connect("source-setup", false, move |args| {
-                let Some(source) = args.get(1).and_then(|v| v.get::<gst::Element>().ok())
-                else {
+                let Some(source) = args.get(1).and_then(|v| v.get::<gst::Element>().ok()) else {
                     on_output_ss(UriDemuxerOutput::Error(UriDemuxerError::PipelineError {
                         src: "urisourcebin".into(),
                         msg: "source-setup signal: missing or invalid source element argument"
@@ -643,9 +642,7 @@ impl UriDemuxer {
                                 "UriDemuxer: byte-stream capsfilter insertion failed: {:?}",
                                 e
                             );
-                            on_output_parse_pad(UriDemuxerOutput::Error(
-                                UriDemuxerError::from(e),
-                            ));
+                            on_output_parse_pad(UriDemuxerOutput::Error(UriDemuxerError::from(e)));
                             return;
                         }
                     }

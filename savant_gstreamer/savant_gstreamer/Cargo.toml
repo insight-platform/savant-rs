@@ -32,4 +32,6 @@ thiserror = { workspace = true }
 [dev-dependencies]
 cros-codecs = { workspace = true }
 crossbeam = { workspace = true }
-env_logger = "0.11"
+env_logger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -216,6 +216,10 @@ impl PySkipReason {
     fn is_decoder_creation_failed(&self) -> bool {
         matches!(self.0, SkipReason::DecoderCreationFailed(_))
     }
+    #[getter]
+    fn is_decoder_restarted(&self) -> bool {
+        matches!(self.0, SkipReason::DecoderRestarted(_))
+    }
 
     /// Human-readable detail for string-carrying variants, or ``None``.
     #[getter]
@@ -227,6 +231,7 @@ impl PySkipReason {
             SkipReason::UnsupportedCodec(c) => Some(c.as_deref().unwrap_or("(none)").to_string()),
             SkipReason::InvalidPayload(msg) => Some(msg.clone()),
             SkipReason::DecoderCreationFailed(msg) => Some(msg.clone()),
+            SkipReason::DecoderRestarted(msg) => Some(msg.clone()),
             _ => None,
         }
     }
@@ -618,6 +623,45 @@ impl PyErrorOutput {
     }
 }
 
+/// Aggregate signal emitted when the FlexibleDecoder transparently restarted
+/// after the underlying NvDecoder worker died (e.g. a watchdog trip).
+#[pyclass(name = "RestartedOutput", module = "savant_rs.deepstream")]
+pub struct PyRestartedOutput {
+    source_id: String,
+    reason: String,
+    lost_frames: usize,
+}
+
+#[pymethods]
+impl PyRestartedOutput {
+    /// Source id of the FlexibleDecoder that restarted.
+    #[getter]
+    fn source_id(&self) -> &str {
+        &self.source_id
+    }
+
+    /// Human-readable reason for the restart.
+    #[getter]
+    fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// Number of in-flight frames lost because of the restart.  Each is
+    /// also surfaced separately as a ``Skipped`` output with reason
+    /// ``DecoderRestarted``.
+    #[getter]
+    fn lost_frames(&self) -> usize {
+        self.lost_frames
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "RestartedOutput(source_id={:?}, reason={:?}, lost_frames={})",
+            self.source_id, self.reason, self.lost_frames
+        )
+    }
+}
+
 // ─── FlexibleDecoderOutput (container) ──────────────────────────────────
 
 enum OutputVariant {
@@ -628,6 +672,7 @@ enum OutputVariant {
     SourceEos(Py<PySourceEosOutput>),
     Event(Py<PyEventOutput>),
     Error(Py<PyErrorOutput>),
+    Restarted(Py<PyRestartedOutput>),
 }
 
 /// Callback payload from :class:`FlexibleDecoder`.
@@ -682,6 +727,18 @@ impl PyFlexibleDecoderOutput {
                 FlexibleDecoderOutput::Error(ref e) => {
                     OutputVariant::Error(Py::new(py, PyErrorOutput(e.to_string()))?)
                 }
+                FlexibleDecoderOutput::Restarted {
+                    ref source_id,
+                    ref reason,
+                    lost_frames,
+                } => OutputVariant::Restarted(Py::new(
+                    py,
+                    PyRestartedOutput {
+                        source_id: source_id.clone(),
+                        reason: reason.clone(),
+                        lost_frames,
+                    },
+                )?),
             }
         };
         Ok(Self(variant))
@@ -719,6 +776,10 @@ impl PyFlexibleDecoderOutput {
     #[getter]
     fn is_error(&self) -> bool {
         matches!(self.0, OutputVariant::Error(_))
+    }
+    #[getter]
+    fn is_restarted(&self) -> bool {
+        matches!(self.0, OutputVariant::Restarted(_))
     }
 
     // ── typed downcast methods ──
@@ -779,6 +840,14 @@ impl PyFlexibleDecoderOutput {
         }
     }
 
+    /// Downcast to :class:`RestartedOutput`, or ``None``.
+    fn as_restarted(&self, py: Python<'_>) -> Option<Py<PyRestartedOutput>> {
+        match &self.0 {
+            OutputVariant::Restarted(v) => Some(v.clone_ref(py)),
+            _ => None,
+        }
+    }
+
     fn __repr__(&self) -> String {
         match &self.0 {
             OutputVariant::Frame(_) => "FlexibleDecoderOutput(Frame)".to_string(),
@@ -790,6 +859,7 @@ impl PyFlexibleDecoderOutput {
             OutputVariant::SourceEos(_) => "FlexibleDecoderOutput(SourceEos)".to_string(),
             OutputVariant::Event(_) => "FlexibleDecoderOutput(Event)".to_string(),
             OutputVariant::Error(_) => "FlexibleDecoderOutput(Error)".to_string(),
+            OutputVariant::Restarted(_) => "FlexibleDecoderOutput(Restarted)".to_string(),
         }
     }
 }
@@ -1249,6 +1319,7 @@ pub fn register_inputs_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySourceEosOutput>()?;
     m.add_class::<PyEventOutput>()?;
     m.add_class::<PyErrorOutput>()?;
+    m.add_class::<PyRestartedOutput>()?;
     m.add_class::<PyFlexibleDecoderOutput>()?;
     m.add_class::<PyFlexibleDecoder>()?;
     m.add_class::<PyEvictionDecision>()?;

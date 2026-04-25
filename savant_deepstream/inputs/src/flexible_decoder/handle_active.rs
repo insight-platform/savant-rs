@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use super::error::FlexibleDecoderError;
-use super::output::DecoderParameters;
+use super::output::{DecoderParameters, FlexibleDecoderOutput, SkipReason};
 use super::state::{register_frame, DecoderState, FrameMap, StateGuard, SubmitContext};
 
 /// Result of processing a submit in the `Active` state.
@@ -22,7 +22,25 @@ pub(crate) enum ActiveResult {
         old_params: DecoderParameters,
         new_params: DecoderParameters,
     },
+    /// The underlying [`NvDecoder`] worker died (e.g. the GstPipeline
+    /// watchdog tripped while frames were stuck in the `in_flight` map).
+    /// The state has been committed to `Idle`, the dead decoder has been
+    /// torn down, and `pending` has been populated with one
+    /// [`FlexibleDecoderOutput::Skipped`] per orphaned frame plus a
+    /// trailing aggregate
+    /// [`FlexibleDecoderOutput::Restarted`].  The caller must
+    /// re-acquire the state lock and re-run [`super::handle_idle::handle_idle`]
+    /// for `ctx`, exactly like the [`NeedDrain`](Self::NeedDrain) recovery
+    /// path — the restart is therefore transparent to
+    /// [`super::FlexibleDecoder::submit`].
+    Restarted,
 }
+
+/// Reason string surfaced via [`FlexibleDecoderOutput::Restarted`] when the
+/// worker thread exits unexpectedly.  The upstream
+/// [`PipelineError`](savant_gstreamer::pipeline::PipelineError) is reported
+/// separately via [`FlexibleDecoderOutput::Error`].
+const WORKER_DIED_REASON: &str = "worker thread exited";
 
 /// Handle a submit when the decoder is in `Active` state.
 ///
@@ -35,13 +53,19 @@ pub(crate) enum ActiveResult {
 /// On submit error: commits guard to `Active` (decoder still valid), returns
 /// `SteadyState(Err(...))`.
 ///
-/// On dead worker: tears down the decoder, commits guard to `Idle`, returns
-/// `SteadyState(Err(WorkerDied))`.  The next `submit` call will
-/// re-activate from scratch.
+/// On dead worker: tears down the decoder, drains the entire frame map
+/// into `pending` as
+/// [`Skipped { reason: DecoderRestarted(_) }`](FlexibleDecoderOutput::Skipped),
+/// pushes a [`FlexibleDecoderOutput::Restarted`] aggregate event, commits
+/// guard to `Idle`, and returns [`ActiveResult::Restarted`].  The caller is
+/// expected to re-run [`super::handle_idle::handle_idle`] for `ctx` so the
+/// restart is transparent to [`super::FlexibleDecoder::submit`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_active(
     guard: StateGuard<'_>,
+    pending: &mut Vec<FlexibleDecoderOutput>,
     frame_map: &FrameMap,
+    source_id: &str,
     decoder: Arc<NvDecoder>,
     worker_join: Option<JoinHandle<()>>,
     worker_stop: Arc<AtomicBool>,
@@ -60,8 +84,32 @@ pub(crate) fn handle_active(
             let _ = jh.join();
         }
         let _ = decoder.shutdown();
+
+        // Drain any frames still mapped to the dead decoder so users see
+        // a per-frame Skipped(DecoderRestarted) plus the aggregate
+        // Restarted event below.
+        let lost_frames = {
+            let mut fm = frame_map.lock();
+            let mut lost = 0usize;
+            for (_, frame) in fm.drain() {
+                lost += 1;
+                pending.push(FlexibleDecoderOutput::Skipped {
+                    frame,
+                    data: None,
+                    reason: SkipReason::DecoderRestarted(WORKER_DIED_REASON.to_string()),
+                });
+            }
+            lost
+        };
+
+        pending.push(FlexibleDecoderOutput::Restarted {
+            source_id: source_id.to_string(),
+            reason: WORKER_DIED_REASON.to_string(),
+            lost_frames,
+        });
+
         guard.commit(DecoderState::Idle);
-        return ActiveResult::SteadyState(Err(FlexibleDecoderError::WorkerDied));
+        return ActiveResult::Restarted;
     }
 
     let codec_changed = ctx.video_codec != Some(active_video_codec);
