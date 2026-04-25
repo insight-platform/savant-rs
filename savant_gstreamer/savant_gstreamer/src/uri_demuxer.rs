@@ -66,8 +66,6 @@ pub enum UriDemuxerError {
         name: String,
         error: String,
     },
-    #[error("Demuxer already finished")]
-    AlreadyFinished,
 }
 
 impl From<SampleError> for UriDemuxerError {
