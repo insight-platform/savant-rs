@@ -648,6 +648,9 @@ impl UriDemuxer {
             let info_pair_pad = info_pair.clone();
             let emit_stream_info_pad = emit_stream_info.clone();
             let on_output_parse_pad = on_output.clone();
+            let finished_parse_pad = finished.clone();
+            let info_pair_parse_pad_done = info_pair.clone();
+            let done_pair_parse_pad = done_pair.clone();
             let parsed = config.parsed;
             parsebin.connect_pad_added(move |_parsebin, src_pad| {
                 if linked_video_pad_closure.load(Ordering::SeqCst) {
@@ -705,7 +708,19 @@ impl UriDemuxer {
                                 "UriDemuxer: byte-stream capsfilter insertion failed: {:?}",
                                 e
                             );
-                            on_output_parse_pad(UriDemuxerOutput::Error(UriDemuxerError::from(e)));
+                            // Failing to attach the only video pad is
+                            // terminal — packets can never flow.  Mirror the
+                            // sample-error / EOS / bus-error paths so any
+                            // caller blocked on `wait()` /
+                            // `wait_for_video_info()` is released instead of
+                            // hanging until an external timeout.
+                            if !finished_parse_pad.swap(true, Ordering::SeqCst) {
+                                on_output_parse_pad(UriDemuxerOutput::Error(
+                                    UriDemuxerError::from(e),
+                                ));
+                                signal_info_done(&info_pair_parse_pad_done);
+                                signal_done(&done_pair_parse_pad);
+                            }
                             return;
                         }
                     }
@@ -733,12 +748,18 @@ impl UriDemuxer {
                             src_pad.name(),
                             e
                         );
-                        on_output_parse_pad(UriDemuxerOutput::Error(UriDemuxerError::LinkError(
-                            format!(
-                                "parsebin->{}: {e}",
-                                if parsed { "capsfilter" } else { "queue" }
-                            ),
-                        )));
+                        // Same terminal-path treatment as the capsfilter
+                        // insertion failure above: release any waiters.
+                        if !finished_parse_pad.swap(true, Ordering::SeqCst) {
+                            on_output_parse_pad(UriDemuxerOutput::Error(
+                                UriDemuxerError::LinkError(format!(
+                                    "parsebin->{}: {e}",
+                                    if parsed { "capsfilter" } else { "queue" }
+                                )),
+                            ));
+                            signal_info_done(&info_pair_parse_pad_done);
+                            signal_done(&done_pair_parse_pad);
+                        }
                     }
                 }
             });
