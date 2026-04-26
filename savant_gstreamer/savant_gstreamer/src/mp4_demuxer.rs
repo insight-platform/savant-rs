@@ -30,8 +30,7 @@ use thiserror::Error;
 use savant_core::primitives::video_codec::VideoCodec;
 
 use crate::demux::helpers::{
-    build_parser_chain, sample_to_packet, signal_done, signal_info_done, ParserChainError,
-    SampleError,
+    build_parser_chain, sample_to_packet, signal_pair, ParserChainError, SampleError,
 };
 pub use crate::demux::{DemuxedPacket, VideoInfo};
 
@@ -282,8 +281,8 @@ impl Mp4Demuxer {
                                     on_output_sample(Mp4DemuxerOutput::Error(
                                         Mp4DemuxerError::from(e),
                                     ));
-                                    signal_info_done(&info_pair_sample);
-                                    signal_done(&done_pair_sample);
+                                    signal_pair(&info_pair_sample);
+                                    signal_pair(&done_pair_sample);
                                 }
                                 Err(gst::FlowError::Error)
                             }
@@ -292,8 +291,8 @@ impl Mp4Demuxer {
                     .eos(move |_| {
                         if !finished_eos.swap(true, Ordering::SeqCst) {
                             on_output_eos(Mp4DemuxerOutput::Eos);
-                            signal_info_done(&info_pair_eos);
-                            signal_done(&done_pair_eos);
+                            signal_pair(&info_pair_eos);
+                            signal_pair(&done_pair_eos);
                         }
                     })
                     .build(),
@@ -318,8 +317,8 @@ impl Mp4Demuxer {
                             msg: e.error().to_string(),
                             debug: e.debug().unwrap_or_default().to_string(),
                         }));
-                        signal_info_done(&info_pair_bus);
-                        signal_done(&done_pair_bus);
+                        signal_pair(&info_pair_bus);
+                        signal_pair(&done_pair_bus);
                     }
                     return gst::BusSyncReply::Drop;
                 }
@@ -420,8 +419,8 @@ impl Mp4Demuxer {
         let was_finished = self.finished.swap(true, Ordering::SeqCst);
         let _ = self.pipeline.set_state(gst::State::Null);
         if !was_finished {
-            signal_info_done(&self.info_pair);
-            signal_done(&self.done_pair);
+            signal_pair(&self.info_pair);
+            signal_pair(&self.done_pair);
         }
     }
 

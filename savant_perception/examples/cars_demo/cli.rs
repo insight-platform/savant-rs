@@ -34,7 +34,7 @@ pub struct Cli {
     ///   filesystem existence check is skipped.
     ///
     /// The dispatcher inside
-    /// [`crate::cars_tracking::pipeline::run`] picks the demuxer
+    /// [`crate::cars_demo::pipeline::run`] picks the demuxer
     /// actor (`Mp4Demuxer` vs `UriDemuxer`) based on which variant
     /// this string resolves to.
     #[arg(long)]
@@ -61,7 +61,7 @@ pub struct Cli {
 
     /// Inter-stage channel capacity (number of in-flight messages per
     /// boundary).  Frames flow one at a time, so a small prefetch is enough;
-    /// must be >= `MIN_CHANNEL_CAPACITY` in the `cars_tracking::pipeline` module.
+    /// must be >= `MIN_CHANNEL_CAPACITY` in the `cars_demo::pipeline` module.
     #[arg(long = "channel-cap", default_value_t = 4)]
     pub channel_cap: usize,
 
@@ -107,13 +107,21 @@ pub struct Cli {
     /// encode tail of the pipeline.
     #[arg(long = "no-picasso", default_value_t = false)]
     pub no_picasso: bool,
+
+    /// Period (seconds) between time-based stats reports while the
+    /// pipeline runs.  A final report is always emitted on shutdown
+    /// regardless of the period.  Default:
+    /// [`DEFAULT_STATS_PERIOD_SECS`](crate::cars_demo::pipeline::DEFAULT_STATS_PERIOD_SECS).
+    /// Must be `>= 1`.
+    #[arg(long = "stats-period", default_value_t = crate::cars_demo::pipeline::DEFAULT_STATS_PERIOD_SECS)]
+    pub stats_period: u64,
 }
 
 /// Resolved input — either a filesystem path (handled by
 /// `Mp4DemuxerSource`) or a URI (handled by `UriDemuxerSource`).
 ///
 /// The dispatcher inside
-/// [`crate::cars_tracking::pipeline::run`] branches on this
+/// [`crate::cars_demo::pipeline::run`] branches on this
 /// variant to pick the demuxer actor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputSource {
@@ -270,6 +278,12 @@ impl Cli {
         if self.fps_den <= 0 {
             bail!("--fps-den must be > 0, got {}", self.fps_den);
         }
+        if self.stats_period == 0 {
+            bail!(
+                "--stats-period must be >= 1 second, got {}",
+                self.stats_period
+            );
+        }
         Ok(())
     }
 
@@ -296,12 +310,14 @@ impl Cli {
             draw_enabled,
             picasso_enabled,
             output_is_null,
+            stats_period_ms: i64::from(u32::try_from(self.stats_period).unwrap_or(u32::MAX))
+                * 1_000,
         })
     }
 }
 
 /// Fully-validated input + output + numeric knobs ready to be handed to
-/// [`crate::cars_tracking::pipeline::run`].
+/// [`crate::cars_demo::pipeline::run`].
 #[derive(Debug, Clone)]
 pub struct ResolvedCli {
     /// Resolved input source — either a validated filesystem path
@@ -341,7 +357,7 @@ pub struct ResolvedCli {
     /// Set by the `--output null` sentinel: Picasso still runs
     /// (decode + infer + track + transform + encode), but instead
     /// of writing an MP4 the encoded bitstream is routed into a
-    /// [`BitstreamFunction`](savant_perception::templates::BitstreamFunction)
+    /// [`BitstreamFunction`](savant_perception::stages::BitstreamFunction)
     /// terminus that tallies packet counts and encoded byte totals.
     ///
     /// Only meaningful when [`Self::picasso_enabled`] is `true`;
@@ -349,6 +365,11 @@ pub struct ResolvedCli {
     /// [`Cli::resolve`] (the two ways to disable output are not
     /// composable).
     pub output_is_null: bool,
+    /// Period (milliseconds) between time-based stats reports.
+    /// Resolved from `--stats-period` (seconds, default
+    /// [`DEFAULT_STATS_PERIOD_SECS`](crate::cars_demo::pipeline::DEFAULT_STATS_PERIOD_SECS))
+    /// by multiplying by 1000.
+    pub stats_period_ms: i64,
 }
 
 impl ResolvedCli {
@@ -457,7 +478,7 @@ mod tests {
     #[test]
     fn no_picasso_disables_both_picasso_and_draw() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         // Use an existing file so `resolved_input` passes — we only
         // care about the picasso / draw plumbing here.
         let cli = Cli::try_parse_from([
@@ -484,7 +505,7 @@ mod tests {
     #[test]
     fn missing_output_rejected_when_picasso_enabled() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from(["cars-demo", "--input", exe_dir.to_str().unwrap()]).unwrap();
         let err = cli.resolve().unwrap_err();
         assert!(
@@ -516,7 +537,7 @@ mod tests {
     #[test]
     fn output_null_sentinel_disables_file_but_keeps_picasso() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
@@ -537,7 +558,7 @@ mod tests {
     #[test]
     fn no_picasso_rejects_output_null() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
@@ -563,7 +584,7 @@ mod tests {
     #[test]
     fn regular_output_has_output_is_null_false() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
@@ -650,7 +671,7 @@ mod tests {
             "cars-demo",
             "--input",
             // Relative to CARGO_MANIFEST_DIR.
-            "examples/cars_demo/cars_tracking.rs",
+            "examples/cars_demo/cars_demo.rs",
             "--output",
             "/tmp/out.mp4",
         ])

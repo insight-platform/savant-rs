@@ -232,7 +232,10 @@ impl FlexibleDecoder {
                             pending.push(FlexibleDecoderOutput::Skipped {
                                 frame: pkt.frame,
                                 data: Some(pkt.data),
-                                reason: SkipReason::WaitingForKeyframe,
+                                reason: SkipReason::ParameterChangeDuringDetection {
+                                    codec_changed,
+                                    dims_changed,
+                                },
                             });
                         }
                         handle_idle(
@@ -671,6 +674,42 @@ impl FlexibleDecoder {
 }
 
 /// Background worker: polls [`NvDecoder`] output and forwards to the callback.
+///
+/// # Termination policy
+///
+/// The loop exits on any condition that means the underlying [`NvDecoder`]
+/// can no longer make forward progress for *this* sequence:
+///
+///  * `stop` flag is set by the supervisor (graceful teardown / parameter
+///    change / pool eviction).
+///  * The output channel is disconnected ([`DecoderError::ChannelDisconnected`]).
+///    The underlying `NvDecoder` has been torn down; nothing more will arrive.
+///  * The pipeline emits a stream-level EOS ([`NvDecoderOutput::Eos`]).  This
+///    is unexpected because the caller drains via
+///    [`FlexibleDecoder::graceful_shutdown`] which sets `stop` first; reaching
+///    it via this branch means the pipeline self-terminated.
+///  * A per-packet decoder error ([`NvDecoderOutput::Error`], e.g.
+///    [`PipelineError::TimestampOrderViolation`](savant_gstreamer::pipeline::PipelineError::TimestampOrderViolation),
+///    transient `nvv4l2decoder` failures).  The error is forwarded to the
+///    consumer first; exiting then trips
+///    [`super::handle_active::handle_active`]'s worker-died branch on the
+///    next [`FlexibleDecoder::submit`] call, which tears down the broken
+///    [`NvDecoder`], emits one
+///    [`FlexibleDecoderOutput::Skipped { reason: DecoderRestarted, .. }`](FlexibleDecoderOutput::Skipped)
+///    per orphaned frame plus an aggregate
+///    [`FlexibleDecoderOutput::Restarted`], and re-runs
+///    [`super::handle_idle::handle_idle`] for the current packet against a
+///    fresh decoder.
+///
+///    This is critical when the per-source [`FlexibleDecoder`] is reused
+///    across multiple producer runs *without* an intervening
+///    `source_eos` (e.g. `cars-demo-zmq producer --no-eos`): without the
+///    restart, the [`GstPipeline`](savant_gstreamer::pipeline::GstPipeline)
+///    feeder's sticky `last_key` would reject every packet of the new
+///    rebased sequence forever.  The restart costs one synchronous
+///    `nvv4l2decoder` `set_state(Null)` on the producer's first submit
+///    after the violation (seconds on Jetson with frames in flight), but
+///    the alternative — a permanently broken decoder — is strictly worse.
 fn worker_loop(
     decoder: Arc<NvDecoder>,
     on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync>,
@@ -697,6 +736,13 @@ fn worker_loop(
                 on_output(FlexibleDecoderOutput::SourceEos { source_id });
             }
             Ok(Some(NvDecoderOutput::Error(e))) => {
+                // Per-packet decoder error.  Surface it to the consumer
+                // and exit so the next `submit` triggers
+                // `handle_active`'s worker-died branch and rebuilds a
+                // fresh `NvDecoder` for the new sequence.  Continuing to
+                // poll a decoder that just rejected a buffer would
+                // permanently wedge the stream — every subsequent packet
+                // hits the same sticky `last_key` and is rejected too.
                 on_output(FlexibleDecoderOutput::Error(e));
                 break;
             }

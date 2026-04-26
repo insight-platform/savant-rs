@@ -36,9 +36,7 @@ use thiserror::Error;
 
 use savant_core::primitives::video_codec::VideoCodec;
 
-use crate::demux::helpers::{
-    sample_to_packet, signal_done, signal_info_done, ParserChainError, SampleError,
-};
+use crate::demux::helpers::{sample_to_packet, signal_pair, ParserChainError, SampleError};
 pub use crate::demux::{DemuxedPacket, VideoInfo};
 
 /// Errors that can occur while constructing or running a [`UriDemuxer`].
@@ -627,8 +625,8 @@ impl UriDemuxer {
                         on_output_uri_pad(UriDemuxerOutput::Error(UriDemuxerError::LinkError(
                             format!("urisourcebin->parsebin: {e}"),
                         )));
-                        signal_info_done(&info_pair_uri_pad);
-                        signal_done(&done_pair_uri_pad);
+                        signal_pair(&info_pair_uri_pad);
+                        signal_pair(&done_pair_uri_pad);
                     }
                 }
             });
@@ -707,17 +705,30 @@ impl UriDemuxer {
                                 e
                             );
                             // Failing to attach the only video pad is
-                            // terminal — packets can never flow.  Mirror the
-                            // sample-error / EOS / bus-error paths so any
-                            // caller blocked on `wait()` /
-                            // `wait_for_video_info()` is released instead of
-                            // hanging until an external timeout.
+                            // terminal — packets can never flow.  Mark the
+                            // video-pad slot as taken so a later
+                            // `pad-added` invocation does not re-enter the
+                            // capsfilter / link path on a pipeline that
+                            // has already been torn down: without this,
+                            // both the `linked_video_pad_closure` check
+                            // and the `queue_sink_pad.is_linked()` check
+                            // pass (the capsfilter's error path inside
+                            // `insert_byte_stream_capsfilter` freed the
+                            // queue's sink), and we'd redo the doomed
+                            // work, polluting logs and emitting a
+                            // confusing follow-up `Error` even though no
+                            // further packets are intended to flow.  Then
+                            // mirror the sample-error / EOS / bus-error
+                            // paths so any caller blocked on `wait()` /
+                            // `wait_for_video_info()` is released instead
+                            // of hanging until an external timeout.
+                            linked_video_pad_closure.store(true, Ordering::SeqCst);
                             if !finished_parse_pad.swap(true, Ordering::SeqCst) {
                                 on_output_parse_pad(UriDemuxerOutput::Error(
                                     UriDemuxerError::from(e),
                                 ));
-                                signal_info_done(&info_pair_parse_pad_done);
-                                signal_done(&done_pair_parse_pad);
+                                signal_pair(&info_pair_parse_pad_done);
+                                signal_pair(&done_pair_parse_pad);
                             }
                             return;
                         }
@@ -747,7 +758,14 @@ impl UriDemuxer {
                             e
                         );
                         // Same terminal-path treatment as the capsfilter
-                        // insertion failure above: release any waiters.
+                        // insertion failure above: latch the video-pad
+                        // slot so a later `pad-added` cannot re-attempt
+                        // capsfilter insertion / linking on the
+                        // already-finished pipeline (`capsf.remove_from`
+                        // freed the queue's sink, so
+                        // `queue_sink_pad.is_linked()` no longer guards
+                        // us either), and release any waiters.
+                        linked_video_pad_closure.store(true, Ordering::SeqCst);
                         if !finished_parse_pad.swap(true, Ordering::SeqCst) {
                             on_output_parse_pad(UriDemuxerOutput::Error(
                                 UriDemuxerError::LinkError(format!(
@@ -755,8 +773,8 @@ impl UriDemuxer {
                                     if parsed { "capsfilter" } else { "queue" }
                                 )),
                             ));
-                            signal_info_done(&info_pair_parse_pad_done);
-                            signal_done(&done_pair_parse_pad);
+                            signal_pair(&info_pair_parse_pad_done);
+                            signal_pair(&done_pair_parse_pad);
                         }
                     }
                 }
@@ -807,8 +825,8 @@ impl UriDemuxer {
                                     on_output_sample(UriDemuxerOutput::Error(
                                         UriDemuxerError::from(e),
                                     ));
-                                    signal_info_done(&info_pair_sample);
-                                    signal_done(&done_pair_sample);
+                                    signal_pair(&info_pair_sample);
+                                    signal_pair(&done_pair_sample);
                                 }
                                 Err(gst::FlowError::Error)
                             }
@@ -817,8 +835,8 @@ impl UriDemuxer {
                     .eos(move |_| {
                         if !finished_eos.swap(true, Ordering::SeqCst) {
                             on_output_eos(UriDemuxerOutput::Eos);
-                            signal_info_done(&info_pair_eos);
-                            signal_done(&done_pair_eos);
+                            signal_pair(&info_pair_eos);
+                            signal_pair(&done_pair_eos);
                         }
                     })
                     .build(),
@@ -843,8 +861,8 @@ impl UriDemuxer {
                             msg: e.error().to_string(),
                             debug: e.debug().unwrap_or_default().to_string(),
                         }));
-                        signal_info_done(&info_pair_bus);
-                        signal_done(&done_pair_bus);
+                        signal_pair(&info_pair_bus);
+                        signal_pair(&done_pair_bus);
                     }
                     return gst::BusSyncReply::Drop;
                 }
@@ -932,8 +950,8 @@ impl UriDemuxer {
         let was_finished = self.finished.swap(true, Ordering::SeqCst);
         let _ = self.pipeline.set_state(gst::State::Null);
         if !was_finished {
-            signal_info_done(&self.info_pair);
-            signal_done(&self.done_pair);
+            signal_pair(&self.info_pair);
+            signal_pair(&self.done_pair);
         }
     }
 

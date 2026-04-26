@@ -158,29 +158,66 @@ impl FlexibleDecoderPool {
         self.resolve_and_submit(&source_id, frame, data)
     }
 
-    /// Inject a logical per-source EOS.
+    /// Inject a logical per-source EOS and tear down the per-source decoder.
     ///
-    /// Forwarded to the decoder for `source_id` if it exists; otherwise
-    /// a [`FlexibleDecoderOutput::SourceEos`] is emitted directly via the
-    /// output callback.
+    /// `source_eos` is the explicit "this contiguous PTS sequence is over"
+    /// boundary for `source_id`.  The pool:
+    ///
+    ///  1. Removes the per-source [`FlexibleDecoder`] from the streams map
+    ///     (so any concurrent [`submit`](Self::submit) for the same
+    ///     `source_id` will create a fresh decoder).
+    ///  2. Sends the in-band `SourceEos` custom downstream event so
+    ///     remaining frames are delivered to the callback in order,
+    ///     followed by the [`FlexibleDecoderOutput::SourceEos`] marker.
+    ///  3. Drains the decoder via
+    ///     [`FlexibleDecoder::graceful_shutdown`] (bounded by
+    ///     `config.idle_timeout`) and tears down the underlying GstPipeline.
+    ///
+    /// Subsequent submits for the same `source_id` (typically a new
+    /// producer run that legitimately rebases its PTS to 0) build a fresh
+    /// per-source [`FlexibleDecoder`] with a fresh `nvv4l2decoder` —
+    /// avoiding the stale internal monotonic-PTS state that would
+    /// otherwise silently swallow the new sequence.
+    ///
+    /// If the source has no active decoder (it never had a frame
+    /// submitted, or has already been evicted), the EOS marker is emitted
+    /// directly via the output callback.
     pub fn source_eos(&self, source_id: &str) -> Result<(), FlexibleDecoderError> {
         if self.shut_down.load(Ordering::Relaxed) {
             return Err(FlexibleDecoderError::ShutDown);
         }
 
-        let decoder = {
-            let streams = self.streams.lock();
-            streams.get(source_id).map(|e| Arc::clone(&e.decoder))
+        // Atomically detach the entry from the streams map.  Any concurrent
+        // `submit` racing past this point will see no entry and create a
+        // fresh one for `source_id`.
+        let entry = self.streams.lock().remove(source_id);
+
+        let mut entry = match entry {
+            Some(e) => e,
+            None => {
+                (self.on_output)(FlexibleDecoderOutput::SourceEos {
+                    source_id: source_id.to_string(),
+                });
+                return Ok(());
+            }
         };
 
-        if let Some(decoder) = decoder {
-            decoder.source_eos(source_id)
-        } else {
-            (self.on_output)(FlexibleDecoderOutput::SourceEos {
-                source_id: source_id.to_string(),
-            });
-            Ok(())
+        // Release any pending eviction seal so other waiters (if any)
+        // unblock immediately.
+        if let Some(seal) = entry.eviction_seal.take() {
+            seal.release();
         }
+
+        // 1. Inject the in-band per-source EOS marker so the worker emits
+        //    `FlexibleDecoderOutput::SourceEos` ordered with the remaining
+        //    decoded frames.  Errors here mean the underlying decoder is
+        //    already dead — fall through to the drain anyway.
+        let _ = entry.decoder.source_eos(source_id);
+
+        // 2. Drain remaining frames and tear down the GstPipeline.  After
+        //    this returns, the `FlexibleDecoder` is in `ShutDown` state and
+        //    the only reference held by the pool was just dropped.
+        entry.decoder.graceful_shutdown()
     }
 
     /// Force-flush pending rescue-eligible custom-downstream events on

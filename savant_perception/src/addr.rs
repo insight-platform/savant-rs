@@ -1,10 +1,10 @@
 //! [`Addr<M>`] — typed, clonable handle to an actor's inbox.
 //!
 //! Every actor allocates exactly one bounded
-//! [`crossbeam::channel`] inbox of its envelope type during
-//! phase 1 of [`System::build`](super::actor::Actor).  The
+//! [`crossbeam::channel`] inbox of its envelope type when it is
+//! registered with [`System`](super::system::System).  The
 //! registry publishes the sending half as an `Addr<M>` keyed by
-//! the actor's [`StageName`](super::supervisor::StageName); peer
+//! the actor's [`StageName`]; peer
 //! actors look it up in their
 //! [`BuildCtx`](super::context::BuildCtx) /
 //! [`Context`](super::context::Context) at construction time or
@@ -23,7 +23,7 @@ use super::supervisor::StageName;
 
 /// Typed handle to an actor's inbox.
 ///
-/// Holds a cloneable [`Sender`](crossbeam::channel::Sender) plus
+/// Holds a cloneable [`Sender`] plus
 /// the peer's [`StageName`] for log records and introspection.
 /// `send` / `try_send` push onto the underlying bounded channel;
 /// [`name`](Addr::name) returns the peer identity.
@@ -33,12 +33,13 @@ pub struct Addr<M: Envelope> {
 }
 
 impl<M: Envelope> Addr<M> {
-    /// Internal constructor — the framework builds these during
-    /// [`System::build`](super::actor::Actor); user code should
-    /// always obtain `Addr`s via
+    /// Internal constructor — the framework builds these inside
+    /// [`System::register_actor`](super::system::System::register_actor)
+    /// when the actor's inbox channel is allocated.  User code
+    /// should always obtain `Addr`s via
     /// [`BuildCtx::addr`](super::context::BuildCtx::addr) or
     /// [`Context::resolve`](super::context::Context::resolve).
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    #[allow(dead_code, reason = "constructed by System on actor registration")]
     pub(crate) fn new(name: StageName, tx: Sender<M>) -> Self {
         Self { name, tx }
     }

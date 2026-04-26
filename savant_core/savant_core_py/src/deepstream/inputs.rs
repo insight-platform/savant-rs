@@ -205,6 +205,30 @@ impl PySkipReason {
         matches!(self.0, SkipReason::DetectionBufferOverflow)
     }
     #[getter]
+    fn is_parameter_change_during_detection(&self) -> bool {
+        matches!(self.0, SkipReason::ParameterChangeDuringDetection { .. })
+    }
+    /// Whether the codec changed during detection (only meaningful when
+    /// :attr:`is_parameter_change_during_detection` is true).
+    #[getter]
+    fn parameter_change_codec_changed(&self) -> Option<bool> {
+        match &self.0 {
+            SkipReason::ParameterChangeDuringDetection { codec_changed, .. } => {
+                Some(*codec_changed)
+            }
+            _ => None,
+        }
+    }
+    /// Whether the dimensions changed during detection (only meaningful
+    /// when :attr:`is_parameter_change_during_detection` is true).
+    #[getter]
+    fn parameter_change_dims_changed(&self) -> Option<bool> {
+        match &self.0 {
+            SkipReason::ParameterChangeDuringDetection { dims_changed, .. } => Some(*dims_changed),
+            _ => None,
+        }
+    }
+    #[getter]
     fn is_no_payload(&self) -> bool {
         matches!(self.0, SkipReason::NoPayload)
     }
@@ -232,6 +256,12 @@ impl PySkipReason {
             SkipReason::InvalidPayload(msg) => Some(msg.clone()),
             SkipReason::DecoderCreationFailed(msg) => Some(msg.clone()),
             SkipReason::DecoderRestarted(msg) => Some(msg.clone()),
+            SkipReason::ParameterChangeDuringDetection {
+                codec_changed,
+                dims_changed,
+            } => Some(format!(
+                "codec_changed={codec_changed}, dims_changed={dims_changed}"
+            )),
             _ => None,
         }
     }

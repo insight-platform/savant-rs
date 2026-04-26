@@ -36,8 +36,13 @@ pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, VideoCodec, i64, i64, &Vi
 /// Pre-RAP packets cannot be decoded without an anchor IDR, so once the
 /// first random access point arrives the buffered queue is **drained as
 /// `Skipped(WaitingForKeyframe)`** rather than replayed (replaying would
-/// only strand PTS entries in the GstPipeline watchdog map).  Only
-/// `frame` (for the [`Skipped`](super::output::FlexibleDecoderOutput::Skipped)
+/// only strand PTS entries in the GstPipeline watchdog map).  If detection
+/// is abandoned mid-stream because the declared codec or dimensions change
+/// before any keyframe is observed, the buffered packets are instead
+/// surfaced as
+/// `Skipped(`[`ParameterChangeDuringDetection`](super::output::SkipReason::ParameterChangeDuringDetection)`)`
+/// so consumers can distinguish that case from routine pre-keyframe
+/// skipping.  Only `frame` (for the [`Skipped`](super::output::FlexibleDecoderOutput::Skipped)
 /// frame proxy) and `data` (for the [`Skipped::data`](super::output::FlexibleDecoderOutput::Skipped)
 /// payload) are needed downstream.
 pub(crate) struct BufferedPacket {

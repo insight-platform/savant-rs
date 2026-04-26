@@ -1,11 +1,11 @@
 //! [`OperatorSink<M>`] — typed adapter for operator result
 //! callbacks.
 //!
-//! Several of the sample's stages (nvinfer, nvtracker, Picasso,
-//! FlexibleDecoderPool) surface their output through a callback
-//! thread owned by the operator itself.  Those callbacks need to
-//! forward payloads *into* the next actor's inbox, but also need
-//! to behave correctly when the inbox is closed — specifically:
+//! Several wrapped operators (nvinfer, nvtracker, Picasso,
+//! FlexibleDecoderPool) surface output through callback threads
+//! owned by the operator itself.  Those callbacks need to forward
+//! payloads *into* the next actor's inbox, but also need to behave
+//! correctly when the inbox is closed — specifically:
 //!
 //! * Log **once** per aborted stream.
 //! * Treat a drop as a soft error: the producer callback stays
@@ -51,7 +51,10 @@ impl<M: Envelope> OperatorSink<M> {
     /// Internal: user code should obtain sinks via
     /// [`BuildCtx::sink`](super::context::BuildCtx::sink) or
     /// [`Context::sink`](super::context::Context::sink).
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    #[allow(
+        dead_code,
+        reason = "called by BuildCtx/Context when handing a sink to user code"
+    )]
     pub(crate) fn new(owner: StageName, addr: Addr<M>) -> Self {
         Self {
             owner,

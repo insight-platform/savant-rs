@@ -148,6 +148,20 @@ pub enum SkipReason {
     /// Too many frames buffered without finding a random access point;
     /// the detection buffer limit was exceeded.
     DetectionBufferOverflow,
+    /// While the decoder was still in the `Detecting` state (no keyframe
+    /// seen yet), the declared codec or frame dimensions changed, so the
+    /// in-progress detection attempt is abandoned and the buffered pre-RAP
+    /// packets are surfaced.  Emitted instead of
+    /// [`WaitingForKeyframe`](Self::WaitingForKeyframe) on this path so
+    /// downstream consumers can distinguish keyframe-pending throughput
+    /// stalls from input-parameter renegotiations.
+    ParameterChangeDuringDetection {
+        /// Whether the codec changed compared to the codec under detection.
+        codec_changed: bool,
+        /// Whether the width/height changed compared to the dimensions
+        /// under detection.
+        dims_changed: bool,
+    },
     /// Neither the `data` argument nor `frame.get_content()` contained bytes.
     NoPayload,
     /// Payload failed structural validation for the declared codec

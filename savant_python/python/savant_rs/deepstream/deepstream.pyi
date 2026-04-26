@@ -1346,6 +1346,28 @@ class SkipReason:
     @property
     def is_detection_buffer_overflow(self) -> bool: ...
     @property
+    def is_parameter_change_during_detection(self) -> bool: ...
+    @property
+    def parameter_change_codec_changed(self) -> Optional[bool]:
+        """Whether the codec changed during detection.
+
+        Only meaningful when
+        :attr:`is_parameter_change_during_detection` is ``True``;
+        ``None`` for every other variant.
+        """
+        ...
+
+    @property
+    def parameter_change_dims_changed(self) -> Optional[bool]:
+        """Whether the dimensions changed during detection.
+
+        Only meaningful when
+        :attr:`is_parameter_change_during_detection` is ``True``;
+        ``None`` for every other variant.
+        """
+        ...
+
+    @property
     def is_no_payload(self) -> bool: ...
     @property
     def is_invalid_payload(self) -> bool: ...

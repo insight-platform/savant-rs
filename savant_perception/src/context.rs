@@ -10,7 +10,7 @@
 //!
 //! | Type              | Owned mutable state         | Lives during…
 //! |-------------------|-----------------------------|------------------
-//! | [`BuildCtx`]      | *(none)*                    | `System::build`
+//! | [`BuildCtx`]      | *(none)*                    | each factory call inside `System::run`
 //! | [`Context`]       | `deadline`, `break_now`, `tick_deadline` | actor's receive loop
 //! | [`SourceContext`] | *(none — stop flag is shared)* | source's `run()`
 //!
@@ -37,12 +37,12 @@ use super::supervisor::{StageKind, StageName};
 
 /// Construction-time context handed to every actor factory.
 ///
-/// Factories run in phase 2 of
-/// [`System::build`](super::actor::Actor), after phase 1 has
-/// published every actor's [`Addr`] in the registry.  That ordering
-/// lets factories resolve downstream peers eagerly — no more
-/// cloning `Sender`s through closures — and produce a ready-to-run
-/// actor value by return.
+/// Factories run inside
+/// [`System::run`](super::system::System::run), after every
+/// actor's [`Addr`] has already been published in the registry.
+/// That ordering lets factories resolve downstream peers eagerly
+/// from the registry and produce a ready-to-run actor value by
+/// return — no `Sender` cloning through closures.
 ///
 /// `BuildCtx` is entirely immutable: factories observe but don't
 /// mutate the framework's construction state.  Any mutation
@@ -57,15 +57,14 @@ pub struct BuildCtx<'a> {
 
 impl<'a> BuildCtx<'a> {
     /// Internal constructor used by
-    /// [`System::build`](super::actor::Actor) to hand a borrowed
-    /// context to each factory.
+    /// [`System::run`](super::system::System::run) to hand a
+    /// borrowed context to each factory.
     ///
     /// `stop_flag` is the same `Arc<AtomicBool>` the actor loop
-    /// driver (or the source runtime) already reads for
-    /// cooperative shutdown; threading it through
-    /// [`BuildCtx::hook_ctx`] lets egress hooks flip it via
-    /// [`HookCtx::request_stop`].
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    /// driver (or the source runtime) reads for cooperative
+    /// shutdown; threading it through [`BuildCtx::hook_ctx`]
+    /// lets egress hooks flip it via [`HookCtx::request_stop`].
+    #[allow(dead_code, reason = "called from System::run before each factory")]
     pub(crate) fn new(
         own_name: &'a StageName,
         registry: &'a Arc<Registry>,
@@ -159,7 +158,7 @@ impl<'a> BuildCtx<'a> {
     /// suitable for capturing into off-loop egress hooks.
     ///
     /// See [`HookCtx`] for the full rationale.  Typical wiring
-    /// inside a template's actor factory:
+    /// inside a stage's actor factory:
     ///
     /// ```ignore
     /// .factory(move |bx| {
@@ -208,9 +207,10 @@ impl<'a> BuildCtx<'a> {
 ///   for log-line attribution that stays aligned with the rest of
 ///   the system.
 /// * [`shared`](Self::shared) / [`shared_as`](Self::shared_as) —
-///   [`SharedStore`] look-ups so hooks can reach stats counters,
-///   model registries, or any other `Arc<T>` published at
-///   [`System::build`](super::actor::Actor) time.
+///   [`SharedStore`] look-ups so hooks can reach any `Arc<T>`
+///   that the application published through
+///   [`System::insert_shared`](super::system::System::insert_shared)
+///   (or the named-key variants) before `System::run`.
 /// * [`resolve`](Self::resolve) — registry look-up returning a
 ///   typed [`Addr<M>`] for "route this update to the stage named
 ///   `foo`"-style side channels (rare — prefer router peers when
@@ -228,7 +228,7 @@ pub struct HookCtx {
 }
 
 impl HookCtx {
-    /// Direct constructor for templates that assemble a hook ctx
+    /// Direct constructor for stages that assemble a hook ctx
     /// out of hand-picked pieces (e.g. tests).  Most call sites
     /// should prefer [`BuildCtx::hook_ctx`] or
     /// [`SourceContext::hook_ctx`], both of which thread the
@@ -289,32 +289,35 @@ impl HookCtx {
         Arc::clone(&self.registry)
     }
 
-    /// Request cooperative shutdown of the owning stage from a
-    /// worker thread.
+    /// Request cooperative shutdown by flipping the shared stop
+    /// flag.
     ///
-    /// Flips the shared `stop_flag` the loop driver already
-    /// polls through [`Context::should_quit`] (for actors) and
-    /// [`SourceContext::is_stopping`] (for sources).  The effect
-    /// is **exactly** the same as the orchestrator asking the
-    /// stage to wind down: the actor finishes its current
-    /// `handle`/`on_tick` then breaks out of the loop, running
-    /// [`Actor::stopping`](super::actor::Actor::stopping)
-    /// once; the source observes the flag at its next
-    /// cancellation checkpoint and returns `Ok(())` from
-    /// `run`.
+    /// The stop flag is the same `Arc<AtomicBool>` the loop driver
+    /// observes through [`Context::should_quit`] (for actors) and
+    /// [`SourceContext::is_stopping`] (for sources).  The flag is
+    /// also flipped by [`System`](super::system::System) when its
+    /// shutdown handler returns
+    /// [`ShutdownAction::Broadcast`](super::shutdown::ShutdownAction::Broadcast)
+    /// or [`Ordered`](super::shutdown::ShutdownAction::Ordered),
+    /// so calling this from a worker thread reaches the same flag
+    /// the supervisor uses.
     ///
-    /// This is a *request*: egress hooks shouldn't assume their
-    /// caller exits instantly.  They should let the current
-    /// outputs drain naturally (e.g. keep forwarding the last
-    /// few `on_inference` batches) — the stage will read the
-    /// flag and wind down at its next polling opportunity.
+    /// The call is non-blocking and only sets the flag; the actual
+    /// exit happens at the next polling point of the owning stage:
+    ///
+    /// * an actor finishes its current `handle` / `on_tick`, then
+    ///   breaks out of the receive loop and runs
+    ///   [`Actor::stopping`];
+    /// * a source observes the flag the next time it calls
+    ///   [`SourceContext::is_stopping`] and returns `Ok(())` from
+    ///   [`Source::run`](super::actor::Source::run).
     pub fn request_stop(&self) {
         self.stop_flag.store(true, Ordering::Relaxed);
     }
 
     /// Whether [`Self::request_stop`] has already been invoked
     /// (by this hook, another hook on the same stage, or the
-    /// orchestrator itself).
+    /// supervisor itself).
     pub fn stop_requested(&self) -> bool {
         self.stop_flag.load(Ordering::Relaxed)
     }
@@ -355,9 +358,12 @@ pub struct Context<A: Actor> {
 impl<A: Actor> Context<A> {
     /// Internal constructor — the framework threads the shared
     /// registry, shared store, and stop flag into every per-actor
-    /// context from
-    /// [`Running`](super::loop_driver::run_actor).
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    /// context before handing it to
+    /// [`run_actor`](super::loop_driver::run_actor).
+    #[allow(
+        dead_code,
+        reason = "called from System::run before spawning each actor"
+    )]
     pub(crate) fn new(
         own_name: StageName,
         registry: Arc<Registry>,
@@ -504,7 +510,7 @@ impl<A: Actor> Context<A> {
     }
 
     /// Schedule the next `on_tick` call no later than `at` — used
-    /// by templates that need a per-source deadline (e.g. a
+    /// by stages that need a per-source deadline (e.g. a
     /// decoder draining the operator tail after an EOS).
     pub fn schedule_tick_at(&mut self, at: Instant) {
         self.tick_deadline = Some(match self.tick_deadline {
@@ -527,7 +533,7 @@ impl<A: Actor> Context<A> {
 
     /// Access to the shared stop flag — tests use this to flip the
     /// flag externally and observe the loop exit.
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    #[allow(dead_code, reason = "used by System::run and unit tests")]
     pub(crate) fn stop_flag(&self) -> &Arc<AtomicBool> {
         &self.stop_flag
     }
@@ -547,8 +553,13 @@ pub struct SourceContext {
 }
 
 impl SourceContext {
-    /// Internal constructor.
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    /// Internal constructor — built by
+    /// [`System::run`](super::system::System::run) before
+    /// spawning the source's worker thread.
+    #[allow(
+        dead_code,
+        reason = "called from System::run before spawning each source"
+    )]
     pub(crate) fn new(
         own_name: StageName,
         registry: Arc<Registry>,
@@ -605,7 +616,7 @@ impl SourceContext {
         self.shared.get_as::<T>(key)
     }
 
-    /// Whether the orchestrator has asked the source to wind down.
+    /// Whether the supervisor has asked the source to wind down.
     /// Sources poll this between chunks of work and exit cleanly
     /// once it flips to `true`.
     pub fn is_stopping(&self) -> bool {

@@ -470,6 +470,7 @@ impl Stats {
             let res = generator_bind.register_ts(true);
             if let Some(mut r) = res {
                 r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
+                r.log_stage_stats();
                 let mut collector_bind = self.collector.lock();
                 collector_bind.add_record(r);
                 log_ts_fps(&mut collector_bind);

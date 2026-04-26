@@ -39,17 +39,15 @@ pub(crate) struct SampleError {
     pub debug: String,
 }
 
-/// Notify the condvar that the demuxer is done.
-pub(crate) fn signal_done(done_pair: &(Mutex<bool>, Condvar)) {
-    let (lock, cvar) = done_pair;
-    *lock.lock().unwrap() = true;
-    cvar.notify_all();
-}
-
-/// Notify the condvar that stream info is known or unavailable because the
-/// pipeline has already terminated.
-pub(crate) fn signal_info_done(info_pair: &(Mutex<bool>, Condvar)) {
-    let (lock, cvar) = info_pair;
+/// Set a `(Mutex<bool>, Condvar)` pair to `true` and wake all waiters.
+///
+/// The demuxers maintain two such pairs — `done_pair` (pipeline terminated)
+/// and `info_pair` (stream-info known or pipeline terminated without it).
+/// Both follow the same publication protocol: flip the bool to `true` under
+/// the mutex, then `notify_all`.  A single helper enforces that protocol so
+/// the two pairs cannot drift out of sync.
+pub(crate) fn signal_pair(pair: &(Mutex<bool>, Condvar)) {
+    let (lock, cvar) = pair;
     *lock.lock().unwrap() = true;
     cvar.notify_all();
 }
@@ -123,7 +121,7 @@ pub(crate) fn maybe_emit_stream_info_from_caps<E>(
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
     {
-        signal_info_done(info_pair);
+        signal_pair(info_pair);
         emit_stream_info(info);
     }
 }

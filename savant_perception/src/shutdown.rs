@@ -3,24 +3,25 @@
 //! trigger.
 //!
 //! The [`System`](super::system::System) owns at most one
-//! [`ShutdownHandler`].  When it observes a trigger (stage exit,
-//! Ctrl+C, future external signals), it calls
-//! [`ShutdownHandler::on_shutdown`] with a [`ShutdownCause`] and
-//! an introspection [`ShutdownCtx`]; the handler returns a
+//! [`ShutdownHandler`]. When it observes a trigger
+//! ([`ShutdownCause::StageExit`] or [`ShutdownCause::CtrlC`]) it
+//! calls [`ShutdownHandler::on_shutdown`] with the cause and an
+//! introspection [`ShutdownCtx`]; the handler returns a
 //! [`ShutdownAction`] that the supervisor then executes —
-//! broadcasting shutdown envelopes, setting the stop flag,
-//! sleeping between waves, or ignoring the trigger and waiting
-//! for the next one.
+//! broadcasting shutdown envelopes, walking through ordered
+//! waves, or ignoring the trigger and waiting for the next one.
 //!
 //! # Default policy
 //!
 //! When no handler is installed, the supervisor uses a
 //! [`DefaultShutdownHandler`] that sleeps for a configurable
-//! *quiescence grace period* (to let the natural in-band
-//! `SourceEos` sentinels reach every stage) and then broadcasts
-//! a `Shutdown { grace: None }` to every registered actor.  This
-//! matches the pre-existing cars-tracking pipeline's behaviour
-//! exactly.
+//! *quiescence grace period* — letting any in-band
+//! [`EncodedMsg::SourceEos`](super::envelopes::EncodedMsg::SourceEos)
+//! /
+//! [`PipelineMsg::SourceEos`](super::envelopes::PipelineMsg::SourceEos)
+//! sentinels already in flight drain through downstream
+//! channels — and then broadcasts a `Shutdown { grace: None }`
+//! to every registered actor.
 //!
 //! # Example: press-Ctrl+C-twice-to-quit
 //!
@@ -82,9 +83,9 @@ pub enum ShutdownCause {
         /// panicked").
         stage: StageName,
     },
-    /// The process received `SIGINT` / Ctrl+C.  Always routed
-    /// through the same back-channel as natural exits so the
-    /// handler sees one uniform source of shutdown triggers.
+    /// The process received `SIGINT` / Ctrl+C. Routed through the
+    /// same back-channel as stage exits so the handler sees one
+    /// uniform stream of shutdown triggers.
     CtrlC,
 }
 
@@ -150,8 +151,8 @@ pub struct ShutdownCtx<'a> {
 }
 
 impl<'a> ShutdownCtx<'a> {
-    /// Every actor/source registered with the [`System`] at build
-    /// time.
+    /// Every actor/source registered with the
+    /// [`System`](super::system::System) at registration time.
     pub fn stages(&self) -> &[StageName] {
         self.stages
     }
@@ -223,8 +224,10 @@ pub struct DefaultShutdownHandler {
 
 impl DefaultShutdownHandler {
     /// Construct the default handler with `quiescence` grace
-    /// period.  The existing cars-tracking pipeline uses 12
-    /// seconds; shorter pipelines can set this to zero.
+    /// period.  Use [`Duration::ZERO`] for tests or pipelines
+    /// that want immediate broadcast; use a few seconds for
+    /// pipelines whose downstream stages need time to drain
+    /// in-flight `SourceEos` before being torn down.
     pub fn new(quiescence: Duration) -> Self {
         Self { quiescence }
     }
