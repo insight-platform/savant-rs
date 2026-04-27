@@ -89,9 +89,9 @@ fn transform_each_into(
     let config = TransformConfig::default();
     let mut ok = 0usize;
     for (i, src_view) in src_views.iter().enumerate() {
-        let dst_shared = dst_gen.acquire(None).map_err(|e| {
-            NvBufSurfaceError::BufferAcquisitionFailed(format!("dst {i}: {e}"))
-        })?;
+        let dst_shared = dst_gen
+            .acquire(None)
+            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("dst {i}: {e}")))?;
         let dst_view = SurfaceView::from_buffer(&dst_shared, 0)?;
         src_view.transform_into(&dst_view, &config, None)?;
         ok += 1;
@@ -338,9 +338,7 @@ fn concurrent_src_pool_recreate_vs_consumer_transform() {
         .spawn(move || -> Result<usize, String> {
             let mut cycle = 0u32;
             let started = Instant::now();
-            while started.elapsed() < RUN_DURATION
-                && !stop_for_producer.load(Ordering::Relaxed)
-            {
+            while started.elapsed() < RUN_DURATION && !stop_for_producer.load(Ordering::Relaxed) {
                 let src_gen = make_gen(SRC_POOL_SIZE);
                 for i in 0..SRC_POOL_SIZE {
                     let shared = src_gen
@@ -449,9 +447,7 @@ fn concurrent_src_pool_recreate_vs_consumer_transform_nonblocking() {
         .spawn(move || -> Result<usize, String> {
             let mut cycle = 0u32;
             let started = Instant::now();
-            while started.elapsed() < RUN_DURATION
-                && !stop_for_producer.load(Ordering::Relaxed)
-            {
+            while started.elapsed() < RUN_DURATION && !stop_for_producer.load(Ordering::Relaxed) {
                 let src_gen = make_gen(SRC_POOL_SIZE);
                 for i in 0..SRC_POOL_SIZE {
                     let shared = src_gen

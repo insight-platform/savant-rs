@@ -196,11 +196,19 @@ fn append_misc_batch(
 }
 
 /// Build [`TrackerOutput`] from a completed GStreamer buffer.
+///
+/// Returns `Ok(None)` if `buffer` carries the crate-internal
+/// `NvTrackerServiceMeta` marker — those are synthetic batches submitted by
+/// [`NvTracker::reset_stream`](crate::pipeline::NvTracker::reset_stream) to
+/// drive the per-source release sequence and must never reach end users.
 pub fn extract_tracker_output(
     buffer: gst::Buffer,
     resolve_source_id: impl Fn(u32) -> String,
     clear_after: bool,
-) -> Result<TrackerOutput> {
+) -> Result<Option<TrackerOutput>> {
+    if crate::service_meta::NvTrackerServiceMeta::is_present(buffer.as_ref()) {
+        return Ok(None);
+    }
     let batch_meta = unsafe {
         BatchMeta::from_gst_buffer(buffer.as_ptr() as *mut deepstream_sys::GstBuffer).map_err(
             |e| {
@@ -258,14 +266,14 @@ pub fn extract_tracker_output(
     let owned: gst::Buffer = unsafe { from_glib_none(buffer.as_ptr()) };
     let shared = SharedBuffer::from(owned);
 
-    Ok(TrackerOutput {
+    Ok(Some(TrackerOutput {
         buffer: shared,
         clear_on_drop: clear_after,
         current_tracks,
         shadow_tracks,
         terminated_tracks,
         past_frame_data,
-    })
+    }))
 }
 
 impl Drop for TrackerOutput {

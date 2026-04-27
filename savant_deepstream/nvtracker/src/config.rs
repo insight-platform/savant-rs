@@ -66,6 +66,17 @@ pub struct NvTrackerConfig {
     /// markers escape `nvtracker` without an explicit caller flush or
     /// full graceful_shutdown.  Default: 10 ms.
     pub idle_flush_interval: Option<Duration>,
+    /// When `Some(d)`, a background stale-source evictor thread runs and
+    /// invokes
+    /// [`reset_stream`](crate::pipeline::NvTracker::reset_stream)
+    /// for any source whose last-seen PTS is older than `d`.  Default:
+    /// `Some(5s)`.  Set to `None` to disable.
+    ///
+    /// Together with the per-source release sequence in
+    /// [`reset_stream`](crate::pipeline::NvTracker::reset_stream) this
+    /// keeps long-running pipelines from accumulating one pinned
+    /// prev-frame buffer per ever-seen source.
+    pub stale_source_after: Option<Duration>,
 }
 
 impl NvTrackerConfig {
@@ -88,7 +99,15 @@ impl NvTrackerConfig {
             output_channel_capacity: 16,
             drain_poll_interval: Duration::from_millis(100),
             idle_flush_interval: Some(Duration::from_millis(10)),
+            stale_source_after: Some(Duration::from_secs(5)),
         }
+    }
+
+    /// Configure the stale-source evictor.  See
+    /// [`Self::stale_source_after`].  Pass `None` to disable.
+    pub fn stale_source_after(mut self, after: Option<Duration>) -> Self {
+        self.stale_source_after = after;
+        self
     }
 
     /// Set the bounded input channel capacity (framework backpressure).

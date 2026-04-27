@@ -311,6 +311,78 @@ def test_reset_stream_py() -> None:
     tracker.shutdown()
 
 
+def test_reset_stream_does_not_surface_service_batch_py() -> None:
+    """The synthetic service batch that ``reset_stream`` emits internally
+    must be filtered out of ``recv``/``try_recv``; only tracking outputs
+    from real user submits surface."""
+    _require_tracker_assets()
+    _ensure_gpu()
+
+    cfg = NvTrackerConfig(
+        DEFAULT_LL,
+        IOU_YML,
+        VideoFormat.RGBA,
+        tracker_width=320,
+        tracker_height=240,
+        max_batch_size=4,
+    )
+    tracker = NvTracker(cfg)
+
+    roi = Roi(1, RBBox.ltwh(40.0, 40.0, 80.0, 60.0))
+
+    tracker.submit(
+        [_make_frame("cam-svc", {0: [roi]})], [(SavantIdMetaKind.FRAME, 1)]
+    )
+    _ = _recv_tracking(tracker)
+
+    tracker.reset_stream("cam-svc")
+
+    # Bounded window: the service batch (no SavantIdMeta) must never
+    # surface as a Tracking output. A few non-tracking outputs (events)
+    # are tolerated.
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline:
+        out = tracker.try_recv()
+        if out is None:
+            time.sleep(0.01)
+            continue
+        if out.is_tracking:
+            pytest.fail("service batch must not surface as Tracking")
+        if out.is_eos:
+            pytest.fail(f"unexpected EOS for {out.eos_source_id!r}")
+        if out.is_error:
+            pytest.fail(out.error_message or "tracker error")
+
+    tracker.shutdown()
+
+
+def test_stale_source_after_ms_config_roundtrip_py() -> None:
+    """The new ``stale_source_after_ms`` field round-trips through the
+    Python config and accepts ``None`` to disable eviction."""
+    cfg_default = NvTrackerConfig(
+        "/tmp/lib.so",
+        "/tmp/cfg.yml",
+        VideoFormat.RGBA,
+    )
+    assert cfg_default.stale_source_after_ms == 5000
+
+    cfg_disabled = NvTrackerConfig(
+        "/tmp/lib.so",
+        "/tmp/cfg.yml",
+        VideoFormat.RGBA,
+        stale_source_after_ms=None,
+    )
+    assert cfg_disabled.stale_source_after_ms is None
+
+    cfg_custom = NvTrackerConfig(
+        "/tmp/lib.so",
+        "/tmp/cfg.yml",
+        VideoFormat.RGBA,
+        stale_source_after_ms=1234,
+    )
+    assert cfg_custom.stale_source_after_ms == 1234
+
+
 def test_class_id_tracking_py() -> None:
     """Verify that class_id propagates through the tracker."""
     _require_tracker_assets()
