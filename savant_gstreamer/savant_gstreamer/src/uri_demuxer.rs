@@ -192,7 +192,7 @@ impl ByteStreamCapsfilter {
 ///
 /// This only rejects obviously malformed values up front; GStreamer does the
 /// real validation at state-change time.
-fn is_plausible_uri(uri: &str) -> bool {
+pub fn is_plausible_uri(uri: &str) -> bool {
     let Some(scheme_end) = uri.find("://") else {
         return false;
     };

@@ -7,6 +7,7 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
+use savant_gstreamer::uri_demuxer::is_plausible_uri;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -141,30 +142,6 @@ impl fmt::Display for InputSource {
     }
 }
 
-/// Syntactic check for a URI-style input: a non-empty ASCII-alpha
-/// scheme followed by `://`.  Mirrors the `is_plausible_uri`
-/// helper used inside
-/// [`savant_gstreamer::uri_demuxer`].  Filesystem paths (even
-/// those containing `:` like Windows drive letters, though this
-/// example is Linux-only) do not match because they do not start
-/// with a scheme followed by `://`.
-fn input_looks_like_uri(s: &str) -> bool {
-    let Some((scheme, rest)) = s.split_once("://") else {
-        return false;
-    };
-    if scheme.is_empty() || rest.is_empty() {
-        return false;
-    }
-    let mut chars = scheme.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    if !first.is_ascii_alphabetic() {
-        return false;
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
-}
-
 impl Cli {
     /// Resolve the input to either a validated filesystem [`PathBuf`]
     /// or an unmodified URI string.
@@ -176,7 +153,7 @@ impl Cli {
     /// * Filesystem paths are resolved against `CARGO_MANIFEST_DIR`
     ///   when relative and the result must exist on disk.
     pub fn resolved_input(&self) -> Result<InputSource> {
-        if input_looks_like_uri(&self.input) {
+        if is_plausible_uri(&self.input) {
             return Ok(InputSource::Uri(self.input.clone()));
         }
 
@@ -599,24 +576,24 @@ mod tests {
         assert!(resolved.output.is_some());
     }
 
-    /// `input_looks_like_uri` recognises common GStreamer URI
+    /// `is_plausible_uri` recognises common GStreamer URI
     /// schemes and rejects bare filesystem paths.
     #[test]
     fn input_uri_detection_covers_common_schemes() {
-        assert!(input_looks_like_uri("file:///tmp/x.mp4"));
-        assert!(input_looks_like_uri("http://host/a.m3u8"));
-        assert!(input_looks_like_uri("https://host/a.m3u8"));
-        assert!(input_looks_like_uri("rtsp://cam/stream"));
-        assert!(input_looks_like_uri("rtsps://cam/stream"));
-        assert!(input_looks_like_uri("rtmp://host/app/key"));
-        assert!(input_looks_like_uri("hls+http://host/a.m3u8"));
+        assert!(is_plausible_uri("file:///tmp/x.mp4"));
+        assert!(is_plausible_uri("http://host/a.m3u8"));
+        assert!(is_plausible_uri("https://host/a.m3u8"));
+        assert!(is_plausible_uri("rtsp://cam/stream"));
+        assert!(is_plausible_uri("rtsps://cam/stream"));
+        assert!(is_plausible_uri("rtmp://host/app/key"));
+        assert!(is_plausible_uri("hls+http://host/a.m3u8"));
 
-        assert!(!input_looks_like_uri("some.mov"));
-        assert!(!input_looks_like_uri("/abs/path.mov"));
-        assert!(!input_looks_like_uri("relative/path.mov"));
-        assert!(!input_looks_like_uri("://nohost"));
-        assert!(!input_looks_like_uri(""));
-        assert!(!input_looks_like_uri("9scheme://host"));
+        assert!(!is_plausible_uri("some.mov"));
+        assert!(!is_plausible_uri("/abs/path.mov"));
+        assert!(!is_plausible_uri("relative/path.mov"));
+        assert!(!is_plausible_uri("://nohost"));
+        assert!(!is_plausible_uri(""));
+        assert!(!is_plausible_uri("9scheme://host"));
     }
 
     /// A URI input resolves to [`InputSource::Uri`] without touching
