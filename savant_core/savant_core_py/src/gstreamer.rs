@@ -11,11 +11,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::prelude::*;
+use pyo3::types::{PyBytes, PyDict};
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::{
     DemuxedPacket, Mp4Demuxer, Mp4DemuxerError, Mp4DemuxerOutput, VideoInfo,
 };
 use savant_gstreamer::mp4_muxer::{Mp4Muxer, Mp4MuxerError};
+use savant_gstreamer::uri_demuxer::{
+    PropertyValue, UriDemuxer, UriDemuxerConfig, UriDemuxerError, UriDemuxerOutput,
+};
 
 use crate::primitives::frame::PyVideoCodec;
 
@@ -25,6 +29,54 @@ fn muxer_err(e: Mp4MuxerError) -> PyErr {
 
 fn demuxer_err(e: Mp4DemuxerError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+}
+
+fn uri_demuxer_err(e: UriDemuxerError) -> PyErr {
+    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+}
+
+/// Coerce a Python dict of `{str: scalar}` to a `Vec<(String, PropertyValue)>`.
+///
+/// Accepts `bool`, `int`, `float`, `str`, and `bytes` values. Any other type
+/// raises :class:`TypeError` naming the offending key.
+fn pydict_to_props(dict: &Bound<'_, PyDict>) -> PyResult<Vec<(String, PropertyValue)>> {
+    let mut out = Vec::with_capacity(dict.len());
+    for (key, value) in dict.iter() {
+        let k: String = key.extract().map_err(|_| {
+            let tname = key
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "<?>".to_string());
+            pyo3::exceptions::PyTypeError::new_err(format!("property key must be str, got {tname}"))
+        })?;
+        // Order matters: `bool` must be checked before `i64` because `True`/`False`
+        // extract as both. Likewise `i64` before `u64`/`f64` to preserve signedness.
+        let pv = if value.is_instance_of::<pyo3::types::PyBool>() {
+            PropertyValue::Bool(value.extract::<bool>()?)
+        } else if let Ok(i) = value.extract::<i64>() {
+            PropertyValue::I64(i)
+        } else if let Ok(u) = value.extract::<u64>() {
+            PropertyValue::U64(u)
+        } else if let Ok(f) = value.extract::<f64>() {
+            PropertyValue::F64(f)
+        } else if let Ok(s) = value.extract::<String>() {
+            PropertyValue::String(s)
+        } else if let Ok(bytes) = value.cast::<PyBytes>() {
+            PropertyValue::Bytes(bytes.as_bytes().to_vec())
+        } else {
+            let tname = value
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "<?>".to_string());
+            return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "property '{k}' has unsupported value type '{tname}': expected bool, int, float, str, or bytes"
+            )));
+        };
+        out.push((k, pv));
+    }
+    Ok(out)
 }
 
 /// Extract a [`VideoCodec`] from a Python object.
@@ -297,6 +349,22 @@ impl PyMp4DemuxerOutput {
         };
         Ok(Self(variant))
     }
+
+    /// Build from a [`UriDemuxerOutput`]. The Python-side class is shared
+    /// across both demuxers so user callbacks have a single signature.
+    fn from_uri_rust(py: Python<'_>, output: UriDemuxerOutput) -> PyResult<Self> {
+        let variant = match output {
+            UriDemuxerOutput::StreamInfo(info) => {
+                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo { inner: info })?)
+            }
+            UriDemuxerOutput::Packet(pkt) => {
+                DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket { inner: pkt })?)
+            }
+            UriDemuxerOutput::Eos => DemuxerOutputVariant::Eos,
+            UriDemuxerOutput::Error(e) => DemuxerOutputVariant::Error(e.to_string()),
+        };
+        Ok(Self(variant))
+    }
 }
 
 #[pymethods]
@@ -548,6 +616,223 @@ impl Drop for PyMp4Demuxer {
     }
 }
 
+// ---------------------------------------------------------------------------
+// UriDemuxer
+// ---------------------------------------------------------------------------
+
+/// Callback-based GStreamer URI demuxer:
+/// ``urisourcebin -> parsebin -> [byte-stream capsfilter] -> queue -> appsink``.
+///
+/// Reads encoded elementary video packets from any GStreamer-supported URI
+/// (``file://``, ``http(s)://``, ``rtsp://``, ``hls://``, ``mpegts://``, ...)
+/// without decoding, and delivers them through ``result_callback``.
+///
+/// The callback receives :class:`Mp4DemuxerOutput` instances (shared with
+/// :class:`Mp4Demuxer`); the variants (StreamInfo / Packet / Eos / Error)
+/// behave identically.
+///
+/// When ``parsed=True`` (the default), codec-specific parsers downstream of
+/// ``parsebin`` emit byte-stream (Annex-B) H.264/HEVC; otherwise the
+/// parsebin-native format passes through.
+///
+/// **Threading**: the callback fires on GStreamer's internal streaming
+/// thread.  Do **not** call :meth:`finish` from within the callback.
+///
+/// Args:
+///     uri (str): Source URI (non-empty).
+///     result_callback: ``Callable[[Mp4DemuxerOutput], None]`` invoked for
+///         every stream-info, packet, EOS, or error event.
+///     parsed (bool): If ``True``, request byte-stream output for H.264/HEVC.
+///         Defaults to ``True``.
+///     bin_properties (dict | None): Properties applied to the
+///         ``urisourcebin`` element (e.g. ``{"buffer-size": 8_388_608}``).
+///         Values must be ``bool``, ``int``, ``float``, ``str``, or ``bytes``.
+///     source_properties (dict | None): Properties applied to the inner
+///         source element autoplugged by ``urisourcebin`` (e.g. ``rtspsrc``,
+///         ``souphttpsrc``) via the ``source-setup`` signal. Same accepted
+///         value types as ``bin_properties``. Failures on individual
+///         properties surface as :class:`Mp4DemuxerOutput` error events to
+///         the callback (they do **not** tear down the pipeline up front).
+///
+/// Raises:
+///     RuntimeError: Pipeline construction failed, URI is missing/malformed,
+///         or a *bin* property cannot be applied.
+///     TypeError: A ``bin_properties`` / ``source_properties`` value has an
+///         unsupported type.
+///
+/// Example::
+///
+///     from pathlib import Path
+///     from savant_rs.gstreamer import UriDemuxer
+///
+///     packets = []
+///     def on_output(out):
+///         if out.is_packet:
+///             packets.append(out.as_packet())
+///
+///     demuxer = UriDemuxer(Path("/data/clip.mp4").as_uri(), on_output)
+///     demuxer.wait()
+///     for pkt in packets:
+///         print(pkt.pts_ns, len(pkt.data))
+#[pyclass(name = "UriDemuxer", module = "savant_rs.gstreamer")]
+pub struct PyUriDemuxer {
+    inner: Option<UriDemuxer>,
+}
+
+#[pymethods]
+impl PyUriDemuxer {
+    #[new]
+    #[pyo3(signature = (uri, result_callback, parsed = true, bin_properties = None, source_properties = None))]
+    fn new(
+        py: Python<'_>,
+        uri: &str,
+        result_callback: Py<PyAny>,
+        parsed: bool,
+        bin_properties: Option<Bound<'_, PyDict>>,
+        source_properties: Option<Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let bin_props = match bin_properties {
+            Some(d) => pydict_to_props(&d)?,
+            None => Vec::new(),
+        };
+        let src_props = match source_properties {
+            Some(d) => pydict_to_props(&d)?,
+            None => Vec::new(),
+        };
+
+        let mut cfg = UriDemuxerConfig::new(uri).with_parsed(parsed);
+        cfg.bin_properties = bin_props;
+        cfg.source_properties = src_props;
+
+        let on_output: Arc<dyn Fn(UriDemuxerOutput) + Send + Sync> =
+            Arc::new(move |output: UriDemuxerOutput| {
+                Python::attach(|py| {
+                    let py_output = match PyMp4DemuxerOutput::from_uri_rust(py, output) {
+                        Ok(o) => o,
+                        Err(e) => {
+                            log::error!("UriDemuxer: failed to wrap output: {e}");
+                            return;
+                        }
+                    };
+                    if let Err(e) = result_callback.call1(py, (py_output,)) {
+                        log::error!("UriDemuxer result_callback error: {e}");
+                    }
+                });
+            });
+
+        let demuxer = py.detach(move || {
+            UriDemuxer::new(cfg, move |out| on_output(out)).map_err(uri_demuxer_err)
+        })?;
+
+        Ok(Self {
+            inner: Some(demuxer),
+        })
+    }
+
+    /// Block until the demuxer reaches EOS, encounters an error, or
+    /// :meth:`finish` is called.
+    ///
+    /// The GIL is released while waiting so the callback can fire.
+    fn wait(&self, py: Python<'_>) -> PyResult<()> {
+        if let Some(ref inner) = self.inner {
+            py.detach(|| inner.wait());
+        }
+        Ok(())
+    }
+
+    /// Block until the demuxer finishes or the timeout expires.
+    ///
+    /// Args:
+    ///     timeout_ms (int): Timeout in milliseconds.
+    ///
+    /// Returns:
+    ///     bool: ``True`` if finished, ``False`` on timeout.
+    fn wait_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<bool> {
+        if let Some(ref inner) = self.inner {
+            let timeout = Duration::from_millis(timeout_ms);
+            Ok(py.detach(|| inner.wait_timeout(timeout)))
+        } else {
+            Ok(true)
+        }
+    }
+
+    /// Auto-detected video codec from the stream, or ``None``.
+    #[getter]
+    fn detected_codec(&self) -> Option<PyVideoCodec> {
+        self.inner
+            .as_ref()
+            .and_then(|d| d.detected_codec())
+            .map(|c| c.into())
+    }
+
+    /// Auto-detected video-stream metadata, or ``None`` if caps have not been
+    /// observed yet.
+    #[getter]
+    fn video_info(&self, py: Python<'_>) -> PyResult<Option<Py<PyVideoInfo>>> {
+        self.inner
+            .as_ref()
+            .and_then(|d| d.video_info())
+            .map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .transpose()
+    }
+
+    /// Block until :class:`VideoInfo` is known, the pipeline terminates, or
+    /// the timeout expires.
+    ///
+    /// Args:
+    ///     timeout_ms (int): Timeout in milliseconds.
+    ///
+    /// Returns:
+    ///     Optional[VideoInfo]: ``None`` on timeout or if the pipeline ended
+    ///     before caps were observed.
+    ///
+    /// The GIL is released while waiting.
+    fn wait_for_video_info(
+        &self,
+        py: Python<'_>,
+        timeout_ms: u64,
+    ) -> PyResult<Option<Py<PyVideoInfo>>> {
+        let Some(ref inner) = self.inner else {
+            return Ok(None);
+        };
+        let timeout = Duration::from_millis(timeout_ms);
+        let info = py.detach(|| inner.wait_for_video_info(timeout));
+        info.map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .transpose()
+    }
+
+    /// Shut down the demuxer pipeline.
+    ///
+    /// Safe to call multiple times. After this call, no more callbacks
+    /// will fire.
+    ///
+    /// Must **not** be called from within the ``result_callback``.
+    fn finish(&mut self, py: Python<'_>) {
+        if let Some(mut inner) = self.inner.take() {
+            py.detach(move || inner.finish());
+        }
+    }
+
+    /// Whether the demuxer has been finalized.
+    #[getter]
+    fn is_finished(&self) -> bool {
+        self.inner.as_ref().map(|d| d.is_finished()).unwrap_or(true)
+    }
+}
+
+impl Drop for PyUriDemuxer {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.take() {
+            // Move the demuxer to a detached thread so that the GC thread
+            // (which holds the GIL) does not block on GStreamer streaming
+            // threads that try to re-acquire the GIL via callbacks.
+            std::thread::spawn(move || {
+                drop(inner);
+            });
+        }
+    }
+}
+
 /// Register the GStreamer Python classes on the given module.
 ///
 /// The unified :class:`Codec` enum ([`PyVideoCodec`]) is also re-exported
@@ -560,5 +845,6 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDemuxedPacket>()?;
     m.add_class::<PyMp4DemuxerOutput>()?;
     m.add_class::<PyMp4Demuxer>()?;
+    m.add_class::<PyUriDemuxer>()?;
     Ok(())
 }

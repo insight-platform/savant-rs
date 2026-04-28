@@ -33,6 +33,12 @@ use std::collections::HashMap;
 ///     input_channel_capacity (int): Bounded input channel size. Default: ``16``.
 ///     output_channel_capacity (int): Bounded output channel size. Default: ``16``.
 ///     drain_poll_interval_ms (int): Drain thread poll interval when idle. Default: ``100``.
+///     stale_source_after_ms (Optional[int]): When set, a background thread
+///         calls :meth:`NvTracker.reset_stream` for any source whose
+///         last-seen timestamp is older than this many milliseconds.  This
+///         keeps long-running pipelines from accumulating one pinned
+///         prev-frame buffer per ever-seen source.  Pass ``None`` to
+///         disable.  Default: ``5000`` (5 seconds).
 #[pyclass(
     name = "NvTrackerConfig",
     module = "savant_rs.nvtracker",
@@ -63,6 +69,7 @@ impl PyNvTrackerConfig {
         input_channel_capacity = 16usize,
         output_channel_capacity = 16usize,
         drain_poll_interval_ms = 100u64,
+        stale_source_after_ms = Some(5000u64),
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -81,6 +88,7 @@ impl PyNvTrackerConfig {
         input_channel_capacity: usize,
         output_channel_capacity: usize,
         drain_poll_interval_ms: u64,
+        stale_source_after_ms: Option<u64>,
     ) -> Self {
         let fmt: VideoFormat = input_format.into();
         let mut cfg = NvTrackerConfig::new(ll_lib_file, ll_config_file);
@@ -95,6 +103,7 @@ impl PyNvTrackerConfig {
         cfg.input_channel_capacity = input_channel_capacity;
         cfg.output_channel_capacity = output_channel_capacity;
         cfg.drain_poll_interval = std::time::Duration::from_millis(drain_poll_interval_ms);
+        cfg.stale_source_after = stale_source_after_ms.map(std::time::Duration::from_millis);
         if !name.is_empty() {
             cfg.name = name;
         }
@@ -133,6 +142,11 @@ impl PyNvTrackerConfig {
     #[getter]
     fn drain_poll_interval_ms(&self) -> u64 {
         self.inner.drain_poll_interval.as_millis() as u64
+    }
+
+    #[getter]
+    fn stale_source_after_ms(&self) -> Option<u64> {
+        self.inner.stale_source_after.map(|d| d.as_millis() as u64)
     }
 
     #[getter]

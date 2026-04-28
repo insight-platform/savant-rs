@@ -10,7 +10,7 @@ import Codec`` imports keep working.
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Union, final
+from typing import Callable, Dict, Optional, Union, final
 
 from savant_rs.primitives import Codec
 
@@ -23,7 +23,11 @@ __all__ = [
     "VideoInfo",
     "Mp4DemuxerOutput",
     "Mp4Demuxer",
+    "UriDemuxer",
 ]
+
+# Scalar types accepted in ``UriDemuxer`` property dicts.
+_PropValue = Union[bool, int, float, str, bytes]
 
 # ── Always available ─────────────────────────────────────────────────────
 
@@ -314,6 +318,118 @@ class Mp4Demuxer:
         """Shut down the demuxer pipeline.
 
         Safe to call multiple times.  After this call, no more callbacks
+        will fire.
+
+        Must **not** be called from within the ``result_callback``.
+        """
+        ...
+
+    @property
+    def is_finished(self) -> bool:
+        """Whether the demuxer has been finalized."""
+        ...
+
+class UriDemuxer:
+    """Callback-based GStreamer URI demuxer:
+    ``urisourcebin -> parsebin -> [byte-stream capsfilter] -> queue -> appsink``
+    (requires ``gst`` feature).
+
+    Reads encoded elementary video packets from any GStreamer-supported URI
+    (``file://``, ``http(s)://``, ``rtsp://``, HLS, DASH, MKV, TS, MP4, ...)
+    without decoding. The callback receives :class:`Mp4DemuxerOutput`
+    instances — the same Python class used by :class:`Mp4Demuxer` — so
+    consumer code is identical across the two demuxers.
+
+    When ``parsed=True`` (the default), codec-specific parsers emit
+    byte-stream (Annex-B) H.264/HEVC output; otherwise parsebin-native
+    output passes through.
+
+    **Threading**: the callback fires on GStreamer's internal streaming
+    thread.  Do **not** call :meth:`finish` from within the callback.
+
+    Args:
+        uri: Source URI (non-empty). See `gst-launch-1.0 urisourcebin`
+            for the list of supported schemes.
+        result_callback: ``Callable[[Mp4DemuxerOutput], None]`` invoked for
+            stream-info, packet, EOS, or error outputs.
+        parsed: If ``True``, emit byte-stream output for H.264/HEVC.
+            Defaults to ``True``.
+        bin_properties: Optional ``{name: value}`` dict of properties applied
+            to the ``urisourcebin`` element (e.g.
+            ``{"buffer-size": 8_388_608}``).
+            Values must be ``bool``, ``int``, ``float``, ``str``, or ``bytes``.
+            An unsupported value type raises :class:`TypeError`; an unknown
+            property name raises :class:`RuntimeError`.
+        source_properties: Optional ``{name: value}`` dict applied to the
+            inner source element autoplugged by ``urisourcebin`` (e.g.
+            ``rtspsrc``, ``souphttpsrc``) through the ``source-setup``
+            signal. Failures to set individual source properties are
+            surfaced as error outputs to ``result_callback`` (they do not
+            abort construction).
+
+    Raises:
+        RuntimeError: If the URI is missing / malformed, if pipeline
+            construction fails, or if a *bin* property cannot be applied.
+        TypeError: If a value in ``bin_properties`` / ``source_properties``
+            has an unsupported type.
+    """
+
+    def __init__(
+        self,
+        uri: str,
+        result_callback: Callable[[Mp4DemuxerOutput], None],
+        parsed: bool = True,
+        bin_properties: Optional[Dict[str, _PropValue]] = None,
+        source_properties: Optional[Dict[str, _PropValue]] = None,
+    ) -> None: ...
+    def wait(self) -> None:
+        """Block until the demuxer reaches EOS, encounters an error, or
+        :meth:`finish` is called.
+
+        The GIL is released while waiting so the callback can fire.
+        """
+        ...
+
+    def wait_timeout(self, timeout_ms: int) -> bool:
+        """Block until the demuxer finishes or the timeout expires.
+
+        Args:
+            timeout_ms: Timeout in milliseconds.
+
+        Returns:
+            ``True`` if finished, ``False`` on timeout.
+        """
+        ...
+
+    @property
+    def detected_codec(self) -> Optional[Codec]:
+        """Auto-detected video codec, or ``None``."""
+        ...
+
+    @property
+    def video_info(self) -> Optional[VideoInfo]:
+        """Auto-detected :class:`VideoInfo`, or ``None``."""
+        ...
+
+    def wait_for_video_info(self, timeout_ms: int) -> Optional[VideoInfo]:
+        """Block until :class:`VideoInfo` is known, the pipeline terminates,
+        or the timeout expires.
+
+        Args:
+            timeout_ms: Timeout in milliseconds.
+
+        Returns:
+            The detected :class:`VideoInfo`, or ``None`` on timeout / early
+            termination.
+
+        The GIL is released while waiting.
+        """
+        ...
+
+    def finish(self) -> None:
+        """Shut down the demuxer pipeline.
+
+        Safe to call multiple times. After this call, no more callbacks
         will fire.
 
         Must **not** be called from within the ``result_callback``.

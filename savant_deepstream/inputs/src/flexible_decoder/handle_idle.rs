@@ -144,11 +144,7 @@ pub(crate) fn handle_idle(
 
             buffered.push(BufferedPacket {
                 frame: ctx.frame.clone(),
-                frame_id: ctx.frame_id,
                 data: ctx.payload.to_vec(),
-                pts_ns: ctx.clk.submission_order_ns,
-                dts_ns: ctx.clk.dts_ns,
-                duration_ns: ctx.clk.duration_ns,
             });
             guard.commit(DecoderState::Detecting {
                 strategy,

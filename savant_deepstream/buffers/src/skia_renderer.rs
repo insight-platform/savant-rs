@@ -499,8 +499,12 @@ impl SkiaRenderer {
         // Obtain a temporary owned reference (increments GstBuffer refcount)
         // so we can create a SurfaceView to resolve the CUDA pointer.
         let owned: gst::Buffer = unsafe { glib::translate::from_glib_none(dst_buf.as_mut_ptr()) };
+        // Attach the renderer's CUDA stream so the transient view's
+        // `Drop::sync` runs on the same labeled stream as the rest of the
+        // render pipeline — never on the legacy default stream `0x0`.
         let view = crate::SurfaceView::from_gst_buffer(owned, 0)
-            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
+            .with_cuda_stream(self.cuda_stream.clone());
         let data_ptr = view.data_ptr();
         let pitch = view.pitch() as usize;
         // Keep `view` alive until after the pointer is used: on Jetson,
@@ -585,8 +589,17 @@ impl SkiaRenderer {
             .acquire(None)
             .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
 
+        // Attach the renderer's CUDA stream to `temp_view` so its `Drop::sync`
+        // joins the same lane as `copy_gl_to_nvbuf` and `do_transform` below.
+        // Otherwise `temp_view` would synchronize the **default** stream
+        // (`raw=0x0`) on drop, while the surrounding worker only drains its
+        // labeled stream — leaving real GPU work in flight on `0x0` after the
+        // worker considers itself idle.  See `cuda_poison`'s `at=…` reports
+        // pinpointing `surface_view.rs` Drop syncs as the first observation
+        // site for deferred CUDA faults.
         let temp_view = crate::SurfaceView::from_buffer(&temp_shared, 0)
-            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
+            .with_cuda_stream(self.cuda_stream.clone());
 
         self.copy_gl_to_nvbuf(temp_view.data_ptr(), temp_view.pitch() as usize)?;
 
@@ -596,7 +609,15 @@ impl SkiaRenderer {
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
         };
 
-        let config = transform_config.cloned().unwrap_or_default();
+        // `transform_config.unwrap_or_default()` would leave `cuda_stream =
+        // CudaStream::default()` (`0x0`), making `NvBufSurfTransform` *and*
+        // its post-transform sync run on the default stream while the rest
+        // of this function runs on `self.cuda_stream`.  Always override
+        // with the renderer's stream so all four scaled-path GPU steps
+        // (GL→temp copy, transform, post-transform sync, temp_view drop
+        // sync) ride the **same** labeled stream.
+        let mut config = transform_config.cloned().unwrap_or_default();
+        config.cuda_stream = self.cuda_stream.clone();
         unsafe {
             transform::do_transform(temp_surf, dst_surf, &config, None)
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
@@ -709,6 +730,15 @@ impl SkiaRenderer {
 
 impl Drop for SkiaRenderer {
     fn drop(&mut self) {
+        // No explicit `cudaDeviceSynchronize` here: in every production
+        // teardown path (`picasso::worker::handle_eos` →
+        // `stop_encoder` → `NvEncoder::graceful_shutdown` →
+        // `fence_after_shutdown`) the encoder shutdown has already
+        // drained the device device-wide before this `Drop` runs, so
+        // `cuda_resource`'s pending `cudaGraphicsMap/Unmap` work and
+        // any `cudaMemcpy2DFromArrayAsync` queued by `copy_gl_to_nvbuf`
+        // are guaranteed complete.
+
         // Unregister CUDA resource before GL objects are destroyed
         if !self.cuda_resource.is_null() {
             unsafe {

@@ -29,14 +29,14 @@ use std::time::Duration;
 /// honour cooperative-shutdown semantics without knowing the shape
 /// of the envelope.
 ///
-/// The two cases mirror the orchestrator's shutdown sentinel:
+/// The two cases mirror the supervisor's two shutdown shapes:
 ///
 /// * [`ShutdownHint::Graceful`] — arm a deadline of `grace` (if
-///   `Some`) *or* break after the current message (if `None`); the
-///   earliest of any existing deadline wins.
-/// * [`ShutdownHint::Abort`] — break immediately after the current
-///   message.  Reserved for future "hard-stop" sentinels; the
-///   existing sample only emits `Graceful`.
+///   `Some`) *or* break after the current message (if `None`);
+///   the earliest of any existing deadline wins.
+/// * [`ShutdownHint::Abort`] — break immediately after the
+///   current message. Reserved for applications that ship a
+///   hard-stop sentinel alongside the graceful one.
 ///
 /// Both variants include a human-readable `reason` used purely for
 /// logs.
@@ -108,11 +108,11 @@ pub trait Envelope: Send + 'static {
 
     /// Construct a cooperative-shutdown envelope of this type.
     ///
-    /// Used by the [`System`](super::actor::Actor)'s supervisor
+    /// Called by [`System`](super::system::System)'s supervisor
     /// to broadcast an in-band `Shutdown` sentinel onto every
     /// actor's inbox when the user-installed or default
-    /// [`ShutdownHandler`] resolves to an
-    /// action that broadcasts.
+    /// [`ShutdownHandler`](super::shutdown::ShutdownHandler)
+    /// resolves to an action that broadcasts.
     ///
     /// Return `None` to signal that this envelope does not carry
     /// a shutdown sentinel — the supervisor will fall back to the
@@ -142,9 +142,8 @@ pub trait Envelope: Send + 'static {
 /// drops the message and continues so "I don't care about this
 /// variant" requires no method body — only an empty impl.
 ///
-/// Free-form actors (e.g. a blackhole sink that must count every
-/// incoming message regardless of variant) can bypass this
-/// machinery entirely by overriding
+/// Actors that prefer to handle every variant inline can bypass
+/// this machinery entirely by overriding
 /// [`Actor::handle`](super::actor::Actor::handle) and pattern-
 /// matching the envelope themselves.
 pub trait Dispatch<A>: Envelope

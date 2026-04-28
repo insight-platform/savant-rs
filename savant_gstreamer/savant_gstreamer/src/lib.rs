@@ -1,8 +1,10 @@
+pub mod demux;
 pub mod id_meta;
 pub mod mp4_demuxer;
 pub mod mp4_muxer;
 pub mod pipeline;
 pub mod submit_gate;
+pub mod uri_demuxer;
 pub mod video_format;
 
 pub use video_format::VideoFormat;

@@ -21,6 +21,10 @@ path = "src/lib.rs"
 name = "cars-demo"
 path = "examples/cars_demo/main.rs"
 
+[[example]]
+name = "cars-demo-zmq"
+path = "examples/cars_demo/main_zmq.rs"
+
 [dependencies]
 deepstream_inputs = { workspace = true }
 deepstream_decoders = { workspace = true }

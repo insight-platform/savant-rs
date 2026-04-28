@@ -255,8 +255,15 @@ pub(crate) fn process_encode(
             shared = generator
                 .acquire(Some(input.frame_id))
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
+            // Attach the worker's per-source CUDA stream to `dst_view` so
+            // both the NvBufSurfTransform (via the `transform_into` override
+            // to the destination's stream) and the `Drop::sync()` use that
+            // stream instead of the legacy default stream.  Without this,
+            // every Picasso transform serialises on stream 0x0 and surfaces
+            // any process-wide CUDA poison there.
             let dst_view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
-                .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
+                .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?
+                .with_cuda_stream(cuda_stream.clone());
             input
                 .view
                 .transform_into(&dst_view, transform_config, src_rect)

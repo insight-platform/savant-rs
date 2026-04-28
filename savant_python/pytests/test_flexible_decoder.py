@@ -176,6 +176,50 @@ class TestSkipReasons:
         assert s is not None
         assert s.reason.is_invalid_payload
 
+    def test_parameter_change_during_detection_skip(self):
+        """Codec change while pre-RAP H.264 packets are still buffered must
+        surface as ``ParameterChangeDuringDetection`` (not
+        ``WaitingForKeyframe``) so consumers can distinguish keyframe-pending
+        stalls from input-parameter renegotiations.
+        """
+        results: List[FlexibleDecoderOutput] = []
+
+        def on_output(out: FlexibleDecoderOutput):
+            results.append(out)
+
+        cfg = FlexibleDecoderConfig("cam-1", gpu_id=0, pool_size=2)
+        dec = FlexibleDecoder(cfg, on_output)
+
+        dummy_h264 = bytes([0] * 64)
+        for i in range(3):
+            f = _make_frame("cam-1", 320, 240, codec="h264", pts=i * 33_333_333)
+            dec.submit(f, dummy_h264)
+
+        jpeg_data = _make_jpeg(320, 240)
+        jpeg_frame = _make_frame("cam-1", 320, 240, codec="jpeg", pts=3 * 33_333_333)
+        dec.submit(jpeg_frame, jpeg_data)
+        time.sleep(0.5)
+
+        dec.graceful_shutdown()
+        skipped = [r.as_skipped() for r in results if r.is_skipped]
+        skipped = [s for s in skipped if s is not None]
+        param_changes = [
+            s for s in skipped if s.reason.is_parameter_change_during_detection
+        ]
+        assert len(param_changes) == 3, (
+            f"expected 3 ParameterChangeDuringDetection skips, "
+            f"got {len(param_changes)}; all skips: "
+            f"{[(s.reason.__repr__()) for s in skipped]}"
+        )
+        for s in param_changes:
+            assert s.reason.parameter_change_codec_changed is True
+            assert s.reason.parameter_change_dims_changed is False
+            assert not s.reason.is_waiting_for_keyframe
+            detail = s.reason.detail
+            assert detail is not None
+            assert "codec_changed=true" in detail
+            assert "dims_changed=false" in detail
+
 
 @skip_no_ds_runtime
 class TestJpegDecode:

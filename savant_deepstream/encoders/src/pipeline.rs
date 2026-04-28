@@ -29,8 +29,8 @@ use std::time::Duration;
 
 use crossbeam::channel::{self, Receiver, Sender};
 use deepstream_buffers::{
-    bridge_savant_id_meta, pipeline::BufferGeneratorExt, BufferGenerator, CudaStream, Padding,
-    SurfaceView, TransformConfig,
+    bridge_savant_id_meta, cuda_device_synchronize, pipeline::BufferGeneratorExt, BufferGenerator,
+    CudaStream, Padding, SurfaceView, TransformConfig,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -128,6 +128,8 @@ enum EncoderBackendState {
 ///    [`try_recv`](Self::try_recv).
 /// 4. Tear down with [`graceful_shutdown`](Self::graceful_shutdown) or
 ///    [`shutdown`](Self::shutdown) (also called implicitly on `Drop`).
+///    Returns only after all CUDA / NVENC / VIC work that touched the
+///    encoder's pools has completed.
 pub struct NvEncoder {
     name: String,
     backend: EncoderBackendState,
@@ -206,37 +208,41 @@ impl NvEncoder {
 
         // ── Buffer pools ─────────────────────────────────────────────
         //
-        // Pool size: dGPU NVENC may continue DMA-reading from a buffer
-        // after GStreamer releases its reference; a single-buffer pool
-        // forces serialization so memory is never overwritten while HW
-        // reads it.  Jetson V4L2 encoders hold several input buffers in
-        // flight, so a pool of 1 would deadlock `acquire()` — use 4.
+        // Up to two distinct pools live inside the encoder:
         //
-        // Detected at runtime via `nvidia_gpu_utils::is_jetson_kernel`
-        // so non-Jetson ARM hosts (e.g. Grace Hopper with H100/B300) do
-        // not inherit Jetson-only tunings. Orin Nano is Jetson and also
-        // uses the Jetson path for PNG/RAW/JPEG (pool=1); H264/HEVC/AV1
-        // are unreachable there because `has_nvenc()` is false.
-        let pool_size: u32 = if nvidia_gpu_utils::is_jetson_kernel()
-            && matches!(codec, VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1)
-        {
-            4
-        } else {
-            1
-        };
-
+        // * **User-facing** (`generator`, `user_format`): the buffer the
+        //   caller renders into.  When an out-of-pipeline conversion
+        //   exists (`needs_convert == true`), this buffer is consumed
+        //   inside [`Self::prepare_push_buffer`] (a single `SurfaceView`
+        //   is created, used as a transform source, then dropped at the
+        //   end of that function).  It never crosses into NVENC's V4L2
+        //   path, so the multi-buffer Jetson tuning does not apply
+        //   here — pool size 1 is sufficient and serializes per-source
+        //   frame submission, which acts as natural backpressure and
+        //   avoids any aliasing of the user-facing `EglCudaMeta` slots
+        //   while in-flight frames are being torn down on source
+        //   re-creation.
+        //
+        //   When there is **no** conversion (`needs_convert == false`)
+        //   the user-facing pool feeds the encoder's `appsrc` directly,
+        //   so it inherits the V4L2 sizing rule (see below).
+        //
+        // * **Internal NV12** (`convert_ctx.native_generator`): the
+        //   buffer that is actually pushed to the V4L2 NVENC `appsrc`.
+        //   On Jetson the V4L2 encoder holds several input buffers in
+        //   flight (DMA-BUF queue), so a pool of 1 would deadlock the
+        //   next `acquire()` — use 4.  On dGPU, NVENC is internally
+        //   serialized and a pool of 1 is sufficient (and reduces the
+        //   number of EGL→CUDA registrations live at any time).
+        //
+        // Jetson is detected at runtime via
+        // `nvidia_gpu_utils::is_jetson_kernel`.  Orin Nano is Jetson but
+        // never reaches the H264/HEVC/AV1 branch because `has_nvenc()`
+        // is false there.
         let user_format = config.encoder.format();
         let (fps_num, fps_den) = config.encoder.fps();
         let width = config.encoder.width();
         let height = config.encoder.height();
-
-        let generator = BufferGenerator::builder(user_format, width, height)
-            .fps(fps_num, fps_den)
-            .gpu_id(config.gpu_id)
-            .mem_type(config.mem_type)
-            .min_buffers(pool_size)
-            .max_buffers(pool_size)
-            .build()?;
 
         // Decide whether we need an out-of-pipeline format conversion
         // (RGBA → NV12 / I420) via NvBufSurfTransform.  Only applies to
@@ -263,19 +269,42 @@ impl NvEncoder {
             )
             && user_format != native_format;
 
+        // V4L2 NVENC sizing: the encoder element holds several input
+        // buffers in flight on Jetson, so any pool that feeds appsrc
+        // directly must be at least 4.
+        let v4l2_pool_size: u32 = if nvidia_gpu_utils::is_jetson_kernel()
+            && matches!(codec, VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1)
+        {
+            4
+        } else {
+            1
+        };
+        let user_pool_size: u32 = if needs_convert { 1 } else { v4l2_pool_size };
+        let native_pool_size: u32 = v4l2_pool_size;
+
+        let generator = BufferGenerator::builder(user_format, width, height)
+            .fps(fps_num, fps_den)
+            .gpu_id(config.gpu_id)
+            .mem_type(config.mem_type)
+            .min_buffers(user_pool_size)
+            .max_buffers(user_pool_size)
+            .build()?;
+
         let convert_ctx = if needs_convert {
             let native_generator = BufferGenerator::builder(native_format, width, height)
                 .fps(fps_num, fps_den)
                 .gpu_id(config.gpu_id)
                 .mem_type(config.mem_type)
-                .min_buffers(pool_size)
-                .max_buffers(pool_size)
+                .min_buffers(native_pool_size)
+                .max_buffers(native_pool_size)
                 .build()?;
-            let cuda_stream = CudaStream::new_non_blocking().map_err(|e| {
-                EncoderError::PipelineError(format!(
-                    "Failed to create non-blocking CUDA stream: {e}"
-                ))
-            })?;
+            let cuda_stream = CudaStream::new_non_blocking()
+                .map_err(|e| {
+                    EncoderError::PipelineError(format!(
+                        "Failed to create non-blocking CUDA stream: {e}"
+                    ))
+                })?
+                .with_label(format!("encoder/{}", name));
             debug!(
                 "NvEncoder convert_ctx created: {} -> {}, stream {:?}",
                 user_format, native_format, cuda_stream
@@ -522,6 +551,11 @@ impl NvEncoder {
     /// outputs.  `None` means wait indefinitely.  A GStreamer EOS or
     /// pipeline error always terminates the drain regardless of the idle
     /// timeout.
+    ///
+    /// Returns only after all CUDA / NVENC / VIC work that touched the
+    /// encoder's pools has completed.
+    /// If the underlying GstPipeline shutdown returns an error, the CUDA
+    /// fence still runs before the error is propagated.
     pub fn graceful_shutdown<F>(
         &self,
         idle_timeout: Option<Duration>,
@@ -571,24 +605,33 @@ impl NvEncoder {
                     }
                 }
 
-                pipeline.lock().shutdown()?;
+                let pipeline_shutdown_result = pipeline.lock().shutdown();
+                self.fence_after_shutdown();
                 self.log_residuals();
+                pipeline_shutdown_result?;
                 Ok(())
             }
         }
     }
 
     /// Abrupt shutdown (used by [`Drop`]).
+    ///
+    /// Returns only after all CUDA / NVENC / VIC work that touched the
+    /// encoder's pools has completed.
+    /// If the underlying GstPipeline shutdown returns an error, the CUDA
+    /// fence still runs before the error is propagated.
     pub fn shutdown(&self) -> Result<(), EncoderError> {
         if self.is_shut_down.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
         self.draining.store(true, Ordering::Release);
         self.finalized.store(true, Ordering::Release);
-        match &self.backend {
-            EncoderBackendState::Pipeline { pipeline, .. } => pipeline.lock().shutdown()?,
-        }
+        let pipeline_shutdown_result = match &self.backend {
+            EncoderBackendState::Pipeline { pipeline, .. } => pipeline.lock().shutdown(),
+        };
+        self.fence_after_shutdown();
         self.log_residuals();
+        pipeline_shutdown_result?;
         Ok(())
     }
 
@@ -609,11 +652,19 @@ impl NvEncoder {
                 compute_mode: deepstream_buffers::ComputeMode::Default,
                 cuda_stream: ctx.cuda_stream.clone(),
             };
-            let src_view = SurfaceView::from_gst_buffer(buffer, 0).map_err(|e| {
-                EncoderError::BufferError(format!(
-                    "Failed to create SurfaceView from source buffer: {e}"
-                ))
-            })?;
+            // Attach the encoder's dedicated non-blocking CUDA stream to
+            // `src_view` so its `Drop::sync()` syncs that stream rather
+            // than the legacy default stream.  The destination view used
+            // inside `BufferGenerator::transform_to_buffer` likewise
+            // inherits `config.cuda_stream`, keeping the entire RGBA → NV12
+            // step off stream 0x0.
+            let src_view = SurfaceView::from_gst_buffer(buffer, 0)
+                .map(|v| v.with_cuda_stream(ctx.cuda_stream.clone()))
+                .map_err(|e| {
+                    EncoderError::BufferError(format!(
+                        "Failed to create SurfaceView from source buffer: {e}"
+                    ))
+                })?;
             let mut native_buf = ctx
                 .native_generator
                 .transform_to_buffer(&src_view, &transform_config, None)
@@ -881,6 +932,37 @@ impl NvEncoder {
             keyframe,
             time_base: (1, 1_000_000_000),
         }))
+    }
+
+    /// Block until all CUDA / VIC / NVENC work that touched the encoder's
+    /// pools has completed.
+    ///
+    /// This must run **after** the GstPipeline has been brought to NULL but
+    /// **before** the encoder's pools (`generator`, `convert_ctx.native_generator`)
+    /// and the conversion `CudaStream` are dropped.  Two synchronisations:
+    ///
+    /// 1. The conversion `CudaStream` (if any) — covers the
+    ///    `NvBufSurfTransform` work submitted by [`prepare_push_buffer`].
+    /// 2. A device-wide barrier — the V4L2 NVENC plugin owns its own internal
+    ///    CUDA stream that we cannot reach by handle, so the only portable
+    ///    fence is `cudaDeviceSynchronize()`.
+    ///
+    /// Without this fence, the NVENC driver may still be reading from
+    /// just-released input buffers when their backing `NvBufSurface` pool is
+    /// destroyed, leaving the CUDA context poisoned (typically observed as
+    /// `cudaErrorIllegalAddress` / rc=700 by the next caller).
+    fn fence_after_shutdown(&self) {
+        if let EncoderBackendState::Pipeline {
+            convert_ctx: Some(ctx),
+            ..
+        } = &self.backend
+        {
+            ctx.cuda_stream.synchronize_or_log();
+        }
+        cuda_device_synchronize(
+            "NvEncoder::shutdown::device_sync",
+            format_args!("name={}", self.name),
+        );
     }
 
     fn log_residuals(&self) {

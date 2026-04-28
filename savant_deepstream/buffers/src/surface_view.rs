@@ -680,6 +680,13 @@ impl SurfaceView {
     /// next consumer (encoder, another transform, etc.).
     ///
     /// Skipped only when `data_ptr` is null (no GPU backing).
+    ///
+    /// `#[track_caller]` is propagated so the `at=…` field of any poison
+    /// log line points at the application call site (or, in the
+    /// auto-invoked drop case, at the [`Drop`] implementation in this
+    /// file — narrowing the cascade to "SurfaceView drop sync" without
+    /// having to read the stream label).
+    #[track_caller]
     fn sync(&self) {
         if self.data_ptr.is_null() {
             return;

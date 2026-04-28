@@ -6,8 +6,8 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
 use savant_gstreamer::pipeline::{
-    build_source_eos_event, parse_source_eos_event, GstPipeline, PipelineConfig, PipelineInput,
-    PipelineOutput,
+    build_source_eos_event, parse_source_eos_event, GstPipeline, PipelineConfig, PipelineError,
+    PipelineInput, PipelineOutput, PtsPolicy,
 };
 
 static GST_INIT: Once = Once::new();
@@ -482,6 +482,128 @@ fn flush_idle_noop_when_empty() {
         let n = pipeline.flush_idle().expect("flush_idle ok");
         assert_eq!(n, 0, "no pending events — should be 0-flush");
     }
+
+    pipeline.shutdown().unwrap();
+}
+
+/// Build a pipeline configured with a strict PTS policy.  Used by the
+/// `pts_policy_*` tests below.
+fn start_pipeline_with_pts_policy(
+    elements: Vec<gst::Element>,
+    policy: PtsPolicy,
+) -> (Sender<PipelineInput>, Receiver<PipelineOutput>, GstPipeline) {
+    init_gst();
+    let config = PipelineConfig {
+        name: "test-pts-policy".to_string(),
+        appsrc_caps: gst::Caps::builder("application/octet-stream").build(),
+        elements,
+        input_channel_capacity: 16,
+        output_channel_capacity: 16,
+        operation_timeout: None,
+        drain_poll_interval: Duration::from_millis(10),
+        idle_flush_interval: None,
+        appsrc_probe: None,
+        pts_policy: Some(policy),
+        leak_on_finalize: false,
+    };
+    GstPipeline::start(config).expect("pipeline start must succeed")
+}
+
+/// Drain everything currently on the output channel that arrives within a
+/// short window.  Used by `pts_policy_*` tests to inspect what the feeder
+/// produced.  Returns `(buffers_seen, errors_seen)`.
+fn drain_for_count(
+    rx: &Receiver<PipelineOutput>,
+    timeout: Duration,
+) -> (Vec<gst::Buffer>, Vec<PipelineError>) {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut buffers = Vec::new();
+    let mut errors: Vec<PipelineError> = Vec::new();
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+            break;
+        };
+        match rx.recv_timeout(remaining.min(Duration::from_millis(50))) {
+            Ok(PipelineOutput::Buffer(b)) => buffers.push(b),
+            Ok(PipelineOutput::Event(_) | PipelineOutput::Eos) => {}
+            Ok(PipelineOutput::Error(e)) => errors.push(e),
+            Err(_) => break,
+        }
+    }
+    (buffers, errors)
+}
+
+/// Regression: with `PtsPolicy::StrictDecodeOrder` enabled, sending a
+/// `source_eos` custom event must reset the feeder's PTS-order tracker so
+/// that a subsequent producer run for the same source can legitimately
+/// rebase its PTS back to a lower value.
+///
+/// This mirrors the cars-demo-zmq workflow where each producer run feeds
+/// the same `source_id` into the same per-source [`FlexibleDecoder`] (and
+/// therefore the same [`GstPipeline`]) but each new mp4 starts at PTS=0.
+/// Without the reset the feeder would reject every packet of the second
+/// run as a "Timestamp order violation".
+#[test]
+fn pts_policy_resets_on_source_eos() {
+    let (tx, rx, mut pipeline) =
+        start_pipeline_with_pts_policy(vec![build_identity("id")], PtsPolicy::StrictDecodeOrder);
+
+    for pts in [10_u64, 20, 30] {
+        tx.send(PipelineInput::Buffer(make_buffer(&[1, 2, 3], pts, None)))
+            .unwrap();
+    }
+    let (run1, errors1) = drain_for_count(&rx, Duration::from_millis(500));
+    assert_eq!(run1.len(), 3, "all run-1 buffers must reach the sink");
+    assert!(errors1.is_empty(), "no PTS errors in run 1: {errors1:?}");
+
+    tx.send(PipelineInput::Event(build_source_eos_event("cam-1")))
+        .unwrap();
+    assert!(
+        drain_source_eos(&rx, "cam-1"),
+        "source_eos event must propagate"
+    );
+
+    for pts in [10_u64, 20, 30] {
+        tx.send(PipelineInput::Buffer(make_buffer(&[4, 5, 6], pts, None)))
+            .unwrap();
+    }
+    let (run2, errors2) = drain_for_count(&rx, Duration::from_millis(500));
+    assert_eq!(
+        run2.len(),
+        3,
+        "after source_eos, the strict-order tracker must be reset; \
+         expected 3 buffers in run 2, got {} (errors={:?})",
+        run2.len(),
+        errors2
+    );
+    assert!(
+        errors2.is_empty(),
+        "no PTS errors after source_eos reset: {errors2:?}"
+    );
+
+    pipeline.shutdown().unwrap();
+}
+
+/// Without a `source_eos` boundary, `StrictDecodeOrder` must still reject
+/// out-of-order PTS within a contiguous sequence — the reset is
+/// triggered *only* by the per-source EOS event.
+#[test]
+fn pts_policy_still_rejects_within_sequence() {
+    let (tx, rx, mut pipeline) =
+        start_pipeline_with_pts_policy(vec![build_identity("id")], PtsPolicy::StrictDecodeOrder);
+
+    tx.send(PipelineInput::Buffer(make_buffer(&[1], 100, None)))
+        .unwrap();
+    let _ = recv_buffer(&rx);
+
+    tx.send(PipelineInput::Buffer(make_buffer(&[2], 50, None)))
+        .unwrap();
+
+    let (_, errors) = drain_for_count(&rx, Duration::from_millis(500));
+    assert!(
+        !errors.is_empty(),
+        "out-of-order PTS without source_eos must surface a violation"
+    );
 
     pipeline.shutdown().unwrap();
 }

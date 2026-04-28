@@ -1,48 +1,47 @@
 //! Framework-shared error-classification types.
 //!
-//! Every egress error hook across the template layer returns a
-//! value of [`ErrorAction`], letting user code choose between
-//! three coarse reactions:
+//! Every error hook in the [`stages`](super::stages) layer
+//! returns a value of [`ErrorAction`], letting user code choose
+//! between three reactions:
 //!
-//! * [`ErrorAction::Fatal`] — the stage should tear down
-//!   (default sink aborted, stage exits through its `stopping`
-//!   path for actors, or returns `Err(_)` from
-//!   [`Source::run`](super::actor::Source::run) for sources).
-//! * [`ErrorAction::LogAndContinue`] — the error is logged at
-//!   the call site (templates issue the log line before the hook
-//!   runs) and processing resumes with subsequent outputs.
-//! * [`ErrorAction::Swallow`] — the error is dropped on the
-//!   floor with no additional log; reserved for the rare case
-//!   of a known-noisy warning that the framework re-surfaces as
-//!   `Error`.
+//! * [`ErrorAction::Fatal`] — the stage should tear down. For
+//!   actors, the stage aborts its default downstream sink and
+//!   surfaces the error so the actor exits through its
+//!   [`stopping`](super::actor::Actor::stopping) path; for
+//!   sources, the stage returns `Err(_)` from
+//!   [`Source::run`](super::actor::Source::run).
+//! * [`ErrorAction::LogAndContinue`] — the stage logs the
+//!   error at the call site and keeps processing subsequent
+//!   outputs.
+//! * [`ErrorAction::Swallow`] — the stage drops the error
+//!   silently (no extra log, no latch). Use this for known-noisy
+//!   warnings re-surfaced as `Error` that do not affect stage
+//!   liveness.
 //!
-//! This type used to live inside the `mp4_demuxer` template.
-//! Promoting it to framework scope makes every egress error
-//! hook (decoder, nvinfer, nvtracker, mp4 demuxer) speak the
-//! same classification vocabulary — see
-//! [`grouped_hook_builders.plan.md`](../../grouped_hook_builders.plan.md).
+//! Templates use [`ErrorAction`] as a single shared classification
+//! vocabulary so that an application can install one error hook
+//! (or one closure shape) across every stage in its pipeline.
 
-/// Classification returned from every template egress error
-/// hook.  See the module docs for semantics.
+/// Classification returned from every stage error hook.
+/// See the module docs for semantics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ErrorAction {
-    /// Latch the first error, abort the default sink, and
-    /// surface the failure: actors exit through
-    /// [`Actor::stopping`](super::actor::Actor::stopping) with
-    /// the error latched in the host's supervisor state;
-    /// sources return `Err(_)` from `Source::run`.
+    /// Latch the first error, abort the stage's default sink,
+    /// and surface the failure to the loop driver. Actors exit
+    /// through
+    /// [`Actor::stopping`](super::actor::Actor::stopping); sources
+    /// return `Err(_)` from
+    /// [`Source::run`](super::actor::Source::run).
     #[default]
     Fatal,
-    /// Log the error at the call site and keep processing.
-    /// The latched-error slot is still updated so post-mortem
-    /// observers can see that *something* went wrong, but the
-    /// sink is *not* aborted and subsequent outputs continue
-    /// to flow.
+    /// Log the error at the call site and continue processing
+    /// subsequent inputs/outputs. The default sink is **not**
+    /// aborted.
     LogAndContinue,
-    /// Swallow the error entirely (no extra log, no latch).
-    /// Intended for known-noisy warnings that the framework
-    /// re-surfaces as `Error` even though they do not affect
-    /// stage liveness.
+    /// Drop the error silently — no extra log line, no abort.
+    /// Use for known-noisy warnings that the framework
+    /// re-surfaces as `Error` but that should not affect stage
+    /// liveness.
     Swallow,
 }
 

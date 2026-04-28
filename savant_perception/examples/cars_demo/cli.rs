@@ -7,6 +7,8 @@
 
 use anyhow::{bail, Result};
 use clap::Parser;
+use savant_gstreamer::uri_demuxer::is_plausible_uri;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// Minimum allowed `--channel-cap`.  Keeps backpressure meaningful:
@@ -18,13 +20,26 @@ pub const MIN_CHANNEL_CAPACITY: usize = 2;
 #[derive(Debug, Clone, Parser)]
 #[command(
     name = "cars-demo",
-    about = "Streaming MP4 -> decode -> YOLO -> NvDCF -> draw -> encode -> MP4 pipeline."
+    about = "Streaming MP4/URI -> decode -> YOLO -> NvDCF -> draw -> encode -> MP4 pipeline."
 )]
 pub struct Cli {
-    /// Input MP4 file.  If the path is relative it is resolved against the
-    /// `savant_perception` crate manifest directory.
+    /// Input source.  Either:
+    ///
+    /// * a filesystem path to an MP4 (or any GStreamer-parsable
+    ///   container).  Relative paths are resolved against the
+    ///   `savant_perception` crate manifest directory; the path
+    ///   must exist.
+    /// * a URI (e.g. `file:///abs/path.mp4`, `http://host/a.m3u8`,
+    ///   `rtsp://cam/stream`, `rtmp://host/key`, …).  A URI is
+    ///   handed directly to the URI-based demuxer actor and the
+    ///   filesystem existence check is skipped.
+    ///
+    /// The dispatcher inside
+    /// [`crate::cars_demo::pipeline::run`] picks the demuxer
+    /// actor (`Mp4Demuxer` vs `UriDemuxer`) based on which variant
+    /// this string resolves to.
     #[arg(long)]
-    pub input: PathBuf,
+    pub input: String,
 
     /// Output MP4 file.  Required unless [`Cli::no_picasso`] is set;
     /// when Picasso is disabled the pipeline produces no output file
@@ -47,7 +62,7 @@ pub struct Cli {
 
     /// Inter-stage channel capacity (number of in-flight messages per
     /// boundary).  Frames flow one at a time, so a small prefetch is enough;
-    /// must be >= `MIN_CHANNEL_CAPACITY` in the `cars_tracking::pipeline` module.
+    /// must be >= `MIN_CHANNEL_CAPACITY` in the `cars_demo::pipeline` module.
     #[arg(long = "channel-cap", default_value_t = 4)]
     pub channel_cap: usize,
 
@@ -93,20 +108,61 @@ pub struct Cli {
     /// encode tail of the pipeline.
     #[arg(long = "no-picasso", default_value_t = false)]
     pub no_picasso: bool,
+
+    /// Period (seconds) between time-based stats reports while the
+    /// pipeline runs.  A final report is always emitted on shutdown
+    /// regardless of the period.  Default:
+    /// [`DEFAULT_STATS_PERIOD_SECS`](crate::cars_demo::pipeline::DEFAULT_STATS_PERIOD_SECS).
+    /// Must be `>= 1`.
+    #[arg(long = "stats-period", default_value_t = crate::cars_demo::pipeline::DEFAULT_STATS_PERIOD_SECS)]
+    pub stats_period: u64,
+}
+
+/// Resolved input — either a filesystem path (handled by
+/// `Mp4DemuxerSource`) or a URI (handled by `UriDemuxerSource`).
+///
+/// The dispatcher inside
+/// [`crate::cars_demo::pipeline::run`] branches on this
+/// variant to pick the demuxer actor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputSource {
+    /// Absolute filesystem path, pre-validated to exist.
+    Path(PathBuf),
+    /// URI string (e.g. `rtsp://cam/stream`); handed to the URI
+    /// demuxer as-is.  No filesystem check is performed.
+    Uri(String),
+}
+
+impl fmt::Display for InputSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InputSource::Path(p) => fmt::Display::fmt(&p.display(), f),
+            InputSource::Uri(u) => f.write_str(u),
+        }
+    }
 }
 
 impl Cli {
-    /// Resolve the input path (relative paths are taken to be relative to
-    /// the `savant_perception` crate manifest directory) and validate that it
-    /// points to an existing file.
+    /// Resolve the input to either a validated filesystem [`PathBuf`]
+    /// or an unmodified URI string.
     ///
-    /// Returns the absolute, validated input path on success.
-    pub fn resolved_input(&self) -> Result<PathBuf> {
+    /// * URI inputs (`scheme://…`) are returned as
+    ///   [`InputSource::Uri`] without any filesystem check — the
+    ///   URI-based demuxer will surface unreachable hosts / bad
+    ///   schemes as pipeline errors once it starts.
+    /// * Filesystem paths are resolved against `CARGO_MANIFEST_DIR`
+    ///   when relative and the result must exist on disk.
+    pub fn resolved_input(&self) -> Result<InputSource> {
+        if is_plausible_uri(&self.input) {
+            return Ok(InputSource::Uri(self.input.clone()));
+        }
+
+        let raw = PathBuf::from(&self.input);
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let path = if self.input.is_absolute() {
-            self.input.clone()
+        let path = if raw.is_absolute() {
+            raw
         } else {
-            manifest_dir.join(&self.input)
+            manifest_dir.join(&raw)
         };
 
         if !path.exists() {
@@ -114,13 +170,14 @@ impl Cli {
                 "input file does not exist: {}\n\
                  Place the clip manually, e.g.:\n    \
                  curl -L -o {input} \\\n        \
-                 https://eu-central-1.linodeobjects.com/savant-data/demo/ny_city_center.mov",
+                 https://eu-central-1.linodeobjects.com/savant-data/demo/ny_city_center.mov\n\
+                 Or pass a URI like rtsp://cam/stream (no filesystem check).",
                 path.display(),
-                input = self.input.display()
+                input = self.input
             );
         }
 
-        Ok(path)
+        Ok(InputSource::Path(path))
     }
 
     /// Resolve the output path against the picasso mode.
@@ -198,6 +255,12 @@ impl Cli {
         if self.fps_den <= 0 {
             bail!("--fps-den must be > 0, got {}", self.fps_den);
         }
+        if self.stats_period == 0 {
+            bail!(
+                "--stats-period must be >= 1 second, got {}",
+                self.stats_period
+            );
+        }
         Ok(())
     }
 
@@ -224,16 +287,21 @@ impl Cli {
             draw_enabled,
             picasso_enabled,
             output_is_null,
+            stats_period_ms: i64::from(u32::try_from(self.stats_period).unwrap_or(u32::MAX))
+                * 1_000,
         })
     }
 }
 
-/// Fully-validated, absolute paths + numeric knobs ready to be handed to
-/// [`crate::cars_tracking::pipeline::run`].
+/// Fully-validated input + output + numeric knobs ready to be handed to
+/// [`crate::cars_demo::pipeline::run`].
 #[derive(Debug, Clone)]
 pub struct ResolvedCli {
-    /// Absolute path to the input MP4 file.
-    pub input: PathBuf,
+    /// Resolved input source — either a validated filesystem path
+    /// ([`InputSource::Path`]) or a URI ([`InputSource::Uri`]).
+    /// The pipeline dispatches to `Mp4DemuxerSource` or
+    /// `UriDemuxerSource` based on this variant.
+    pub input: InputSource,
     /// Absolute path to the output MP4 file.  `None` when Picasso
     /// is excluded via `--no-picasso` — no file is written in that
     /// mode.  Always `Some` when [`Self::picasso_enabled`] is
@@ -266,7 +334,7 @@ pub struct ResolvedCli {
     /// Set by the `--output null` sentinel: Picasso still runs
     /// (decode + infer + track + transform + encode), but instead
     /// of writing an MP4 the encoded bitstream is routed into a
-    /// [`BitstreamFunction`](savant_perception::templates::BitstreamFunction)
+    /// [`BitstreamFunction`](savant_perception::stages::BitstreamFunction)
     /// terminus that tallies packet counts and encoded byte totals.
     ///
     /// Only meaningful when [`Self::picasso_enabled`] is `true`;
@@ -274,11 +342,17 @@ pub struct ResolvedCli {
     /// [`Cli::resolve`] (the two ways to disable output are not
     /// composable).
     pub output_is_null: bool,
+    /// Period (milliseconds) between time-based stats reports.
+    /// Resolved from `--stats-period` (seconds, default
+    /// [`DEFAULT_STATS_PERIOD_SECS`](crate::cars_demo::pipeline::DEFAULT_STATS_PERIOD_SECS))
+    /// by multiplying by 1000.
+    pub stats_period_ms: i64,
 }
 
 impl ResolvedCli {
-    /// Borrow the input path.
-    pub fn input(&self) -> &Path {
+    /// Borrow the resolved input.  Implements [`fmt::Display`] so
+    /// callers can log it uniformly regardless of variant.
+    pub fn input(&self) -> &InputSource {
         &self.input
     }
 
@@ -381,7 +455,7 @@ mod tests {
     #[test]
     fn no_picasso_disables_both_picasso_and_draw() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         // Use an existing file so `resolved_input` passes — we only
         // care about the picasso / draw plumbing here.
         let cli = Cli::try_parse_from([
@@ -395,6 +469,10 @@ mod tests {
         assert!(!resolved.picasso_enabled);
         assert!(!resolved.draw_enabled);
         assert!(resolved.output.is_none());
+        assert!(
+            matches!(resolved.input, InputSource::Path(_)),
+            "filesystem input resolves to InputSource::Path"
+        );
     }
 
     /// Without `--no-picasso`, omitting `--output` is a hard error:
@@ -404,7 +482,7 @@ mod tests {
     #[test]
     fn missing_output_rejected_when_picasso_enabled() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from(["cars-demo", "--input", exe_dir.to_str().unwrap()]).unwrap();
         let err = cli.resolve().unwrap_err();
         assert!(
@@ -436,7 +514,7 @@ mod tests {
     #[test]
     fn output_null_sentinel_disables_file_but_keeps_picasso() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
@@ -457,7 +535,7 @@ mod tests {
     #[test]
     fn no_picasso_rejects_output_null() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
@@ -483,7 +561,7 @@ mod tests {
     #[test]
     fn regular_output_has_output_is_null_false() {
         let exe_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("examples/cars_demo/cars_tracking.rs");
+            .join("examples/cars_demo/cars_demo.rs");
         let cli = Cli::try_parse_from([
             "cars-demo",
             "--input",
@@ -496,5 +574,94 @@ mod tests {
         assert!(resolved.picasso_enabled);
         assert!(!resolved.output_is_null);
         assert!(resolved.output.is_some());
+    }
+
+    /// `is_plausible_uri` recognises common GStreamer URI
+    /// schemes and rejects bare filesystem paths.
+    #[test]
+    fn input_uri_detection_covers_common_schemes() {
+        assert!(is_plausible_uri("file:///tmp/x.mp4"));
+        assert!(is_plausible_uri("http://host/a.m3u8"));
+        assert!(is_plausible_uri("https://host/a.m3u8"));
+        assert!(is_plausible_uri("rtsp://cam/stream"));
+        assert!(is_plausible_uri("rtsps://cam/stream"));
+        assert!(is_plausible_uri("rtmp://host/app/key"));
+        assert!(is_plausible_uri("hls+http://host/a.m3u8"));
+
+        assert!(!is_plausible_uri("some.mov"));
+        assert!(!is_plausible_uri("/abs/path.mov"));
+        assert!(!is_plausible_uri("relative/path.mov"));
+        assert!(!is_plausible_uri("://nohost"));
+        assert!(!is_plausible_uri(""));
+        assert!(!is_plausible_uri("9scheme://host"));
+    }
+
+    /// A URI input resolves to [`InputSource::Uri`] without touching
+    /// the filesystem — even when the URI names a path that clearly
+    /// does not exist.
+    #[test]
+    fn uri_input_skips_filesystem_check() {
+        for uri in [
+            "rtsp://cam/stream",
+            "http://example.com/a.m3u8",
+            "file:///definitely/does/not/exist.mp4",
+        ] {
+            let cli =
+                Cli::try_parse_from(["cars-demo", "--input", uri, "--output", "/tmp/out.mp4"])
+                    .unwrap();
+            let input = cli
+                .resolved_input()
+                .unwrap_or_else(|e| panic!("URI {uri} must resolve without fs check, got: {e:#}"));
+            match input {
+                InputSource::Uri(u) => assert_eq!(u, uri),
+                other => panic!("expected Uri, got {other:?}"),
+            }
+        }
+    }
+
+    /// `resolve` propagates the `InputSource::Uri` variant end-to-end
+    /// into `ResolvedCli` — the pipeline dispatcher reads this
+    /// variant to pick the demuxer actor.
+    #[test]
+    fn resolve_preserves_uri_variant() {
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            "rtsp://cam/stream",
+            "--output",
+            "/tmp/out.mp4",
+        ])
+        .unwrap();
+        let resolved = cli.resolve().expect("URI input must resolve");
+        match &resolved.input {
+            InputSource::Uri(u) => assert_eq!(u, "rtsp://cam/stream"),
+            other => panic!("expected Uri, got {other:?}"),
+        }
+        assert_eq!(resolved.input().to_string(), "rtsp://cam/stream");
+    }
+
+    /// Path input round-trips through `resolved_input` as
+    /// [`InputSource::Path`] with an absolute path.
+    #[test]
+    fn path_input_resolves_to_absolute_path() {
+        let cli = Cli::try_parse_from([
+            "cars-demo",
+            "--input",
+            // Relative to CARGO_MANIFEST_DIR.
+            "examples/cars_demo/cars_demo.rs",
+            "--output",
+            "/tmp/out.mp4",
+        ])
+        .unwrap();
+        let input = cli
+            .resolved_input()
+            .expect("existing relative path resolves");
+        match input {
+            InputSource::Path(p) => {
+                assert!(p.is_absolute(), "relative path must be made absolute");
+                assert!(p.exists(), "resolved path must exist on disk");
+            }
+            other => panic!("expected Path, got {other:?}"),
+        }
     }
 }

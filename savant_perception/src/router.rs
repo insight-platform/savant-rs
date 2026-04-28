@@ -9,15 +9,15 @@
 //!   builder's `.downstream(name)` call.  `router.send(msg)` routes
 //!   to that peer without any runtime name lookup.
 //! * **Name-based routing** — `router.send_to(&peer, msg)` resolves
-//!   any registered peer by [`StageName`](super::supervisor::StageName)
+//!   any registered peer by [`StageName`]
 //!   at call time, caching the resolved [`OperatorSink<M>`] so that
 //!   subsequent sends to the same peer avoid the registry lookup.
 //!
-//! The router is the canonical send handle across templates.  Every
-//! template's internal `send` sites, every operator-result-callback
-//! argument that used to be `&OperatorSink<M>`, and every
-//! construction-time factory that previously took a single peer now
-//! uses `Router<M>`.
+//! The router is the standard send handle across stages: every
+//! stage's internal send sites, every operator-result-callback
+//! argument, and every construction-time factory that needs to
+//! reach a peer use `Router<M>` instead of a bare
+//! [`OperatorSink<M>`](super::operator_sink::OperatorSink).
 //!
 //! # Cloning
 //!
@@ -70,7 +70,10 @@ impl<M: Envelope> Router<M> {
     /// [`BuildCtx::router`](super::context::BuildCtx::router),
     /// [`Context::router`](super::context::Context::router), or
     /// [`SourceContext::router`](super::context::SourceContext::router).
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    #[allow(
+        dead_code,
+        reason = "called by BuildCtx/Context when handing a router to user code"
+    )]
     pub(crate) fn new(
         owner: StageName,
         registry: Arc<Registry>,

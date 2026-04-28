@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use super::error::FlexibleDecoderError;
-use super::output::DecoderParameters;
+use super::output::{DecoderParameters, FlexibleDecoderOutput, SkipReason};
 use super::state::{register_frame, DecoderState, FrameMap, StateGuard, SubmitContext};
 
 /// Result of processing a submit in the `Active` state.
@@ -22,7 +22,36 @@ pub(crate) enum ActiveResult {
         old_params: DecoderParameters,
         new_params: DecoderParameters,
     },
+    /// The underlying [`NvDecoder`] worker died (e.g. the GstPipeline
+    /// watchdog tripped while frames were stuck in the `in_flight` map).
+    /// The state has been committed to `Idle`, the dead decoder has been
+    /// torn down, and `pending` has been populated with one
+    /// [`FlexibleDecoderOutput::Skipped`] per orphaned frame plus a
+    /// trailing aggregate
+    /// [`FlexibleDecoderOutput::Restarted`].  The caller must
+    /// re-acquire the state lock and re-run [`super::handle_idle::handle_idle`]
+    /// for `ctx`, exactly like the [`NeedDrain`](Self::NeedDrain) recovery
+    /// path — the restart is therefore transparent to
+    /// [`super::FlexibleDecoder::submit`].
+    Restarted,
 }
+
+/// Reason string surfaced via [`FlexibleDecoderOutput::Restarted`] when the
+/// worker thread exits unexpectedly.  The upstream
+/// [`PipelineError`](savant_gstreamer::pipeline::PipelineError) is reported
+/// separately via [`FlexibleDecoderOutput::Error`].
+const WORKER_DIED_REASON: &str = "worker thread exited";
+
+/// Reason string surfaced via [`FlexibleDecoderOutput::Restarted`] when the
+/// underlying [`NvDecoder`]'s GstPipeline is failed (e.g. a feeder-side
+/// `PtsPolicy` violation set `feeder_failed=true`) but the worker thread
+/// has not yet observed the resulting error — typically because it is
+/// still busy in the user's `on_output(...)` callback.  Restarting on this
+/// signal is essential for back-to-back rebased producer cycles when the
+/// downstream pipeline (e.g. cars-demo-zmq's Picasso → encoder → ZmqSink)
+/// is slower than the decoder.  Reproduced by
+/// `savant_deepstream/inputs/tests/test_decoder_pool_interleaved_eos.rs::no_eos_slow_callback_back_to_back_cycles`.
+const PIPELINE_FAILED_REASON: &str = "pipeline failed";
 
 /// Handle a submit when the decoder is in `Active` state.
 ///
@@ -35,13 +64,19 @@ pub(crate) enum ActiveResult {
 /// On submit error: commits guard to `Active` (decoder still valid), returns
 /// `SteadyState(Err(...))`.
 ///
-/// On dead worker: tears down the decoder, commits guard to `Idle`, returns
-/// `SteadyState(Err(WorkerDied))`.  The next `submit` call will
-/// re-activate from scratch.
+/// On dead worker: tears down the decoder, drains the entire frame map
+/// into `pending` as
+/// [`Skipped { reason: DecoderRestarted(_) }`](FlexibleDecoderOutput::Skipped),
+/// pushes a [`FlexibleDecoderOutput::Restarted`] aggregate event, commits
+/// guard to `Idle`, and returns [`ActiveResult::Restarted`].  The caller is
+/// expected to re-run [`super::handle_idle::handle_idle`] for `ctx` so the
+/// restart is transparent to [`super::FlexibleDecoder::submit`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_active(
     guard: StateGuard<'_>,
+    pending: &mut Vec<FlexibleDecoderOutput>,
     frame_map: &FrameMap,
+    source_id: &str,
     decoder: Arc<NvDecoder>,
     worker_join: Option<JoinHandle<()>>,
     worker_stop: Arc<AtomicBool>,
@@ -54,14 +89,80 @@ pub(crate) fn handle_active(
 ) -> ActiveResult {
     let worker_died = !worker_stop.load(Ordering::Relaxed)
         && worker_join.as_ref().is_some_and(|jh| jh.is_finished());
+    // The `GstPipeline` feeder marks the pipeline as failed on the very
+    // first `PtsPolicy` violation (or appsrc push error).  Detecting this
+    // from `submit` lets us start the restart sequence even when the
+    // worker thread is still alive — typically blocked in the user's
+    // `on_output(...)` callback for an earlier frame and therefore unable
+    // to observe the queued `Error` and exit on its own.  Without this
+    // shortcut, every subsequent producer packet would either spin on the
+    // same violation in the feeder (filling `output_tx`) or wedge on a
+    // saturated bounded `input_tx` while the decoder is broken anyway.
+    let pipeline_failed = decoder.is_failed();
 
-    if worker_died {
-        if let Some(jh) = worker_join {
-            let _ = jh.join();
-        }
+    if worker_died || pipeline_failed {
+        let restart_reason = if pipeline_failed {
+            PIPELINE_FAILED_REASON
+        } else {
+            WORKER_DIED_REASON
+        };
+
+        // Always tear the underlying NvDecoder down first.  This closes
+        // the GstPipeline → output channel, which causes any worker that
+        // is still alive (e.g. blocked in a slow `on_output(...)`) to
+        // observe `ChannelDisconnected` and exit on its own once it
+        // returns from the callback.  Calling `shutdown()` twice is
+        // idempotent (`is_shut_down` swap) so this is safe even if the
+        // worker_died branch already implies the pipeline is gone.
+        worker_stop.store(true, Ordering::Release);
         let _ = decoder.shutdown();
+
+        // Only join the worker if it has actually finished — otherwise
+        // we would deadlock here whenever the user's callback is the
+        // slow path that prevented the worker from noticing the error
+        // in the first place.  When the worker exits later (after its
+        // current callback returns and it sees the disconnected
+        // channel) it self-cleans without anybody reaping the
+        // `JoinHandle`; the OS eventually reclaims the thread when the
+        // process tears down (or when the FlexibleDecoder is dropped,
+        // since worker holds an `Arc<NvDecoder>` whose lifetime is now
+        // bounded by the worker itself).
+        if let Some(jh) = worker_join {
+            if jh.is_finished() {
+                let _ = jh.join();
+            }
+            // else: detach.
+        }
+
+        // Drain any frames still mapped to the now-broken decoder.
+        // Frames the (still-alive) old worker has not yet pulled from
+        // `output_rx` remain in `frame_map` and surface here as
+        // `Skipped { DecoderRestarted }`.  Frames the worker is
+        // currently delivering (already removed from `frame_map` by
+        // `take_frame_proxy`) are unaffected — they reach the user
+        // exactly once.
+        let lost_frames = {
+            let mut fm = frame_map.lock();
+            let mut lost = 0usize;
+            for (_, frame) in fm.drain() {
+                lost += 1;
+                pending.push(FlexibleDecoderOutput::Skipped {
+                    frame,
+                    data: None,
+                    reason: SkipReason::DecoderRestarted(restart_reason.to_string()),
+                });
+            }
+            lost
+        };
+
+        pending.push(FlexibleDecoderOutput::Restarted {
+            source_id: source_id.to_string(),
+            reason: restart_reason.to_string(),
+            lost_frames,
+        });
+
         guard.commit(DecoderState::Idle);
-        return ActiveResult::SteadyState(Err(FlexibleDecoderError::WorkerDied));
+        return ActiveResult::Restarted;
     }
 
     let codec_changed = ctx.video_codec != Some(active_video_codec);

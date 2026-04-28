@@ -56,6 +56,7 @@ __all__ = [
     "SourceEosOutput",
     "EventOutput",
     "ErrorOutput",
+    "RestartedOutput",
     "FlexibleDecoderOutput",
     "FlexibleDecoder",
     "EvictionDecision",
@@ -1345,11 +1346,35 @@ class SkipReason:
     @property
     def is_detection_buffer_overflow(self) -> bool: ...
     @property
+    def is_parameter_change_during_detection(self) -> bool: ...
+    @property
+    def parameter_change_codec_changed(self) -> Optional[bool]:
+        """Whether the codec changed during detection.
+
+        Only meaningful when
+        :attr:`is_parameter_change_during_detection` is ``True``;
+        ``None`` for every other variant.
+        """
+        ...
+
+    @property
+    def parameter_change_dims_changed(self) -> Optional[bool]:
+        """Whether the dimensions changed during detection.
+
+        Only meaningful when
+        :attr:`is_parameter_change_during_detection` is ``True``;
+        ``None`` for every other variant.
+        """
+        ...
+
+    @property
     def is_no_payload(self) -> bool: ...
     @property
     def is_invalid_payload(self) -> bool: ...
     @property
     def is_decoder_creation_failed(self) -> bool: ...
+    @property
+    def is_decoder_restarted(self) -> bool: ...
     @property
     def detail(self) -> Optional[str]:
         """Human-readable detail for string-carrying variants, or ``None``."""
@@ -1538,6 +1563,33 @@ class ErrorOutput:
     def __repr__(self) -> str: ...
 
 @final
+class RestartedOutput:
+    """Aggregate signal emitted when the FlexibleDecoder transparently
+    restarted after the underlying NvDecoder worker died (e.g. a watchdog
+    trip)."""
+
+    @property
+    def source_id(self) -> str:
+        """Source id of the FlexibleDecoder that restarted."""
+        ...
+
+    @property
+    def reason(self) -> str:
+        """Human-readable reason for the restart."""
+        ...
+
+    @property
+    def lost_frames(self) -> int:
+        """Number of in-flight frames lost because of the restart.
+
+        Each is also surfaced separately as a :class:`SkippedOutput` with
+        :class:`SkipReason` ``DecoderRestarted``.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
 class FlexibleDecoderOutput:
     """Callback payload from :class:`FlexibleDecoder`.
 
@@ -1564,6 +1616,8 @@ class FlexibleDecoderOutput:
     def is_event(self) -> bool: ...
     @property
     def is_error(self) -> bool: ...
+    @property
+    def is_restarted(self) -> bool: ...
 
     def as_frame(self) -> Optional[FrameOutput]:
         """Downcast to :class:`FrameOutput`, or ``None``."""
@@ -1591,6 +1645,10 @@ class FlexibleDecoderOutput:
 
     def as_error(self) -> Optional[ErrorOutput]:
         """Downcast to :class:`ErrorOutput`, or ``None``."""
+        ...
+
+    def as_restarted(self) -> Optional[RestartedOutput]:
+        """Downcast to :class:`RestartedOutput`, or ``None``."""
         ...
 
     def __repr__(self) -> str: ...

@@ -51,12 +51,18 @@
 //! ```
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::utils::release_seal::ReleaseSeal;
 
 use crate::SharedBuffer;
+
+/// Slice length used by [`Sealed::unseal`] when polling a not-yet-released
+/// seal. Each missed slice emits a single `log::warn!` carrying the seal id
+/// and payload type so that operators stuck on a never-released producer can
+/// be diagnosed from logs alone.
+const UNSEAL_WARN_INTERVAL: Duration = Duration::from_secs(5);
 
 /// A payload `T` gated by an [`Arc<ReleaseSeal>`].
 ///
@@ -98,8 +104,17 @@ pub struct Sealed<T> {
 impl<T> Sealed<T> {
     /// Wrap `payload` with the provided seal.  Callers typically clone
     /// the `Arc` held by the producing struct.
+    ///
+    /// Emits a `log::trace!` carrying the seal id and the payload type so
+    /// that subsequent `warn!` lines from [`Self::unseal`] can be correlated
+    /// back to the producer that originally minted the seal.
     #[inline]
     pub fn new(payload: T, seal: Arc<ReleaseSeal>) -> Self {
+        log::trace!(
+            "Sealed[{}]<{}> created",
+            seal.id(),
+            std::any::type_name::<T>()
+        );
         Self { payload, seal }
     }
 
@@ -111,10 +126,31 @@ impl<T> Sealed<T> {
 
     /// Block until the producer releases the seal, then yield the
     /// payload.
+    ///
+    /// The wait is internally chunked into [`UNSEAL_WARN_INTERVAL`]
+    /// (5-second) slices: every slice that elapses without the producer
+    /// releasing the seal triggers a single `log::warn!` line tagged with
+    /// the seal id and payload type. The method only returns once the
+    /// producer has actually released the seal.
     #[inline]
     pub fn unseal(self) -> T {
-        self.seal.wait();
-        self.payload
+        let start = Instant::now();
+        let mut iterations: u64 = 0;
+        loop {
+            if self.seal.wait_timeout(UNSEAL_WARN_INTERVAL) {
+                return self.payload;
+            }
+            iterations += 1;
+            log::warn!(
+                "Sealed[{}]<{}> unseal still blocked after {:.1}s ({} x {}s slices), \
+                 producer has not released yet",
+                self.seal.id(),
+                std::any::type_name::<T>(),
+                start.elapsed().as_secs_f64(),
+                iterations,
+                UNSEAL_WARN_INTERVAL.as_secs(),
+            );
+        }
     }
 
     /// Block until released or `timeout` expires.  On timeout, returns
@@ -143,6 +179,7 @@ impl<T> Sealed<T> {
 impl<T> std::fmt::Debug for Sealed<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Sealed")
+            .field("seal_id", &self.seal.id())
             .field("payload_type", &std::any::type_name::<T>())
             .field("released", &self.seal.is_released())
             .finish()
@@ -242,6 +279,72 @@ mod tests {
         assert!(!sealed.is_released());
         seal.release();
         assert!(sealed.is_released());
+    }
+
+    #[test]
+    fn unseal_warns_periodically_then_returns() {
+        // Verify the iterative unseal loop both (a) keeps blocking past one
+        // 5-second slice and (b) ultimately returns the payload once the
+        // producer releases. We don't assert the warn line text here (that
+        // would require an env_logger capture); the value of this test is
+        // the regression guard that the loop exits cleanly after at least
+        // one warn iteration has elapsed.
+        let seal = Arc::new(ReleaseSeal::new());
+        let sealed = Sealed::new(123u64, Arc::clone(&seal));
+
+        let releaser = thread::spawn({
+            let seal = Arc::clone(&seal);
+            move || {
+                thread::sleep(Duration::from_millis(5_500));
+                seal.release();
+            }
+        });
+
+        let started = std::time::Instant::now();
+        let value = sealed.unseal();
+        let elapsed = started.elapsed();
+
+        assert_eq!(value, 123u64);
+        assert!(
+            elapsed >= Duration::from_secs(5),
+            "unseal must have looped past at least one 5s slice (elapsed={:?})",
+            elapsed
+        );
+        releaser.join().unwrap();
+    }
+
+    #[test]
+    fn unseal_returns_immediately_when_already_released() {
+        let seal = Arc::new(ReleaseSeal::new());
+        seal.release();
+        let sealed = Sealed::new("ready", Arc::clone(&seal));
+        let started = std::time::Instant::now();
+        let value = sealed.unseal();
+        let elapsed = started.elapsed();
+        assert_eq!(value, "ready");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "unseal must short-circuit when the seal is already released (elapsed={:?})",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn debug_includes_seal_id() {
+        let seal = Arc::new(ReleaseSeal::new());
+        let id = seal.id();
+        let sealed = Sealed::new(0u8, seal);
+        let s = format!("{:?}", sealed);
+        assert!(
+            s.contains(&format!("seal_id: {}", id)),
+            "Debug output must include seal_id field, got: {}",
+            s
+        );
+        assert!(
+            s.contains("payload_type"),
+            "Debug output must include payload_type field, got: {}",
+            s
+        );
     }
 
     /// Compile-time positive check: `Sealed<T>` must be `Send`/`Sync`

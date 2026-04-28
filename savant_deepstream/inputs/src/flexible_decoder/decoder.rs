@@ -22,6 +22,7 @@ use super::handle_active::{handle_active, ActiveResult};
 use super::handle_detecting::handle_detecting;
 use super::handle_idle::handle_idle;
 use super::output::{FlexibleDecoderOutput, SkipReason};
+use super::pool_cache::PoolCacheRegistry;
 use super::state::{
     new_frame_map, ActivatedDecoder, DecoderState, FrameMap, StateGuard, SubmitContext,
 };
@@ -43,19 +44,72 @@ const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// **Callback safety**: the user callback is never invoked while an internal
 /// lock is held, so it is safe to call other `FlexibleDecoder` methods (or
 /// shared state protected by user mutexes) from within the callback.
+///
+/// ## Pool cache lifetime
+///
+/// The persistent RGBA output pool used to be owned by this struct
+/// directly, which meant rebuilding from scratch on every
+/// `source_eos`-driven teardown / recreation cycle.  The cache now
+/// lives inside [`PoolCacheRegistry`], shared with — and outlived
+/// by — the parent [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool).
+///
+/// * [`Self::new`] creates a fresh, **private** registry whose
+///   lifetime equals the decoder's; dropping the decoder runs the
+///   F2 sync and releases all cached pools.  This preserves the
+///   contract of standalone tests that construct decoders
+///   directly.
+/// * [`Self::with_registry`] takes a clone of an externally
+///   owned `Arc<PoolCacheRegistry>` so the cache survives across
+///   `source_eos` cycles.  In that mode neither
+///   [`Self::graceful_shutdown`] nor [`Self::shutdown`] touch the
+///   registry — it is the parent pool's job to clear entries on
+///   eviction or full shutdown.
 pub struct FlexibleDecoder {
     config: FlexibleDecoderConfig,
     state: Mutex<DecoderState>,
     on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync + 'static>,
     frame_map: FrameMap,
+    /// Persistent RGBA output pool registry.  Shared with the
+    /// parent [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool)
+    /// when constructed via [`Self::with_registry`]; private
+    /// otherwise (see struct-level docs).
+    pool_cache: Arc<PoolCacheRegistry>,
 }
 
 impl FlexibleDecoder {
-    /// Construct a new decoder bound to `config.source_id`.
+    /// Construct a new decoder with a **private** [`PoolCacheRegistry`].
+    ///
+    /// Use this for standalone decoders (one source, one decoder
+    /// for the lifetime of the caller).  When the decoder is
+    /// dropped the private registry is dropped too, which runs a
+    /// device sync and releases all cached buffers.
     ///
     /// No internal [`NvDecoder`] is created until the first successful
     /// [`submit`](Self::submit).
     pub fn new<F>(config: FlexibleDecoderConfig, on_output: F) -> Self
+    where
+        F: Fn(FlexibleDecoderOutput) + Send + Sync + 'static,
+    {
+        Self::with_registry(config, on_output, Arc::new(PoolCacheRegistry::new()))
+    }
+
+    /// Construct a new decoder with a **shared** [`PoolCacheRegistry`].
+    ///
+    /// Used by [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool)
+    /// to share the cache across `source_eos`-driven decoder
+    /// teardown / recreation cycles for the same `source_id`.
+    /// Neither [`Self::graceful_shutdown`] nor [`Self::shutdown`]
+    /// touch the registry in this mode — the parent pool is
+    /// responsible for cache lifetime (eviction + final clear on
+    /// pool shutdown).
+    ///
+    /// No internal [`NvDecoder`] is created until the first successful
+    /// [`submit`](Self::submit).
+    pub fn with_registry<F>(
+        config: FlexibleDecoderConfig,
+        on_output: F,
+        pool_cache: Arc<PoolCacheRegistry>,
+    ) -> Self
     where
         F: Fn(FlexibleDecoderOutput) + Send + Sync + 'static,
     {
@@ -64,6 +118,7 @@ impl FlexibleDecoder {
             state: Mutex::new(DecoderState::Idle),
             on_output: Arc::new(on_output),
             frame_map: new_frame_map(),
+            pool_cache,
         }
     }
 
@@ -188,6 +243,10 @@ impl FlexibleDecoder {
             super::output::DecoderParameters,
             super::output::DecoderParameters,
         )>;
+        // Set when handle_active observed a worker death and committed Idle:
+        // phase 2 below re-runs handle_idle for the current packet so the
+        // restart is transparent to callers of `submit`.
+        let mut restart_reentry: bool = false;
 
         let result = {
             let mut state = self.state.lock();
@@ -228,7 +287,10 @@ impl FlexibleDecoder {
                             pending.push(FlexibleDecoderOutput::Skipped {
                                 frame: pkt.frame,
                                 data: Some(pkt.data),
-                                reason: SkipReason::WaitingForKeyframe,
+                                reason: SkipReason::ParameterChangeDuringDetection {
+                                    codec_changed,
+                                    dims_changed,
+                                },
                             });
                         }
                         handle_idle(
@@ -268,7 +330,9 @@ impl FlexibleDecoder {
                     let resolve_ref = resolve_opt.as_ref().unwrap();
                     match handle_active(
                         guard,
+                        &mut pending,
                         &self.frame_map,
+                        &self.config.source_id,
                         decoder,
                         worker_join,
                         worker_stop,
@@ -281,6 +345,7 @@ impl FlexibleDecoder {
                     ) {
                         ActiveResult::SteadyState(r) => {
                             drain_job = None;
+                            restart_reentry = false;
                             r
                         }
                         ActiveResult::NeedDrain {
@@ -289,6 +354,17 @@ impl FlexibleDecoder {
                             new_params,
                         } => {
                             drain_job = Some((old_decoder, old_params, new_params));
+                            restart_reentry = false;
+                            Ok(())
+                        }
+                        ActiveResult::Restarted => {
+                            // The dead decoder has been torn down, the
+                            // frame map drained, and the state committed
+                            // back to Idle.  Phase 2 below re-runs
+                            // handle_idle for the current packet so the
+                            // restart is transparent to the caller.
+                            drain_job = None;
+                            restart_reentry = true;
                             Ok(())
                         }
                     }
@@ -324,6 +400,22 @@ impl FlexibleDecoder {
                 });
             }
             handle_result
+        } else if restart_reentry {
+            // Worker died: handle_active has already torn down the dead
+            // decoder, drained the frame map, and emitted the Restarted
+            // event into `pending`.  Re-run handle_idle so the current
+            // packet is processed against a freshly Idle state — the
+            // restart is therefore transparent to the caller.
+            let mut state = self.state.lock();
+            let (guard2, _taken) = StateGuard::take(&mut state);
+            handle_idle(
+                guard2,
+                &mut pending,
+                &self.frame_map,
+                resolve_opt.take().unwrap(),
+                &ctx,
+                &activate_fn,
+            )
         } else {
             result
         };
@@ -438,6 +530,14 @@ impl FlexibleDecoder {
                 (on_output)(convert_output(&fm, out));
             });
         }
+        // Pool cache is owned by the parent
+        // [`PoolCacheRegistry`] (shared via `Arc`).  When the
+        // registry is private (this decoder is the only Arc
+        // holder) it is dropped together with the decoder, which
+        // runs the F2 sync.  When the registry is shared (the
+        // typical [`FlexibleDecoderPool`] case) the parent keeps
+        // it alive across `source_eos` cycles so the next
+        // decoder can reuse the cached pool.
         self.emit_all(pending);
         Ok(())
     }
@@ -471,6 +571,9 @@ impl FlexibleDecoder {
                 guard.commit(DecoderState::ShutDown);
             }
         }
+        // Pool cache lifetime is handled via the shared
+        // [`PoolCacheRegistry`] `Arc`; see
+        // [`Self::graceful_shutdown`] for details.
     }
 
     // ── Internal helpers ─────────────────────────────────────────────
@@ -513,6 +616,23 @@ impl FlexibleDecoder {
     }
 
     /// Create a new [`NvDecoder`], its buffer pool, and a worker thread.
+    ///
+    /// The RGBA output pool is **cached** at the [`FlexibleDecoder`] level.
+    /// On entry we consult [`Self::pool_cache`]:
+    ///
+    /// * If a cached pool is present and its descriptor matches the
+    ///   requested params (`width`, `height`, `fps`, `format`, `gpu_id`,
+    ///   `mem_type`, `pool_size`), the cached
+    ///   `Arc<Mutex<BufferGenerator>>` is reused — no
+    ///   `gst_buffer_pool_set_active(false)`, no NvBufSurface backing
+    ///   reallocation, no EGL→CUDA re-registration.
+    /// * Otherwise the previous cache entry is replaced (its `Arc` is
+    ///   released; the pool is dropped once any in-flight buffers/decoder
+    ///   that still hold it have been released too).
+    ///
+    /// The CUDA stream and [`TransformConfig`] are **not** cached — each
+    /// new decoder gets a fresh non-blocking labelled stream so any
+    /// residual work from the previous decoder cannot leak in.
     fn activate(
         &self,
         decoder_config: DecoderConfig,
@@ -534,18 +654,19 @@ impl FlexibleDecoder {
         }
 
         let (pool_w, pool_h, fps_num, fps_den) = stream_pool_params(frame)?;
+        let format = VideoFormat::RGBA;
+        let mem_type = NvBufSurfaceMemType::Default;
+        let pool_size = self.config.pool_size;
+        let gpu_id = self.config.gpu_id;
 
-        let pool = BufferGenerator::builder(VideoFormat::RGBA, pool_w, pool_h)
-            .fps(fps_num, fps_den)
-            .gpu_id(self.config.gpu_id)
-            .mem_type(NvBufSurfaceMemType::Default)
-            .min_buffers(self.config.pool_size)
-            .max_buffers(self.config.pool_size)
-            .build()
-            .map_err(|e| format!("buffer pool creation failed: {e}"))?;
+        let pool = self.acquire_or_build_pool(
+            pool_w, pool_h, fps_num, fps_den, format, gpu_id, mem_type, pool_size,
+        )?;
 
+        let stream_label = format!("decoder/{}-{}", self.config.source_id, gst_codec.name());
         let cuda_stream = CudaStream::new_non_blocking()
-            .map_err(|e| format!("CUDA stream creation failed: {e}"))?;
+            .map_err(|e| format!("CUDA stream creation failed: {e}"))?
+            .with_label(stream_label);
         let transform = TransformConfig {
             interpolation: Interpolation::Nearest,
             cuda_stream,
@@ -558,7 +679,7 @@ impl FlexibleDecoder {
             gst_codec.name()
         ));
 
-        let decoder = NvDecoder::new(nv_config, pool, transform)
+        let decoder = NvDecoder::with_shared_pool(nv_config, pool, transform)
             .map_err(|e| format!("NvDecoder creation failed: {e}"))?;
         let decoder = Arc::new(decoder);
 
@@ -575,6 +696,42 @@ impl FlexibleDecoder {
             .map_err(|e| format!("failed to spawn worker thread: {e}"))?;
 
         Ok((decoder, worker_join, stop))
+    }
+
+    /// Reuse the cached RGBA output pool from
+    /// [`Self::pool_cache`] when its descriptor matches the
+    /// requested params; otherwise build a fresh one and replace
+    /// the cache entry.
+    ///
+    /// On a cache hit the returned [`Arc`] is the same as the one
+    /// stored in the registry, so the pool's `GstBufferPool` (and
+    /// any pooled `EglCudaMeta` registrations attached to its
+    /// buffers) stays alive until the registry entry is cleared
+    /// (either explicitly by the parent pool, on eviction, or on
+    /// final pool shutdown).
+    #[allow(clippy::too_many_arguments)]
+    fn acquire_or_build_pool(
+        &self,
+        width: u32,
+        height: u32,
+        fps_num: i32,
+        fps_den: i32,
+        format: VideoFormat,
+        gpu_id: u32,
+        mem_type: NvBufSurfaceMemType,
+        pool_size: u32,
+    ) -> Result<Arc<Mutex<BufferGenerator>>, String> {
+        self.pool_cache.get_or_build(
+            &self.config.source_id,
+            width,
+            height,
+            fps_num,
+            fps_den,
+            format,
+            gpu_id,
+            mem_type,
+            pool_size,
+        )
     }
 }
 
@@ -623,6 +780,28 @@ fn convert_output(fm: &FrameMap, out: NvDecoderOutput) -> FlexibleDecoderOutput 
     }
 }
 
+impl FlexibleDecoder {
+    /// Address of the cached `BufferGenerator` Arc for this
+    /// decoder's `source_id`, when present in the registry.
+    ///
+    /// Stable across decoder restarts when the resolution / format
+    /// descriptor matches, so equality is a reliable cache-hit signal
+    /// for tests. Production code must treat the returned value as
+    /// opaque — comparing addresses is only meaningful within a single
+    /// process and only as long as the pool is alive.
+    pub fn pool_cache_addr(&self) -> Option<usize> {
+        self.pool_cache.pool_addr(&self.config.source_id)
+    }
+
+    /// Returns a clone of the [`PoolCacheRegistry`] `Arc` backing
+    /// this decoder, primarily for use by
+    /// [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool)
+    /// and tests that want to inspect cache state directly.
+    pub fn pool_cache(&self) -> Arc<PoolCacheRegistry> {
+        Arc::clone(&self.pool_cache)
+    }
+}
+
 #[cfg(test)]
 impl FlexibleDecoder {
     /// Test-only hook: exercise the decoder-config callback path without
@@ -637,6 +816,42 @@ impl FlexibleDecoder {
 }
 
 /// Background worker: polls [`NvDecoder`] output and forwards to the callback.
+///
+/// # Termination policy
+///
+/// The loop exits on any condition that means the underlying [`NvDecoder`]
+/// can no longer make forward progress for *this* sequence:
+///
+///  * `stop` flag is set by the supervisor (graceful teardown / parameter
+///    change / pool eviction).
+///  * The output channel is disconnected ([`DecoderError::ChannelDisconnected`]).
+///    The underlying `NvDecoder` has been torn down; nothing more will arrive.
+///  * The pipeline emits a stream-level EOS ([`NvDecoderOutput::Eos`]).  This
+///    is unexpected because the caller drains via
+///    [`FlexibleDecoder::graceful_shutdown`] which sets `stop` first; reaching
+///    it via this branch means the pipeline self-terminated.
+///  * A per-packet decoder error ([`NvDecoderOutput::Error`], e.g.
+///    [`PipelineError::TimestampOrderViolation`](savant_gstreamer::pipeline::PipelineError::TimestampOrderViolation),
+///    transient `nvv4l2decoder` failures).  The error is forwarded to the
+///    consumer first; exiting then trips
+///    [`super::handle_active::handle_active`]'s worker-died branch on the
+///    next [`FlexibleDecoder::submit`] call, which tears down the broken
+///    [`NvDecoder`], emits one
+///    [`FlexibleDecoderOutput::Skipped { reason: DecoderRestarted, .. }`](FlexibleDecoderOutput::Skipped)
+///    per orphaned frame plus an aggregate
+///    [`FlexibleDecoderOutput::Restarted`], and re-runs
+///    [`super::handle_idle::handle_idle`] for the current packet against a
+///    fresh decoder.
+///
+///    This is critical when the per-source [`FlexibleDecoder`] is reused
+///    across multiple producer runs *without* an intervening
+///    `source_eos` (e.g. `cars-demo-zmq producer --no-eos`): without the
+///    restart, the [`GstPipeline`](savant_gstreamer::pipeline::GstPipeline)
+///    feeder's sticky `last_key` would reject every packet of the new
+///    rebased sequence forever.  The restart costs one synchronous
+///    `nvv4l2decoder` `set_state(Null)` on the producer's first submit
+///    after the violation (seconds on Jetson with frames in flight), but
+///    the alternative — a permanently broken decoder — is strictly worse.
 fn worker_loop(
     decoder: Arc<NvDecoder>,
     on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync>,
@@ -663,6 +878,13 @@ fn worker_loop(
                 on_output(FlexibleDecoderOutput::SourceEos { source_id });
             }
             Ok(Some(NvDecoderOutput::Error(e))) => {
+                // Per-packet decoder error.  Surface it to the consumer
+                // and exit so the next `submit` triggers
+                // `handle_active`'s worker-died branch and rebuilds a
+                // fresh `NvDecoder` for the new sequence.  Continuing to
+                // poll a decoder that just rejected a buffer would
+                // permanently wedge the stream — every subsequent packet
+                // hits the same sticky `last_key` and is rejected too.
                 on_output(FlexibleDecoderOutput::Error(e));
                 break;
             }
