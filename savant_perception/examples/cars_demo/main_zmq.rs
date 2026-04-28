@@ -352,8 +352,24 @@ fn run_consumer(args: ConsumerArgs) -> Result<()> {
 
 fn run_pipeline_subcommand(args: PipelineArgs) -> Result<()> {
     args.validate()?;
+
+    // `--no-sink` short-circuits the pipeline at the tracker output:
+    // we drop Picasso (and therefore the encoder) entirely and feed
+    // the trailing `BitstreamFunction` directly so the bench measures
+    // raw decode → infer → track throughput, free of any encode /
+    // overlay / GPU-transform cost.  The flag also implies
+    // `draw_enabled = false` because the Skia overlay is part of the
+    // Picasso stage that no longer exists in this mode.
+    //
+    // We only resolve the writer config when the sink is actually
+    // used; this keeps the no-sink path independent of `--zmq-out`
+    // reachability.
+    let picasso_enabled = !args.no_sink;
+    let draw_enabled = picasso_enabled && !args.no_draw;
+
     log::info!(
-        "cars-demo-zmq pipeline: zmq-in={} zmq-out={} gpu={} conf={} iou={} fps={}/{} channel_cap={} no_draw={} no_sink={}",
+        "cars-demo-zmq pipeline: zmq-in={} zmq-out={} gpu={} conf={} iou={} fps={}/{} \
+         channel_cap={} no_draw={} no_sink={} picasso_enabled={} draw_enabled={}",
         args.zmq_in,
         args.zmq_out,
         args.gpu,
@@ -364,6 +380,8 @@ fn run_pipeline_subcommand(args: PipelineArgs) -> Result<()> {
         args.channel_cap,
         args.no_draw,
         args.no_sink,
+        picasso_enabled,
+        draw_enabled,
     );
 
     let reader_cfg = reader_config_from_url(&args.zmq_in)?;
@@ -371,14 +389,8 @@ fn run_pipeline_subcommand(args: PipelineArgs) -> Result<()> {
     let head = PipelineHead::Zmq {
         config: Box::new(reader_cfg),
     };
-    // `--no-sink` swaps the trailing `ZmqSink` for a
-    // `BitstreamFunction` terminus that drops Picasso's encoded
-    // bitstream after counting bytes — mirrors `cars-demo --output
-    // null`.  We only resolve the writer config when the sink is
-    // actually used; this keeps the no-sink path independent of
-    // `--zmq-out` reachability.
     let tail = if args.no_sink {
-        PipelineTail::Bitstream
+        PipelineTail::Function
     } else {
         let writer_cfg = writer_config_from_url(&args.zmq_out)?;
         PipelineTail::Zmq {
@@ -393,8 +405,8 @@ fn run_pipeline_subcommand(args: PipelineArgs) -> Result<()> {
         channel_cap: args.channel_cap,
         fps_num: args.fps_num,
         fps_den: args.fps_den,
-        draw_enabled: !args.no_draw,
-        picasso_enabled: true,
+        draw_enabled,
+        picasso_enabled,
         debug: false,
         stats_period_ms: i64::from(u32::try_from(args.stats_period).unwrap_or(u32::MAX)) * 1_000,
     };

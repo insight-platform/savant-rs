@@ -11,7 +11,8 @@ use crate::{
 use glib::translate::from_glib_full;
 use gstreamer as gst;
 use gstreamer::prelude::*;
-use log::debug;
+use log::{debug, info};
+use std::time::Instant;
 
 /// Params that make `gst_buffer_pool_acquire_buffer` return immediately
 /// with `GST_FLOW_EOS` when no buffers are available instead of blocking.
@@ -58,6 +59,17 @@ pub struct UniformBatchGenerator {
     max_batch_size: u32,
     fps_num: i32,
     fps_den: i32,
+    min_buffers: u32,
+    max_buffers: u32,
+    /// Memory type the pool was configured with (carried alongside the
+    /// other shape parameters so we can include it in the lifecycle log
+    /// at [`Drop`] time).
+    mem_type: NvBufSurfaceMemType,
+    /// Wallclock instant the underlying buffer pool was activated.
+    /// Used to log pool lifetime at drop, which is the metric we care
+    /// about when chasing "pool re-created too quickly" / "pool that
+    /// outlived its consumers" lifecycle bugs.
+    created_at: Instant,
 }
 
 /// Builder for [`UniformBatchGenerator`] with advanced pool
@@ -275,9 +287,19 @@ impl UniformBatchGenerator {
         pool.set_active(true)
             .map_err(|e| NvBufSurfaceError::PoolActivationFailed(e.to_string()))?;
 
-        debug!(
-            "UniformBatchGenerator created (batch={}, min={}, max={})",
-            max_batch_size, min_buffers, max_buffers
+        let pool_addr = pool.as_ptr() as usize;
+        info!(
+            "UniformBatchGenerator created (pool={:#x}, {}x{}, batch={}, min={}, max={}, \
+             format={:?}, mem_type={:?}, gpu_id={})",
+            pool_addr,
+            width,
+            height,
+            max_batch_size,
+            min_buffers,
+            max_buffers,
+            format,
+            mem_type,
+            gpu_id
         );
         Ok(Self {
             pool,
@@ -288,6 +310,10 @@ impl UniformBatchGenerator {
             max_batch_size,
             fps_num,
             fps_den,
+            min_buffers,
+            max_buffers,
+            mem_type,
+            created_at: Instant::now(),
         })
     }
 
@@ -486,9 +512,45 @@ impl UniformBatchGenerator {
 
 impl Drop for UniformBatchGenerator {
     fn drop(&mut self) {
-        debug!("Destroying UniformBatchGenerator");
-        if let Err(e) = self.pool.set_active(false) {
-            log::warn!("Failed to deactivate batched buffer pool on drop: {}", e);
+        let pool_addr = self.pool.as_ptr() as usize;
+        let lifetime_ms = self.created_at.elapsed().as_millis();
+        let deactivate_result = self.pool.set_active(false);
+        match &deactivate_result {
+            Ok(()) => {
+                info!(
+                    "UniformBatchGenerator dropped (pool={:#x}, {}x{}, batch={}, min={}, \
+                     max={}, format={:?}, mem_type={:?}, gpu_id={}, lifetime_ms={}, \
+                     deactivate=ok)",
+                    pool_addr,
+                    self.width,
+                    self.height,
+                    self.max_batch_size,
+                    self.min_buffers,
+                    self.max_buffers,
+                    self.format,
+                    self.mem_type,
+                    self.gpu_id,
+                    lifetime_ms
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "UniformBatchGenerator dropped (pool={:#x}, {}x{}, batch={}, min={}, \
+                     max={}, format={:?}, mem_type={:?}, gpu_id={}, lifetime_ms={}, \
+                     deactivate_err={})",
+                    pool_addr,
+                    self.width,
+                    self.height,
+                    self.max_batch_size,
+                    self.min_buffers,
+                    self.max_buffers,
+                    self.format,
+                    self.mem_type,
+                    self.gpu_id,
+                    lifetime_ms,
+                    e,
+                );
+            }
         }
     }
 }

@@ -107,14 +107,40 @@ pub struct NvDecoder {
 }
 
 impl NvDecoder {
-    /// Create and start a new decoder.
+    /// Create and start a new decoder, allocating a fresh shared pool wrapper.
     ///
     /// `pool` is the RGBA output buffer pool. Every decoded frame is transformed
     /// into this pool before delivery. `transform_config` controls GPU
     /// colour-conversion / scaling.
+    ///
+    /// The pool is wrapped in an [`Arc`]`<`[`Mutex`]`<...>>` internally. Use
+    /// [`with_shared_pool`](Self::with_shared_pool) when an existing shared
+    /// handle should be reused — for example when a higher-level supervisor
+    /// (such as
+    /// [`FlexibleDecoder`](crate::flexible_decoder::FlexibleDecoder)) keeps
+    /// the pool alive across decoder restarts to avoid pool churn.
     pub fn new(
         config: NvDecoderConfig,
         pool: BufferGenerator,
+        transform_config: TransformConfig,
+    ) -> Result<Self, DecoderError> {
+        Self::with_shared_pool(config, Arc::new(Mutex::new(pool)), transform_config)
+    }
+
+    /// Create and start a new decoder using an existing shared pool handle.
+    ///
+    /// Functionally equivalent to [`new`](Self::new) but reuses the supplied
+    /// `Arc<Mutex<BufferGenerator>>` instead of wrapping a fresh pool. The
+    /// caller retains a clone of the [`Arc`], which keeps the pool alive
+    /// after this decoder is dropped — useful when a supervisor wants to
+    /// recycle the same pool across successive decoder instances (avoids
+    /// `set_active(false)` churn and the EGL→CUDA re-registration cost).
+    ///
+    /// All other semantics — pool ownership during the decoder's lifetime,
+    /// shutdown behaviour, output channels — are identical to [`new`](Self::new).
+    pub fn with_shared_pool(
+        config: NvDecoderConfig,
+        pool: Arc<Mutex<BufferGenerator>>,
         transform_config: TransformConfig,
     ) -> Result<Self, DecoderError> {
         gst::init().map_err(|e| DecoderError::GstInit(e.to_string()))?;
@@ -132,8 +158,6 @@ impl NvDecoder {
             "NvDecoder initializing (name={}, codec={:?}, gpu={})",
             name, codec, config.gpu_id
         );
-
-        let pool = Arc::new(Mutex::new(pool));
 
         let backend = if is_raw_format(codec) {
             let (width, height, expected_bpp) = match &config.decoder {
@@ -199,6 +223,18 @@ impl NvDecoder {
     /// The codec this decoder was configured for.
     pub fn codec(&self) -> VideoCodec {
         self.codec
+    }
+
+    /// Clone of the shared pool handle.
+    ///
+    /// Useful for supervisors that want to keep the pool alive across decoder
+    /// restarts. Combined with [`with_shared_pool`](Self::with_shared_pool),
+    /// this lets the caller recycle the same `BufferGenerator` (and therefore
+    /// the same `GstBufferPool` / `NvBufSurface` backing memory) across
+    /// successive `NvDecoder` instances, avoiding pool churn and the EGL→CUDA
+    /// re-registration cost on Jetson.
+    pub fn pool_handle(&self) -> Arc<Mutex<BufferGenerator>> {
+        Arc::clone(&self.pool)
     }
 
     /// Check if the pipeline has entered a terminal failed state.

@@ -9,10 +9,40 @@
 //! Each slot is registered independently on first access, and deregistered
 //! in `meta_free` when the buffer is destroyed.
 
+use crate::cuda_device;
+use crate::cuda_poison::{note_cu_rc, note_cuda_rc};
 use crate::{ffi, transform, NvBufSurfaceError};
 use gstreamer::{glib, MetaAPI};
 use log::debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::LazyLock;
+use std::time::Instant;
+
+/// Process-wide monotonic epoch used by [`SlotRegistration::registered_at_ns`]
+/// to derive a wallclock-style age for each slot registration.
+///
+/// We avoid storing `Instant` directly on the slot because `SlotRegistration`
+/// is `#[repr(C)]` and `Copy`.  Storing a `u64` ns-offset from a fixed epoch
+/// gives us age tracking without breaking the layout requirements of the
+/// `GstMeta`.
+static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+#[inline]
+fn ns_since_epoch() -> u64 {
+    Instant::now().duration_since(*EPOCH).as_nanos() as u64
+}
+
+/// When set to `1`, [`meta_free`](imp::EglCudaMetaInner) calls
+/// `cudaDeviceSynchronize()` immediately before unregistering / unmapping
+/// each slot.  This makes the diagnostic *invasive* (it blocks the
+/// finalize path on every CUDA context this process owns), so it is off
+/// by default and is meant to be enabled only when chasing a CUDA-700
+/// cascade.
+fn diag_sync_on_meta_free() -> bool {
+    std::env::var("SAVANT_DIAG_EGL_FREE_SYNC")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
 
 const MAX_PLANES: usize = 3;
 
@@ -244,6 +274,11 @@ mod imp {
         pub cuda_ptrs: [*mut std::ffi::c_void; MAX_PLANES],
         pub pitches: [u32; MAX_PLANES],
         pub plane_count: u32,
+        /// Nanosecond offset from the [`EPOCH`] when this slot was
+        /// registered.  Used in [`meta_free`] to log the slot's age at
+        /// teardown time, which helps correlate "long-lived register
+        /// then crash" vs "register-then-immediate-unmap" scenarios.
+        pub registered_at_ns: u64,
     }
 
     impl SlotRegistration {
@@ -252,6 +287,7 @@ mod imp {
             cuda_ptrs: [ptr::null_mut(); MAX_PLANES],
             pitches: [0; MAX_PLANES],
             plane_count: 0,
+            registered_at_ns: 0,
         };
     }
 
@@ -309,16 +345,57 @@ mod imp {
     ) {
         let meta = &mut *(meta as *mut EglCudaMetaInner);
         let n = (meta.batch_size as usize).min(MAX_BATCH_SLOTS);
+        let surf_ptr = meta.surf_ptr;
+
+        // Optional invasive diagnostic: synchronize the entire CUDA
+        // device before we unregister/unmap any slot.  If a downstream
+        // CUDA op was still queued against this surface, the sync will
+        // observe the failure here — *before* unregister can claim it.
+        // See [`super::diag_sync_on_meta_free`] for the gating env var.
+        if super::diag_sync_on_meta_free() {
+            super::cuda_device::cuda_device_synchronize(
+                "EglCudaMeta::meta_free::pre_unmap_sync",
+                format_args!("surf_ptr={:?}, batch_size={}", surf_ptr, meta.batch_size),
+            );
+        }
 
         for i in 0..n {
             let slot = &mut meta.slots[i];
             if !slot.resource.is_null() {
-                let _ = ffi::cuGraphicsUnregisterResource(slot.resource);
+                let resource = slot.resource;
+                let age_ns = super::ns_since_epoch().saturating_sub(slot.registered_at_ns);
+
+                let unregister_rc = ffi::cuGraphicsUnregisterResource(resource);
+                super::note_cu_rc(
+                    "EglCudaMeta::meta_free::cuGraphicsUnregisterResource",
+                    format_args!(
+                        "surf_ptr={:?}, slot={}, resource={:?}, age_ns={}",
+                        surf_ptr, i, resource, age_ns
+                    ),
+                    unregister_rc,
+                );
                 slot.resource = ptr::null_mut();
 
-                let _ = ffi::NvBufSurfaceUnMapEglImage(meta.surf_ptr, i as i32);
+                let unmap_rc = ffi::NvBufSurfaceUnMapEglImage(surf_ptr, i as i32);
+                super::note_cuda_rc(
+                    "EglCudaMeta::meta_free::NvBufSurfaceUnMapEglImage",
+                    format_args!("surf_ptr={:?}, slot={}, age_ns={}", surf_ptr, i, age_ns),
+                    unmap_rc,
+                );
 
                 DEREGISTRATIONS.fetch_add(1, Ordering::SeqCst);
+
+                if unregister_rc != 0 || unmap_rc != 0 {
+                    log::warn!(
+                        "egl_cuda_meta::meta_free: surf_ptr={:?}, slot={}, age_ns={}, \
+                         unregister_rc={}, unmap_rc={}",
+                        surf_ptr,
+                        i,
+                        age_ns,
+                        unregister_rc,
+                        unmap_rc
+                    );
+                }
             }
         }
         meta.surf_ptr = ptr::null_mut();
@@ -449,6 +526,11 @@ mod imp {
         let ret = ffi::NvBufSurfaceMapEglImage(surf_ptr, slot_index as i32);
         debug!("NvBufSurfaceMapEglImage[{}] returned {}", slot_index, ret);
         if ret != 0 {
+            super::note_cuda_rc(
+                "register_egl_cuda_slot::NvBufSurfaceMapEglImage",
+                format_args!("surf_ptr={:?}, slot={}", surf_ptr, slot_index),
+                ret,
+            );
             return Err(NvBufSurfaceError::SurfaceMapFailed(ret));
         }
 
@@ -476,6 +558,14 @@ mod imp {
             slot_index, rc, resource
         );
         if rc != 0 {
+            super::note_cu_rc(
+                "register_egl_cuda_slot::cuGraphicsEGLRegisterImage",
+                format_args!(
+                    "surf_ptr={:?}, slot={}, egl_image={:?}",
+                    surf_ptr, slot_index, egl_image
+                ),
+                rc,
+            );
             let _ = ffi::NvBufSurfaceUnMapEglImage(surf_ptr, slot_index as i32);
             return Err(NvBufSurfaceError::CudaDriverError {
                 function: "cuGraphicsEGLRegisterImage",
@@ -490,6 +580,14 @@ mod imp {
             slot_index, rc
         );
         if rc != 0 {
+            super::note_cu_rc(
+                "register_egl_cuda_slot::cuGraphicsResourceGetMappedEglFrame",
+                format_args!(
+                    "surf_ptr={:?}, slot={}, resource={:?}",
+                    surf_ptr, slot_index, resource
+                ),
+                rc,
+            );
             let _ = ffi::cuGraphicsUnregisterResource(resource);
             let _ = ffi::NvBufSurfaceUnMapEglImage(surf_ptr, slot_index as i32);
             return Err(NvBufSurfaceError::CudaDriverError {
@@ -534,6 +632,7 @@ mod imp {
             cuda_ptrs,
             pitches,
             plane_count,
+            registered_at_ns: super::ns_since_epoch(),
         })
     }
 }

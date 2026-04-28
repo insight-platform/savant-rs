@@ -521,7 +521,7 @@ pub fn run_pipeline(
     // forwarders/loggers, installed automatically by the builder
     // when their setters are omitted.
     let decoder = Decoder::builder(decoder_name.clone(), knobs.channel_cap)
-        .downstream(picasso_name.clone())
+        .downstream(infer_name.clone())
         .gpu_id(knobs.gpu)
         .results(
             DecoderResults::builder()
@@ -549,7 +549,7 @@ pub fn run_pipeline(
     let converter = build_yolo_converter(knobs.conf, knobs.iou);
     let gpu = knobs.gpu;
     let infer = NvInfer::builder(infer_name.clone(), knobs.channel_cap)
-        .downstream(picasso_name.clone())
+        .downstream(tracker_name.clone())
         .operator_factory(move |_bx, result_cb| {
             let (op, _elapsed) =
                 prepare_nvinfer_operator(gpu, infer_cfg, infer_batch_cb, result_cb)?;
@@ -864,6 +864,22 @@ pub fn run_pipeline(
             }
         }
     } else {
+        // EOS semantics on the Function terminus track the
+        // supervisor's shutdown policy, mirroring the Bitstream
+        // branch above:
+        //
+        // * `TerminusBroadcast` (legacy `cars-demo --no-picasso` and
+        //   `cars-demo-zmq consumer`) — first per-source EOS means
+        //   upstream has drained, exit the loop so the supervisor's
+        //   `cars_shutdown_handler` can broadcast Shutdown.
+        // * `CtrlCOnly` (`cars-demo-zmq pipeline --no-sink`) — the
+        //   pipeline is multi-stream and runs across back-to-back
+        //   producer cycles, each ending in its own `SourceEos`.
+        //   Returning `Flow::Stop` on the first one would silently
+        //   kill the terminus and starve every upstream stage on
+        //   the next cycle, so we keep the actor alive on EOS and
+        //   let `Ctrl+C` be the only shutdown trigger.
+        let exit_on_eos = matches!(shutdown_policy, ShutdownPolicy::TerminusBroadcast);
         let function = Function::builder(function_name.clone(), knobs.channel_cap)
             .inbox(
                 FunctionInbox::builder()
@@ -880,18 +896,20 @@ pub fn run_pipeline(
                         }
                         Ok(())
                     })
-                    // Terminus semantics: the Function is the last
-                    // stage in the --no-picasso path, so the first
-                    // `SourceEos` means upstream has drained — exit
-                    // the loop so the supervisor's
-                    // `cars_shutdown_handler` can broadcast Shutdown
-                    // to everyone else.
-                    .on_source_eos(|source_id, ctx| {
-                        log::info!(
-                            "[{}] SourceEos {source_id}: terminus exiting",
-                            ctx.own_name()
-                        );
-                        Ok(Flow::Stop)
+                    .on_source_eos(move |source_id, ctx| {
+                        if exit_on_eos {
+                            log::info!(
+                                "[{}] SourceEos {source_id}: terminus exiting",
+                                ctx.own_name()
+                            );
+                            Ok(Flow::Stop)
+                        } else {
+                            log::info!(
+                                "[{}] SourceEos {source_id}: terminus continuing (multi-stream)",
+                                ctx.own_name()
+                            );
+                            Ok(Flow::Cont)
+                        }
                     })
                     .build(),
             )

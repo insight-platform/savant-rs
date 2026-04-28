@@ -186,20 +186,22 @@ pub struct PipelineArgs {
     #[arg(long = "no-draw", default_value_t = false)]
     pub no_draw: bool,
 
-    /// Replace the trailing
-    /// [`ZmqSink`](savant_perception::stages::ZmqSink) with a
-    /// [`BitstreamFunction`](savant_perception::stages::BitstreamFunction)
-    /// terminus that drops Picasso's encoded bitstream after
-    /// counting bytes.  Mirrors `cars-demo --output null`: Picasso
-    /// still runs (GPU transform, encoder, optional overlay) so
-    /// per-stage FPS / byte stats remain meaningful, but no frames
-    /// leave the process over the wire.
+    /// Drop Picasso *and* the trailing
+    /// [`ZmqSink`](savant_perception::stages::ZmqSink) so the
+    /// pipeline terminates at the tracker output: the
+    /// [`Function`](savant_perception::stages::Function) terminus
+    /// counts inference / tracker frames after the tracker stage,
+    /// and no GPU transform / encoder / Skia overlay run at all.
+    /// This is stricter than `cars-demo --output null` (which keeps
+    /// Picasso alive and only drops the bitstream); use it to
+    /// measure raw decode → infer → track throughput, free of any
+    /// encode / overlay cost.
     ///
-    /// Useful for measuring raw decode → infer → track → picasso →
-    /// encode throughput without the cost of ZMQ egress, and
-    /// (combined with `producer --no-eos`) for sustained back-to-
-    /// back load tests where the matching consumer would otherwise
-    /// add backpressure.
+    /// Implies [`Self::no_draw`] because the Skia overlay is part of
+    /// the Picasso stage that no longer exists in this mode.
+    /// Combined with `producer --no-eos` it provides a sustained
+    /// back-to-back load test where the matching consumer would
+    /// otherwise add backpressure.
     ///
     /// Multi-stream semantics are preserved: per-source `SourceEos`
     /// is logged but does not terminate the terminus, so the

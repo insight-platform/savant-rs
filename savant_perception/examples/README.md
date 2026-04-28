@@ -286,13 +286,16 @@ cargo run --release -p savant-perception-framework --example cars-demo-zmq -- pi
   --fps-num     25  --fps-den 1 \
   --no-draw
 
-# Drop the encoded bitstream after counting bytes (mirrors
-# `cars-demo --output null`).  Picasso still runs (transform,
-# encoder, optional overlay) so per-stage FPS / byte stats are
-# meaningful, but no frames leave the process — useful for
-# raw-throughput benchmarks and back-to-back producer load tests
-# without the consumer-side backpressure.  `--zmq-out` is ignored
-# in this mode.
+# Drop Picasso *and* the trailing ZmqSink so the pipeline
+# terminates at the tracker output (counts inference / tracker
+# frames, no GPU transform / encoder / Skia overlay run at all).
+# Stricter than `cars-demo --output null` (which keeps Picasso
+# alive and only drops the bitstream) — useful for measuring raw
+# decode → infer → track throughput, free of any encode / overlay
+# cost, and for back-to-back producer load tests without the
+# consumer-side backpressure.  Implies `--no-draw` (the Skia
+# overlay is part of the Picasso stage that no longer exists).
+# `--zmq-out` is ignored in this mode.
 cargo run --release -p savant-perception-framework --example cars-demo-zmq -- pipeline \
   --no-sink
 ```
@@ -301,7 +304,7 @@ Runs indefinitely; only `Ctrl+C` shuts the actor system down.
 Per-stream EOS messages are forwarded on the wire but do **not**
 terminate the pipeline.  `--no-sink` preserves the same multi-
 stream semantics: per-source `SourceEos` is logged on the
-bitstream terminus but does not stop it, so back-to-back
+function terminus but does not stop it, so back-to-back
 `producer --no-eos` cycles keep flowing.
 
 #### `consumer`

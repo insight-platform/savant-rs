@@ -36,7 +36,7 @@
 //!    real failure scenario.
 //! 4. [`many_pool_drop_cycles`]: stress test simulating repeated source
 //!    re-creation cycles on the same downstream encoder pool.
-//! 5. [`concurrent_src_pool_recreate_vs_consumer_transform`]: aggressive
+//! 5. [`concurrent_src_pool_recreate_vs_consumer_transform`][]: aggressive
 //!    multi-threaded race — producer thread continually rebuilds a source
 //!    `BufferGenerator` while the consumer thread continually transforms.
 //! 6. [`concurrent_src_pool_recreate_vs_consumer_transform_nonblocking`]:
@@ -408,8 +408,10 @@ fn concurrent_src_pool_recreate_vs_consumer_transform_nonblocking() {
         .spawn(move || -> Result<(), String> {
             let cuda_stream = CudaStream::new_non_blocking()
                 .map_err(|e| format!("non-blocking stream creation failed: {e}"))?;
-            let mut config = TransformConfig::default();
-            config.cuda_stream = cuda_stream.clone();
+            let config = TransformConfig {
+                cuda_stream: cuda_stream.clone(),
+                ..Default::default()
+            };
             while !stop_for_consumer.load(Ordering::Relaxed) {
                 let view = match rx.recv_timeout(Duration::from_millis(50)) {
                     Ok(v) => v,

@@ -287,8 +287,13 @@ impl WorkerState {
         if self.cuda_stream.is_default() {
             match CudaStream::new_non_blocking() {
                 Ok(stream) => {
-                    info!("CUDA stream created: source={}", self.source_id);
-                    self.cuda_stream = stream;
+                    let labelled = stream.with_label(format!("picasso/{}", self.source_id));
+                    info!(
+                        "CUDA stream created: source={}, raw={:?}",
+                        self.source_id,
+                        labelled.as_raw()
+                    );
+                    self.cuda_stream = labelled;
                 }
                 Err(e) => {
                     error!(

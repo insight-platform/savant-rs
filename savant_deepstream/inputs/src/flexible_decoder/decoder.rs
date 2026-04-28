@@ -8,6 +8,7 @@ use deepstream_buffers::{
 use deepstream_decoders::{
     DecoderConfig, JpegBackend, NvDecoder, NvDecoderConfig, NvDecoderOutput,
 };
+use log::info;
 use parking_lot::Mutex;
 use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy};
 use savant_core::primitives::gstreamer_frame_time::frame_clock_ns;
@@ -30,6 +31,64 @@ use savant_core::utils::release_seal::ReleaseSeal;
 /// Worker polls NvDecoder output at this interval.
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
+/// Cached RGBA output pool, kept alive across decoder restarts.
+///
+/// Whenever [`FlexibleDecoder::activate`] is invoked we check this cache:
+/// if its descriptor matches the new pool params, the existing
+/// [`BufferGenerator`] is reused (its `GstBufferPool`,
+/// `NvBufSurface` backing memory, and Jetson `EglCudaMeta`
+/// `GST_META_FLAG_POOLED` registrations all survive). On a mismatch the
+/// previous pool is dropped and a fresh one is built.
+///
+/// This is the central piece of the "deferred pool reprovisioning"
+/// strategy described in `docs/cuda-race.md`: it eliminates pool churn
+/// during rapid same-resolution restarts (the cars-demo-zmq scenario),
+/// which removes one likely contributor to the CUDA-700 cascade —
+/// without requiring any churn-time fence on NVIDIA-internal streams.
+struct CachedPool {
+    pool: Arc<Mutex<BufferGenerator>>,
+    width: u32,
+    height: u32,
+    fps_num: i32,
+    fps_den: i32,
+    format: VideoFormat,
+    gpu_id: u32,
+    mem_type: NvBufSurfaceMemType,
+    pool_size: u32,
+}
+
+impl CachedPool {
+    /// Returns `true` when the cached pool can serve a decoder requested
+    /// with the supplied parameters.
+    ///
+    /// All fields must match — width, height, pixel format, GPU id,
+    /// memory type, pool size **and** framerate. The framerate enters
+    /// the gst caps reported by [`BufferGenerator::nvmm_caps`] /
+    /// [`BufferGenerator::raw_caps`]; reusing a pool whose caps differ
+    /// from the new stream would silently mis-advertise downstream.
+    #[allow(clippy::too_many_arguments)]
+    fn matches(
+        &self,
+        width: u32,
+        height: u32,
+        fps_num: i32,
+        fps_den: i32,
+        format: VideoFormat,
+        gpu_id: u32,
+        mem_type: NvBufSurfaceMemType,
+        pool_size: u32,
+    ) -> bool {
+        self.width == width
+            && self.height == height
+            && self.fps_num == fps_num
+            && self.fps_den == fps_den
+            && self.format == format
+            && self.gpu_id == gpu_id
+            && self.mem_type == mem_type
+            && self.pool_size == pool_size
+    }
+}
+
 /// Single-stream adaptive GPU decoder.
 ///
 /// Wraps [`NvDecoder`] and automatically manages codec/resolution changes:
@@ -48,6 +107,9 @@ pub struct FlexibleDecoder {
     state: Mutex<DecoderState>,
     on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync + 'static>,
     frame_map: FrameMap,
+    /// Persistent RGBA output pool reused across decoder restarts when the
+    /// requested params are unchanged. See [`CachedPool`].
+    pool_cache: Mutex<Option<CachedPool>>,
 }
 
 impl FlexibleDecoder {
@@ -64,6 +126,7 @@ impl FlexibleDecoder {
             state: Mutex::new(DecoderState::Idle),
             on_output: Arc::new(on_output),
             frame_map: new_frame_map(),
+            pool_cache: Mutex::new(None),
         }
     }
 
@@ -475,6 +538,7 @@ impl FlexibleDecoder {
                 (on_output)(convert_output(&fm, out));
             });
         }
+        self.clear_pool_cache();
         self.emit_all(pending);
         Ok(())
     }
@@ -508,6 +572,8 @@ impl FlexibleDecoder {
                 guard.commit(DecoderState::ShutDown);
             }
         }
+        drop(state);
+        self.clear_pool_cache();
     }
 
     // ── Internal helpers ─────────────────────────────────────────────
@@ -550,6 +616,23 @@ impl FlexibleDecoder {
     }
 
     /// Create a new [`NvDecoder`], its buffer pool, and a worker thread.
+    ///
+    /// The RGBA output pool is **cached** at the [`FlexibleDecoder`] level.
+    /// On entry we consult [`Self::pool_cache`]:
+    ///
+    /// * If a cached pool is present and its descriptor matches the
+    ///   requested params (`width`, `height`, `fps`, `format`, `gpu_id`,
+    ///   `mem_type`, `pool_size`), the cached
+    ///   `Arc<Mutex<BufferGenerator>>` is reused — no
+    ///   `gst_buffer_pool_set_active(false)`, no NvBufSurface backing
+    ///   reallocation, no EGL→CUDA re-registration.
+    /// * Otherwise the previous cache entry is replaced (its `Arc` is
+    ///   released; the pool is dropped once any in-flight buffers/decoder
+    ///   that still hold it have been released too).
+    ///
+    /// The CUDA stream and [`TransformConfig`] are **not** cached — each
+    /// new decoder gets a fresh non-blocking labelled stream so any
+    /// residual work from the previous decoder cannot leak in.
     fn activate(
         &self,
         decoder_config: DecoderConfig,
@@ -571,18 +654,19 @@ impl FlexibleDecoder {
         }
 
         let (pool_w, pool_h, fps_num, fps_den) = stream_pool_params(frame)?;
+        let format = VideoFormat::RGBA;
+        let mem_type = NvBufSurfaceMemType::Default;
+        let pool_size = self.config.pool_size;
+        let gpu_id = self.config.gpu_id;
 
-        let pool = BufferGenerator::builder(VideoFormat::RGBA, pool_w, pool_h)
-            .fps(fps_num, fps_den)
-            .gpu_id(self.config.gpu_id)
-            .mem_type(NvBufSurfaceMemType::Default)
-            .min_buffers(self.config.pool_size)
-            .max_buffers(self.config.pool_size)
-            .build()
-            .map_err(|e| format!("buffer pool creation failed: {e}"))?;
+        let pool = self.acquire_or_build_pool(
+            pool_w, pool_h, fps_num, fps_den, format, gpu_id, mem_type, pool_size,
+        )?;
 
+        let stream_label = format!("decoder/{}-{}", self.config.source_id, gst_codec.name());
         let cuda_stream = CudaStream::new_non_blocking()
-            .map_err(|e| format!("CUDA stream creation failed: {e}"))?;
+            .map_err(|e| format!("CUDA stream creation failed: {e}"))?
+            .with_label(stream_label);
         let transform = TransformConfig {
             interpolation: Interpolation::Nearest,
             cuda_stream,
@@ -595,7 +679,7 @@ impl FlexibleDecoder {
             gst_codec.name()
         ));
 
-        let decoder = NvDecoder::new(nv_config, pool, transform)
+        let decoder = NvDecoder::with_shared_pool(nv_config, pool, transform)
             .map_err(|e| format!("NvDecoder creation failed: {e}"))?;
         let decoder = Arc::new(decoder);
 
@@ -612,6 +696,128 @@ impl FlexibleDecoder {
             .map_err(|e| format!("failed to spawn worker thread: {e}"))?;
 
         Ok((decoder, worker_join, stop))
+    }
+
+    /// Reuse the cached RGBA output pool when its descriptor matches the
+    /// requested params; otherwise build a fresh one and replace the cache.
+    ///
+    /// On a cache hit the returned [`Arc`] is the same as the one stored in
+    /// the cache, so the pool's `GstBufferPool` (and any pooled
+    /// `EglCudaMeta` registrations attached to its buffers) stays alive
+    /// until the cache is explicitly cleared by
+    /// [`Self::graceful_shutdown`] / [`Self::shutdown`] or the descriptor
+    /// changes.
+    #[allow(clippy::too_many_arguments)]
+    fn acquire_or_build_pool(
+        &self,
+        width: u32,
+        height: u32,
+        fps_num: i32,
+        fps_den: i32,
+        format: VideoFormat,
+        gpu_id: u32,
+        mem_type: NvBufSurfaceMemType,
+        pool_size: u32,
+    ) -> Result<Arc<Mutex<BufferGenerator>>, String> {
+        let mut cache = self.pool_cache.lock();
+        if let Some(cached) = cache.as_ref() {
+            if cached.matches(
+                width, height, fps_num, fps_den, format, gpu_id, mem_type, pool_size,
+            ) {
+                let pool = Arc::clone(&cached.pool);
+                let strong = Arc::strong_count(&pool);
+                info!(
+                    "FlexibleDecoder pool_cache hit (source={}, {}x{}@{}/{}, format={:?}, \
+                     mem_type={:?}, gpu_id={}, pool_size={}, strong_count={})",
+                    self.config.source_id,
+                    width,
+                    height,
+                    fps_num,
+                    fps_den,
+                    format,
+                    mem_type,
+                    gpu_id,
+                    pool_size,
+                    strong,
+                );
+                return Ok(pool);
+            }
+            info!(
+                "FlexibleDecoder pool_cache replace (source={}, was {}x{}@{}/{} format={:?} \
+                 mem_type={:?} pool_size={}, now {}x{}@{}/{} format={:?} mem_type={:?} \
+                 pool_size={})",
+                self.config.source_id,
+                cached.width,
+                cached.height,
+                cached.fps_num,
+                cached.fps_den,
+                cached.format,
+                cached.mem_type,
+                cached.pool_size,
+                width,
+                height,
+                fps_num,
+                fps_den,
+                format,
+                mem_type,
+                pool_size,
+            );
+        } else {
+            info!(
+                "FlexibleDecoder pool_cache build (source={}, {}x{}@{}/{}, format={:?}, \
+                 mem_type={:?}, gpu_id={}, pool_size={})",
+                self.config.source_id,
+                width,
+                height,
+                fps_num,
+                fps_den,
+                format,
+                mem_type,
+                gpu_id,
+                pool_size,
+            );
+        }
+
+        let pool = BufferGenerator::builder(format, width, height)
+            .fps(fps_num, fps_den)
+            .gpu_id(gpu_id)
+            .mem_type(mem_type)
+            .min_buffers(pool_size)
+            .max_buffers(pool_size)
+            .build()
+            .map_err(|e| format!("buffer pool creation failed: {e}"))?;
+        let pool_arc = Arc::new(Mutex::new(pool));
+
+        *cache = Some(CachedPool {
+            pool: Arc::clone(&pool_arc),
+            width,
+            height,
+            fps_num,
+            fps_den,
+            format,
+            gpu_id,
+            mem_type,
+            pool_size,
+        });
+
+        Ok(pool_arc)
+    }
+
+    /// Drop the cached pool, if any.
+    ///
+    /// Called from [`Self::graceful_shutdown`] and [`Self::shutdown`].
+    /// The actual `BufferGenerator` is freed only once all other strong
+    /// refs (buffers handed out to consumers, in-flight `NvDecoder`s) are
+    /// gone.
+    fn clear_pool_cache(&self) {
+        let mut cache = self.pool_cache.lock();
+        if cache.is_some() {
+            info!(
+                "FlexibleDecoder pool_cache clear (source={})",
+                self.config.source_id
+            );
+        }
+        *cache = None;
     }
 }
 
@@ -657,6 +863,22 @@ fn convert_output(fm: &FrameMap, out: NvDecoderOutput) -> FlexibleDecoderOutput 
                 "unexpected stream-level EOS during drain".into(),
             ))
         }
+    }
+}
+
+impl FlexibleDecoder {
+    /// Address of the cached `BufferGenerator` Arc, when present.
+    ///
+    /// Stable across decoder restarts when the resolution / format
+    /// descriptor matches, so equality is a reliable cache-hit signal
+    /// for tests. Production code must treat the returned value as
+    /// opaque — comparing addresses is only meaningful within a single
+    /// process and only as long as the pool is alive.
+    pub fn pool_cache_addr(&self) -> Option<usize> {
+        self.pool_cache
+            .lock()
+            .as_ref()
+            .map(|c| Arc::as_ptr(&c.pool) as usize)
     }
 }
 

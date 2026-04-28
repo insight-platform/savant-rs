@@ -29,8 +29,8 @@ use std::time::Duration;
 
 use crossbeam::channel::{self, Receiver, Sender};
 use deepstream_buffers::{
-    bridge_savant_id_meta, pipeline::BufferGeneratorExt, BufferGenerator, CudaStream, Padding,
-    SurfaceView, TransformConfig,
+    bridge_savant_id_meta, cuda_device_synchronize, pipeline::BufferGeneratorExt, BufferGenerator,
+    CudaStream, Padding, SurfaceView, TransformConfig,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -128,6 +128,8 @@ enum EncoderBackendState {
 ///    [`try_recv`](Self::try_recv).
 /// 4. Tear down with [`graceful_shutdown`](Self::graceful_shutdown) or
 ///    [`shutdown`](Self::shutdown) (also called implicitly on `Drop`).
+///    Returns only after all CUDA / NVENC / VIC work that touched the
+///    encoder's pools has completed.
 pub struct NvEncoder {
     name: String,
     backend: EncoderBackendState,
@@ -271,11 +273,13 @@ impl NvEncoder {
                 .min_buffers(pool_size)
                 .max_buffers(pool_size)
                 .build()?;
-            let cuda_stream = CudaStream::new_non_blocking().map_err(|e| {
-                EncoderError::PipelineError(format!(
-                    "Failed to create non-blocking CUDA stream: {e}"
-                ))
-            })?;
+            let cuda_stream = CudaStream::new_non_blocking()
+                .map_err(|e| {
+                    EncoderError::PipelineError(format!(
+                        "Failed to create non-blocking CUDA stream: {e}"
+                    ))
+                })?
+                .with_label(format!("encoder/{}", name));
             debug!(
                 "NvEncoder convert_ctx created: {} -> {}, stream {:?}",
                 user_format, native_format, cuda_stream
@@ -522,6 +526,11 @@ impl NvEncoder {
     /// outputs.  `None` means wait indefinitely.  A GStreamer EOS or
     /// pipeline error always terminates the drain regardless of the idle
     /// timeout.
+    ///
+    /// Returns only after all CUDA / NVENC / VIC work that touched the
+    /// encoder's pools has completed.
+    /// If the underlying GstPipeline shutdown returns an error, the CUDA
+    /// fence still runs before the error is propagated.
     pub fn graceful_shutdown<F>(
         &self,
         idle_timeout: Option<Duration>,
@@ -571,24 +580,33 @@ impl NvEncoder {
                     }
                 }
 
-                pipeline.lock().shutdown()?;
+                let pipeline_shutdown_result = pipeline.lock().shutdown();
+                self.fence_after_shutdown();
                 self.log_residuals();
+                pipeline_shutdown_result?;
                 Ok(())
             }
         }
     }
 
     /// Abrupt shutdown (used by [`Drop`]).
+    ///
+    /// Returns only after all CUDA / NVENC / VIC work that touched the
+    /// encoder's pools has completed.
+    /// If the underlying GstPipeline shutdown returns an error, the CUDA
+    /// fence still runs before the error is propagated.
     pub fn shutdown(&self) -> Result<(), EncoderError> {
         if self.is_shut_down.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
         self.draining.store(true, Ordering::Release);
         self.finalized.store(true, Ordering::Release);
-        match &self.backend {
-            EncoderBackendState::Pipeline { pipeline, .. } => pipeline.lock().shutdown()?,
-        }
+        let pipeline_shutdown_result = match &self.backend {
+            EncoderBackendState::Pipeline { pipeline, .. } => pipeline.lock().shutdown(),
+        };
+        self.fence_after_shutdown();
         self.log_residuals();
+        pipeline_shutdown_result?;
         Ok(())
     }
 
@@ -881,6 +899,37 @@ impl NvEncoder {
             keyframe,
             time_base: (1, 1_000_000_000),
         }))
+    }
+
+    /// Block until all CUDA / VIC / NVENC work that touched the encoder's
+    /// pools has completed.
+    ///
+    /// This must run **after** the GstPipeline has been brought to NULL but
+    /// **before** the encoder's pools (`generator`, `convert_ctx.native_generator`)
+    /// and the conversion `CudaStream` are dropped.  Two synchronisations:
+    ///
+    /// 1. The conversion `CudaStream` (if any) — covers the
+    ///    `NvBufSurfTransform` work submitted by [`prepare_push_buffer`].
+    /// 2. A device-wide barrier — the V4L2 NVENC plugin owns its own internal
+    ///    CUDA stream that we cannot reach by handle, so the only portable
+    ///    fence is `cudaDeviceSynchronize()`.
+    ///
+    /// Without this fence, the NVENC driver may still be reading from
+    /// just-released input buffers when their backing `NvBufSurface` pool is
+    /// destroyed, leaving the CUDA context poisoned (typically observed as
+    /// `cudaErrorIllegalAddress` / rc=700 by the next caller).
+    fn fence_after_shutdown(&self) {
+        if let EncoderBackendState::Pipeline {
+            convert_ctx: Some(ctx),
+            ..
+        } = &self.backend
+        {
+            ctx.cuda_stream.synchronize_or_log();
+        }
+        cuda_device_synchronize(
+            "NvEncoder::shutdown::device_sync",
+            format_args!("name={}", self.name),
+        );
     }
 
     fn log_residuals(&self) {
