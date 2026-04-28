@@ -730,6 +730,15 @@ impl SkiaRenderer {
 
 impl Drop for SkiaRenderer {
     fn drop(&mut self) {
+        // No explicit `cudaDeviceSynchronize` here: in every production
+        // teardown path (`picasso::worker::handle_eos` →
+        // `stop_encoder` → `NvEncoder::graceful_shutdown` →
+        // `fence_after_shutdown`) the encoder shutdown has already
+        // drained the device device-wide before this `Drop` runs, so
+        // `cuda_resource`'s pending `cudaGraphicsMap/Unmap` work and
+        // any `cudaMemcpy2DFromArrayAsync` queued by `copy_gl_to_nvbuf`
+        // are guaranteed complete.
+
         // Unregister CUDA resource before GL objects are destroyed
         if !self.cuda_resource.is_null() {
             unsafe {

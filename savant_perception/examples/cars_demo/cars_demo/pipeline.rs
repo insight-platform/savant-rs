@@ -324,6 +324,44 @@ pub fn run_pipeline(
     gstreamer::init().context("gstreamer init")?;
     cuda_init(knobs.gpu).map_err(|e| anyhow!("cuda init (gpu={}): {e}", knobs.gpu))?;
 
+    // ── Diagnostic CUDA-poison probe ────────────────────────────────────
+    //
+    // Spawn a background thread that calls `cudaDeviceSynchronize` once
+    // per second.  Whenever the rc transitions from healthy → poisoned
+    // we log a one-shot warning with a wall-clock timestamp so we can
+    // pinpoint the *exact* moment the device flips during idle.  Once
+    // poisoned, the thread keeps probing every 5 s just to confirm the
+    // sticky-state semantics; never logs again until cleared.
+    //
+    // Opt-in via `SAVANT_DIAG_DEVICE_PROBE=1` to keep production runs
+    // free of background CUDA traffic.
+    if std::env::var("SAVANT_DIAG_DEVICE_PROBE").as_deref() == Ok("1") {
+        std::thread::Builder::new()
+            .name("savant-diag-device-probe".into())
+            .spawn(|| {
+                let mut last_rc: i32 = 0;
+                let mut tick: u64 = 0;
+                loop {
+                    let rc = deepstream_buffers::cuda_device::cuda_device_synchronize(
+                        "diag::device_probe",
+                        format_args!("tick={tick}"),
+                    );
+                    if rc != last_rc {
+                        log::error!(
+                            "DIAG-PROBE: cudaDeviceSynchronize rc transitioned {last_rc} \
+                             → {rc} at tick={tick}"
+                        );
+                        last_rc = rc;
+                    }
+                    tick += 1;
+                    let nap_ms = if rc == 0 { 10 } else { 5_000 };
+                    std::thread::sleep(std::time::Duration::from_millis(nap_ms));
+                }
+            })
+            .context("spawn device-probe thread")?;
+        log::info!("DIAG-PROBE: device-sync probe enabled (1 Hz when healthy)");
+    }
+
     log::info!(
         "cars-demo starting: head={} tail={} gpu={} conf={} iou={} channel_cap={} fps={}/{} picasso_enabled={} draw_enabled={} debug={} stats_period_ms={} policy={:?}",
         head_label(&head),
