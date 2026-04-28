@@ -208,37 +208,41 @@ impl NvEncoder {
 
         // ── Buffer pools ─────────────────────────────────────────────
         //
-        // Pool size: dGPU NVENC may continue DMA-reading from a buffer
-        // after GStreamer releases its reference; a single-buffer pool
-        // forces serialization so memory is never overwritten while HW
-        // reads it.  Jetson V4L2 encoders hold several input buffers in
-        // flight, so a pool of 1 would deadlock `acquire()` — use 4.
+        // Up to two distinct pools live inside the encoder:
         //
-        // Detected at runtime via `nvidia_gpu_utils::is_jetson_kernel`
-        // so non-Jetson ARM hosts (e.g. Grace Hopper with H100/B300) do
-        // not inherit Jetson-only tunings. Orin Nano is Jetson and also
-        // uses the Jetson path for PNG/RAW/JPEG (pool=1); H264/HEVC/AV1
-        // are unreachable there because `has_nvenc()` is false.
-        let pool_size: u32 = if nvidia_gpu_utils::is_jetson_kernel()
-            && matches!(codec, VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1)
-        {
-            4
-        } else {
-            1
-        };
-
+        // * **User-facing** (`generator`, `user_format`): the buffer the
+        //   caller renders into.  When an out-of-pipeline conversion
+        //   exists (`needs_convert == true`), this buffer is consumed
+        //   inside [`Self::prepare_push_buffer`] (a single `SurfaceView`
+        //   is created, used as a transform source, then dropped at the
+        //   end of that function).  It never crosses into NVENC's V4L2
+        //   path, so the multi-buffer Jetson tuning does not apply
+        //   here — pool size 1 is sufficient and serializes per-source
+        //   frame submission, which acts as natural backpressure and
+        //   avoids any aliasing of the user-facing `EglCudaMeta` slots
+        //   while in-flight frames are being torn down on source
+        //   re-creation.
+        //
+        //   When there is **no** conversion (`needs_convert == false`)
+        //   the user-facing pool feeds the encoder's `appsrc` directly,
+        //   so it inherits the V4L2 sizing rule (see below).
+        //
+        // * **Internal NV12** (`convert_ctx.native_generator`): the
+        //   buffer that is actually pushed to the V4L2 NVENC `appsrc`.
+        //   On Jetson the V4L2 encoder holds several input buffers in
+        //   flight (DMA-BUF queue), so a pool of 1 would deadlock the
+        //   next `acquire()` — use 4.  On dGPU, NVENC is internally
+        //   serialized and a pool of 1 is sufficient (and reduces the
+        //   number of EGL→CUDA registrations live at any time).
+        //
+        // Jetson is detected at runtime via
+        // `nvidia_gpu_utils::is_jetson_kernel`.  Orin Nano is Jetson but
+        // never reaches the H264/HEVC/AV1 branch because `has_nvenc()`
+        // is false there.
         let user_format = config.encoder.format();
         let (fps_num, fps_den) = config.encoder.fps();
         let width = config.encoder.width();
         let height = config.encoder.height();
-
-        let generator = BufferGenerator::builder(user_format, width, height)
-            .fps(fps_num, fps_den)
-            .gpu_id(config.gpu_id)
-            .mem_type(config.mem_type)
-            .min_buffers(pool_size)
-            .max_buffers(pool_size)
-            .build()?;
 
         // Decide whether we need an out-of-pipeline format conversion
         // (RGBA → NV12 / I420) via NvBufSurfTransform.  Only applies to
@@ -265,13 +269,34 @@ impl NvEncoder {
             )
             && user_format != native_format;
 
+        // V4L2 NVENC sizing: the encoder element holds several input
+        // buffers in flight on Jetson, so any pool that feeds appsrc
+        // directly must be at least 4.
+        let v4l2_pool_size: u32 = if nvidia_gpu_utils::is_jetson_kernel()
+            && matches!(codec, VideoCodec::H264 | VideoCodec::Hevc | VideoCodec::Av1)
+        {
+            4
+        } else {
+            1
+        };
+        let user_pool_size: u32 = if needs_convert { 1 } else { v4l2_pool_size };
+        let native_pool_size: u32 = v4l2_pool_size;
+
+        let generator = BufferGenerator::builder(user_format, width, height)
+            .fps(fps_num, fps_den)
+            .gpu_id(config.gpu_id)
+            .mem_type(config.mem_type)
+            .min_buffers(user_pool_size)
+            .max_buffers(user_pool_size)
+            .build()?;
+
         let convert_ctx = if needs_convert {
             let native_generator = BufferGenerator::builder(native_format, width, height)
                 .fps(fps_num, fps_den)
                 .gpu_id(config.gpu_id)
                 .mem_type(config.mem_type)
-                .min_buffers(pool_size)
-                .max_buffers(pool_size)
+                .min_buffers(native_pool_size)
+                .max_buffers(native_pool_size)
                 .build()?;
             let cuda_stream = CudaStream::new_non_blocking()
                 .map_err(|e| {
@@ -627,11 +652,19 @@ impl NvEncoder {
                 compute_mode: deepstream_buffers::ComputeMode::Default,
                 cuda_stream: ctx.cuda_stream.clone(),
             };
-            let src_view = SurfaceView::from_gst_buffer(buffer, 0).map_err(|e| {
-                EncoderError::BufferError(format!(
-                    "Failed to create SurfaceView from source buffer: {e}"
-                ))
-            })?;
+            // Attach the encoder's dedicated non-blocking CUDA stream to
+            // `src_view` so its `Drop::sync()` syncs that stream rather
+            // than the legacy default stream.  The destination view used
+            // inside `BufferGenerator::transform_to_buffer` likewise
+            // inherits `config.cuda_stream`, keeping the entire RGBA → NV12
+            // step off stream 0x0.
+            let src_view = SurfaceView::from_gst_buffer(buffer, 0)
+                .map(|v| v.with_cuda_stream(ctx.cuda_stream.clone()))
+                .map_err(|e| {
+                    EncoderError::BufferError(format!(
+                        "Failed to create SurfaceView from source buffer: {e}"
+                    ))
+                })?;
             let mut native_buf = ctx
                 .native_generator
                 .transform_to_buffer(&src_view, &transform_config, None)

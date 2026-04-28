@@ -1,19 +1,24 @@
 //! Integration tests for the [`FlexibleDecoder`] pool-reuse strategy.
 //!
-//! The decoder caches its RGBA output `BufferGenerator` and reuses it
-//! across activations whenever the requested params (resolution, format,
-//! GPU id, memory type, pool size, fps) are unchanged.  This test file
-//! exercises:
+//! The decoder caches its RGBA output `BufferGenerator` in a shared
+//! [`PoolCacheRegistry`] and reuses it across activations whenever
+//! the requested params (resolution, format, GPU id, memory type,
+//! pool size, fps) are unchanged.  This test file exercises:
 //!
 //!   * Cache-hit on steady-state submits (same dims, same source).
 //!   * Cache-replacement on dimension change.
-//!   * Cache-clear on `graceful_shutdown` and `shutdown`.
-//!   * Cache-hit across a worker-restart cycle (H.264 `--no-eos` PTS rebase).
+//!   * Cache **survives** `graceful_shutdown` / `shutdown` (the
+//!     cross-`source_eos` reuse contract that drives the
+//!     `FlexibleDecoderPool` cars-demo-zmq optimisation).
+//!   * Cache cleared on private-registry decoder drop.
+//!   * Cache-hit across a worker-restart cycle (H.264 `--no-eos`
+//!     PTS rebase).
 //!
-//! Pool identity is observed via [`FlexibleDecoder::pool_cache_addr`]
-//! which returns the address of the cached `Arc<Mutex<BufferGenerator>>`.
-//! The Arc address is stable for the lifetime of the cache entry, so
-//! equality across submits is a reliable cache-hit signal.
+//! Pool identity is observed via
+//! [`FlexibleDecoder::pool_cache_addr`] which returns the address
+//! of the cached `Arc<Mutex<BufferGenerator>>`.  The Arc address
+//! is stable for the lifetime of the cache entry, so equality
+//! across submits is a reliable cache-hit signal.
 
 mod common;
 
@@ -123,11 +128,21 @@ fn pool_cache_replaced_on_dim_change() {
     );
 }
 
-// ── Cache cleared on shutdown ──────────────────────────────────────
+// ── Cache survives shutdown (cross-source_eos reuse contract) ─────
 
+/// `graceful_shutdown` no longer clears the
+/// [`PoolCacheRegistry`].  The cache is owned by the registry
+/// (private to this decoder in the standalone case) and survives
+/// individual decoder teardown so that, when the registry is
+/// shared with a parent
+/// [`FlexibleDecoderPool`](deepstream_inputs::prelude::FlexibleDecoderPool),
+/// a fresh decoder for the same `source_id` (typically created
+/// after a `source_eos`-driven teardown) can reuse the cached
+/// `BufferGenerator` and the pooled `EglCudaMeta` registrations
+/// instead of rebuilding from scratch.
 #[test]
 #[serial]
-fn pool_cache_cleared_on_graceful_shutdown() {
+fn pool_cache_survives_graceful_shutdown() {
     init();
     let cfg = FlexibleDecoderConfig::new("src", 0, 4);
     let dec = FlexibleDecoder::new(cfg, dec_callback());
@@ -135,18 +150,21 @@ fn pool_cache_cleared_on_graceful_shutdown() {
     let jpeg = make_jpeg(320, 240);
     dec.submit(&jpeg_frame("src", 320, 240, 0), Some(&jpeg))
         .expect("first submit");
-    assert!(dec.pool_cache_addr().is_some(), "cache populated");
+    let addr_before = dec.pool_cache_addr().expect("cache populated");
 
     dec.graceful_shutdown().expect("graceful_shutdown");
-    assert!(
-        dec.pool_cache_addr().is_none(),
-        "graceful_shutdown must clear the pool cache"
+    let addr_after = dec
+        .pool_cache_addr()
+        .expect("graceful_shutdown must NOT clear the pool cache");
+    assert_eq!(
+        addr_before, addr_after,
+        "graceful_shutdown must preserve the cached BufferGenerator address"
     );
 }
 
 #[test]
 #[serial]
-fn pool_cache_cleared_on_immediate_shutdown() {
+fn pool_cache_survives_immediate_shutdown() {
     init();
     let cfg = FlexibleDecoderConfig::new("src", 0, 4);
     let dec = FlexibleDecoder::new(cfg, dec_callback());
@@ -154,12 +172,53 @@ fn pool_cache_cleared_on_immediate_shutdown() {
     let jpeg = make_jpeg(320, 240);
     dec.submit(&jpeg_frame("src", 320, 240, 0), Some(&jpeg))
         .expect("first submit");
-    assert!(dec.pool_cache_addr().is_some(), "cache populated");
+    let addr_before = dec.pool_cache_addr().expect("cache populated");
 
     dec.shutdown();
+    let addr_after = dec
+        .pool_cache_addr()
+        .expect("shutdown must NOT clear the pool cache");
+    assert_eq!(
+        addr_before, addr_after,
+        "shutdown must preserve the cached BufferGenerator address"
+    );
+}
+
+/// When the [`FlexibleDecoder`] owns its registry exclusively
+/// (created via [`FlexibleDecoder::new`]), dropping the decoder
+/// must drop the registry — releasing every cached
+/// `BufferGenerator` after running the F2
+/// [`cuda_device_synchronize`] fence.
+///
+/// We observe this via a [`std::sync::Weak`] handle on the
+/// registry: holding a strong [`Arc`] clone here would keep the
+/// registry alive past the decoder drop and mask the actual
+/// release.  After dropping the decoder the weak handle must
+/// fail to upgrade, which is only possible when the registry's
+/// `Drop` (which calls `clear_all`) has fired.
+#[test]
+#[serial]
+fn pool_cache_cleared_when_decoder_dropped() {
+    init();
+    let cfg = FlexibleDecoderConfig::new("src", 0, 4);
+    let dec = FlexibleDecoder::new(cfg, dec_callback());
+
+    let jpeg = make_jpeg(320, 240);
+    dec.submit(&jpeg_frame("src", 320, 240, 0), Some(&jpeg))
+        .expect("first submit");
+
+    let weak_registry = {
+        let registry = dec.pool_cache();
+        assert_eq!(registry.len(), 1, "cache populated before drop");
+        Arc::downgrade(&registry)
+    };
+
+    drop(dec);
     assert!(
-        dec.pool_cache_addr().is_none(),
-        "shutdown must clear the pool cache"
+        weak_registry.upgrade().is_none(),
+        "decoder drop must release the private registry — \
+         a `Weak` handle must fail to upgrade once `Drop` for \
+         `PoolCacheRegistry` (which calls `clear_all`) has fired"
     );
 }
 
@@ -288,10 +347,88 @@ fn pool_cache_preserved_across_worker_restart_h264() {
     let dec = Arc::try_unwrap(dec)
         .map_err(|_| ())
         .expect("decoder Arc has unexpected outstanding strong refs");
+    let registry = dec.pool_cache();
     dec.graceful_shutdown().expect("graceful_shutdown");
     assert!(
-        dec.pool_cache_addr().is_none(),
-        "graceful_shutdown must clear the pool cache"
+        !registry.is_empty(),
+        "graceful_shutdown must NOT clear the pool cache (registry-owned)"
+    );
+}
+
+// ── Cross-`source_eos` reuse via FlexibleDecoderPool ──────────────
+
+/// `FlexibleDecoderPool::source_eos` tears down the per-source
+/// [`FlexibleDecoder`] but **must not** drop the cached
+/// `BufferGenerator`.  This test simulates the cars-demo-zmq
+/// teardown / restart pattern by calling
+/// [`FlexibleDecoderPool::source_eos`] between two submit cycles
+/// for the same `source_id` and asserting that
+/// [`PoolCacheRegistry::pool_addr`] is stable across the cycle —
+/// i.e. the second cycle gets a `pool_cache hit`, not a
+/// `pool_cache build`.
+#[test]
+#[serial]
+fn pool_survives_source_eos_in_flexible_decoder_pool() {
+    use deepstream_inputs::prelude::{FlexibleDecoderPool, FlexibleDecoderPoolConfig};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    init();
+    let cfg = FlexibleDecoderPoolConfig::new(0, 4, Duration::from_secs(3600))
+        .idle_timeout(Duration::from_secs(5));
+    let frame_count = Arc::new(AtomicUsize::new(0));
+    let frame_count_cb = Arc::clone(&frame_count);
+    let pool = FlexibleDecoderPool::new(cfg, move |out| {
+        if matches!(out, FlexibleDecoderOutput::Frame { .. }) {
+            frame_count_cb.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+
+    let registry = pool.pool_cache();
+    let jpeg = make_jpeg(320, 240);
+
+    // Cycle 1: submit a frame for "src", read the cached pool addr.
+    pool.submit(&jpeg_frame("src", 320, 240, 0), Some(&jpeg))
+        .expect("submit cycle 1");
+    let addr_cycle1 = registry
+        .pool_addr("src")
+        .expect("registry must have an entry for 'src' after first submit");
+
+    // End-of-cycle EOS — this is the cars-demo-zmq pattern.  The
+    // per-source FlexibleDecoder is drained and dropped.  The
+    // cached pool entry MUST survive.
+    pool.source_eos("src").expect("source_eos");
+    let addr_after_eos = registry
+        .pool_addr("src")
+        .expect("registry entry must survive source_eos teardown");
+    assert_eq!(
+        addr_cycle1, addr_after_eos,
+        "source_eos must NOT clear the cached pool (was {addr_cycle1:#x}, \
+         after-eos {addr_after_eos:#x})"
+    );
+
+    // Cycle 2: submit again for "src".  A fresh FlexibleDecoder
+    // is constructed but it inherits the shared registry, so the
+    // first call to `acquire_or_build_pool` lands on the cache
+    // entry from cycle 1 — `pool_cache hit`, not `pool_cache build`.
+    pool.submit(&jpeg_frame("src", 320, 240, 33_333_333), Some(&jpeg))
+        .expect("submit cycle 2");
+    let addr_cycle2 = registry
+        .pool_addr("src")
+        .expect("registry entry must still be present after cycle-2 submit");
+    assert_eq!(
+        addr_cycle1, addr_cycle2,
+        "cycle-2 decoder must reuse the cycle-1 BufferGenerator \
+         (was {addr_cycle1:#x}, now {addr_cycle2:#x})"
+    );
+
+    // graceful_shutdown drains every per-source decoder and
+    // clears the registry.
+    let mut pool = pool;
+    pool.graceful_shutdown().expect("graceful_shutdown");
+    assert!(
+        registry.is_empty(),
+        "FlexibleDecoderPool::graceful_shutdown must clear the pool cache"
     );
 }
 

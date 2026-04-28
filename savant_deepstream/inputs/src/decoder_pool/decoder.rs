@@ -8,7 +8,9 @@
 //! [`ReleaseSeal`]) until the eviction resolves, then either reuse the kept
 //! decoder or transparently create a new one.
 
-use crate::flexible_decoder::{FlexibleDecoder, FlexibleDecoderError, FlexibleDecoderOutput};
+use crate::flexible_decoder::{
+    FlexibleDecoder, FlexibleDecoderError, FlexibleDecoderOutput, PoolCacheRegistry,
+};
 use parking_lot::{Condvar, Mutex};
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::utils::release_seal::ReleaseSeal;
@@ -63,6 +65,17 @@ pub struct FlexibleDecoderPool {
     eviction_stop: Arc<(Mutex<bool>, Condvar)>,
     eviction_join: Option<JoinHandle<()>>,
     shut_down: AtomicBool,
+    /// Per-source RGBA pool cache shared with every per-source
+    /// [`FlexibleDecoder`] this pool creates.  Survives
+    /// `source_eos`-driven decoder teardown so a fresh decoder for
+    /// the same `source_id` can reuse the existing
+    /// `BufferGenerator` (and its pooled `EglCudaMeta`
+    /// registrations) instead of rebuilding from scratch.  Entries
+    /// are cleared on eviction (`EvictionDecision::Evict`) and on
+    /// pool [`Self::graceful_shutdown`] / [`Self::shutdown`] —
+    /// each path runs the F2 sync before releasing the cached
+    /// `Arc<Mutex<BufferGenerator>>`.
+    pool_cache: Arc<PoolCacheRegistry>,
 }
 
 impl FlexibleDecoderPool {
@@ -102,6 +115,7 @@ impl FlexibleDecoderPool {
         let streams: Arc<Mutex<HashMap<String, StreamEntry>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let eviction_stop = Arc::new((Mutex::new(false), Condvar::new()));
+        let pool_cache = Arc::new(PoolCacheRegistry::new());
 
         let sweep_interval = (config.eviction_ttl / 4).max(MIN_SWEEP_INTERVAL);
 
@@ -109,6 +123,7 @@ impl FlexibleDecoderPool {
             let streams = Arc::clone(&streams);
             let stop = Arc::clone(&eviction_stop);
             let on_eviction = on_eviction.clone();
+            let pool_cache_evict = Arc::clone(&pool_cache);
             let eviction_ttl_ms = config.eviction_ttl.as_millis() as u64;
 
             std::thread::Builder::new()
@@ -118,6 +133,7 @@ impl FlexibleDecoderPool {
                         &streams,
                         &stop,
                         &on_eviction,
+                        &pool_cache_evict,
                         eviction_ttl_ms,
                         sweep_interval,
                     );
@@ -132,7 +148,16 @@ impl FlexibleDecoderPool {
             eviction_stop,
             eviction_join: Some(eviction_join),
             shut_down: AtomicBool::new(false),
+            pool_cache,
         }
+    }
+
+    /// Returns a clone of the [`PoolCacheRegistry`] `Arc` shared
+    /// with every per-source [`FlexibleDecoder`] created by this
+    /// pool.  Useful for tests that want to inspect cache state
+    /// without holding a handle to a per-source decoder.
+    pub fn pool_cache(&self) -> Arc<PoolCacheRegistry> {
+        Arc::clone(&self.pool_cache)
     }
 
     // ── Public API ───────────────────────────────────────────────────
@@ -178,6 +203,19 @@ impl FlexibleDecoderPool {
     /// per-source [`FlexibleDecoder`] with a fresh `nvv4l2decoder` —
     /// avoiding the stale internal monotonic-PTS state that would
     /// otherwise silently swallow the new sequence.
+    ///
+    /// **Pool-cache survival.**  The
+    /// [`PoolCacheRegistry`] entry for `source_id` is **not** removed
+    /// here: when a fresh decoder is created on the next
+    /// [`submit`](Self::submit) it inherits the cached
+    /// `Arc<Mutex<BufferGenerator>>` (and its pooled `EglCudaMeta`
+    /// registrations) and starts streaming without rebuilding the
+    /// pool — eliminating the rapid pool-churn pattern that drove
+    /// the cars-demo-zmq CUDA-700 cascade.  Cache entries are
+    /// released only on
+    /// [`EvictionDecision::Evict`](super::config::EvictionDecision::Evict)
+    /// or on full pool [`Self::graceful_shutdown`] /
+    /// [`Self::shutdown`].
     ///
     /// If the source has no active decoder (it never had a frame
     /// submitted, or has already been evicted), the EOS marker is emitted
@@ -265,7 +303,11 @@ impl FlexibleDecoderPool {
     /// Drain every decoder in the pool and shut down.
     ///
     /// The eviction thread is stopped first.  Each per-stream decoder is
-    /// gracefully drained (bounded by `config.idle_timeout`).
+    /// gracefully drained (bounded by `config.idle_timeout`).  After all
+    /// per-source decoders are drained the shared
+    /// [`PoolCacheRegistry`] is cleared with a single device-sync
+    /// fence — releasing every cached `BufferGenerator` only once
+    /// the GPU has fully drained.
     ///
     /// Terminal — subsequent calls return `Err(ShutDown)`.
     pub fn graceful_shutdown(&mut self) -> Result<(), FlexibleDecoderError> {
@@ -285,12 +327,19 @@ impl FlexibleDecoderPool {
             }
             let _ = entry.decoder.graceful_shutdown();
         }
+        // All per-source decoders are drained — clear the shared
+        // pool cache (single device-sync fence) so the cached
+        // `BufferGenerator`s are released cleanly.
+        self.pool_cache.clear_all();
         Ok(())
     }
 
     /// Immediate teardown — frames in flight are lost.
     ///
-    /// Terminal — subsequent calls return `Err(ShutDown)`.
+    /// Terminal — subsequent calls return `Err(ShutDown)`.  After
+    /// every per-source decoder has been torn down the shared
+    /// [`PoolCacheRegistry`] is cleared with a single device-sync
+    /// fence.
     pub fn shutdown(&mut self) {
         if self.shut_down.swap(true, Ordering::Relaxed) {
             return;
@@ -308,6 +357,7 @@ impl FlexibleDecoderPool {
             }
             entry.decoder.shutdown();
         }
+        self.pool_cache.clear_all();
     }
 
     // ── Private helpers ──────────────────────────────────────────────
@@ -343,10 +393,19 @@ impl FlexibleDecoderPool {
                     }
                 } else {
                     // Create a new decoder for this source_id.
+                    // Hand it the shared `pool_cache` registry so
+                    // its first `submit` reuses any
+                    // `BufferGenerator` left behind by a prior
+                    // decoder (typical after `source_eos`-driven
+                    // teardown of the same source) instead of
+                    // rebuilding from scratch.
                     let flex_config = self.config.to_flexible_config(source_id);
                     let on_out = Arc::clone(&self.on_output);
-                    let decoder =
-                        Arc::new(FlexibleDecoder::new(flex_config, move |out| (on_out)(out)));
+                    let decoder = Arc::new(FlexibleDecoder::with_registry(
+                        flex_config,
+                        move |out| (on_out)(out),
+                        Arc::clone(&self.pool_cache),
+                    ));
 
                     let entry = StreamEntry {
                         decoder: Arc::clone(&decoder),
@@ -380,6 +439,7 @@ fn eviction_loop(
     streams: &Mutex<HashMap<String, StreamEntry>>,
     stop: &(Mutex<bool>, Condvar),
     on_eviction: &Option<EvictionCallback>,
+    pool_cache: &PoolCacheRegistry,
     eviction_ttl_ms: u64,
     sweep_interval: Duration,
 ) {
@@ -394,13 +454,14 @@ fn eviction_loop(
             break;
         }
         drop(stopped);
-        eviction_sweep(streams, on_eviction, eviction_ttl_ms);
+        eviction_sweep(streams, on_eviction, pool_cache, eviction_ttl_ms);
     }
 }
 
 fn eviction_sweep(
     streams: &Mutex<HashMap<String, StreamEntry>>,
     on_eviction: &Option<EvictionCallback>,
+    pool_cache: &PoolCacheRegistry,
     eviction_ttl_ms: u64,
 ) {
     let now = epoch_ms();
@@ -460,7 +521,15 @@ fn eviction_sweep(
     }
 
     // Phase 3: drain evicted decoders outside any lock.
-    for (_source_id, decoder) in to_drain {
+    //
+    // After the decoder drains we drop the cached pool entry for
+    // that source — TTL eviction means the source has been
+    // genuinely silent for `eviction_ttl_ms`, so retaining its
+    // cached `BufferGenerator` would leak GPU memory.
+    // `clear_source` runs a single device-sync fence before
+    // releasing the cached `Arc<Mutex<BufferGenerator>>`.
+    for (source_id, decoder) in to_drain {
         let _ = decoder.graceful_shutdown();
+        pool_cache.clear_source(&source_id);
     }
 }

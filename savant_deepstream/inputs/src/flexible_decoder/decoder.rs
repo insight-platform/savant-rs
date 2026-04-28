@@ -8,7 +8,6 @@ use deepstream_buffers::{
 use deepstream_decoders::{
     DecoderConfig, JpegBackend, NvDecoder, NvDecoderConfig, NvDecoderOutput,
 };
-use log::info;
 use parking_lot::Mutex;
 use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy};
 use savant_core::primitives::gstreamer_frame_time::frame_clock_ns;
@@ -23,6 +22,7 @@ use super::handle_active::{handle_active, ActiveResult};
 use super::handle_detecting::handle_detecting;
 use super::handle_idle::handle_idle;
 use super::output::{FlexibleDecoderOutput, SkipReason};
+use super::pool_cache::PoolCacheRegistry;
 use super::state::{
     new_frame_map, ActivatedDecoder, DecoderState, FrameMap, StateGuard, SubmitContext,
 };
@@ -30,64 +30,6 @@ use savant_core::utils::release_seal::ReleaseSeal;
 
 /// Worker polls NvDecoder output at this interval.
 const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(5);
-
-/// Cached RGBA output pool, kept alive across decoder restarts.
-///
-/// Whenever [`FlexibleDecoder::activate`] is invoked we check this cache:
-/// if its descriptor matches the new pool params, the existing
-/// [`BufferGenerator`] is reused (its `GstBufferPool`,
-/// `NvBufSurface` backing memory, and Jetson `EglCudaMeta`
-/// `GST_META_FLAG_POOLED` registrations all survive). On a mismatch the
-/// previous pool is dropped and a fresh one is built.
-///
-/// This is the central piece of the "deferred pool reprovisioning"
-/// strategy described in `docs/cuda-race.md`: it eliminates pool churn
-/// during rapid same-resolution restarts (the cars-demo-zmq scenario),
-/// which removes one likely contributor to the CUDA-700 cascade —
-/// without requiring any churn-time fence on NVIDIA-internal streams.
-struct CachedPool {
-    pool: Arc<Mutex<BufferGenerator>>,
-    width: u32,
-    height: u32,
-    fps_num: i32,
-    fps_den: i32,
-    format: VideoFormat,
-    gpu_id: u32,
-    mem_type: NvBufSurfaceMemType,
-    pool_size: u32,
-}
-
-impl CachedPool {
-    /// Returns `true` when the cached pool can serve a decoder requested
-    /// with the supplied parameters.
-    ///
-    /// All fields must match — width, height, pixel format, GPU id,
-    /// memory type, pool size **and** framerate. The framerate enters
-    /// the gst caps reported by [`BufferGenerator::nvmm_caps`] /
-    /// [`BufferGenerator::raw_caps`]; reusing a pool whose caps differ
-    /// from the new stream would silently mis-advertise downstream.
-    #[allow(clippy::too_many_arguments)]
-    fn matches(
-        &self,
-        width: u32,
-        height: u32,
-        fps_num: i32,
-        fps_den: i32,
-        format: VideoFormat,
-        gpu_id: u32,
-        mem_type: NvBufSurfaceMemType,
-        pool_size: u32,
-    ) -> bool {
-        self.width == width
-            && self.height == height
-            && self.fps_num == fps_num
-            && self.fps_den == fps_den
-            && self.format == format
-            && self.gpu_id == gpu_id
-            && self.mem_type == mem_type
-            && self.pool_size == pool_size
-    }
-}
 
 /// Single-stream adaptive GPU decoder.
 ///
@@ -102,22 +44,72 @@ impl CachedPool {
 /// **Callback safety**: the user callback is never invoked while an internal
 /// lock is held, so it is safe to call other `FlexibleDecoder` methods (or
 /// shared state protected by user mutexes) from within the callback.
+///
+/// ## Pool cache lifetime
+///
+/// The persistent RGBA output pool used to be owned by this struct
+/// directly, which meant rebuilding from scratch on every
+/// `source_eos`-driven teardown / recreation cycle.  The cache now
+/// lives inside [`PoolCacheRegistry`], shared with — and outlived
+/// by — the parent [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool).
+///
+/// * [`Self::new`] creates a fresh, **private** registry whose
+///   lifetime equals the decoder's; dropping the decoder runs the
+///   F2 sync and releases all cached pools.  This preserves the
+///   contract of standalone tests that construct decoders
+///   directly.
+/// * [`Self::with_registry`] takes a clone of an externally
+///   owned `Arc<PoolCacheRegistry>` so the cache survives across
+///   `source_eos` cycles.  In that mode neither
+///   [`Self::graceful_shutdown`] nor [`Self::shutdown`] touch the
+///   registry — it is the parent pool's job to clear entries on
+///   eviction or full shutdown.
 pub struct FlexibleDecoder {
     config: FlexibleDecoderConfig,
     state: Mutex<DecoderState>,
     on_output: Arc<dyn Fn(FlexibleDecoderOutput) + Send + Sync + 'static>,
     frame_map: FrameMap,
-    /// Persistent RGBA output pool reused across decoder restarts when the
-    /// requested params are unchanged. See [`CachedPool`].
-    pool_cache: Mutex<Option<CachedPool>>,
+    /// Persistent RGBA output pool registry.  Shared with the
+    /// parent [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool)
+    /// when constructed via [`Self::with_registry`]; private
+    /// otherwise (see struct-level docs).
+    pool_cache: Arc<PoolCacheRegistry>,
 }
 
 impl FlexibleDecoder {
-    /// Construct a new decoder bound to `config.source_id`.
+    /// Construct a new decoder with a **private** [`PoolCacheRegistry`].
+    ///
+    /// Use this for standalone decoders (one source, one decoder
+    /// for the lifetime of the caller).  When the decoder is
+    /// dropped the private registry is dropped too, which runs a
+    /// device sync and releases all cached buffers.
     ///
     /// No internal [`NvDecoder`] is created until the first successful
     /// [`submit`](Self::submit).
     pub fn new<F>(config: FlexibleDecoderConfig, on_output: F) -> Self
+    where
+        F: Fn(FlexibleDecoderOutput) + Send + Sync + 'static,
+    {
+        Self::with_registry(config, on_output, Arc::new(PoolCacheRegistry::new()))
+    }
+
+    /// Construct a new decoder with a **shared** [`PoolCacheRegistry`].
+    ///
+    /// Used by [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool)
+    /// to share the cache across `source_eos`-driven decoder
+    /// teardown / recreation cycles for the same `source_id`.
+    /// Neither [`Self::graceful_shutdown`] nor [`Self::shutdown`]
+    /// touch the registry in this mode — the parent pool is
+    /// responsible for cache lifetime (eviction + final clear on
+    /// pool shutdown).
+    ///
+    /// No internal [`NvDecoder`] is created until the first successful
+    /// [`submit`](Self::submit).
+    pub fn with_registry<F>(
+        config: FlexibleDecoderConfig,
+        on_output: F,
+        pool_cache: Arc<PoolCacheRegistry>,
+    ) -> Self
     where
         F: Fn(FlexibleDecoderOutput) + Send + Sync + 'static,
     {
@@ -126,7 +118,7 @@ impl FlexibleDecoder {
             state: Mutex::new(DecoderState::Idle),
             on_output: Arc::new(on_output),
             frame_map: new_frame_map(),
-            pool_cache: Mutex::new(None),
+            pool_cache,
         }
     }
 
@@ -538,7 +530,14 @@ impl FlexibleDecoder {
                 (on_output)(convert_output(&fm, out));
             });
         }
-        self.clear_pool_cache();
+        // Pool cache is owned by the parent
+        // [`PoolCacheRegistry`] (shared via `Arc`).  When the
+        // registry is private (this decoder is the only Arc
+        // holder) it is dropped together with the decoder, which
+        // runs the F2 sync.  When the registry is shared (the
+        // typical [`FlexibleDecoderPool`] case) the parent keeps
+        // it alive across `source_eos` cycles so the next
+        // decoder can reuse the cached pool.
         self.emit_all(pending);
         Ok(())
     }
@@ -572,8 +571,9 @@ impl FlexibleDecoder {
                 guard.commit(DecoderState::ShutDown);
             }
         }
-        drop(state);
-        self.clear_pool_cache();
+        // Pool cache lifetime is handled via the shared
+        // [`PoolCacheRegistry`] `Arc`; see
+        // [`Self::graceful_shutdown`] for details.
     }
 
     // ── Internal helpers ─────────────────────────────────────────────
@@ -698,15 +698,17 @@ impl FlexibleDecoder {
         Ok((decoder, worker_join, stop))
     }
 
-    /// Reuse the cached RGBA output pool when its descriptor matches the
-    /// requested params; otherwise build a fresh one and replace the cache.
+    /// Reuse the cached RGBA output pool from
+    /// [`Self::pool_cache`] when its descriptor matches the
+    /// requested params; otherwise build a fresh one and replace
+    /// the cache entry.
     ///
-    /// On a cache hit the returned [`Arc`] is the same as the one stored in
-    /// the cache, so the pool's `GstBufferPool` (and any pooled
-    /// `EglCudaMeta` registrations attached to its buffers) stays alive
-    /// until the cache is explicitly cleared by
-    /// [`Self::graceful_shutdown`] / [`Self::shutdown`] or the descriptor
-    /// changes.
+    /// On a cache hit the returned [`Arc`] is the same as the one
+    /// stored in the registry, so the pool's `GstBufferPool` (and
+    /// any pooled `EglCudaMeta` registrations attached to its
+    /// buffers) stays alive until the registry entry is cleared
+    /// (either explicitly by the parent pool, on eviction, or on
+    /// final pool shutdown).
     #[allow(clippy::too_many_arguments)]
     fn acquire_or_build_pool(
         &self,
@@ -719,77 +721,8 @@ impl FlexibleDecoder {
         mem_type: NvBufSurfaceMemType,
         pool_size: u32,
     ) -> Result<Arc<Mutex<BufferGenerator>>, String> {
-        let mut cache = self.pool_cache.lock();
-        if let Some(cached) = cache.as_ref() {
-            if cached.matches(
-                width, height, fps_num, fps_den, format, gpu_id, mem_type, pool_size,
-            ) {
-                let pool = Arc::clone(&cached.pool);
-                let strong = Arc::strong_count(&pool);
-                info!(
-                    "FlexibleDecoder pool_cache hit (source={}, {}x{}@{}/{}, format={:?}, \
-                     mem_type={:?}, gpu_id={}, pool_size={}, strong_count={})",
-                    self.config.source_id,
-                    width,
-                    height,
-                    fps_num,
-                    fps_den,
-                    format,
-                    mem_type,
-                    gpu_id,
-                    pool_size,
-                    strong,
-                );
-                return Ok(pool);
-            }
-            info!(
-                "FlexibleDecoder pool_cache replace (source={}, was {}x{}@{}/{} format={:?} \
-                 mem_type={:?} pool_size={}, now {}x{}@{}/{} format={:?} mem_type={:?} \
-                 pool_size={})",
-                self.config.source_id,
-                cached.width,
-                cached.height,
-                cached.fps_num,
-                cached.fps_den,
-                cached.format,
-                cached.mem_type,
-                cached.pool_size,
-                width,
-                height,
-                fps_num,
-                fps_den,
-                format,
-                mem_type,
-                pool_size,
-            );
-        } else {
-            info!(
-                "FlexibleDecoder pool_cache build (source={}, {}x{}@{}/{}, format={:?}, \
-                 mem_type={:?}, gpu_id={}, pool_size={})",
-                self.config.source_id,
-                width,
-                height,
-                fps_num,
-                fps_den,
-                format,
-                mem_type,
-                gpu_id,
-                pool_size,
-            );
-        }
-
-        let pool = BufferGenerator::builder(format, width, height)
-            .fps(fps_num, fps_den)
-            .gpu_id(gpu_id)
-            .mem_type(mem_type)
-            .min_buffers(pool_size)
-            .max_buffers(pool_size)
-            .build()
-            .map_err(|e| format!("buffer pool creation failed: {e}"))?;
-        let pool_arc = Arc::new(Mutex::new(pool));
-
-        *cache = Some(CachedPool {
-            pool: Arc::clone(&pool_arc),
+        self.pool_cache.get_or_build(
+            &self.config.source_id,
             width,
             height,
             fps_num,
@@ -798,26 +731,7 @@ impl FlexibleDecoder {
             gpu_id,
             mem_type,
             pool_size,
-        });
-
-        Ok(pool_arc)
-    }
-
-    /// Drop the cached pool, if any.
-    ///
-    /// Called from [`Self::graceful_shutdown`] and [`Self::shutdown`].
-    /// The actual `BufferGenerator` is freed only once all other strong
-    /// refs (buffers handed out to consumers, in-flight `NvDecoder`s) are
-    /// gone.
-    fn clear_pool_cache(&self) {
-        let mut cache = self.pool_cache.lock();
-        if cache.is_some() {
-            info!(
-                "FlexibleDecoder pool_cache clear (source={})",
-                self.config.source_id
-            );
-        }
-        *cache = None;
+        )
     }
 }
 
@@ -867,7 +781,8 @@ fn convert_output(fm: &FrameMap, out: NvDecoderOutput) -> FlexibleDecoderOutput 
 }
 
 impl FlexibleDecoder {
-    /// Address of the cached `BufferGenerator` Arc, when present.
+    /// Address of the cached `BufferGenerator` Arc for this
+    /// decoder's `source_id`, when present in the registry.
     ///
     /// Stable across decoder restarts when the resolution / format
     /// descriptor matches, so equality is a reliable cache-hit signal
@@ -875,10 +790,15 @@ impl FlexibleDecoder {
     /// opaque — comparing addresses is only meaningful within a single
     /// process and only as long as the pool is alive.
     pub fn pool_cache_addr(&self) -> Option<usize> {
-        self.pool_cache
-            .lock()
-            .as_ref()
-            .map(|c| Arc::as_ptr(&c.pool) as usize)
+        self.pool_cache.pool_addr(&self.config.source_id)
+    }
+
+    /// Returns a clone of the [`PoolCacheRegistry`] `Arc` backing
+    /// this decoder, primarily for use by
+    /// [`FlexibleDecoderPool`](crate::decoder_pool::FlexibleDecoderPool)
+    /// and tests that want to inspect cache state directly.
+    pub fn pool_cache(&self) -> Arc<PoolCacheRegistry> {
+        Arc::clone(&self.pool_cache)
     }
 }
 

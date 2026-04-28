@@ -10,7 +10,19 @@
 //! This is a **diagnostic-only** facility: no public behaviour depends on the
 //! flag.  It exists to disambiguate "where did the GPU first go bad?" from
 //! "everywhere now reports the same code 700" in production logs.
+//!
+//! ## Source-location tracking
+//!
+//! [`note_cuda_rc`] and [`note_cu_rc`] are `#[track_caller]`, so the `at=…`
+//! field in the emitted log line is the file/line of the **outermost** caller
+//! that itself opted into `#[track_caller]`.  Wrappers like
+//! [`crate::cuda_device::cuda_device_synchronize`],
+//! [`crate::CudaStream::synchronize`], and
+//! [`crate::CudaStream::synchronize_or_log`] are also annotated, so a stream
+//! sync that surfaces a deferred fault reports the application call site
+//! rather than the wrapper internals.
 
+use std::panic::Location;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static POISONED: AtomicBool = AtomicBool::new(false);
@@ -27,42 +39,55 @@ pub fn is_poisoned() -> bool {
 ///
 /// `rc == 0` is a no-op.  Non-zero `rc` flips the poison flag (idempotent)
 /// and emits exactly one error-level log on the very first transition,
-/// describing the originating `site` plus a free-form `ctx`.  Every
-/// subsequent non-zero notification logs at warn level with a
-/// `cuda_post_poison` prefix so the cascade is visually distinct from
-/// the root cause.
+/// describing the originating `site`, the free-form `ctx`, and the
+/// caller's source location.  Every subsequent non-zero notification logs
+/// at warn level with a `cuda_post_poison` prefix so the cascade is
+/// visually distinct from the root cause.
+///
+/// The `at=file:line` field is captured via
+/// [`std::panic::Location::caller`].  Annotate intermediate wrappers with
+/// `#[track_caller]` so the reported location is the application call
+/// site rather than the wrapper body.
 ///
 /// Returns `rc` unchanged for ergonomic use at call sites
 /// (`if note_cuda_rc(...) != 0 { return Err(...); }`).
+#[track_caller]
 pub fn note_cuda_rc(site: &str, ctx: impl std::fmt::Display, rc: i32) -> i32 {
     if rc == 0 {
         return 0;
     }
-    if POISONED
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_ok()
-    {
-        log::error!("cuda_poisoned: site={site}, rc={rc}, ctx={ctx}");
-    } else {
-        log::warn!("cuda_post_poison: site={site}, rc={rc}, ctx={ctx}");
-    }
+    let loc = Location::caller();
+    log_poison(site, &ctx, rc as i64, loc);
     rc
 }
 
 /// Same as [`note_cuda_rc`] but for `u32`-typed CUDA driver-API codes.
+#[track_caller]
 pub fn note_cu_rc(site: &str, ctx: impl std::fmt::Display, rc: u32) -> u32 {
     if rc == 0 {
         return 0;
     }
+    let loc = Location::caller();
+    log_poison(site, &ctx, rc as i64, loc);
+    rc
+}
+
+/// Common log-emission path shared by [`note_cuda_rc`] and [`note_cu_rc`].
+///
+/// Splits the formatting from the `#[track_caller]` entry points so a single
+/// branch handles the `compare_exchange` + `log::error!`/`log::warn!` choice
+/// without forcing the caller-location capture into both functions twice.
+fn log_poison(site: &str, ctx: &dyn std::fmt::Display, rc: i64, loc: &Location<'_>) {
+    let file = loc.file();
+    let line = loc.line();
     if POISONED
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_ok()
     {
-        log::error!("cuda_poisoned: site={site}, rc={rc}, ctx={ctx}");
+        log::error!("cuda_poisoned: site={site}, rc={rc}, ctx={ctx}, at={file}:{line}");
     } else {
-        log::warn!("cuda_post_poison: site={site}, rc={rc}, ctx={ctx}");
+        log::warn!("cuda_post_poison: site={site}, rc={rc}, ctx={ctx}, at={file}:{line}");
     }
-    rc
 }
 
 /// Reset the process-wide poison flag.
@@ -96,5 +121,27 @@ mod tests {
         // Subsequent calls still return rc; flag stays set.
         assert_eq!(note_cuda_rc("second", "ctx", 700), 700);
         assert!(is_poisoned());
+    }
+
+    /// `#[track_caller]` propagates through wrapper functions also marked
+    /// with the attribute.  The captured `Location` should belong to the
+    /// outermost call, not to the wrapper body.
+    #[test]
+    fn track_caller_propagates_through_wrappers() {
+        #[track_caller]
+        fn wrapper(rc: i32) -> &'static Location<'static> {
+            // Use the same idiom as `note_cuda_rc`: capture the caller
+            // location inside the `#[track_caller]` function body.  The
+            // `rc` parameter is ignored — we just want the location.
+            let _ = rc;
+            Location::caller()
+        }
+        let loc_outer_a = wrapper(0);
+        let loc_outer_b = wrapper(0);
+        // Two consecutive lines have different line numbers.
+        assert_ne!(loc_outer_a.line(), loc_outer_b.line());
+        // And neither matches the wrapper's own definition site
+        // (i.e. the body of `wrapper`).
+        assert!(loc_outer_a.file().ends_with("cuda_poison.rs"));
     }
 }

@@ -514,6 +514,22 @@ impl Drop for UniformBatchGenerator {
     fn drop(&mut self) {
         let pool_addr = self.pool.as_ptr() as usize;
         let lifetime_ms = self.created_at.elapsed().as_millis();
+
+        // Drain any in-flight GPU work that still references buffers from
+        // this pool (e.g. queued NvBufSurfTransform / nvinfer preproc /
+        // nvtracker kernels) before we tear the pool down.  Without this
+        // fence, `set_active(false)` can race with downstream CUDA ops on
+        // the per-source teardown path during rapid source-restart and
+        // poison the device with `CUDA error: 700`.  Cost: one device
+        // sync per pool drop — only at source teardown, never on hot path.
+        crate::cuda_device::cuda_device_synchronize(
+            "UniformBatchGenerator::drop::pre_deactivate_sync",
+            format_args!(
+                "pool={:#x}, {}x{}, batch={}, gpu_id={}",
+                pool_addr, self.width, self.height, self.max_batch_size, self.gpu_id
+            ),
+        );
+
         let deactivate_result = self.pool.set_active(false);
         match &deactivate_result {
             Ok(()) => {

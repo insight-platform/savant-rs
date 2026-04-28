@@ -219,6 +219,13 @@ impl BufferGenerator {
     /// (symmetric or right-bottom), using the same NvBufSurfTransform API
     /// that nvinfer uses internally for ROI preparation.
     ///
+    /// The internally-constructed destination [`SurfaceView`] inherits
+    /// `config.cuda_stream`, so both the transform itself (driven by
+    /// [`SurfaceView::transform_into`]) and the destination's
+    /// `Drop::sync()` run on the caller-provided stream.  This avoids
+    /// the legacy default stream serialization point that
+    /// [`SurfaceView::from_buffer`] would otherwise introduce.
+    ///
     /// # Arguments
     ///
     /// * `src` - Source [`SurfaceView`](crate::SurfaceView) identifying the
@@ -232,7 +239,10 @@ impl BufferGenerator {
         src_rect: Option<&Rect>,
     ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
         let shared = self.0.acquire(None)?;
-        shared.with_view(0, |dst_view| src.transform_into(dst_view, config, src_rect))?;
+        let dst_view = crate::SurfaceView::from_buffer(&shared, 0)?
+            .with_cuda_stream(config.cuda_stream.clone());
+        src.transform_into(&dst_view, config, src_rect)?;
+        drop(dst_view);
         Ok(shared)
     }
 

@@ -221,6 +221,7 @@ const ROLE_DECODER: &str = "decoder";
 const ROLE_INFER: &str = "infer";
 const ROLE_TRACKER: &str = "track";
 const ROLE_TAIL: &str = "tail";
+const ROLE_PICASSO: &str = "picasso";
 
 /// Run the cars-tracking pipeline end-to-end (legacy `cars-demo`
 /// entry point).  Blocks until the input MP4 is fully processed and
@@ -357,9 +358,19 @@ pub fn run_pipeline(
         PipelineTail::Zmq { .. } => "zmq_sink",
     };
     let tail_stage = make_stage(tail_stage_name);
+    // Picasso lives between the tracker and the tail when it is
+    // enabled; we register a dedicated `picasso` `StageStats` so the
+    // 📊 line shows whether the encoder is actually receiving frames.
+    // The tick site is the `PicassoInbox::on_delivery` hook below — we
+    // intentionally do **not** also bump `core.register_frame(...)`
+    // there, that aggregator is owned by the tail.
+    let picasso_stage = knobs.picasso_enabled.then(|| make_stage("picasso"));
     core_stats.add_stage_stats(decoder_stage.clone());
     core_stats.add_stage_stats(infer_stage.clone());
     core_stats.add_stage_stats(track_stage.clone());
+    if let Some(s) = picasso_stage.as_ref() {
+        core_stats.add_stage_stats(s.clone());
+    }
     core_stats.add_stage_stats(tail_stage.clone());
 
     let infer_stats = Arc::new(InferStats::new());
@@ -426,6 +437,9 @@ pub fn run_pipeline(
     sys.insert_shared_as::<StageStats>(ROLE_INFER, infer_stage.clone());
     sys.insert_shared_as::<StageStats>(ROLE_TRACKER, track_stage.clone());
     sys.insert_shared_as::<StageStats>(ROLE_TAIL, tail_stage.clone());
+    if let Some(s) = picasso_stage.as_ref() {
+        sys.insert_shared_as::<StageStats>(ROLE_PICASSO, s.clone());
+    }
 
     // ── Source / head ───────────────────────────────────────────────────
     //
@@ -747,13 +761,26 @@ pub fn run_pipeline(
                         // as a stable monotonically-increasing
                         // value across closure reinvocations.
                         let frame_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
-                        move |pairs, _ctx| {
+                        move |pairs, ctx| {
                             if draw_enabled {
                                 for (frame, _buf) in pairs {
                                     let cnt = frame_counter.fetch_add(1, Ordering::Relaxed);
                                     if let Err(e) = attach_frame_id_overlay(frame, cnt) {
                                         log::warn!("attach_frame_id_overlay failed: {e}");
                                     }
+                                }
+                            }
+                            // Per-stage 📊 counter — bump once per frame
+                            // delivered into Picasso (i.e. per pair),
+                            // matching how decoder/infer/track tick on
+                            // their own egress hooks.  The tail stage's
+                            // tick happens later inside
+                            // `StatsEncodedSink::call`, so picasso ≠
+                            // tail in the stats lines (frames in =
+                            // picasso, frames out = tail).
+                            if !pairs.is_empty() {
+                                if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_PICASSO) {
+                                    tick_stage(&stage, pairs.len(), 0);
                                 }
                             }
                             Ok(())

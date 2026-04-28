@@ -32,18 +32,6 @@ fn ns_since_epoch() -> u64 {
     Instant::now().duration_since(*EPOCH).as_nanos() as u64
 }
 
-/// When set to `1`, [`meta_free`](imp::EglCudaMetaInner) calls
-/// `cudaDeviceSynchronize()` immediately before unregistering / unmapping
-/// each slot.  This makes the diagnostic *invasive* (it blocks the
-/// finalize path on every CUDA context this process owns), so it is off
-/// by default and is meant to be enabled only when chasing a CUDA-700
-/// cascade.
-fn diag_sync_on_meta_free() -> bool {
-    std::env::var("SAVANT_DIAG_EGL_FREE_SYNC")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-}
-
 const MAX_PLANES: usize = 3;
 
 /// Maximum number of batch slots supported by [`EglCudaMeta`].
@@ -347,17 +335,23 @@ mod imp {
         let n = (meta.batch_size as usize).min(MAX_BATCH_SLOTS);
         let surf_ptr = meta.surf_ptr;
 
-        // Optional invasive diagnostic: synchronize the entire CUDA
-        // device before we unregister/unmap any slot.  If a downstream
-        // CUDA op was still queued against this surface, the sync will
-        // observe the failure here — *before* unregister can claim it.
-        // See [`super::diag_sync_on_meta_free`] for the gating env var.
-        if super::diag_sync_on_meta_free() {
-            super::cuda_device::cuda_device_synchronize(
-                "EglCudaMeta::meta_free::pre_unmap_sync",
-                format_args!("surf_ptr={:?}, batch_size={}", surf_ptr, meta.batch_size),
-            );
-        }
+        // Unconditional `cudaDeviceSynchronize` before we unregister or
+        // unmap any slot.  If a downstream CUDA op (e.g. gst-nvinfer's
+        // preprocessor or nvtracker's cuDCF kernel) is still queued
+        // against this surface, the sync will observe the failure here
+        // — *before* `cuGraphicsUnregisterResource` can claim a freed
+        // resource and produce undefined behaviour.
+        //
+        // Previously gated by a `SAVANT_DIAG_EGL_FREE_SYNC=1` env var as
+        // an "invasive diagnostic"; runs at `cars-demo-zmq` repeatedly
+        // confirmed that the gate had to be on for safe teardown under
+        // rapid source-restart, so the fence is now always-on.  The
+        // cost is one device sync per buffer free — only pays at pool
+        // drop / EOS, never on the per-frame hot path.
+        super::cuda_device::cuda_device_synchronize(
+            "EglCudaMeta::meta_free::pre_unmap_sync",
+            format_args!("surf_ptr={:?}, batch_size={}", surf_ptr, meta.batch_size),
+        );
 
         for i in 0..n {
             let slot = &mut meta.slots[i];

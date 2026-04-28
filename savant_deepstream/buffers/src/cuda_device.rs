@@ -34,6 +34,7 @@ extern "C" {
 /// );
 /// assert_eq!(rc, 0);
 /// ```
+#[track_caller]
 pub fn cuda_device_synchronize(site: &str, ctx: impl std::fmt::Display) -> i32 {
     let rc = unsafe { cudaDeviceSynchronize() };
     note_cuda_rc(site, ctx, rc)

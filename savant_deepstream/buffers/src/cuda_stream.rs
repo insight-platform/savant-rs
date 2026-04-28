@@ -115,9 +115,14 @@ impl CudaStream {
 
     /// Block until all previously enqueued work on this stream completes.
     ///
+    /// `#[track_caller]` propagates the application call site into the
+    /// `at=…` field of any `cuda_poisoned` / `cuda_post_poison` log line
+    /// emitted by the underlying [`crate::cuda_poison::note_cuda_rc`].
+    ///
     /// # Errors
     ///
     /// Returns [`NvBufSurfaceError::CudaInitFailed`] if synchronization fails.
+    #[track_caller]
     pub fn synchronize(&self) -> Result<(), NvBufSurfaceError> {
         let err = unsafe { ffi::cudaStreamSynchronize(self.raw) };
         if err != 0 {
@@ -137,6 +142,10 @@ impl CudaStream {
     ///
     /// Use this variant when synchronization failure is non-fatal and the
     /// calling code cannot propagate errors.
+    ///
+    /// `#[track_caller]` is propagated so the `at=…` field of any poison
+    /// log line points at the application call site.
+    #[track_caller]
     pub fn synchronize_or_log(&self) {
         // [`Self::synchronize`] already routes any non-zero rc through
         // [`note_cuda_rc`], so we only need to swallow the error here.
