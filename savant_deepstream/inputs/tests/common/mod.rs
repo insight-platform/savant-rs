@@ -406,6 +406,11 @@ pub enum CollectedOutput {
     },
     Event,
     Error(String),
+    Restarted {
+        source_id: String,
+        reason: String,
+        lost_frames: usize,
+    },
 }
 
 impl CollectedOutput {
@@ -448,6 +453,15 @@ impl CollectedOutput {
             },
             FlexibleDecoderOutput::Event(_) => CollectedOutput::Event,
             FlexibleDecoderOutput::Error(e) => CollectedOutput::Error(format!("{e}")),
+            FlexibleDecoderOutput::Restarted {
+                source_id,
+                reason,
+                lost_frames,
+            } => CollectedOutput::Restarted {
+                source_id: source_id.clone(),
+                reason: reason.clone(),
+                lost_frames: *lost_frames,
+            },
         }
     }
 }

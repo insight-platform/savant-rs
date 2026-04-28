@@ -16,6 +16,7 @@ mod handle_detecting;
 mod handle_idle;
 mod output;
 mod payload_validate;
+mod pool_cache;
 mod state;
 
 pub use config::{DecoderConfigCallback, FlexibleDecoderConfig};
@@ -23,3 +24,4 @@ pub use decoder::FlexibleDecoder;
 pub use deepstream_decoders::DecodedFrame;
 pub use error::FlexibleDecoderError;
 pub use output::{DecoderParameters, FlexibleDecoderOutput, SealedDelivery, SkipReason};
+pub use pool_cache::PoolCacheRegistry;

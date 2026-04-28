@@ -1,17 +1,17 @@
 //! [`Registry`] — the framework's name-keyed directory of actor
 //! addresses.
 //!
-//! Every actor / source published during
-//! [`System::build`](super::actor::Actor) reserves its
-//! [`StageName`] slot and writes the corresponding `Addr<M>` into
+//! Every actor and source registered with
+//! [`System`](super::system::System) reserves its [`StageName`]
+//! slot and (for actors) writes the corresponding `Addr<M>` into
 //! this registry.  Peers look up typed addresses during
 //! construction (`BuildCtx::addr::<M>(&peer)`) or at runtime
 //! (`Context::resolve::<M>(&peer)`); routing is name-based, not
 //! position-based, so a pipeline can add / swap / reroute actors
 //! without rewiring shared-sender boilerplate.
 //!
-//! The registry is populated in phase 1 of `System::build` and
-//! frozen from phase 2 onwards — all lookup methods take `&self`,
+//! The registry is populated as actors register and is frozen
+//! before any thread is spawned — all lookup methods take `&self`,
 //! so the registry is safely shareable as `Arc<Registry>` across
 //! every actor thread.
 
@@ -40,7 +40,9 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// Empty registry — populated by `System::build` phase 1.
+    /// Empty registry — populated by
+    /// [`System::register_actor`](super::system::System::register_actor)
+    /// as actors are registered.
     pub fn new() -> Self {
         Self::default()
     }

@@ -1,18 +1,28 @@
 //! [`ActorBuilder`] and [`SourceBuilder`] — the registration
-//! primitives that `System::register_actor` / `System::register_source`
-//! will consume.
+//! primitives consumed by
+//! [`System::register_actor`](super::system::System::register_actor)
+//! and
+//! [`System::register_source`](super::system::System::register_source).
 //!
 //! A builder is **configuration + factory**: it carries the
 //! actor's [`StageName`], inbox capacity, and lifecycle knobs
-//! plus a `Fn(&BuildCtx) -> Result<A>` factory closure.  The
+//! plus a `FnOnce(&BuildCtx) -> Result<A>` factory closure.  The
 //! builder is the single hand-off point from user code into the
-//! framework — once it's handed to `System::register_actor` the
-//! framework owns the full construction + thread-spawn path.
+//! framework — once it is handed to `register_actor` /
+//! `register_source` the framework owns the full construction
+//! and thread-spawn path.
 //!
-//! These types don't do any I/O: they're pure value constructors
-//! that the [`System`](super::actor::Actor) drains in two passes
-//! (phase 1: allocate inbox + publish address; phase 2: run
-//! factory + spawn thread).
+//! These types do no I/O.  They are pure value constructors:
+//!
+//! * `register_actor` / `register_source` (called eagerly from
+//!   user code) allocate each actor's bounded inbox channel and
+//!   publish its [`Addr<M>`](super::addr::Addr) under its
+//!   `StageName`.
+//! * [`System::run`](super::system::System::run) (called once,
+//!   when the topology is complete) invokes each captured
+//!   factory against a [`BuildCtx`] populated with the registry
+//!   and shared store, then spawns one OS thread per actor /
+//!   source.
 
 use std::time::Duration;
 
@@ -22,27 +32,29 @@ use super::actor::{Actor, Source};
 use super::context::BuildCtx;
 use super::supervisor::StageName;
 
-/// Factory closure handed to an [`ActorBuilder`].  Runs in phase 2
-/// of `System::build`, after every peer's address is already in
+/// Factory closure handed to an [`ActorBuilder`].  Invoked once
+/// by [`System::run`](super::system::System::run), after every
+/// peer's [`Addr`](super::addr::Addr) is already published in
 /// the registry, so the factory can resolve peers eagerly and
 /// produce a ready-to-run actor value by return.
 pub type ActorFactory<A> = Box<dyn FnOnce(&BuildCtx) -> Result<A> + Send>;
 
-/// Factory closure handed to a [`SourceBuilder`].  Same phase-2
-/// semantics as [`ActorFactory`] — resolves peers eagerly and
-/// returns the source value.
+/// Factory closure handed to a [`SourceBuilder`].  Same call-site
+/// as [`ActorFactory`] — invoked once by `System::run` against a
+/// fully-populated [`BuildCtx`], returns the source value.
 pub type SourceFactory<S> = Box<dyn FnOnce(&BuildCtx) -> Result<S> + Send>;
 
-/// Builder for an [`Actor`] — configures its
-/// [`StageName`], inbox capacity, and
-/// lifecycle knobs, then carries the factory closure that will
-/// instantiate the actor in phase 2 of `System::build`.
+/// Builder for an [`Actor`] — configures its [`StageName`],
+/// inbox capacity, and lifecycle knobs, then carries the factory
+/// closure that
+/// [`System::run`](super::system::System::run) will invoke to
+/// instantiate the actor.
 ///
-/// Builders are intended to be constructed via a
-/// fluent API once — typically from a higher-level *template*
-/// (Layer B) that sets opinionated defaults and only exposes the
+/// Builders are intended to be constructed once via a fluent
+/// API — typically from a higher-level *stage* (Layer B)
+/// that sets opinionated defaults and only exposes the
 /// actor-specific hooks to user code — but the raw surface here
-/// is available for free-form actors.
+/// is also available for free-form actors.
 pub struct ActorBuilder<A: Actor> {
     name: StageName,
     inbox_capacity: usize,
@@ -55,7 +67,7 @@ impl<A: Actor> ActorBuilder<A> {
     /// inbox capacity `inbox_capacity`.
     ///
     /// The capacity bounds the per-peer queue depth and is the
-    /// sample's primary backpressure knob — small values keep
+    /// application's primary backpressure knob — small values keep
     /// memory footprint tight but throttle faster.
     pub fn new(name: StageName, inbox_capacity: usize) -> Self {
         Self {
@@ -74,8 +86,9 @@ impl<A: Actor> ActorBuilder<A> {
         self
     }
 
-    /// Install the factory closure that will instantiate the
-    /// actor in phase 2 of `System::build`.
+    /// Install the factory closure that
+    /// [`System::run`](super::system::System::run) will invoke
+    /// to instantiate the actor.
     ///
     /// The factory receives a [`BuildCtx`] with the fully-populated
     /// registry and shared store — resolve peers, read config,
@@ -103,10 +116,12 @@ impl<A: Actor> ActorBuilder<A> {
         self.poll_timeout
     }
 
-    /// Internal: drain the builder into its parts.  The
-    /// `System::build` path consumes these to allocate the
-    /// channel (phase 1) and run the factory (phase 2).
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    /// Internal: drain the builder into its parts.
+    /// [`System::register_actor`](super::system::System::register_actor)
+    /// uses these to allocate the inbox channel and capture the
+    /// factory; [`System::run`](super::system::System::run) then
+    /// invokes the factory before spawning the actor's thread.
+    #[allow(dead_code, reason = "called from System::register_actor")]
     pub(crate) fn into_parts(self) -> ActorBuilderParts<A> {
         ActorBuilderParts {
             name: self.name,
@@ -119,7 +134,10 @@ impl<A: Actor> ActorBuilder<A> {
     }
 }
 
-#[allow(dead_code, reason = "consumed by System in Component 2")]
+#[allow(
+    dead_code,
+    reason = "fields read from System::register_actor / System::run"
+)]
 pub(crate) struct ActorBuilderParts<A: Actor> {
     pub(crate) name: StageName,
     pub(crate) inbox_capacity: usize,
@@ -159,7 +177,10 @@ impl<S: Source> SourceBuilder<S> {
     }
 
     /// Internal: drain the builder into its parts.
-    #[allow(dead_code, reason = "consumed by System in Component 2")]
+    /// [`System::register_source`](super::system::System::register_source)
+    /// captures these; [`System::run`](super::system::System::run)
+    /// invokes the factory and spawns the source's thread.
+    #[allow(dead_code, reason = "called from System::register_source")]
     pub(crate) fn into_parts(self) -> SourceBuilderParts<S> {
         SourceBuilderParts {
             name: self.name,
@@ -170,7 +191,10 @@ impl<S: Source> SourceBuilder<S> {
     }
 }
 
-#[allow(dead_code, reason = "consumed by System in Component 2")]
+#[allow(
+    dead_code,
+    reason = "fields read from System::register_source / System::run"
+)]
 pub(crate) struct SourceBuilderParts<S: Source> {
     pub(crate) name: StageName,
     pub(crate) factory: SourceFactory<S>,

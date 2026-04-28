@@ -51,6 +51,7 @@ fn make_nvtracker_config() -> crate::config::NvTrackerConfig {
         output_channel_capacity: 16,
         drain_poll_interval: std::time::Duration::from_millis(100),
         idle_flush_interval: None,
+        stale_source_after: None,
     }
 }
 

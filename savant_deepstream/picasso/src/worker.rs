@@ -287,8 +287,13 @@ impl WorkerState {
         if self.cuda_stream.is_default() {
             match CudaStream::new_non_blocking() {
                 Ok(stream) => {
-                    info!("CUDA stream created: source={}", self.source_id);
-                    self.cuda_stream = stream;
+                    let labelled = stream.with_label(format!("picasso/{}", self.source_id));
+                    info!(
+                        "CUDA stream created: source={}, raw={:?}",
+                        self.source_id,
+                        labelled.as_raw()
+                    );
+                    self.cuda_stream = labelled;
                 }
                 Err(e) => {
                     error!(
@@ -349,6 +354,13 @@ impl WorkerState {
             }
         }
         if !self.cuda_stream.is_default() {
+            // `NvEncoder::graceful_shutdown` above ends with
+            // `fence_after_shutdown` which already does both
+            // `cuda_stream.synchronize_or_log()` on the convert stream
+            // *and* a device-wide `cudaDeviceSynchronize`.  By the time
+            // we reach this line every CUDA stream in the device is
+            // fully drained, so dropping the worker's stream here is
+            // safe without an extra sync.
             self.cuda_stream = CudaStream::default();
             debug!("CUDA stream released: source={}", self.source_id);
         }

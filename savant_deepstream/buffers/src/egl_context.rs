@@ -53,7 +53,8 @@ const EGL_PLATFORM_DEVICE_EXT: u32 = 0x313F;
 extern "C" {
     fn eglGetError() -> EGLint;
     fn eglInitialize(display: EGLDisplay, major: *mut EGLint, minor: *mut EGLint) -> EGLBoolean;
-    fn eglTerminate(display: EGLDisplay) -> EGLBoolean;
+    // NOTE: deliberately no `eglTerminate` extern.  See `Drop for
+    // EglHeadlessContext` for why we never call it on Jetson.
     fn eglBindAPI(api: u32) -> EGLBoolean;
     fn eglChooseConfig(
         display: EGLDisplay,
@@ -126,7 +127,21 @@ fn egl_check(context: &str) -> Result<(), EglError> {
 ///
 /// # Drop
 ///
-/// Destroys the EGL context and terminates the display on drop.
+/// Destroys the EGL context but **does not** terminate the display.
+///
+/// On Jetson, the device-platform `EGLDisplay` we obtain here is
+/// shared process-wide with DeepStream components (`gst-nvinfer`,
+/// `nvtracker` / cuDCF, `nvv4l2decoder`, NVMM allocators, `nvenc`,
+/// `EglCudaMeta`'s `cuGraphicsEGLRegisterImage` resources, …).
+/// Calling `eglTerminate` invalidates all EGL resources tied to that
+/// display lazily — i.e. the next GPU op from any of those components
+/// faults with `cudaErrorIllegalAddress` instead of failing at the
+/// terminate call itself.  This was the root cause of the
+/// `cars-demo-zmq` post-idle restart failure: cycle 1's
+/// `SkiaRenderer::drop` terminated the display, and cycle 2's first
+/// `cudaStreamWaitEvent` / `cuDCFFrameTransformTexture` /
+/// `NvBufSurfTransform` poisoned the device.  See `cars-demo-zmq`
+/// reproducer + `SAVANT_DIAG_DEVICE_PROBE=1` evidence in F3/F4/F5.
 pub struct EglHeadlessContext {
     display: EGLDisplay,
     context: EGLContext,
@@ -243,10 +258,29 @@ impl EglHeadlessContext {
 
 impl Drop for EglHeadlessContext {
     fn drop(&mut self) {
+        // ── F6: destroy the context but leave the display alive ──────
+        //
+        // The device-platform `EGLDisplay` we initialised in
+        // [`EglHeadlessContext::new`] is, on Jetson, the same logical
+        // display used by every other DeepStream / NVMM component in
+        // the process.  Calling `eglTerminate(display)` releases the
+        // application's reference to it, but the EGL spec mandates
+        // *deferred* destruction of any resource still in use by
+        // bindings made through that display: the next operation that
+        // touches such a resource — `cuGraphicsEGLRegisterImage`,
+        // `cudaStreamWaitEvent` against an EGLSync, a cuDCF texture
+        // bind, an NVMM allocator, an `NvBufSurfTransform`, … — is
+        // free to fault with `cudaErrorIllegalAddress`.
+        //
+        // That is exactly the post-idle-restart symptom we were
+        // hunting in `cars-demo-zmq`: cycle 1's `SkiaRenderer::drop`
+        // ran here, cycle 2's first GPU op then poisoned the device.
+        // Destroying just the context (and not terminating the
+        // display) is sufficient for our use-case and leaves the
+        // shared display intact for the rest of the process.
         unsafe {
             eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             eglDestroyContext(self.display, self.context);
-            eglTerminate(self.display);
         }
     }
 }

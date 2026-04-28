@@ -739,7 +739,7 @@ fn test_skipped_data_some_for_unsupported_codec() {
 
 #[test]
 #[serial]
-fn test_waiting_for_keyframe_on_codec_change() {
+fn test_parameter_change_during_detection_on_codec_change() {
     init();
     let collector = OutputCollector::new();
     let dec = FlexibleDecoder::new(default_config("cam-1"), collector.callback());
@@ -760,7 +760,10 @@ fn test_waiting_for_keyframe_on_codec_change() {
     }
 
     // All 3 frames are buffered in Detecting state (no keyframe found).
-    // Now switch codec → triggers WaitingForKeyframe for the buffered packets.
+    // Now switch codec → buffered packets must surface as
+    // ParameterChangeDuringDetection (NOT WaitingForKeyframe), because
+    // they were abandoned mid-detection by the codec renegotiation, not
+    // dropped while waiting for an IDR on a stable input.
     let jpeg_data = make_jpeg(320, 240);
     let jpeg_frame = make_frame(
         "cam-1",
@@ -795,8 +798,12 @@ fn test_waiting_for_keyframe_on_codec_change() {
     for (skipped_frame, data, reason) in &skipped {
         assert_eq!(
             **reason,
-            SkipReason::WaitingForKeyframe,
-            "reason must be WaitingForKeyframe, not DetectionBufferOverflow"
+            SkipReason::ParameterChangeDuringDetection {
+                codec_changed: true,
+                dims_changed: false,
+            },
+            "reason must be ParameterChangeDuringDetection (codec only), \
+             not WaitingForKeyframe"
         );
         assert!(
             buffered_uuids.contains(&skipped_frame.get_uuid_u128()),

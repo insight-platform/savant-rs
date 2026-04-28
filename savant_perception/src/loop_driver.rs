@@ -16,7 +16,7 @@
 //! ```
 //!
 //! plus cooperative-stop bookkeeping (observe
-//! [`ShutdownHint`](super::envelope::ShutdownHint)s on incoming
+//! [`ShutdownHint`]s on incoming
 //! envelopes, honour
 //! [`Context::should_quit`](super::context::Context::should_quit)
 //! between iterations, cap `recv_timeout` by the earliest of
@@ -35,10 +35,11 @@ use super::handler::Flow;
 /// Drive `actor` on the current thread to completion.
 ///
 /// * `inbox` is the receiving half of the actor's bounded
-///   channel (the companion of the registered [`Addr`] on the
-///   sending side).
-/// * `ctx` is the per-thread [`Context`] produced by
-///   [`System::build`](super::actor::Actor).
+///   channel (the companion of the registered
+///   [`Addr`](super::addr::Addr) on the sending side).
+/// * `ctx` is the per-thread [`Context`] built by
+///   [`System::run`](super::system::System::run) before the
+///   actor thread is spawned.
 ///
 /// Returns `Ok(())` on a natural exit (all senders dropped,
 /// `Flow::Stop`, or [`Context::should_quit`] tripped) and the

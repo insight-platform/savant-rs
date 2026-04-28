@@ -4,11 +4,13 @@
 //! [`StageExit`] onto the supervisor's back-channel when it drops —
 //! i.e. on **every** thread exit path, whether the body returned
 //! `Ok(_)`, returned `Err(_)`, or is unwinding from a panic.  The
-//! orchestrator blocks on [`ExitReceiver::recv`] and treats the first
-//! *shutdown-worthy* signal as the trigger to broadcast a cooperative
-//! [`PipelineMsg::Shutdown`](super::message::PipelineMsg::Shutdown)
-//! sentinel onto every inter-actor channel and then join every
-//! thread.
+//! [`System`](super::system::System) supervisor reads the
+//! back-channel, runs its installed
+//! [`ShutdownHandler`](super::shutdown::ShutdownHandler) for each
+//! signal, and on a broadcast action calls each actor's
+//! [`Envelope::build_shutdown`](super::envelope::Envelope::build_shutdown)
+//! to send a cooperative shutdown sentinel onto every inter-actor
+//! channel before joining every thread.
 //!
 //! # Why Drop?
 //!
@@ -25,11 +27,10 @@
 //! join all" time there are up to `N_stages + 1` senders pushing
 //! notifications at once (plus the Ctrl+C handler).  A bounded
 //! channel would risk a guard blocking on `send` during unwind,
-//! which is precisely the hang we are trying to avoid — an
+//! which is precisely the hang we are trying to avoid. An
 //! unbounded channel keeps `StageExitGuard::drop` infallibly
-//! non-blocking for all future supervisor shapes, at the cost of a
-//! handful of queued 16-byte signals that the orchestrator drains
-//! anyway.
+//! non-blocking, at the cost of a handful of queued 16-byte
+//! signals that the supervisor drains anyway.
 //!
 //! # Multi-instance stages
 //!
@@ -55,21 +56,40 @@ use std::fmt;
 /// instances (e.g. several nvinfer models in one pipeline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StageKind {
-    /// [`mp4_demux`](super::pipeline::mp4_demux) actor — `Mp4Demuxer` wrapper.
+    /// MP4/container demuxer source — [`Mp4DemuxerSource`](super::stages::Mp4DemuxerSource).
     Mp4Demux,
-    /// [`decoder`](super::pipeline::decoder) actor — `FlexibleDecoderPool` wrapper.
+    /// URI demuxer source — `UriDemuxer` wrapper around
+    /// `urisourcebin` / `parsebin` for file://, http://, rtsp://,
+    /// rtmp://, hls://, … inputs.  Like `Mp4Demux`, this source can
+    /// exit naturally when its input reaches end-of-stream; the
+    /// application shutdown policy decides whether that should stop
+    /// the whole system.
+    UriDemux,
+    /// Decoder actor — [`Decoder`](super::stages::Decoder) wrapper
+    /// around `FlexibleDecoderPool`.
     Decoder,
-    /// [`infer`](super::pipeline::infer) actor — nvinfer batching operator.
+    /// Inference actor — [`NvInfer`](super::stages::NvInfer)
+    /// wrapper around an nvinfer batching operator.
     Infer,
-    /// [`tracker`](super::pipeline::tracker) actor — NvDCF batching operator.
+    /// Tracker actor — [`NvTracker`](super::stages::NvTracker)
+    /// wrapper around an NvDCF batching operator.
     Tracker,
-    /// [`picasso`](super::pipeline::picasso) actor — Picasso draw + encode.
+    /// Picasso draw/encode actor — [`Picasso`](super::stages::Picasso).
     Picasso,
     /// Generic user-function actor (pipeline tail, analytics tap,
-    /// custom processing stage, …).  Was previously `Blackhole`.
+    /// custom processing stage, …).
     Function,
-    /// [`mp4_mux`](super::pipeline::mp4_mux) actor — `Mp4Muxer` terminus.
+    /// MP4 muxer terminus — [`Mp4Muxer`](super::stages::Mp4Muxer).
     Mp4Mux,
+    /// ZeroMQ-backed source — `NonBlockingReader` wrapper exposed
+    /// by [`stages::zmq_source`](super::stages::zmq_source).
+    /// Shares the "natural exit is expected" policy with the
+    /// other source kinds (`Mp4Demux`, `UriDemux`).
+    ZmqSource,
+    /// ZeroMQ-backed sink — `NonBlockingWriter` wrapper exposed
+    /// by [`stages::zmq_sink`](super::stages::zmq_sink).
+    /// Sibling of `Mp4Mux` for terminus-style policies.
+    ZmqSink,
     /// Synthetic signal posted by the Ctrl+C handler so user-cancel
     /// flows through the same single recv-point as natural exits.
     CtrlC,
@@ -77,16 +97,19 @@ pub enum StageKind {
 
 impl StageKind {
     /// Lower-case static identifier used in log lines, e.g.
-    /// `"demux"`, `"ctrl-c"`.
+    /// `"mp4_demux"`, `"infer"`, `"ctrl-c"`.
     pub const fn as_str(&self) -> &'static str {
         match self {
             StageKind::Mp4Demux => "mp4_demux",
+            StageKind::UriDemux => "uri_demux",
             StageKind::Decoder => "decoder",
             StageKind::Infer => "infer",
             StageKind::Tracker => "tracker",
             StageKind::Picasso => "picasso",
             StageKind::Function => "function",
             StageKind::Mp4Mux => "mp4_mux",
+            StageKind::ZmqSource => "zmq_source",
+            StageKind::ZmqSink => "zmq_sink",
             StageKind::CtrlC => "ctrl-c",
         }
     }
@@ -107,14 +130,15 @@ impl fmt::Display for StageKind {
 /// `infer[plate_ocr]` and the supervisor's logs will reflect exactly
 /// which one signalled.
 ///
-/// Conditional supervisor policy (e.g. "ignore `Demux` natural
-/// exit") matches on the [`StageKind`] only; the instance is purely
-/// for operator visibility.
+/// Conditional shutdown policy (e.g. "ignore a natural
+/// `Mp4Demux` exit") matches on the [`StageKind`] only; the
+/// instance is purely for operator visibility.
 ///
 /// Construct with:
 ///
 /// * [`StageName::unnamed`] — single-instance stage, instance
-///   field is empty, display is just the kind (e.g. `"demux"`).
+///   field is empty, display is just the kind (e.g.
+///   `"mp4_demux"`).
 /// * [`StageName::new`] — named instance, display is
 ///   `"{kind}[{instance}]"` (e.g. `"infer[yolo11n]"`).
 ///
@@ -145,7 +169,7 @@ impl StageName {
 
     /// Construct an unnamed stage — use when the pipeline has a
     /// single actor of this kind and no disambiguation is needed.
-    /// Display is just the kind's identifier, e.g. `"demux"`.
+    /// Display is just the kind's identifier, e.g. `"mp4_demux"`.
     pub const fn unnamed(kind: StageKind) -> Self {
         Self {
             kind,
@@ -173,14 +197,12 @@ impl fmt::Display for StageName {
 
 /// Back-channel notification describing which stage exited.
 ///
-/// The supervisor conditionally reads a single *shutdown-worthy*
-/// signal today and broadcasts
-/// [`PipelineMsg::Shutdown`](super::message::PipelineMsg::Shutdown),
-/// but the richer `stage` field is deliberately kept here so
-/// future supervisors can react conditionally (e.g. "ignore
-/// `Demux` when the terminus has already drained", "treat a
-/// `Tracker` panic as pipeline fatal", …).  Error information
-/// itself still propagates via each thread's
+/// The supervisor consumes one signal at a time from the
+/// back-channel and forwards the [`StageName`] to its
+/// [`ShutdownHandler`](super::shutdown::ShutdownHandler) so the
+/// handler can react conditionally on the [`StageKind`] (and
+/// optionally the instance tag).  Error information itself
+/// still propagates via each thread's
 /// `JoinHandle<Result<()>>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageExit {
@@ -240,7 +262,7 @@ impl Drop for StageExitGuard {
 /// block — a blocked guard during unwind would deadlock the whole
 /// join step.  A handful of queued 16-byte `StageExit` structs
 /// (one per live stage plus Ctrl+C) is negligible and the
-/// orchestrator drains them all.
+/// supervisor drains them all.
 pub fn exit_channel() -> (ExitSender, ExitReceiver) {
     unbounded()
 }
@@ -279,7 +301,7 @@ mod tests {
 
     /// Multiple guards fan into the same receiver; the first signal
     /// is available immediately even if other guards are still
-    /// live.  This mirrors the orchestrator's "block on first exit"
+    /// live. This mirrors the supervisor's "block on first exit"
     /// contract.
     #[test]
     fn first_exit_is_observable() {
@@ -312,19 +334,22 @@ mod tests {
         assert!(seen.contains("person_attr"));
     }
 
-    /// `StageKind` knows its human-readable identifier; covers
+    /// `StageKind` knows its human-readable identifier; lists
     /// every variant so a new variant added without a matching
-    /// `as_str` arm would fail to compile.
+    /// table entry triggers a compile-time mismatch.
     #[test]
     fn stage_kind_as_str_covers_every_variant() {
         for (kind, expected) in [
             (StageKind::Mp4Demux, "mp4_demux"),
+            (StageKind::UriDemux, "uri_demux"),
             (StageKind::Decoder, "decoder"),
             (StageKind::Infer, "infer"),
             (StageKind::Tracker, "tracker"),
             (StageKind::Picasso, "picasso"),
             (StageKind::Function, "function"),
             (StageKind::Mp4Mux, "mp4_mux"),
+            (StageKind::ZmqSource, "zmq_source"),
+            (StageKind::ZmqSink, "zmq_sink"),
             (StageKind::CtrlC, "ctrl-c"),
         ] {
             assert_eq!(kind.as_str(), expected);
@@ -332,8 +357,8 @@ mod tests {
         }
     }
 
-    /// `StageName` display distinguishes unnamed (`"demux"`) from
-    /// named (`"infer[yolo11n]"`) instances.
+    /// `StageName` display distinguishes unnamed (`"mp4_demux"`)
+    /// from named (`"infer[yolo11n]"`) instances.
     #[test]
     fn stage_name_display_formats_instance() {
         let unnamed = StageName::unnamed(StageKind::Mp4Demux);

@@ -1,6 +1,6 @@
 //! `cars-demo` example: streaming MP4 -> YOLO -> NvDCF -> Picasso -> MP4.
 //!
-//! Thin wrapper around [`cars_tracking::pipeline::run`] — parses CLI,
+//! Thin wrapper around [`cars_demo::pipeline::run`] — parses CLI,
 //! wires up the logger (optionally raising our own log level to `debug`
 //! via `--debug`) and reports the first stage error back to the
 //! process.
@@ -12,7 +12,9 @@
 //! ```
 
 mod assets;
-mod cars_tracking;
+#[allow(dead_code)]
+mod cars_demo;
+#[allow(dead_code)]
 mod cli;
 
 use anyhow::Result;
@@ -37,7 +39,7 @@ fn main() -> Result<()> {
     let resolved = cli.resolve()?;
     log::info!(
         "cars-demo: input={} output={} gpu={} conf={} iou={} channel_cap={} fps={}/{} picasso_enabled={} draw_enabled={} debug={}",
-        resolved.input().display(),
+        resolved.input(),
         resolved
             .output()
             .map(|p| p.display().to_string())
@@ -53,5 +55,5 @@ fn main() -> Result<()> {
         resolved.debug,
     );
 
-    cars_tracking::pipeline::run(resolved)
+    cars_demo::pipeline::run(resolved)
 }

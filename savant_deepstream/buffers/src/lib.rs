@@ -26,6 +26,8 @@
 //! let view = SurfaceView::from_buffer(&shared, 0).unwrap();
 //! ```
 
+pub mod cuda_device;
+pub mod cuda_poison;
 pub mod cuda_stream;
 pub mod ffi;
 pub mod meta_clear_policy;
@@ -39,6 +41,7 @@ pub mod shared_buffer;
 pub mod surface_readers;
 pub mod surface_view;
 
+pub use cuda_device::cuda_device_synchronize;
 pub use cuda_stream::CudaStream;
 pub use meta_clear_policy::MetaClearPolicy;
 pub use sealed::{Sealed, SealedDeliveries, SealedDelivery};

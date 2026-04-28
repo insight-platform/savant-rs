@@ -69,6 +69,32 @@ pub enum FlexibleDecoderOutput {
     Event(gst::Event),
     /// Error from the underlying `NvDecoder`.
     Error(DecoderError),
+    /// The decoder was torn down (typically because the underlying GStreamer
+    /// pipeline's watchdog tripped) and the [`super::FlexibleDecoder`] has
+    /// transitioned back to `Idle`.  The next submit re-runs detection /
+    /// activation transparently; any frames that were in flight when the
+    /// decoder died are surfaced individually as
+    /// [`Skipped`](Self::Skipped) with
+    /// [`SkipReason::DecoderRestarted`].
+    ///
+    /// This event is purely informational — the pool has already taken the
+    /// recovery action by the time the callback fires.  Hooks may use it to
+    /// log, increment metrics, or request a cooperative pipeline stop.
+    Restarted {
+        /// Source id of the [`super::FlexibleDecoder`] that restarted.
+        source_id: String,
+        /// Human-readable reason for the restart.  Currently always
+        /// `"worker thread exited"` (typically watchdog-induced; the
+        /// upstream [`PipelineError`](savant_gstreamer::pipeline::PipelineError)
+        /// is reported separately via
+        /// [`Error`](Self::Error)`(FrameworkError(...))`).
+        reason: String,
+        /// Number of in-flight frames that were lost because of the
+        /// restart.  Each is also surfaced via
+        /// [`Skipped`](Self::Skipped) with
+        /// [`SkipReason::DecoderRestarted`].
+        lost_frames: usize,
+    },
 }
 
 impl FlexibleDecoderOutput {
@@ -122,6 +148,20 @@ pub enum SkipReason {
     /// Too many frames buffered without finding a random access point;
     /// the detection buffer limit was exceeded.
     DetectionBufferOverflow,
+    /// While the decoder was still in the `Detecting` state (no keyframe
+    /// seen yet), the declared codec or frame dimensions changed, so the
+    /// in-progress detection attempt is abandoned and the buffered pre-RAP
+    /// packets are surfaced.  Emitted instead of
+    /// [`WaitingForKeyframe`](Self::WaitingForKeyframe) on this path so
+    /// downstream consumers can distinguish keyframe-pending throughput
+    /// stalls from input-parameter renegotiations.
+    ParameterChangeDuringDetection {
+        /// Whether the codec changed compared to the codec under detection.
+        codec_changed: bool,
+        /// Whether the width/height changed compared to the dimensions
+        /// under detection.
+        dims_changed: bool,
+    },
     /// Neither the `data` argument nor `frame.get_content()` contained bytes.
     NoPayload,
     /// Payload failed structural validation for the declared codec
@@ -129,4 +169,9 @@ pub enum SkipReason {
     InvalidPayload(String),
     /// `NvDecoder::new()` failed when activating.
     DecoderCreationFailed(String),
+    /// The decoder was torn down (typically a watchdog-induced restart) while
+    /// this frame was in flight; it could not be recovered.  The aggregate
+    /// signal is delivered via
+    /// [`FlexibleDecoderOutput::Restarted`].
+    DecoderRestarted(String),
 }

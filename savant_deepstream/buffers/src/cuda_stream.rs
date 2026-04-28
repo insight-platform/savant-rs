@@ -11,6 +11,7 @@
 //!   **not** destroy the underlying handle.
 //! - [`Clone`] always produces a non-owning copy.
 
+use crate::cuda_poison::note_cuda_rc;
 use crate::ffi;
 use crate::NvBufSurfaceError;
 
@@ -18,9 +19,15 @@ use crate::NvBufSurfaceError;
 ///
 /// The default stream (constructed via [`Default::default`]) is the CUDA
 /// legacy stream (null pointer) and is non-owning.
+///
+/// An optional [`label`](Self::with_label) is carried purely for log
+/// disambiguation — multiple long-lived CUDA streams (one per decoder, one
+/// per encoder, one per picasso worker) appear in the same process and are
+/// otherwise indistinguishable in error logs by raw pointer alone.
 pub struct CudaStream {
     raw: *mut std::ffi::c_void,
     owned: bool,
+    label: Option<String>,
 }
 
 // SAFETY: CUDA streams are thread-safe — work can be enqueued from any
@@ -44,10 +51,15 @@ impl CudaStream {
         // 0x01 = cudaStreamNonBlocking
         let ret = unsafe { ffi::cudaStreamCreateWithFlags(&mut raw, 0x01) };
         if ret != 0 {
+            note_cuda_rc("CudaStream::new_non_blocking", "create", ret);
             return Err(NvBufSurfaceError::CudaInitFailed(ret));
         }
         log::debug!("Created non-blocking CUDA stream {:?}", raw);
-        Ok(Self { raw, owned: true })
+        Ok(Self {
+            raw,
+            owned: true,
+            label: None,
+        })
     }
 
     /// Wrap an existing raw CUDA stream pointer without taking ownership.
@@ -61,7 +73,29 @@ impl CudaStream {
         Self {
             raw: ptr,
             owned: false,
+            label: None,
         }
+    }
+
+    /// Attach a human-readable label to this stream for diagnostic logging.
+    ///
+    /// Used only by the [`Drop`], [`synchronize`](Self::synchronize) and
+    /// [`Debug`] paths — has no effect on the underlying CUDA stream
+    /// itself.  Typical labels: `"picasso/<source_id>"`,
+    /// `"decoder/<name>"`, `"encoder/<name>"`.
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Replace this stream's diagnostic label in place.
+    pub fn set_label(&mut self, label: impl Into<String>) {
+        self.label = Some(label.into());
+    }
+
+    /// Returns the diagnostic label attached to this stream, if any.
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
     }
 
     /// Returns the raw CUDA stream pointer.
@@ -81,12 +115,23 @@ impl CudaStream {
 
     /// Block until all previously enqueued work on this stream completes.
     ///
+    /// `#[track_caller]` propagates the application call site into the
+    /// `at=…` field of any `cuda_poisoned` / `cuda_post_poison` log line
+    /// emitted by the underlying [`crate::cuda_poison::note_cuda_rc`].
+    ///
     /// # Errors
     ///
     /// Returns [`NvBufSurfaceError::CudaInitFailed`] if synchronization fails.
+    #[track_caller]
     pub fn synchronize(&self) -> Result<(), NvBufSurfaceError> {
         let err = unsafe { ffi::cudaStreamSynchronize(self.raw) };
         if err != 0 {
+            let label = self.label.as_deref().unwrap_or("<unlabeled>");
+            note_cuda_rc(
+                "CudaStream::synchronize",
+                format_args!("label={label}, raw={:?}", self.raw),
+                err,
+            );
             return Err(NvBufSurfaceError::CudaInitFailed(err));
         }
         Ok(())
@@ -97,10 +142,14 @@ impl CudaStream {
     ///
     /// Use this variant when synchronization failure is non-fatal and the
     /// calling code cannot propagate errors.
+    ///
+    /// `#[track_caller]` is propagated so the `at=…` field of any poison
+    /// log line points at the application call site.
+    #[track_caller]
     pub fn synchronize_or_log(&self) {
-        if let Err(e) = self.synchronize() {
-            log::warn!("cudaStreamSynchronize failed: {e}");
-        }
+        // [`Self::synchronize`] already routes any non-zero rc through
+        // [`note_cuda_rc`], so we only need to swallow the error here.
+        let _ = self.synchronize();
     }
 }
 
@@ -110,6 +159,7 @@ impl Default for CudaStream {
         Self {
             raw: std::ptr::null_mut(),
             owned: false,
+            label: None,
         }
     }
 }
@@ -118,11 +168,14 @@ impl Clone for CudaStream {
     /// Clone always produces a **non-owning** handle.
     ///
     /// The cloned handle refers to the same underlying CUDA stream but
-    /// will not destroy it on drop.
+    /// will not destroy it on drop.  The diagnostic label (if any) is
+    /// inherited so logs from clones still identify the originating
+    /// owner.
     fn clone(&self) -> Self {
         Self {
             raw: self.raw,
             owned: false,
+            label: self.label.clone(),
         }
     }
 }
@@ -130,11 +183,15 @@ impl Clone for CudaStream {
 impl Drop for CudaStream {
     fn drop(&mut self) {
         if self.owned && !self.raw.is_null() {
+            let label = self.label.as_deref().unwrap_or("<unlabeled>");
             let ret = unsafe { ffi::cudaStreamDestroy(self.raw) };
-            if ret != 0 {
-                log::warn!("cudaStreamDestroy failed: code {ret}");
-            } else {
-                log::debug!("Destroyed CUDA stream {:?}", self.raw);
+            note_cuda_rc(
+                "CudaStream::drop",
+                format_args!("label={label}, raw={:?}", self.raw),
+                ret,
+            );
+            if ret == 0 {
+                log::debug!("Destroyed CUDA stream {:?} (label={})", self.raw, label);
             }
         }
     }
@@ -145,6 +202,7 @@ impl std::fmt::Debug for CudaStream {
         f.debug_struct("CudaStream")
             .field("raw", &self.raw)
             .field("owned", &self.owned)
+            .field("label", &self.label)
             .finish()
     }
 }
@@ -166,12 +224,24 @@ mod tests {
         let stream = CudaStream {
             raw: 0xDEAD as *mut std::ffi::c_void,
             owned: true,
+            label: Some("test".to_string()),
         };
         let cloned = stream.clone();
         assert_eq!(cloned.as_raw(), stream.as_raw());
         assert!(!cloned.is_owned());
+        assert_eq!(cloned.label(), Some("test"));
         // Prevent the original from actually calling cudaStreamDestroy
         std::mem::forget(stream);
+    }
+
+    #[test]
+    fn label_round_trip() {
+        let mut stream = CudaStream::default();
+        assert_eq!(stream.label(), None);
+        stream.set_label("picasso/source1");
+        assert_eq!(stream.label(), Some("picasso/source1"));
+        let stream = stream.with_label("decoder/source2-h264");
+        assert_eq!(stream.label(), Some("decoder/source2-h264"));
     }
 
     #[test]

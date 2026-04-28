@@ -72,6 +72,7 @@ class NvTrackerConfig:
         input_channel_capacity: int = ...,
         output_channel_capacity: int = ...,
         drain_poll_interval_ms: int = ...,
+        stale_source_after_ms: Optional[int] = ...,
     ) -> None: ...
 
     @property
@@ -93,6 +94,11 @@ class NvTrackerConfig:
 
     @property
     def drain_poll_interval_ms(self) -> int: ...
+
+    @property
+    def stale_source_after_ms(self) -> Optional[int]:
+        """Stale-source eviction threshold in milliseconds (``None`` if disabled)."""
+        ...
 
     @property
     def name(self) -> str: ...

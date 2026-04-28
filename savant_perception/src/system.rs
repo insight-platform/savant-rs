@@ -17,25 +17,29 @@
 //! sys.run()?;
 //! ```
 //!
-//! `System::run` drives the two-phase build described in the
-//! module-level design docs:
+//! Construction is split across two call-sites:
 //!
-//! 1. **Phase 1** (inside [`register_actor`](System::register_actor)
-//!    / [`register_source`](System::register_source)) — allocate
-//!    each actor's inbox and publish its `Addr<M>` under its
-//!    `StageName` in the registry.  Done eagerly at registration
-//!    so the order of registration calls doesn't matter.
-//! 2. **Phase 2** — run each factory against a `BuildCtx` with the
-//!    fully-populated registry + shared store.  The factory
-//!    returns the actor value.
-//! 3. **Phase 3** — spawn one OS thread per actor / source, each
-//!    with its own [`StageExitGuard`], running the appropriate
-//!    receive-loop driver.
+//! 1. **Registration** ([`register_actor`](System::register_actor)
+//!    / [`register_source`](System::register_source)) — runs
+//!    eagerly from user code.  Allocates each actor's inbox and
+//!    publishes its `Addr<M>` in the registry under its
+//!    [`StageName`].  Sources have no inbox; only their factory
+//!    is captured.  Registration order does not matter for peer
+//!    resolution because every address is published before any
+//!    factory runs.
+//! 2. **Run** ([`run`](System::run)) — runs once.  For each
+//!    registered stage, in registration order, it invokes the
+//!    captured factory against a [`BuildCtx`] with the
+//!    fully-populated registry and shared store, then spawns one
+//!    OS thread for the resulting actor / source.  Each thread
+//!    body owns a [`StageExitGuard`] that signals the
+//!    supervisor's exit channel on drop.
 //!
-//! After phase 3 the supervisor blocks on the exit channel,
-//! invokes the installed (or default) [`ShutdownHandler`] on
-//! each trigger, and joins every thread in LIFO registration
-//! order so the pipeline tail logs first on a clean run.
+//! After every thread is spawned, `run` blocks on the exit
+//! channel, invokes the installed (or default)
+//! [`ShutdownHandler`] on each trigger, and finally joins every
+//! thread in reverse registration order so the pipeline tail
+//! logs first on a clean exit.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -66,11 +70,14 @@ use super::supervisor::{
 /// built at registration time from the actor's envelope type.
 type ShutdownSender = Box<dyn Fn(Option<Duration>, Cow<'static, str>) -> bool + Send + Sync>;
 
-/// Pending factory + thread-spawn closure captured in phase 1.
-/// Runs in phase 2 (factory call) + phase 3 (thread spawn).
+/// Pending factory + thread-spawn closure captured at
+/// registration.  Invoked once per stage from
+/// [`System::run`](System::run): runs the factory, then spawns
+/// the worker thread.
 type ThreadLauncher = Box<dyn FnOnce(BuildArgs) -> Result<JoinHandle<Result<()>>> + Send>;
 
-/// Arguments threaded into each [`ThreadLauncher`] during phase 2/3.
+/// Arguments threaded into each [`ThreadLauncher`] when
+/// [`System::run`](System::run) starts the stage.
 struct BuildArgs {
     registry: Arc<Registry>,
     shared: Arc<SharedStore>,
@@ -82,10 +89,16 @@ struct BuildArgs {
 /// [`DefaultShutdownHandler`] when no custom handler is
 /// installed.
 ///
-/// Matches the pre-existing cars-tracking pipeline constant — the
-/// window between observing the first stage exit and broadcasting
-/// `Shutdown` on every inbox.  Long enough to let an in-flight
-/// in-band `SourceEos` drain through NVDEC + downstream channels.
+/// The handler sleeps for this duration between observing a
+/// shutdown trigger and broadcasting the `Shutdown` envelope to
+/// every actor inbox.  The window gives any in-flight in-band
+/// `SourceEos` sentinels a chance to drain through downstream
+/// channels first, so each actor sees its per-source EOS before
+/// the system-wide shutdown.
+///
+/// Override with [`System::quiescence`] when a different value
+/// fits the application — including `Duration::ZERO` for tests
+/// that want immediate broadcast.
 pub const DEFAULT_QUIESCENCE_GRACE: Duration = Duration::from_secs(1);
 
 /// Top-level pipeline builder / runner.  See the module docs for
@@ -188,13 +201,14 @@ impl System {
         self
     }
 
-    /// Register an actor.  Allocates the actor's inbox, publishes
-    /// its [`Addr<M>`] under the builder's name, and stores the
-    /// factory for phase 2.  Returns the registered
-    /// [`Addr<M>`](super::addr::Addr) so the orchestrator can
-    /// retain its own clone if it wants to inject synthetic
-    /// messages (not typically needed — peers resolve through
-    /// the registry).
+    /// Register an actor.  Allocates the actor's bounded inbox,
+    /// publishes its [`Addr<M>`] under the builder's name, and
+    /// captures the factory + thread-spawn closure that
+    /// [`run`](Self::run) will invoke.  Returns the registered
+    /// [`Addr<M>`](super::addr::Addr) so the caller can retain
+    /// its own clone if it wants to inject messages from
+    /// outside the pipeline (peers normally resolve through
+    /// the registry instead).
     pub fn register_actor<A>(&mut self, builder: ActorBuilder<A>) -> Result<Addr<A::Msg>>
     where
         A: Actor,
@@ -251,8 +265,10 @@ impl System {
     }
 
     /// Register a source (no-inbox producer).  The source's
-    /// factory runs in phase 2 once every peer's address is
-    /// published.  Sources cooperate with shutdown via the
+    /// factory is invoked from [`run`](Self::run) after every
+    /// actor's [`Addr`] has been published in the registry, so
+    /// the factory can resolve peers eagerly through
+    /// [`BuildCtx`].  Sources cooperate with shutdown via the
     /// shared stop flag ([`SourceContext::is_stopping`]).
     pub fn register_source<S>(&mut self, builder: SourceBuilder<S>) -> Result<()>
     where
@@ -315,10 +331,24 @@ impl System {
             .collect()
     }
 
-    /// Finalize the system: run phase 2 (factory calls) + phase 3
-    /// (thread spawn), install the Ctrl+C handler, block on the
-    /// exit channel, execute the shutdown handler's actions, join
-    /// every thread, and return an aggregated result per stage.
+    /// Finalize the system.
+    ///
+    /// In order, `run`:
+    ///
+    /// 1. Optionally installs a Ctrl+C handler (see
+    ///    [`install_ctrlc_handler`](Self::install_ctrlc_handler)).
+    /// 2. For each registered stage, in registration order,
+    ///    invokes its factory against a [`BuildCtx`] with the
+    ///    fully-populated registry and shared store, then
+    ///    spawns one OS thread for the resulting actor / source.
+    /// 3. Blocks on the supervisor exit channel; for every
+    ///    [`StageExit`] / Ctrl+C signal, calls the installed
+    ///    [`ShutdownHandler`] (or [`DefaultShutdownHandler`] when
+    ///    none is installed) and executes the returned
+    ///    [`ShutdownAction`].
+    /// 4. Joins every spawned thread in reverse registration
+    ///    order and returns a [`SystemReport`] aggregating the
+    ///    per-stage results.
     pub fn run(self) -> Result<SystemReport> {
         let Self {
             shared,
@@ -358,7 +388,8 @@ impl System {
             }
         }
 
-        // Phase 2 + 3: run factories and spawn threads.
+        // For each registered stage, run its factory and spawn its
+        // worker thread.
         let mut handles: Vec<(StageName, JoinHandle<Result<()>>)> =
             Vec::with_capacity(launchers.len());
         let mut pending_factory_errors: Vec<(StageName, anyhow::Error)> = Vec::new();
@@ -624,11 +655,10 @@ mod tests {
 
     use std::sync::atomic::AtomicUsize;
 
-    /// Test actor that stops itself after receiving its first
-    /// `TestMsg::Ping`.  Returning [`Flow::Stop`] makes the actor
-    /// thread exit naturally; its [`StageExitGuard`] then signals
-    /// the supervisor, which is exactly what pre-existing cars
-    /// tracking stages do (e.g. `blackhole` upon `SourceEos`).
+    /// Test actor that stops itself after receiving a configured
+    /// number of `TestMsg::Ping` messages.  Returning
+    /// [`Flow::Stop`] makes the actor thread exit naturally; its
+    /// [`StageExitGuard`] then signals the supervisor.
     ///
     /// We cannot rely on inbox disconnection here: the registry
     /// retains a clone of every actor's `Addr<M>` for peer lookup

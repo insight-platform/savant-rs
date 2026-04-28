@@ -1,27 +1,29 @@
 //! [`SharedStore`] — a type-keyed (and optionally name-keyed)
 //! container of shared, read-only-by-default, thread-safe values.
 //!
-//! Use it to publish cross-actor state during
-//! [`System::build`](super::actor::Actor):
+//! Use it to publish cross-actor state through
+//! [`System::insert_shared`](super::system::System::insert_shared)
+//! and friends, then read it from any factory or running actor:
 //!
-//! * **Singleton-by-type** — one `Config`, one `Stats`, one
-//!   `ModelRegistry`.  Insert with [`SharedStore::insert`], look
-//!   up with [`SharedStore::get::<T>`] /
+//! * **Singleton-by-type** — one value per type. Insert with
+//!   [`SharedStore::insert`], look up with [`SharedStore::get::<T>`] /
 //!   [`BuildCtx::shared::<T>`](super::context::BuildCtx::shared) /
 //!   [`Context::shared::<T>`](super::context::Context::shared).
 //! * **Keyed-by-name** — several distinct instances of the same
-//!   type (e.g. two `DbPool` handles keyed as `"primary"` and
-//!   `"audit"`).  Insert with [`SharedStore::insert_as`], look up
-//!   with [`SharedStore::get_as`] /
+//!   type, scoped by an arbitrary key string. Insert with
+//!   [`SharedStore::insert_as`], look up with
+//!   [`SharedStore::get_as`] /
 //!   [`BuildCtx::shared_as`](super::context::BuildCtx::shared_as) /
 //!   [`Context::shared_as`](super::context::Context::shared_as).
 //!
-//! The store is read-only after [`System::build`](super::actor::Actor) —
-//! mutation through the entries relies on **interior mutability** in
-//! the stored `T` itself (e.g. `Arc<Mutex<State>>` or the lock-free
-//! counters in [`savant_core::pipeline::stats::Stats`]).  That
-//! keeps the lookup path infallible and allocation-free at runtime
-//! (the return is always a cheap `Arc<T>` clone).
+//! The store is mutated only through the inserter methods, which
+//! all take `&mut self`. Once the store is shared as
+//! `Arc<SharedStore>` (i.e. once [`System::run`](super::system::System::run)
+//! has started), the public API observed by actors is read-only.
+//! Mutation visible to running actors must therefore use
+//! **interior mutability** in the stored `T` itself (e.g.
+//! `Arc<Mutex<State>>` or atomics).  All look-up methods return a
+//! cheap `Arc<T>` clone.
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -29,8 +31,9 @@ use std::sync::Arc;
 
 type Entry = Arc<dyn Any + Send + Sync>;
 
-/// Type- and name-keyed store of shared state published by
-/// `System::build`.  See the module docs for usage patterns.
+/// Type- and name-keyed store of shared state published through
+/// [`System`](super::system::System). See the module docs for
+/// usage patterns.
 #[derive(Default)]
 pub struct SharedStore {
     by_type: HashMap<TypeId, Entry>,

@@ -10,47 +10,50 @@
 //!   [`Context`], [`BuildCtx`], [`OperatorSink`], [`Router`],
 //!   [`ActorBuilder`], [`SourceBuilder`]) used to construct actors
 //!   and wire up message dispatch.  [`Router`] is the high-level
-//!   send handle templates expose to their callbacks: it wraps an
+//!   send handle stages expose to their callbacks: it wraps an
 //!   optional default [`OperatorSink`] (configured via each
 //!   builder's `.downstream(...)`) and adds cached name-routing via
 //!   `router.send_to(&peer, msg)`.
-//! * **Layer B — typed actor templates** ([`templates`]) wrapping
+//! * **Layer B — typed actor stages** ([`stages`]) wrapping
 //!   the raw Layer A primitives with domain-specific hooks and
 //!   sensible defaults so user code stays short and
 //!   intent-revealing.
 //!
-//! End-to-end reference pipelines live under
-//! [`examples/`](https://github.com/insight-platform/savant-rs/tree/main/savant_perception/examples)
-//! — see the `cars-demo` example for a full decode → infer → track →
-//! render → encode wiring.  Run it with
-//! `cargo run -p savant-perception-framework --example cars-demo`.
+//! End-to-end applications can be built by composing Layer-B
+//! stages with application-owned envelopes, hooks, and shutdown
+//! policy.
 //!
-//! The framework is **synchronous**: every actor owns an OS thread
-//! and a bounded [`crossbeam::channel`] inbox.  No async runtime,
-//! no `tokio` — the heavy-lifting integrations (GStreamer,
-//! NVDEC/NVENC, nvinfer, NvDCF, Picasso/Skia) are all blocking
-//! APIs that would fight an async executor.
+//! The framework is **synchronous**: every actor owns an OS
+//! thread and a bounded [`crossbeam::channel`] inbox.  There is
+//! no async runtime — the heavy-lifting integrations exposed
+//! through Layer B (GStreamer, the NVIDIA hardware codecs,
+//! nvinfer, NvDCF, Picasso/Skia) are all blocking APIs and are
+//! a more natural fit for blocking threads than for an async
+//! executor.
 //!
-//! # Streaming invariants (shared by every sample)
+//! # Streaming contracts
 //!
-//! 1. **No full-file materialisation.**  Decoder backed by a
-//!    fixed-size NVMM pool; muxer writes each encoded access unit
-//!    directly to `filesink`.
-//! 2. **Backpressure via bounded channels.**  All stage boundaries
-//!    use [`crossbeam::channel::bounded`] with a small capacity.
-//!    A slow downstream stage blocks its upstream producer.
-//! 3. **In-band EOS propagation.**  End-of-source is an in-band
-//!    message (each inter-actor channel's enum has a
-//!    `SourceEos { source_id }` variant) — **not** channel closure.
-//! 4. **Per-frame ownership.**  Each frame traverses the pipeline
-//!    as a single `(VideoFrameProxy, SharedBuffer)` tuple packaged
-//!    into a sealed delivery; clones are dropped as soon as the
-//!    next stage has consumed them so NVMM slots return to the
-//!    pool.
-//! 5. **Unseal outside callbacks.**  Operator result callbacks
-//!    never call `unseal()`; they forward sealed deliveries
-//!    through a bounded channel so a dedicated consumer thread
-//!    unseals and submits to the next stage.
+//! Layer A defines a small set of contracts that every Layer-B
+//! stage observes:
+//!
+//! 1. **Backpressure via bounded channels.**  Every actor inbox
+//!    is a [`crossbeam::channel::bounded`] of small capacity, so
+//!    a slow consumer naturally blocks its upstream producer.
+//! 2. **In-band EOS propagation.**  End-of-source is an in-band
+//!    message (each pipeline envelope has a
+//!    `SourceEos { source_id }` variant), **not** channel
+//!    closure.  Stages that maintain per-source state observe
+//!    each EOS in order and forward an equivalent sentinel
+//!    downstream so the drain sequence is preserved.
+//! 3. **Cooperative shutdown.**  The supervisor reacts to a
+//!    [`ShutdownCause`] (Ctrl+C or a stage exit) by invoking the
+//!    installed [`ShutdownHandler`] and, on a broadcast action,
+//!    sending each actor a `Shutdown { grace, reason }` envelope
+//!    via [`Envelope::build_shutdown`].
+//! 4. **Per-thread state, not interior mutability.**  Actors own
+//!    their own state by `&mut self` for the lifetime of their
+//!    thread; cross-actor state is published through
+//!    [`SharedStore`] before [`System::run`] starts.
 
 pub mod actor;
 pub mod addr;
@@ -67,9 +70,9 @@ pub mod registry;
 pub mod router;
 pub mod shared;
 pub mod shutdown;
+pub mod stages;
 pub mod supervisor;
 pub mod system;
-pub mod templates;
 
 pub use actor::{Actor, Source};
 pub use addr::Addr;

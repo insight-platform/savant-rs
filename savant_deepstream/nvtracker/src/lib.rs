@@ -12,6 +12,7 @@ pub mod error;
 pub mod output;
 pub mod pipeline;
 pub mod roi;
+pub(crate) mod service_meta;
 
 pub use batching_operator::{
     NvTrackerBatchingOperator, NvTrackerBatchingOperatorConfig,

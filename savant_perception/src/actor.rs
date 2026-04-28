@@ -2,8 +2,8 @@
 //! user-facing actor / source type implements.
 //!
 //! An [`Actor`] owns one OS thread, a bounded inbox of its own
-//! [`Envelope`](super::envelope::Envelope) type, and a
-//! [`Context`](super::context::Context) that brokers access to the
+//! [`Envelope`] type, and a
+//! [`Context`] that brokers access to the
 //! registry and shared state.  The
 //! [`loop_driver::run_actor`](super::loop_driver::run_actor)
 //! function drives the lifecycle:
@@ -13,11 +13,12 @@
 //! ```
 //!
 //! A [`Source`] is a no-inbox producer — it owns its thread but
-//! has no receive-loop; instead it pushes out messages on
-//! [`Addr<M>`](super::addr::Addr) handles resolved at build time
-//! and polls [`SourceContext::is_stopping`] to learn when the
-//! pipeline is winding down.  The MP4 demuxer is the canonical
-//! example.
+//! has no receive loop.  Instead it pushes messages onto
+//! [`Addr<M>`](super::addr::Addr) handles resolved through
+//! [`BuildCtx`](super::context::BuildCtx) and polls
+//! [`SourceContext::is_stopping`] to learn when the pipeline is
+//! winding down so it can return cleanly from
+//! [`Source::run`].
 
 use std::time::Duration;
 
@@ -38,28 +39,37 @@ use super::handler::Flow;
 /// 1. [`started`](Actor::started) runs once *inside* the thread
 ///    body, after the thread has entered its
 ///    [`StageExitGuard`](super::supervisor::StageExitGuard) scope
-///    but before any message is polled.  Use it to allocate
-///    per-thread resources (e.g. GStreamer pipeline construction
-///    that must happen on the worker thread) and to emit a
-///    "hello" log record.
+///    but before any message is polled.  Use it for any
+///    initialisation that must happen on the worker thread
+///    itself (e.g. allocating thread-local resources).
 /// 2. [`handle`](Actor::handle) is called once per inbox message.
-///    The default body delegates to
-///    [`Dispatch::dispatch`](super::envelope::Dispatch::dispatch)
-///    so actors with variant-specific behaviour only need a
-///    zero-body impl *and* per-variant
-///    [`Handler<V>`](super::handler::Handler) impls.  Free-form
-///    actors (e.g. the blackhole sink) override `handle` and
-///    pattern-match the envelope directly.
+///    Implementors choose between two dispatch styles:
+///
+///    * Forward to
+///      [`Dispatch::dispatch`](super::envelope::Dispatch::dispatch)
+///      so per-variant
+///      [`Handler<V>`](super::handler::Handler) impls do the
+///      work — appropriate for actors whose envelope has a
+///      `Dispatch` impl that splits variants into typed
+///      handlers.
+///    * Pattern-match the envelope directly — appropriate for
+///      free-form actors that handle each variant inline.
+///
+///    There is intentionally no default body: keeping the
+///    dispatch strategy explicit at the impl site is easier to
+///    review when a pipeline mixes stages with custom
+///    actors.
 /// 3. [`on_tick`](Actor::on_tick) is called whenever the inbox
-///    `recv_timeout` fires without a message — typically every
-///    [`poll_timeout`](Actor::poll_timeout).  Override for actors
-///    that need periodic work (e.g. surfacing a sealed batch from
-///    an operator) while the inbox is idle.
+///    `recv_timeout` fires without a message — at most once per
+///    [`poll_timeout`](Actor::poll_timeout).  Override for
+///    actors that need periodic work (deadline checks,
+///    flushing, batched egress) while the inbox is idle.
 /// 4. [`stopping`](Actor::stopping) runs once after the receive
-///    loop exits (for *any* reason: `Flow::Stop`, `Err`,
-///    disconnect, or panic unwind via the
-///    [`StageExitGuard`](super::supervisor::StageExitGuard)).  Use
-///    it to drain operator tails and emit a "goodbye" log record.
+///    loop exits, regardless of *why* it exited:
+///    [`Flow::Stop`], a hook returning `Err`, the inbox closing,
+///    or a panic unwinding through the
+///    [`StageExitGuard`](super::supervisor::StageExitGuard).  Use
+///    it for end-of-life cleanup and final logging.
 pub trait Actor: Sized + Send + 'static {
     /// Envelope type carried on this actor's inbox.
     type Msg: Envelope;
@@ -73,12 +83,12 @@ pub trait Actor: Sized + Send + 'static {
     /// Handle one inbox envelope.
     ///
     /// Every actor implementation chooses its dispatch strategy
-    /// explicitly:
+    /// explicitly.  Two common shapes:
     ///
-    /// * Templates that rely on per-variant
-    ///   [`Handler<V>`](super::handler::Handler) impls forward to
+    /// * Forward to
     ///   [`Dispatch::dispatch`](super::envelope::Dispatch::dispatch)
-    ///   in one line:
+    ///   so each envelope variant is routed to a typed
+    ///   [`Handler<V>`](super::handler::Handler) impl:
     ///   ```ignore
     ///   fn handle(&mut self, msg: Self::Msg, ctx: &mut Context<Self>)
     ///       -> anyhow::Result<Flow>
@@ -86,14 +96,13 @@ pub trait Actor: Sized + Send + 'static {
     ///       msg.dispatch(self, ctx)
     ///   }
     ///   ```
-    /// * Free-form actors (e.g. the blackhole sink) pattern-match
-    ///   the envelope directly and decide flow per variant.
+    /// * Pattern-match the envelope directly — suitable for
+    ///   actors that handle every variant inline.
     ///
-    /// We deliberately do **not** provide a default body here: the
-    /// explicit one-line delegation keeps the dispatch strategy
-    /// visible at the actor impl site, which matters when
-    /// reviewing pipelines that mix template and free-form
-    /// actors.
+    /// There is intentionally no default body: keeping the
+    /// dispatch strategy visible at the impl site keeps
+    /// pipelines that mix stage-backed and custom actors
+    /// easy to review.
     fn handle(&mut self, msg: Self::Msg, ctx: &mut Context<Self>) -> anyhow::Result<Flow>;
 
     /// Periodic tick, called whenever the inbox has been idle for
@@ -110,34 +119,36 @@ pub trait Actor: Sized + Send + 'static {
 
     /// Maximum wall-clock time the receive loop will wait on an
     /// empty inbox before firing [`on_tick`](Actor::on_tick).
-    /// Defaults to 200 ms — same cadence as the sample's existing
-    /// stages.
+    /// Defaults to 200 ms.
     fn poll_timeout(&self) -> Duration {
         Duration::from_millis(200)
     }
 }
 
-/// Trait implemented by **no-inbox** producers — stages that own a
-/// thread but push rather than poll.
+/// Trait implemented by **no-inbox** producers — stages that own
+/// a thread but push messages rather than poll an inbox.
 ///
-/// The MP4 demuxer is the canonical example: it drives a
-/// [`gstreamer`] pipeline whose bus callback emits `EncodedMsg`
-/// items directly onto a bound [`Addr`](super::addr::Addr).  There
-/// is no receive-loop to run; instead the framework calls
-/// [`Source::run`] on the worker thread and the source returns
-/// when it is done.
+/// The framework calls [`Source::run`] once on the source's
+/// worker thread; the source pushes messages onto peer
+/// [`Addr<M>`](super::addr::Addr) handles resolved through
+/// [`BuildCtx`](super::context::BuildCtx) and returns when it is
+/// done.
 ///
 /// A source cooperates with shutdown by polling
-/// [`SourceContext::is_stopping`] between chunks of work and
-/// cleanly exiting (emitting its terminal
-/// [`SourceEos`](crate::envelopes::EncodedMsg::SourceEos)
-/// before returning) once the flag is set.
+/// [`SourceContext::is_stopping`] between chunks of work.  When
+/// the flag is set the source should drain any in-flight work,
+/// emit its terminal sentinel(s) (e.g.
+/// [`EncodedMsg::SourceEos`](crate::envelopes::EncodedMsg::SourceEos)
+/// for each source it represents), and return `Ok(())` from
+/// `run`.
 pub trait Source: Sized + Send + 'static {
     /// Run the source to completion on its worker thread.
     ///
     /// `ctx` exposes the source's own
     /// [`StageName`](super::supervisor::StageName), shared-state
-    /// lookups, and the [`SourceContext::is_stopping`] flag that
-    /// the orchestrator flips to request shutdown.
+    /// lookups, and the
+    /// [`SourceContext::is_stopping`](SourceContext::is_stopping)
+    /// flag that the supervisor flips when the system is winding
+    /// down.
     fn run(self, ctx: SourceContext) -> anyhow::Result<()>;
 }

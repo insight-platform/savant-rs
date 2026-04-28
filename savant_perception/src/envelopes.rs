@@ -23,37 +23,34 @@
 //!
 //! # Rationale
 //!
-//! The three middle stages all have structurally-identical ingress
-//! channels — each one receives a deliverable, a per-source
-//! [`SourceEos`](PipelineMsg::SourceEos) sentinel, and a cooperative
-//! [`Shutdown`](PipelineMsg::Shutdown) sentinel broadcast by the
-//! orchestrator.  The only thing that varies is the shape of the
-//! deliverable itself:
+//! Pipelines built on this framework typically have two distinct
+//! groups of inter-actor channels:
 //!
-//! * decoder pool → infer: a **single** `(VideoFrameProxy, SharedBuffer)`
-//!   pair ([`PipelineMsg::Delivery`]).
-//! * nvinfer → tracker: a **batched** set of pairs, sealed by
-//!   `deepstream_nvinfer::SealedDeliveries`.
-//! * nvtracker → picasso: a **batched** set of pairs, sealed by
-//!   `deepstream_nvtracker::SealedDeliveries`.
+//! * **Decoded-data channels** carry deliverables of decoded
+//!   frames plus their backing GPU buffers — either as a single
+//!   `(VideoFrameProxy, SharedBuffer)` pair
+//!   ([`PipelineMsg::Delivery`]) or as a batched set of such
+//!   pairs ([`PipelineMsg::Deliveries`]).  Both variants share a
+//!   single envelope ([`PipelineMsg`]) so any actor that
+//!   consumes decoded data can accept either shape uniformly.
+//!   The two batched sealed-delivery shapes used in practice
+//!   (nvinfer's and nvtracker's outputs) are type-erased behind
+//!   the [`Deliveries`](deepstream_buffers::SealedDeliveries)
+//!   abstraction so [`PipelineMsg::Deliveries`] is independent
+//!   of any specific operator.
+//! * **Encoded-data channels** carry encoded access units — raw
+//!   container packets from a demuxer, fully-encoded frames from
+//!   an encoder, or pre-built [`VideoFrameProxy`] values handed
+//!   in by a custom producer.  These all share a single envelope
+//!   ([`EncodedMsg`]) so the same actor stage (e.g. a muxer
+//!   terminus, a ZeroMQ sink) can consume output from any
+//!   producer.
 //!
-//! To share a single message type across all three ingress channels
-//! we keep the singular and batched deliveries as two distinct
-//! variants (`Delivery` and `Deliveries`) and type-erase the two
-//! batched sealed-delivery structs behind the [`Deliveries`] trait.
-//! Both batched structs already expose the exact same public surface
-//! (`len`, `is_empty`, `is_released`, `unseal`), so the trait is a
-//! mechanical, behaviour-preserving mapping.
-//!
-//! The three middle-stage channels all carry [`PipelineMsg`] —
-//! function signatures, struct fields, and the orchestrator use bare
-//! `Sender<PipelineMsg>` / `Receiver<PipelineMsg>`.  The two *edge*
-//! channels (demux → decoder and picasso → mux) both carry encoded
-//! bitstream payloads, and therefore share a single [`EncodedMsg`]
-//! type defined in this module — one canonical shape for a
-//! source-tagged access unit + the same per-source `SourceEos` and
-//! pipeline-wide `Shutdown` sentinels that appear on every
-//! inter-actor channel.
+//! Both envelopes also carry a per-source `SourceEos` sentinel
+//! and a pipeline-wide `Shutdown` sentinel.  The two sentinels
+//! are sized to the same role on every channel, so framework
+//! supervision (in-band drain on `SourceEos`, cooperative
+//! `Shutdown` broadcast) is uniform across the whole pipeline.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -69,27 +66,30 @@ use super::{Dispatch, Envelope, Flow, Handler, ShutdownHint};
 #[doc(inline)]
 pub use super::{ShutdownPayload, SourceEosPayload};
 
-/// Unified ingress message type used by the infer, tracker, and
-/// picasso stages.  See the module docs for the full rationale.
+/// Decoded-data envelope, used wherever an inter-actor channel
+/// carries decoded frames plus their backing GPU buffers.  See
+/// the module docs for the surrounding rationale.
 pub enum PipelineMsg {
-    /// A **single** `(frame, buffer)` pair produced by the decoder
-    /// pool callback.  Consumed by the infer stage.
+    /// A **single** `(frame, buffer)` pair.  Typical producer:
+    /// a per-frame decoder callback that does not batch.
     Delivery(SealedDelivery),
-    /// A **batched** set of `(frame, buffer)` pairs produced by a
-    /// batching operator (nvinfer / nvtracker).  Consumed by the
-    /// tracker and picasso stages respectively.
+    /// A **batched** set of `(frame, buffer)` pairs.  Typical
+    /// producers: batching operators such as nvinfer or
+    /// nvtracker.
     Deliveries(SealedDeliveries),
     /// In-band end-of-source sentinel carrying the source id.
     ///
-    /// Upstream emits this *after* its operator has drained; the
-    /// consumer runs its own local `send_eos` + drain on receipt and
-    /// then forwards an equivalent sentinel downstream.
+    /// Upstream is expected to emit this *after* its own per-source
+    /// drain; consumers run their own local drain on receipt and
+    /// then forward an equivalent sentinel downstream so the
+    /// per-source drain sequence reaches every stage in order.
     SourceEos {
         /// Source id this EOS belongs to.
         source_id: String,
     },
-    /// Cooperative shutdown sentinel broadcast by the orchestrator
-    /// after the terminus has joined (or on Ctrl+C).
+    /// Cooperative shutdown sentinel.  Sent by the supervisor
+    /// when its [`ShutdownHandler`](crate::shutdown::ShutdownHandler)
+    /// returns a broadcast action.
     ///
     /// * `grace = None` — break after the current message is
     ///   handled.
@@ -113,10 +113,10 @@ impl PipelineMsg {
     ///   vec (these variants are expected to be filtered out by the
     ///   caller first; returning empty is a safe no-op).
     ///
-    /// This is the shared normalization step that lets every
-    /// ingress consumer (`infer`, `tracker`, `picasso`, `drain`)
-    /// handle either delivery shape with a single code path —
-    /// iterate the vec and feed each pair downstream.
+    /// This is the shared normalisation step that lets any
+    /// consumer of [`PipelineMsg`] handle either delivery shape
+    /// with a single code path — iterate the vec and feed each
+    /// pair downstream.
     pub fn into_pairs(self) -> Vec<(VideoFrameProxy, SharedBuffer)> {
         match self {
             PipelineMsg::Delivery(d) => vec![d.unseal()],
@@ -132,33 +132,38 @@ impl PipelineMsg {
     }
 }
 
-/// Encoded-bitstream message type carried on two of the pipeline's
-/// inter-actor channels:
+/// Encoded-bitstream envelope, used wherever an inter-actor
+/// channel carries encoded access units instead of decoded
+/// frames.  Typical producers and consumers:
 ///
-/// * **demux → decoder** — `Mp4Demuxer` emits
-///   [`EncodedMsg::StreamInfo`] followed by a stream of
-///   [`EncodedMsg::Packet`] (and/or [`EncodedMsg::Frame`] for the
-///   pre-built-frame entrypoint), terminated by
-///   [`EncodedMsg::SourceEos`].
-/// * **picasso → mux (and any other downstream consumer)** — the
-///   `OnEncodedFrame` callback emits [`EncodedMsg::Packet`] with the
-///   freshly encoded access unit and forwards the picasso-side
-///   [`OutputMessage::EndOfStream`](savant_deepstream_picasso::prelude::OutputMessage::EndOfStream)
-///   as [`EncodedMsg::SourceEos`] so the terminus stays oblivious to
-///   the source multiplexing strategy.
+/// * **producer side** — a demuxer stage (e.g. `Mp4Demuxer`)
+///   emitting [`EncodedMsg::StreamInfo`] followed by a stream of
+///   [`EncodedMsg::Packet`] terminated by
+///   [`EncodedMsg::SourceEos`]; an encoder stage (e.g. the
+///   `Picasso` egress) emitting freshly encoded
+///   [`EncodedMsg::Packet`] / [`EncodedMsg::SourceEos`] downstream;
+///   or a custom producer handing off pre-built
+///   [`EncodedMsg::Frame`] values.
+/// * **consumer side** — a decoder stage that submits packets
+///   to a `FlexibleDecoder`, a muxer terminus that finalises a
+///   container, a ZeroMQ sink, etc.
 ///
-/// Reusing one type across both edges keeps the "upstream → downstream"
-/// protocol uniform: every consumer handles the same variants, and
-/// source id propagation is carried in-band by the message itself
-/// (the producer never has to know what the consumer will do with
-/// the id).
+/// Reusing one envelope across every encoded-data channel means
+/// any consumer stage can be paired with any compatible
+/// producer stage: every consumer handles the same variants,
+/// and source id is carried in-band so producers do not have to
+/// know what their downstream will do with it.
 #[derive(Debug)]
 pub enum EncodedMsg {
     /// Stream-level metadata (width, height, framerate, codec)
-    /// tagged with the `source_id` it describes.  Emitted exactly
-    /// once per source by the demuxer, *before* any
-    /// [`EncodedMsg::Packet`] for that source.  Consumers that do
-    /// not need stream metadata (e.g. the muxer) simply ignore it.
+    /// tagged with the `source_id` it describes.  Producers that
+    /// emit raw container packets (typically a demuxer) emit
+    /// this once per source, *before* any
+    /// [`EncodedMsg::Packet`] for that source, so consumers that
+    /// observe stream headers (e.g. a logger) can react.
+    /// Consumers that do not need the header (e.g. a muxer that
+    /// derives caps from each packet's [`VideoInfo`]) simply
+    /// ignore it.
     StreamInfo {
         /// Source id this stream belongs to.
         source_id: String,
@@ -166,22 +171,22 @@ pub enum EncodedMsg {
         info: VideoInfo,
     },
     /// A single encoded access unit tagged with its `source_id`
-    /// **and the stream-level [`VideoInfo`]** describing the stream
-    /// it belongs to.  Produced by:
+    /// **and the stream-level [`VideoInfo`]** describing the
+    /// stream it belongs to.  Examples of producers:
     ///
-    /// * the demuxer — raw container packets for the decoder to
-    ///   consume, paired with the `VideoInfo` observed on the most
-    ///   recent [`EncodedMsg::StreamInfo`] for the same source.
-    /// * the picasso encoder callback — freshly encoded frames for
-    ///   the muxer (or any other downstream consumer) to consume.
+    /// * a demuxer stage — raw container packets, paired with
+    ///   the `VideoInfo` observed on the most recent
+    ///   [`EncodedMsg::StreamInfo`] for the same source.
+    /// * an encoder stage — freshly encoded frames headed for
+    ///   a muxer terminus or any other downstream consumer.
     ///
     /// Carrying the [`VideoInfo`] in-band makes this envelope
-    /// self-describing: downstream consumers (e.g. the decoder)
-    /// never have to cache a per-`source_id` map of stream
-    /// parameters — every packet arrives with the metadata it needs
-    /// to be decoded.  A standalone [`EncodedMsg::StreamInfo`] is
-    /// still emitted once per source for observers that want to
-    /// react to the stream header itself.
+    /// self-describing: downstream consumers do not have to
+    /// cache a per-`source_id` map of stream parameters — every
+    /// packet arrives with the metadata it needs to be decoded
+    /// or muxed.  A standalone [`EncodedMsg::StreamInfo`] is
+    /// still emitted by typical demuxers for observers that
+    /// want the stream header on its own.
     Packet {
         /// Source id this packet belongs to.
         source_id: String,
@@ -193,30 +198,34 @@ pub enum EncodedMsg {
         packet: DemuxedPacket,
     },
     /// A pre-built [`VideoFrameProxy`] delivered with its encoded
-    /// payload, ready for direct submission to the decoder.
+    /// payload, ready for direct submission to a decoder.
     ///
-    /// Unlike [`EncodedMsg::Packet`] — which is raw container output
-    /// that the decode actor wraps into a fresh frame — this variant
-    /// lets an upstream producer hand off a fully-populated frame
-    /// (source id, dimensions, codec, fps, uuid, keyframe,
-    /// timestamps) and side-step the `StreamInfo` path entirely.
+    /// Unlike [`EncodedMsg::Packet`] — which is raw container
+    /// output that a decoder stage wraps into a fresh frame —
+    /// this variant lets an upstream producer hand off a
+    /// fully-populated frame (source id, dimensions, codec, fps,
+    /// uuid, keyframe, timestamps) and bypass the `StreamInfo`
+    /// path entirely.
     ///
     /// Payload resolution follows the `FlexibleDecoder::submit`
     /// contract:
     ///
-    /// * `payload = Some(bytes)` — the decoder uses `bytes` directly.
-    /// * `payload = None` — the decoder extracts the bitstream from
-    ///   the frame's internal content
+    /// * `payload = Some(bytes)` — the decoder uses `bytes`
+    ///   directly.
+    /// * `payload = None` — the decoder extracts the bitstream
+    ///   from the frame's internal content
     ///   ([`VideoFrameContent::Internal`](savant_core::primitives::frame::VideoFrameContent)).
-    ///   If the frame's content is `External` or `None`, the decoder
-    ///   emits a `Skipped { NoPayload }` callback rather than
-    ///   erroring.
+    ///   If the frame's content is `External` or `None`, the
+    ///   decoder emits a `Skipped { NoPayload }` callback rather
+    ///   than erroring.
     ///
-    /// This is the entrypoint for producers that already own the
-    /// frame (e.g. reading previously-captured `savant_core` frames
-    /// back from storage, or bridging from another message-bus
-    /// format) without paying the cost of re-deriving frame
-    /// metadata from demuxer caps.  The muxer ignores this variant.
+    /// Use this variant for producers that already own the
+    /// frame — e.g. reading previously-captured `savant_core`
+    /// frames back from storage, or bridging from another
+    /// message-bus format — without paying the cost of
+    /// re-deriving frame metadata from demuxer caps.  Consumers
+    /// that don't decode (e.g. a muxer terminus) ignore this
+    /// variant.
     Frame {
         /// Pre-built frame.  Its `source_id`, `codec`, `width`,
         /// `height`, `fps`, `uuid`, and `keyframe` fields must
@@ -226,25 +235,22 @@ pub enum EncodedMsg {
         /// decoder extract it from `frame.get_content()`.
         payload: Option<Vec<u8>>,
     },
-    /// End-of-stream sentinel carrying the source id.  Downstream
-    /// consumers react per their role:
-    ///
-    /// * decoder — runs `decoder.source_eos(source_id)` + drain,
-    ///   then forwards an equivalent in-band
-    ///   [`PipelineMsg::SourceEos`] sentinel;
-    /// * muxer   — finalises the `moov` atom and exits (in a
-    ///   single-source pipeline the first `SourceEos` is also the
-    ///   last).
+    /// End-of-stream sentinel carrying the source id.
+    /// Consumers react per their role — for example a decoder
+    /// stage flushes its operator and forwards a downstream
+    /// EOS, a muxer terminus finalises the container, and a
+    /// ZeroMQ sink writes a wire-level `EndOfStream` message.
     SourceEos {
         /// Source id this EOS belongs to.
         source_id: String,
     },
-    /// Cooperative shutdown sentinel, broadcast by the orchestrator
-    /// after the supervisor back-channel observes a shutdown-worthy
-    /// exit (or when Ctrl+C fires).  The framework's
-    /// [`Context`](crate::Context) translates the sentinel
-    /// into receive-loop break flags — either immediately (when
-    /// `grace` is `None`) or after the grace deadline elapses.
+    /// Cooperative shutdown sentinel, sent by the supervisor
+    /// when its [`ShutdownHandler`](crate::shutdown::ShutdownHandler)
+    /// returns a broadcast action (e.g. on Ctrl+C or a stage
+    /// exit).  The receive-loop driver observes it via
+    /// [`Envelope::as_shutdown`]
+    /// and breaks out of the loop — either immediately (when
+    /// `grace` is `None`) or once the grace deadline expires.
     Shutdown {
         /// `None` — break after the current message is handled.
         /// `Some(d)` — keep processing, break when `recv_timeout`
@@ -262,22 +268,25 @@ pub enum EncodedMsg {
 // These types bridge the pipeline's envelope enums (`PipelineMsg`,
 // `EncodedMsg`) to the generic actor framework in this crate.
 //
-// * [`Envelope`] tells the receive-loop driver whether an envelope is a
-//   cooperative-shutdown sentinel, and how to *build* one for the
-//   supervisor's broadcast step.  Both envelopes carry a first-class
-//   `Shutdown` variant so `build_shutdown` always returns `Some(_)`.
-// * [`Dispatch`] routes each variant to the actor's per-variant
-//   [`Handler<V>`] impls.  Actors opt in to a variant by writing an
-//   `impl Handler<VariantPayload> for MyActor { … }`; unimplemented
-//   variants fall back to the framework's default no-op `handle`
-//   returning [`Flow::Cont`].
+// * [`Envelope`] tells the receive-loop driver whether an envelope
+//   is a cooperative-shutdown sentinel, and how to *build* one for
+//   the supervisor's broadcast step.  Both envelopes carry a
+//   first-class `Shutdown` variant so `build_shutdown` always
+//   returns `Some(_)`.
+// * [`Dispatch`] routes each variant to one of the actor's
+//   [`Handler<V>`] impls.  Actors opt in to every variant of the
+//   envelope they consume — even with a zero-body
+//   `impl Handler<VariantPayload> for MyActor {}`, which inherits
+//   the trait's default "drop the payload, return [`Flow::Cont`]"
+//   body.  Variants the actor wants to act on override `handle`
+//   with domain logic.
 //
 // The per-variant payload structs (`SingleDelivery`, `BatchDelivery`,
 // `StreamInfoPayload`, `PacketPayload`, `FramePayload`,
-// `SourceEosPayload`, `ShutdownPayload`) are thin wrappers around the
-// enum variants' fields.  They keep `impl Handler<…>` callsites
-// self-explanatory and mean an actor's signature for each handler
-// reflects the variant's exact payload — no destructuring boilerplate.
+// `SourceEosPayload`, `ShutdownPayload`) are thin wrappers around
+// the enum variants' fields.  They keep `impl Handler<…>` call-sites
+// self-explanatory: each handler's signature reflects the variant's
+// exact payload, with no destructuring boilerplate at the call-site.
 
 /// Per-variant payload: a single sealed `(frame, buffer)` pair
 /// (from [`PipelineMsg::Delivery`]).

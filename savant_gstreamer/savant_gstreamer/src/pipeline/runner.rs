@@ -16,6 +16,7 @@ use parking_lot::Mutex;
 use crate::pipeline::bridge_meta::bridge_savant_id_meta_across;
 use crate::pipeline::config::{PipelineConfig, PtsPolicy};
 use crate::pipeline::error::PipelineError;
+use crate::pipeline::source_eos::parse_source_eos_event;
 use crate::pipeline::watchdog::spawn_watchdog;
 
 #[derive(Debug)]
@@ -304,10 +305,49 @@ impl GstPipeline {
                     }
                     match input_rx.recv_timeout(Duration::from_millis(50)) {
                         Ok(PipelineInput::Buffer(buffer)) => {
+                            // Once the pipeline has been marked as failed
+                            // (e.g. by a previous PTS-policy violation or
+                            // appsrc push error), silently drop in-flight
+                            // buffers we are about to consume.  The
+                            // producer side rejects new submits fast
+                            // at the [`NvDecoder::is_failed`] check, so
+                            // these are only stragglers already sitting
+                            // in `input_rx` at the moment of failure.
+                            // Continuing to consume them keeps the
+                            // bounded `input_tx` from saturating and
+                            // wedging the caller, while the
+                            // FlexibleDecoder restart-on-error path
+                            // above tears down and rebuilds the
+                            // pipeline.
+                            if feeder_failed.load(Ordering::Acquire) {
+                                if let Some(pts) = buffer.pts() {
+                                    feeder_in_flight.lock().remove(&pts.nseconds());
+                                }
+                                continue;
+                            }
                             if let Some(policy) = feeder_pts_policy {
                                 if let Some(violation) =
                                     check_pts_policy(policy, &buffer, &mut last_key)
                                 {
+                                    // Mark the pipeline as failed *before*
+                                    // forwarding the error so any concurrent
+                                    // [`NvDecoder::submit_packet`] caller
+                                    // observes `is_failed() == true` on its
+                                    // very next submit and bypasses the
+                                    // bounded `input_tx.send`.  Without this
+                                    // the producer keeps queuing rebased
+                                    // packets that all violate the policy,
+                                    // every one of them generates another
+                                    // `Error` here, the bounded `feeder_tx`
+                                    // saturates, the feeder blocks in
+                                    // `send_or_shutdown_on`, `input_tx`
+                                    // saturates and the FlexibleDecoder
+                                    // wedges in `submit_packet` — a
+                                    // production deadlock that the
+                                    // restart-on-error path cannot recover
+                                    // from.  Reproduced by
+                                    // `tests/test_decoder_pool_interleaved_eos.rs::no_eos_slow_callback_back_to_back_cycles`.
+                                    feeder_failed.store(true, Ordering::Release);
                                     let _ = send_or_shutdown_on(
                                         &feeder_tx,
                                         &feeder_shutdown,
@@ -337,7 +377,21 @@ impl GstPipeline {
                             }
                         }
                         Ok(PipelineInput::Event(event)) => {
+                            // A `savant.pipeline.source_eos` custom downstream
+                            // event marks the boundary of a contiguous PTS
+                            // sequence for this source.  The same per-source
+                            // [`FlexibleDecoder`] / [`GstPipeline`] is reused
+                            // across producer runs (cars-demo-zmq style), so
+                            // the next run may legitimately rebase its PTS
+                            // back to 0.  Clear `last_key` here so the
+                            // strict-order check accepts the new sequence
+                            // instead of permanently rejecting every packet
+                            // whose PTS is below the previous run's tail.
+                            let is_source_eos = parse_source_eos_event(&event).is_some();
                             let _ = feeder_appsrc.send_event(event);
+                            if is_source_eos {
+                                last_key = None;
+                            }
                         }
                         Ok(PipelineInput::Eos) => {
                             let _ = feeder_appsrc.end_of_stream();

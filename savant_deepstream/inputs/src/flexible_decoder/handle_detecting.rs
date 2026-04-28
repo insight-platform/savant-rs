@@ -12,10 +12,22 @@ use super::state::{
 
 /// Handle a submit when the decoder is in `Detecting` state.
 ///
-/// On activation, replays buffered packets. If any replay submission fails,
-/// the entire activation is aborted: the decoder is torn down, all buffered
-/// packets (plus the current one) are emitted as `Skipped`, and the guard
-/// is committed to `Idle`.
+/// On the first random access point (IDR / I-frame) the decoder is
+/// activated and the IDR is submitted to it.  Once the IDR is safely
+/// accepted, the previously-buffered pre-RAP packets are emitted as
+/// [`SkipReason::WaitingForKeyframe`] — they cannot be decoded without the
+/// IDR as anchor and replaying them only leaks PTS entries into the
+/// underlying GstPipeline `in_flight` map, which later trips the watchdog.
+/// If the user wants those frames anyway they can observe them through the
+/// `Skipped` callback.
+///
+/// If activation fails, both the buffered packets and the current one are
+/// emitted as `Skipped(DecoderCreationFailed)` and the state is reset to
+/// `Idle`.  If activation succeeds but the IDR's first
+/// [`NvDecoder::submit_packet`](deepstream_decoders::NvDecoder::submit_packet)
+/// errors, the buffered packets are emitted as
+/// `Skipped(DecoderCreationFailed)` (they share the same root cause) and
+/// the IDR itself is surfaced through the returned `Err`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_detecting(
     guard: StateGuard<'_>,
@@ -35,48 +47,13 @@ pub(crate) fn handle_detecting(
             let real_gst_codec = cfg.codec();
             match activate(cfg, real_gst_codec, width, height, ctx.frame) {
                 Ok((decoder, worker_join, worker_stop)) => {
-                    let mut registered_ids: Vec<u128> = Vec::new();
-                    let mut replay_err: Option<String> = None;
-
-                    for pkt in &buffered {
-                        register_frame(frame_map, pkt.frame_id, &pkt.frame);
-                        registered_ids.push(pkt.frame_id);
-                        if let Err(e) = decoder.submit_packet(
-                            &pkt.data,
-                            pkt.frame_id,
-                            pkt.pts_ns,
-                            pkt.dts_ns,
-                            pkt.duration_ns,
-                        ) {
-                            replay_err = Some(format!("buffered packet replay failed: {e}"));
-                            break;
-                        }
-                    }
-
-                    if let Some(err_msg) = replay_err {
-                        teardown_activated(&decoder, worker_join, &worker_stop);
-                        {
-                            let mut fm = frame_map.lock();
-                            for id in &registered_ids {
-                                fm.remove(id);
-                            }
-                        }
-                        for pkt in buffered {
-                            pending.push(FlexibleDecoderOutput::Skipped {
-                                frame: pkt.frame,
-                                data: Some(pkt.data),
-                                reason: SkipReason::DecoderCreationFailed(err_msg.clone()),
-                            });
-                        }
-                        pending.push(FlexibleDecoderOutput::Skipped {
-                            frame: ctx.frame.clone(),
-                            data: Some(ctx.payload.to_vec()),
-                            reason: SkipReason::DecoderCreationFailed(err_msg),
-                        });
-                        guard.commit(DecoderState::Idle);
-                        return Ok(());
-                    }
-
+                    // Try the IDR first; only after it is safely accepted
+                    // by the decoder do we drain the buffered pre-RAP
+                    // packets as `WaitingForKeyframe`.  Draining them up
+                    // front would mislabel them on the failure path: if
+                    // `submit_packet` errors, the buffered frames were
+                    // orphaned by the same decoder failure, not by routine
+                    // pre-keyframe skipping.
                     register_frame(frame_map, ctx.frame_id, ctx.frame);
                     match decoder.submit_packet(
                         ctx.payload,
@@ -86,6 +63,17 @@ pub(crate) fn handle_detecting(
                         ctx.clk.duration_ns,
                     ) {
                         Ok(()) => {
+                            // IDR accepted — pre-RAP packets were truly
+                            // skipped while waiting for a keyframe.
+                            // Replaying them would strand their PTS in the
+                            // GstPipeline watchdog map.
+                            for pkt in buffered.drain(..) {
+                                pending.push(FlexibleDecoderOutput::Skipped {
+                                    frame: pkt.frame,
+                                    data: Some(pkt.data),
+                                    reason: SkipReason::WaitingForKeyframe,
+                                });
+                            }
                             guard.commit(DecoderState::Active {
                                 decoder,
                                 worker_join: Some(worker_join),
@@ -99,12 +87,21 @@ pub(crate) fn handle_detecting(
                         }
                         Err(e) => {
                             teardown_activated(&decoder, worker_join, &worker_stop);
-                            {
-                                let mut fm = frame_map.lock();
-                                for id in &registered_ids {
-                                    fm.remove(id);
-                                }
-                                fm.remove(&ctx.frame_id);
+                            frame_map.lock().remove(&ctx.frame_id);
+                            // Surface the buffered frames with the same
+                            // reason as the activation-failure branch
+                            // below — the freshly-created decoder rejected
+                            // its very first packet, so those dependent
+                            // pre-RAP frames are lost for the same reason.
+                            // The IDR itself is reported via the returned
+                            // `Err`, matching the existing contract.
+                            let reason_str = format!("{e}");
+                            for pkt in buffered.drain(..) {
+                                pending.push(FlexibleDecoderOutput::Skipped {
+                                    frame: pkt.frame,
+                                    data: Some(pkt.data),
+                                    reason: SkipReason::DecoderCreationFailed(reason_str.clone()),
+                                });
                             }
                             guard.commit(DecoderState::Idle);
                             return Err(e.into());
@@ -133,11 +130,7 @@ pub(crate) fn handle_detecting(
 
     buffered.push(BufferedPacket {
         frame: ctx.frame.clone(),
-        frame_id: ctx.frame_id,
         data: ctx.payload.to_vec(),
-        pts_ns: ctx.clk.submission_order_ns,
-        dts_ns: ctx.clk.dts_ns,
-        duration_ns: ctx.clk.duration_ns,
     });
 
     if buffered.len() > detect_buffer_limit {
