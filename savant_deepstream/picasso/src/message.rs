@@ -19,7 +19,7 @@ pub(crate) enum WorkerMessage {
 ///
 /// For [`VideoFrame`](OutputMessage::VideoFrame), the proxy carries all
 /// metadata (pts, dts, duration, keyframe, codec, framerate) and the
-/// encoded bitstream in [`VideoFrameContent::Internal`].
+/// encoded bitstream in `VideoFrameContent::Internal`.
 pub enum OutputMessage {
     /// An encoded video frame with content stored in the proxy.
     VideoFrame(VideoFrame),

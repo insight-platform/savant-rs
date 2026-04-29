@@ -229,8 +229,8 @@ pub enum UriDemuxerOutput {
 /// A scalar property value accepted by [`UriDemuxerConfig`].
 ///
 /// GStreamer's GObject type system will auto-convert `I64` / `U64` / `F64`
-/// to the target property's concrete type (`u32`, `i32`, etc.). Use [`Bytes`]
-/// for binary blobs.
+/// to the target property's concrete type (`u32`, `i32`, etc.). Use
+/// [`PropertyValue::Bytes`] for binary blobs.
 #[derive(Debug, Clone)]
 pub enum PropertyValue {
     Bool(bool),

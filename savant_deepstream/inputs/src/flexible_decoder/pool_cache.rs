@@ -35,11 +35,11 @@ use std::sync::Arc;
 /// fresh one is built.
 ///
 /// This is the central piece of the "deferred pool reprovisioning"
-/// strategy described in `docs/cuda-race.md`: it eliminates pool
-/// churn during rapid same-resolution restarts (the
-/// cars-demo-zmq scenario), which removes one likely contributor
-/// to the CUDA-700 cascade — without requiring any churn-time
-/// fence on NVIDIA-internal streams.
+/// strategy: it eliminates pool churn during rapid
+/// same-resolution restarts (the cars-demo-zmq scenario), which
+/// removes one likely contributor to the CUDA-700 cascade —
+/// without requiring any churn-time fence on NVIDIA-internal
+/// streams.
 pub(super) struct CachedPool {
     pub pool: Arc<Mutex<BufferGenerator>>,
     pub width: u32,

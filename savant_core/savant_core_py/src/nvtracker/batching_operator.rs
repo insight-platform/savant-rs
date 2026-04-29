@@ -75,9 +75,7 @@ impl PyNvTrackerBatchingOperatorConfig {
 
     #[getter]
     fn nvtracker_config(&self) -> PyNvTrackerConfig {
-        PyNvTrackerConfig {
-            inner: self.0.nvtracker.clone(),
-        }
+        PyNvTrackerConfig(self.0.nvtracker.clone())
     }
 
     fn __repr__(&self) -> String {
@@ -363,7 +361,7 @@ impl PyTrackerOperatorOutput {
                 message: e.to_string(),
             },
         };
-        Self { inner }
+        Self(inner)
     }
 }
 

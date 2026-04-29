@@ -824,7 +824,7 @@ impl FlexibleDecoder {
 ///
 ///  * `stop` flag is set by the supervisor (graceful teardown / parameter
 ///    change / pool eviction).
-///  * The output channel is disconnected ([`DecoderError::ChannelDisconnected`]).
+///  * The output channel is disconnected (`DecoderError::ChannelDisconnected`).
 ///    The underlying `NvDecoder` has been torn down; nothing more will arrive.
 ///  * The pipeline emits a stream-level EOS ([`NvDecoderOutput::Eos`]).  This
 ///    is unexpected because the caller drains via

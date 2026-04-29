@@ -14,7 +14,7 @@ use parking_lot::Mutex;
 /// operators) each maintain a monotonic counter — an internal PTS or a
 /// batch-id — whose value is assigned inside a critical section that also
 /// builds a GStreamer buffer and pushes it onto a channel.  The
-/// GStreamer feeder enforces [`PtsPolicy::StrictPts`]
+/// GStreamer feeder enforces [`crate::pipeline::PtsPolicy::StrictPts`]
 /// (monotonically-increasing buffer PTS) and fails the pipeline on the
 /// first violation, so the counter assignment must be serialised against
 /// the channel push — not merely atomic.

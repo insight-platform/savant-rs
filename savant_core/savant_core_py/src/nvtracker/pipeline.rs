@@ -127,7 +127,7 @@ impl PyNvTrackerOutput {
                 message: e.to_string(),
             },
         };
-        Self { inner }
+        Self(inner)
     }
 }
 

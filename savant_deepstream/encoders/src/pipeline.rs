@@ -1,7 +1,7 @@
 //! Channel-based encoder pipeline built on the `savant_gstreamer::pipeline`
 //! framework.
 //!
-//! Mirrors [`deepstream_decoders::pipeline`] in structure and lifecycle:
+//! Mirrors `deepstream_decoders::pipeline` in structure and lifecycle:
 //!
 //! * An internal [`GstPipeline`] owns the `appsrc → [nvvideoconvert] →
 //!   encoder → parser → appsink` (or `appsrc → nvvideoconvert → capsfilter
@@ -98,7 +98,7 @@ struct ConvertContext {
 }
 
 enum EncoderBackendState {
-    /// GStreamer pipeline: appsrc → [nvvideoconvert] → enc → parser → appsink.
+    /// GStreamer pipeline: appsrc → `nvvideoconvert` → enc → parser → appsink.
     ///
     /// `convert_ctx` is `Some` when a format conversion (RGBA → NV12/I420)
     /// is performed outside the pipeline — in that case `appsrc` receives
@@ -942,7 +942,7 @@ impl NvEncoder {
     /// and the conversion `CudaStream` are dropped.  Two synchronisations:
     ///
     /// 1. The conversion `CudaStream` (if any) — covers the
-    ///    `NvBufSurfTransform` work submitted by [`prepare_push_buffer`].
+    ///    `NvBufSurfTransform` work submitted by `prepare_push_buffer`.
     /// 2. A device-wide barrier — the V4L2 NVENC plugin owns its own internal
     ///    CUDA stream that we cannot reach by handle, so the only portable
     ///    fence is `cudaDeviceSynchronize()`.

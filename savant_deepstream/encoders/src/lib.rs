@@ -1,7 +1,7 @@
 //! GPU-accelerated video encoders and raw frame downloaders using DeepStream
 //! NvBufSurface, built on the [`savant_gstreamer::pipeline`] framework.
 //!
-//! This crate mirrors the sibling [`deepstream_decoders`] crate: a channel-based
+//! This crate mirrors the sibling `deepstream_decoders` crate: a channel-based
 //! [`NvEncoder`] submits buffers and receives [`NvEncoderOutput`] asynchronously,
 //! with in-band per-source EOS support via
 //! [`NvEncoder::send_source_eos`](crate::pipeline::NvEncoder::send_source_eos).

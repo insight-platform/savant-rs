@@ -3,7 +3,7 @@
 //! [`NvInferBatchingOperator`] accepts `(VideoFrame, SharedBuffer)` pairs
 //! one at a time, accumulates them into batches according to configurable
 //! policies, forms a [`NonUniformBatch`](deepstream_buffers::NonUniformBatch),
-//! and submits to the underlying [`NvInfer`] pipeline.  Results are mapped back
+//! and submits to the underlying `NvInfer` pipeline.  Results are mapped back
 //! to the original frame/buffer pairs and delivered via a user-supplied
 //! callback.
 

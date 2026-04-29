@@ -1,4 +1,4 @@
-//! Single-stream adaptive GPU decoder: one [`NvDecoder`] per codec/resolution
+//! Single-stream adaptive GPU decoder: one `NvDecoder` per codec/resolution
 //! session, automatically replaced on parameter changes.
 //!
 //! Call [`FlexibleDecoder::submit`] with a [`VideoFrame`] reference and an

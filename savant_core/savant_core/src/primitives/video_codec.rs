@@ -107,7 +107,6 @@ impl VideoCodec {
     /// `bit-depth-luma`/`bit-depth-chroma`, which dGPU `nvv4l2decoder`
     /// requires to avoid caps negotiation failure and which Tegra NVDEC
     /// needs to emit frames for pre-parsed super-frame-aligned packets.
-    /// See `kb/decoders/caveats.md §10`.
     ///
     /// Codecs without a dedicated GStreamer parser (raw pixel formats,
     /// PNG, VP8) return `"identity"` as a pass-through. There is no

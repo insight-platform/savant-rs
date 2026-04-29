@@ -148,7 +148,7 @@ impl PyMp4Muxer {
     ) -> PyResult<Self> {
         let codec = extract_codec(codec)?;
         let inner = Mp4Muxer::new(codec, output_path, fps_num, fps_den).map_err(muxer_err)?;
-        Ok(Self { inner })
+        Ok(Self(inner))
     }
 
     /// Push an encoded frame into the muxer pipeline.

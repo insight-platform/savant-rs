@@ -87,9 +87,7 @@ impl PyNvInferBatchingOperatorConfig {
     /// The embedded NvInfer engine configuration.
     #[getter]
     fn nvinfer_config(&self) -> PyNvInferConfig {
-        PyNvInferConfig {
-            inner: self.0.nvinfer.clone(),
-        }
+        PyNvInferConfig(self.0.nvinfer.clone())
     }
 
     fn __repr__(&self) -> String {
@@ -768,7 +766,7 @@ impl PyOperatorOutput {
                 message: e.to_string(),
             },
         };
-        Self { inner }
+        Self(inner)
     }
 }
 

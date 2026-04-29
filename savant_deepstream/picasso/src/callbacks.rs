@@ -29,7 +29,7 @@ pub trait OnRender: Send + Sync + 'static {
 /// Per-object callback that can override the static `ObjectDrawSpec`.
 ///
 /// `current_spec` is the draw spec resolved from the static
-/// [`ObjectDrawSpec`] table for this object's `(namespace, label)`.  The
+/// `ObjectDrawSpec` table for this object's `(namespace, label)`.  The
 /// callback may return `None` to use `current_spec` as-is, or return a
 /// replacement `ObjectDraw`.
 pub trait OnObjectDrawSpec: Send + Sync + 'static {

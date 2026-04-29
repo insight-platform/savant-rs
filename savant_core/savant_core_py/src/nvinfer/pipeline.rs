@@ -79,7 +79,7 @@ impl PyNvInferOutput {
                 message: e.to_string(),
             },
         };
-        Self { inner }
+        Self(inner)
     }
 }
 

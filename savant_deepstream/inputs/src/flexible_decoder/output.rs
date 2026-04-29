@@ -22,7 +22,7 @@ pub struct DecoderParameters {
 /// # Delivery flow (Frame variant)
 ///
 /// 1. Callback receives `FlexibleDecoderOutput::Frame` — reads metadata on
-///    [`VideoFrame`] and scalar fields of [`DecodedFrame`].
+///    [`VideoFrame`] and scalar fields of `DecodedFrame`.
 /// 2. Callback calls [`take_delivery`](Self::take_delivery) to get a
 ///    [`SealedDelivery`] containing the `(frame, buffer)` pair.
 /// 3. Callback (or its scope end) drops this struct.  [`Drop`] releases the
@@ -34,7 +34,7 @@ pub enum FlexibleDecoderOutput {
     /// Decoded RGBA frame from the underlying `NvDecoder`, paired with the
     /// original [`VideoFrame`] that was submitted.
     ///
-    /// The [`SharedBuffer`] inside `decoded.buffer` can be extracted via
+    /// The `SharedBuffer` inside `decoded.buffer` can be extracted via
     /// [`take_delivery`](Self::take_delivery).
     Frame {
         frame: VideoFrame,

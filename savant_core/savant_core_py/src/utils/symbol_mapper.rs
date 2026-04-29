@@ -377,7 +377,7 @@ pub fn is_object_registered_py(model_name: &str, object_label: &str) -> bool {
 /// Returns
 /// -------
 /// list[str]
-///   The list of strings in the form of "model_name[.object_label] model_id Option[object_id]".
+///   The list of strings in the form of "model_name[.object_label] model_id Option`object_id`".
 #[pyfunction]
 #[pyo3(name = "dump_registry")]
 pub fn dump_registry_gil() -> Vec<String> {

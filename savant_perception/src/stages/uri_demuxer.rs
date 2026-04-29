@@ -32,8 +32,10 @@
 //! callback the framework asks before each input run (and again
 //! after every underlying demuxer exits).  The callback returns a
 //! [`DemuxInputRequest`] (see the
-//! [demux_input](super::demux_input) module docs); use
-//! [`UriDemuxerBuilder::one_shot`] for the common single-URI case.
+//! [demux_input](super::demuxers::demux_input) module docs); use
+//! [`UriDemuxerBuilder::one_shot`] for the common single-URI case
+//! and [`UriDemuxerBuilder::looped`] for an infinite replay of the
+//! same URI.
 //!
 //! ```ignore
 //! sys.register_source(
@@ -826,7 +828,7 @@ impl Default for UriDemuxerCommonBuilder {
 /// Fluent builder for [`UriDemuxerSource`].
 ///
 /// The builder exposes wiring-level configuration at the top level
-/// (`input_requester` or its `one_shot` shortcut, plus
+/// (`input` and its `one_shot` / `looped` shortcuts, plus
 /// `downstream`, `parsed`, `bin_properties`,
 /// `source_properties`).  Per-variant demuxer-output hooks live on
 /// [`UriDemuxerResults`]; the user shutdown hook lives on

@@ -32,9 +32,10 @@
 //!   supplied [`Duration`], then ask again.
 //!
 //! Use [`Mp4DemuxerBuilder::one_shot`] for the common
-//! single-input case (yield one `Run`, then `Stop`); use
-//! [`Mp4DemuxerBuilder::input_requester`] for any custom policy
-//! (playlists, retries, watch-a-directory, …).
+//! single-input case (yield one `Run`, then `Stop`),
+//! [`Mp4DemuxerBuilder::looped`] for an infinite replay of the
+//! same input, or [`Mp4DemuxerBuilder::input`] for any custom
+//! policy (playlists, retries, watch-a-directory, …).
 //!
 //! Errors latched during a single `Run` iteration still bail the
 //! whole source via [`Source::run`] — the requester is only
@@ -980,7 +981,7 @@ impl Default for Mp4DemuxerCommonBuilder {
 /// Fluent builder for [`Mp4DemuxerSource`].
 ///
 /// The builder only exposes wiring-level configuration at the top
-/// level (`input_requester` or its `one_shot` shortcut, plus
+/// level (`input` and its `one_shot` / `looped` shortcuts, plus
 /// `downstream`).  Per-variant demuxer-output hooks live on
 /// [`Mp4DemuxerResults`]; the user shutdown hook lives on
 /// [`Mp4DemuxerCommon`].  Install them via

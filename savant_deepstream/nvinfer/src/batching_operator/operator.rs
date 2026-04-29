@@ -412,7 +412,7 @@ fn process_inference_output(
     Some(OperatorOutput::Inference(operator_output))
 }
 
-/// Scan the output buffer's [`SavantIdMeta`] for a `Batch(id)` entry.
+/// Scan the output buffer's `SavantIdMeta` for a `Batch(id)` entry.
 fn find_batch_id(output: &BatchInferenceOutput) -> Option<u128> {
     let ids = output.buffer().savant_ids();
     ids.into_iter().find_map(|id| match id {
