@@ -498,12 +498,11 @@ pub fn run_pipeline(
     match head {
         PipelineHead::Mp4Demux { input, source_id } => {
             let demux_src = Mp4DemuxerSource::builder(head_name.clone())
-                .input(input.to_string_lossy().into_owned())
-                .source_id(source_id)
+                .one_shot(input.to_string_lossy().into_owned(), source_id)
                 .downstream(decoder_name.clone())
                 .results(
                     Mp4DemuxerResults::builder()
-                        .on_packet(|pkt, info, source_id, router, ctx| {
+                        .on_packet(|_input, source_id, info, pkt, router, ctx| {
                             if let Some(stats) = ctx.shared::<PipelineStats>() {
                                 stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                             }
@@ -526,12 +525,11 @@ pub fn run_pipeline(
             // maps are empty: defaults work for file:// and most
             // public RTSP/HTTP sources.
             let demux_src = UriDemuxerSource::builder(head_name.clone())
-                .input(input)
-                .source_id(source_id)
+                .one_shot(input, source_id)
                 .downstream(decoder_name.clone())
                 .results(
                     UriDemuxerResults::builder()
-                        .on_packet(|pkt, info, source_id, router, ctx| {
+                        .on_packet(|_uri, source_id, info, pkt, router, ctx| {
                             if let Some(stats) = ctx.shared::<PipelineStats>() {
                                 stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                             }

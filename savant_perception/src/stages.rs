@@ -34,6 +34,7 @@
 
 pub mod bitstream_function;
 pub mod decoder;
+pub mod demuxers;
 pub mod function;
 pub mod mp4_demuxer;
 pub mod mp4_muxer;
@@ -43,6 +44,10 @@ pub mod picasso;
 pub mod uri_demuxer;
 pub mod zmq_sink;
 pub mod zmq_source;
+
+pub use demuxers::demux_input::{
+    looped_requester, one_shot_requester, DemuxInputRequest, InputRequester,
+};
 
 pub use bitstream_function::{
     BitstreamFunction, BitstreamFunctionBuilder, BitstreamFunctionCommon,

@@ -143,11 +143,12 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
     args.validate()?;
     let input = resolve_input_source(&args.input)?;
     log::info!(
-        "cars-demo-zmq producer: input={input} zmq-out={} source_id={} channel_cap={} no_eos={}",
+        "cars-demo-zmq producer: input={input} zmq-out={} source_id={} channel_cap={} no_eos={} loop={}",
         args.zmq_out,
         args.source_id,
         args.channel_cap,
         args.no_eos,
+        args.loop_input,
     );
 
     gstreamer::init().context("gstreamer init")?;
@@ -174,6 +175,13 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
     //   for the terminus to drain on a [`SourceEos`] that never
     //   arrives, so we install a `--no-eos`-aware variant when the
     //   flag is set.
+    //
+    // `--loop` is independent of `--no-eos`: by default each loop
+    // iteration *does* forward its terminating EOS, so a downstream
+    // consumer that exits on the first wire EOS will still terminate
+    // after iteration #1.  Combine `--loop --no-eos` when running
+    // against a long-lived consumer that should *not* see per-loop
+    // EOS markers.
     let no_eos = args.no_eos;
 
     let mut sys = if no_eos {
@@ -186,10 +194,11 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
     sys.insert_shared_arc::<PipelineStats>(stats.clone());
 
     let source_id = args.source_id.clone();
+    let loop_input = args.loop_input;
     match input {
         InputSource::Path(path) => {
-            let mut results =
-                Mp4DemuxerResults::builder().on_packet(|pkt, info, source_id, router, ctx| {
+            let mut results = Mp4DemuxerResults::builder().on_packet(
+                |_input, source_id, info, pkt, router, ctx| {
                     if let Some(stats) = ctx.shared::<PipelineStats>() {
                         stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                     }
@@ -199,7 +208,8 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
                         payload: Some(pkt.data),
                     });
                     Ok(())
-                });
+                },
+            );
             if no_eos {
                 results = results.on_source_eos(|source_id, _router, ctx| {
                     log::info!(
@@ -209,17 +219,22 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
                     Ok(Flow::Cont)
                 });
             }
-            let demux_src = Mp4DemuxerSource::builder(head_name.clone())
-                .input(path.to_string_lossy().into_owned())
-                .source_id(source_id.as_str())
+            let path_str = path.to_string_lossy().into_owned();
+            let mut builder = Mp4DemuxerSource::builder(head_name.clone());
+            builder = if loop_input {
+                builder.looped(path_str, source_id.as_str())
+            } else {
+                builder.one_shot(path_str, source_id.as_str())
+            };
+            let demux_src = builder
                 .downstream(sink_name.clone())
                 .results(results.build())
                 .build()?;
             sys.register_source(demux_src)?;
         }
         InputSource::Uri(uri) => {
-            let mut results =
-                UriDemuxerResults::builder().on_packet(|pkt, info, source_id, router, ctx| {
+            let mut results = UriDemuxerResults::builder().on_packet(
+                |_uri, source_id, info, pkt, router, ctx| {
                     if let Some(stats) = ctx.shared::<PipelineStats>() {
                         stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                     }
@@ -229,7 +244,8 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
                         payload: Some(pkt.data),
                     });
                     Ok(())
-                });
+                },
+            );
             if no_eos {
                 results = results.on_source_eos(|source_id, _router, ctx| {
                     log::info!(
@@ -239,9 +255,13 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
                     Ok(Flow::Cont)
                 });
             }
-            let demux_src = UriDemuxerSource::builder(head_name.clone())
-                .input(uri)
-                .source_id(source_id.as_str())
+            let mut builder = UriDemuxerSource::builder(head_name.clone());
+            builder = if loop_input {
+                builder.looped(uri, source_id.as_str())
+            } else {
+                builder.one_shot(uri, source_id.as_str())
+            };
+            let demux_src = builder
                 .downstream(sink_name.clone())
                 .results(results.build())
                 .build()?;
@@ -249,33 +269,44 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
         }
     }
 
-    // Producer is single-shot: override the multi-stream default so
+    // Single-shot producer: override the multi-stream default so
     // the sink terminates after the demuxer's last `SourceEos` has
-    // been forwarded on the wire.  `Handler<SourceEosPayload>` calls
-    // this hook first, then issues `writer.send_eos(...)` and
-    // classifies the writer result; returning `Flow::Stop` therefore
-    // terminates the actor *after* the wire EOS round-trip succeeds.
-    // The supervisor sees `ZmqSink` exit (not in its wait-list) and
-    // broadcasts Shutdown.
+    // been forwarded on the wire.  `Handler<SourceEosPayload>`
+    // calls this hook first, then issues `writer.send_eos(...)`
+    // and classifies the writer result; returning `Flow::Stop`
+    // therefore terminates the actor *after* the wire EOS
+    // round-trip succeeds.  The supervisor sees `ZmqSink` exit
+    // (not in its wait-list) and broadcasts Shutdown.
     //
-    // With `--no-eos` the demuxer never forwards [`EncodedMsg::SourceEos`],
-    // so this hook never fires — the sink keeps running until the
-    // supervisor broadcasts Shutdown after the demuxer source exits.
+    // With `--no-eos` the demuxer never forwards
+    // [`EncodedMsg::SourceEos`], so this hook never fires — the
+    // sink keeps running until the supervisor broadcasts Shutdown
+    // after the demuxer source exits.
+    //
+    // With `--loop` the demuxer forwards an `EncodedMsg::SourceEos`
+    // at the end of *every* iteration; if we kept the
+    // single-shot hook the sink would terminate after iteration #1
+    // and the supervisor would broadcast Shutdown across the rest
+    // of the pipeline, killing the loop on its first lap.  Skip the
+    // override entirely when looping so the sink uses its
+    // multi-stream `Flow::Cont` default and the producer only stops
+    // on `Ctrl+C`.
+    //
     // Default carrier = Multipart (matches savant adapters).
+    let mut zmq_sink_inbox = ZmqSinkInbox::builder();
+    if !loop_input {
+        zmq_sink_inbox = zmq_sink_inbox.on_source_eos(|source_id, ctx| {
+            log::info!(
+                "[{}] SourceEos {source_id}: producer exiting after wire EOS",
+                ctx.own_name()
+            );
+            Ok(Flow::Stop)
+        });
+    }
     let zmq_sink = ZmqSink::builder(sink_name.clone(), args.channel_cap)
         .config(writer_cfg)
         .payload_carrier(PayloadCarrier::Multipart)
-        .inbox(
-            ZmqSinkInbox::builder()
-                .on_source_eos(|source_id, ctx| {
-                    log::info!(
-                        "[{}] SourceEos {source_id}: producer exiting after wire EOS",
-                        ctx.own_name()
-                    );
-                    Ok(Flow::Stop)
-                })
-                .build(),
-        )
+        .inbox(zmq_sink_inbox.build())
         .build()?;
     sys.register_actor(zmq_sink)?;
 
