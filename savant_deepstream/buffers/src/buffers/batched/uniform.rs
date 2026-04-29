@@ -367,7 +367,7 @@ impl UniformBatchGenerator {
         })
     }
 
-    /// Wrap a raw buffer into a [`SharedBuffer`], setting `numFilled = batchSize`.
+    /// Wrap a raw buffer into a `SharedBuffer`, setting `numFilled = batchSize`.
     fn wrap_single(
         &self,
         mut buffer: gst::Buffer,
@@ -579,7 +579,7 @@ impl Drop for UniformBatchGenerator {
 /// [`transform_slot`](Self::transform_slot), then call
 /// [`finalize`](Self::finalize) to set `numFilled`.
 ///
-/// [`SavantIdMeta`] is attached at acquisition time (in `acquire_batch`),
+/// `SavantIdMeta` is attached at acquisition time (in `acquire_batch`),
 /// not deferred to finalize.
 pub struct SurfaceBatch {
     buffer: crate::SharedBuffer,
@@ -697,7 +697,7 @@ impl SurfaceBatch {
     /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor
     /// (derived from the highest slot written).
     ///
-    /// [`SavantIdMeta`] was already attached at acquisition time.
+    /// `SavantIdMeta` was already attached at acquisition time.
     pub fn finalize(&mut self) -> Result<(), NvBufSurfaceError> {
         if self.finalized {
             return Err(NvBufSurfaceError::AlreadyFinalized);

@@ -17,7 +17,7 @@ use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::WithAttributes;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,8 +37,8 @@ fn make_encoder_config() -> NvEncoderConfig {
     common::make_default_encoder_config(W, H)
 }
 
-fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
-    let frame = VideoFrameProxy::new(
+fn make_frame(source_id: &str, idx: u64) -> VideoFrame {
+    let frame = VideoFrame::new(
         source_id,
         (30, 1),
         W as i64,
@@ -58,7 +58,7 @@ fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     frame
 }
 
-fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> VideoFrameProxy {
+fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> VideoFrame {
     let frame = make_frame(source_id, idx);
     let mut fm = frame.clone();
     fm.set_persistent_attribute(ns, name, &None, false, vec![]);
@@ -87,7 +87,7 @@ impl OnRender for RenderCounter {
         &self,
         _source_id: &str,
         _renderer: &mut deepstream_buffers::SkiaRenderer,
-        _frame: &VideoFrameProxy,
+        _frame: &VideoFrame,
     ) {
         self.0.fetch_add(1, Ordering::Relaxed);
     }

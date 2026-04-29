@@ -49,9 +49,7 @@ impl Default for GeneralSpec {
 impl GeneralSpec {
     /// Create a new builder starting from default values.
     pub fn builder() -> GeneralSpecBuilder {
-        GeneralSpecBuilder {
-            inner: GeneralSpec::default(),
-        }
+        GeneralSpecBuilder(GeneralSpec::default())
     }
 }
 
@@ -65,34 +63,32 @@ impl GeneralSpec {
 ///     .idle_timeout_secs(60)
 ///     .build();
 /// ```
-pub struct GeneralSpecBuilder {
-    inner: GeneralSpec,
-}
+pub struct GeneralSpecBuilder(GeneralSpec);
 
 impl GeneralSpecBuilder {
     pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.inner.name = name.into();
+        self.0.name = name.into();
         self
     }
 
     pub fn idle_timeout_secs(mut self, secs: u64) -> Self {
-        self.inner.idle_timeout_secs = secs;
+        self.0.idle_timeout_secs = secs;
         self
     }
 
     pub fn inflight_queue_size(mut self, size: usize) -> Self {
-        self.inner.inflight_queue_size = size;
+        self.0.inflight_queue_size = size;
         self
     }
 
     pub fn pts_reset_policy(mut self, policy: PtsResetPolicy) -> Self {
-        self.inner.pts_reset_policy = policy;
+        self.0.pts_reset_policy = policy;
         self
     }
 
     /// Finish building and return the [`GeneralSpec`].
     pub fn build(self) -> GeneralSpec {
-        self.inner
+        self.0
     }
 }
 

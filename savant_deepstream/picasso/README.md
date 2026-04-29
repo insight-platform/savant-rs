@@ -18,7 +18,7 @@
 use deepstream_buffers::{BufferGenerator, NvBufSurfaceMemType, SurfaceView, TransformConfig, VideoFormat};
 use deepstream_encoders::{cuda_init, EncoderConfig, JpegEncoderConfig, NvEncoderConfig};
 use picasso::{Callbacks, CodecSpec, GeneralSpec, PicassoEngine, SourceSpec};
-use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod};
+use savant_core::primitives::frame::{VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod};
 
 gstreamer::init()?;
 cuda_init(0)?;
@@ -35,7 +35,7 @@ let spec = SourceSpec::builder()
     .build();
 engine.set_source_spec("cam-1", spec)?;
 
-let frame = VideoFrameProxy::new("cam-1", (30, 1), 1280, 720, VideoFrameContent::None, VideoFrameTranscodingMethod::Copy, None, None, (1, 1_000_000_000), 0, None, None)?;
+let frame = VideoFrame::new("cam-1", (30, 1), 1280, 720, VideoFrameContent::None, VideoFrameTranscodingMethod::Copy, None, None, (1, 1_000_000_000), 0, None, None)?;
 let shared = BufferGenerator::new(VideoFormat::RGBA, 1280, 720, 30, 1, 0, NvBufSurfaceMemType::Default)?.acquire(Some(1))?;
 let view = SurfaceView::from_buffer(&shared, 0)?;
 

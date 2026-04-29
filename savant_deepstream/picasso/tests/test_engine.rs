@@ -1,13 +1,13 @@
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-fn make_frame(source_id: &str) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         320,

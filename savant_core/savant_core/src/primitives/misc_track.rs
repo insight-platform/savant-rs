@@ -125,7 +125,7 @@ impl ToSerdeJsonValue for MiscTrackData {
 /// Describes how to apply tracker output to an existing
 /// [`VideoObject`](super::object::VideoObject) on a frame.
 ///
-/// Used by [`VideoFrameProxy::apply_tracking_info`](super::frame::VideoFrameProxy::apply_tracking_info).
+/// Used by [`VideoFrame::apply_tracking_info`](super::frame::VideoFrame::apply_tracking_info).
 #[derive(Debug, Clone)]
 pub struct TrackUpdate {
     /// The id of the [`VideoObject`](super::object::VideoObject) on the frame.
@@ -139,8 +139,8 @@ pub struct TrackUpdate {
 impl TrackUpdate {
     /// Create a tracking update to be applied to a
     /// [`VideoObject`](super::object::VideoObject) on a
-    /// [`VideoFrameProxy`](super::frame::VideoFrameProxy) by
-    /// [`VideoFrameProxy::apply_tracking_info`](super::frame::VideoFrameProxy::apply_tracking_info).
+    /// [`VideoFrame`](super::frame::VideoFrame) by
+    /// [`VideoFrame::apply_tracking_info`](super::frame::VideoFrame::apply_tracking_info).
     ///
     /// * `object_id` — the id of the existing
     ///   [`VideoObject`](super::object::VideoObject) on the frame

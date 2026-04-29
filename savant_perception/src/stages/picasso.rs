@@ -22,7 +22,7 @@
 //!   [`SourceSpec`] the first time a
 //!   given `source_id` appears.
 //! * Optional batch-level delivery hook (`on_delivery`) — receives
-//!   the unsealed `(VideoFrameProxy, SharedBuffer)` batch by
+//!   the unsealed `(VideoFrame, SharedBuffer)` batch by
 //!   **shared slice reference** before frames are fed to the
 //!   engine.  Same signature shape as
 //!   [`FunctionInboxBuilder::on_delivery`](super::function::FunctionInboxBuilder::on_delivery),
@@ -81,7 +81,7 @@ use anyhow::{anyhow, Result};
 use deepstream_buffers::{Rect, SharedBuffer, SurfaceView};
 use hashbrown::HashSet;
 use picasso::prelude::{PicassoEngine, SourceSpec};
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 
 use crate::envelopes::{BatchDelivery, EncodedMsg, PipelineMsg, SingleDelivery};
 use crate::router::Router;
@@ -103,7 +103,7 @@ pub type SourceSpecFactory =
     Box<dyn FnMut(&str, u32, u32, i32, i32) -> Result<SourceSpec> + Send + 'static>;
 
 /// Batch-level delivery hook — called once per incoming
-/// `(VideoFrameProxy, SharedBuffer)` batch **before** the frames
+/// `(VideoFrame, SharedBuffer)` batch **before** the frames
 /// are fed to
 /// [`PicassoEngine::send_frame`](picasso::prelude::PicassoEngine::send_frame).
 ///
@@ -119,7 +119,7 @@ pub type SourceSpecFactory =
 /// [`FunctionInboxBuilder::on_delivery`](super::function::FunctionInboxBuilder::on_delivery)
 /// so the cross-stage hook vocabulary is uniform.
 pub type DeliveryHook = Box<
-    dyn FnMut(&[(VideoFrameProxy, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
+    dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
         + Send
         + 'static,
 >;
@@ -166,7 +166,7 @@ pub type PicassoEngineFactory =
 /// (use the whole source surface).  Always installed at runtime;
 /// the default returns `None` for every frame.
 pub type SrcRectProvider =
-    Arc<dyn Fn(&str, &VideoFrameProxy) -> Option<Rect> + Send + Sync + 'static>;
+    Arc<dyn Fn(&str, &VideoFrame) -> Option<Rect> + Send + Sync + 'static>;
 
 /// User shutdown hook invoked from [`Actor::stopping`] *after* the
 /// stage's built-in cleanup (guarded
@@ -207,7 +207,7 @@ impl Picasso {
     /// installed when the user omits the inbox setter so the
     /// runtime struct never needs to inspect an `Option`.
     pub fn default_on_delivery(
-    ) -> impl FnMut(&[(VideoFrameProxy, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
+    ) -> impl FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
            + Send
            + 'static {
         |_pairs, _ctx| Ok(())
@@ -217,7 +217,7 @@ impl Picasso {
     /// frame, so Picasso uses the whole source surface.  Always
     /// installed when the user omits the inbox setter.
     pub fn default_src_rect_for() -> SrcRectProvider {
-        Arc::new(|_sid: &str, _frame: &VideoFrameProxy| None)
+        Arc::new(|_sid: &str, _frame: &VideoFrame| None)
     }
 
     /// Default user shutdown hook — a no-op.  The stage's own
@@ -327,7 +327,7 @@ impl Handler<UpdateSourceSpecPayload> for Picasso {
 impl Picasso {
     fn send_pairs(
         &mut self,
-        pairs: Vec<(VideoFrameProxy, SharedBuffer)>,
+        pairs: Vec<(VideoFrame, SharedBuffer)>,
         ctx: &mut Context<Self>,
     ) -> Result<Flow> {
         // Register any previously-unseen source ids first so the
@@ -410,7 +410,7 @@ impl PicassoInboxBuilder {
     }
 
     /// Install a batch-level delivery hook.  The hook receives the
-    /// unsealed `(VideoFrameProxy, SharedBuffer)` batch by
+    /// unsealed `(VideoFrame, SharedBuffer)` batch by
     /// **shared slice reference** before frames are fed to the
     /// engine, so the body can iterate and route frames into
     /// nested helpers (overlays, analytics, …) without consuming
@@ -418,7 +418,7 @@ impl PicassoInboxBuilder {
     /// the loop; see [`Picasso::send_pairs`](Picasso).
     pub fn on_delivery<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&[(VideoFrameProxy, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
+        F: FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
             + Send
             + 'static,
     {
@@ -432,7 +432,7 @@ impl PicassoInboxBuilder {
     /// default `None` behaviour (use the whole source surface).
     pub fn src_rect_for<F>(mut self, f: F) -> Self
     where
-        F: Fn(&str, &VideoFrameProxy) -> Option<Rect> + Send + Sync + 'static,
+        F: Fn(&str, &VideoFrame) -> Option<Rect> + Send + Sync + 'static,
     {
         self.src_rect = Some(Arc::new(f));
         self

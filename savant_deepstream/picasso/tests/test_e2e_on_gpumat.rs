@@ -48,7 +48,7 @@ impl OnGpuMat for GpuMatRecorder {
     fn call(
         &self,
         source_id: &str,
-        _frame: &savant_core::primitives::frame::VideoFrameProxy,
+        _frame: &savant_core::primitives::frame::VideoFrame,
         view: &SurfaceView,
     ) {
         let data_ptr = view.data_ptr() as usize;

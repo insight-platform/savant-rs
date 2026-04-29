@@ -1,4 +1,4 @@
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use uuid::{NoContext, Timestamp, Uuid};
 
 pub mod job;
@@ -13,7 +13,7 @@ pub fn get_keyframe_boundary(v: Option<u64>, default: u64) -> Uuid {
     Uuid::new_v7(Timestamp::from_unix(NoContext, ts, 0))
 }
 
-pub(crate) fn best_ts(f: &VideoFrameProxy) -> i64 {
+pub(crate) fn best_ts(f: &VideoFrame) -> i64 {
     let dts_opt = f.get_dts();
     if let Some(dts) = dts_opt {
         dts

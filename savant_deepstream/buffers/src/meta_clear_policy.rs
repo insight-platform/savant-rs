@@ -1,6 +1,4 @@
-//! Policy for clearing [`NvDsObjectMeta`] entries around inference.
-//!
-//! [`NvDsObjectMeta`]: deepstream_sys::NvDsObjectMeta
+//! Policy for clearing `NvDsObjectMeta` entries around inference.
 
 /// Controls when object metadata is erased from the batch buffer.
 ///

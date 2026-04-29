@@ -17,7 +17,7 @@ use gstreamer as gst;
 ///
 /// No GPU memory is allocated or copied. Each source slot's
 /// `NvBufSurfaceParams` is copied into the synthetic descriptor, and
-/// [`GstParentBufferMeta`] keeps the source buffers alive automatically.
+/// `GstParentBufferMeta` keeps the source buffers alive automatically.
 ///
 /// # Example
 ///
@@ -105,7 +105,7 @@ impl NonUniformBatch {
     ///
     /// # Arguments
     ///
-    /// * `ids` — per-slot IDs to attach as [`SavantIdMeta`]. Pass an empty
+    /// * `ids` — per-slot IDs to attach as `SavantIdMeta`. Pass an empty
     ///   `Vec` to skip.
     pub fn finalize(self, ids: Vec<SavantIdMetaKind>) -> Result<SharedBuffer, NvBufSurfaceError> {
         let num = self.params.len();

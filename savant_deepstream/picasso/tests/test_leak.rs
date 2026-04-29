@@ -17,7 +17,7 @@ use picasso::prelude::*;
 use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use serial_test::serial;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -43,8 +43,8 @@ fn gpu_mem_mib() -> u64 {
     nvidia_gpu_utils::gpu_mem_used_mib(0).expect("gpu_mem_used_mib failed")
 }
 
-fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         w,

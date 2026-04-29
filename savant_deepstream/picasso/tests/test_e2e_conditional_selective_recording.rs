@@ -27,7 +27,7 @@ impl OnRender for RenderCounter {
         &self,
         _: &str,
         _: &mut deepstream_buffers::SkiaRenderer,
-        _: &savant_core::primitives::frame::VideoFrameProxy,
+        _: &savant_core::primitives::frame::VideoFrame,
     ) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }

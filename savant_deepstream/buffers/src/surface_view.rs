@@ -135,9 +135,9 @@ pub(crate) fn color_format_channels(color_format: u32) -> Option<u32> {
 ///
 /// On dGPU the `NvBufSurfaceParams::dataPtr` is already a CUDA pointer.
 /// On Jetson (aarch64) the memory is VIC-managed, so we go through
-/// EGL-CUDA interop via [`EglCudaMeta`] to obtain a usable device pointer.
+/// EGL-CUDA interop via `EglCudaMeta` to obtain a usable device pointer.
 ///
-/// Fast path: if the buffer already has an [`EglCudaMeta`] with this slot
+/// Fast path: if the buffer already has an `EglCudaMeta` with this slot
 /// registered (e.g. from a previous pool cycle with `GST_META_FLAG_POOLED`),
 /// the cached pointers are returned in O(1) without calling `make_mut()`.
 fn resolve_cuda_ptr(
@@ -405,8 +405,8 @@ impl SurfaceView {
     /// Transform this surface into the destination surface via NvBufSurfTransform.
     ///
     /// Performs a GPU-to-GPU transform (scale/letterbox) from `self` (source) to `dest`
-    /// (destination). Does not require [`make_mut`](SharedBuffer::make_mut) —
-    /// the operation uses NvBufSurfTransform directly on the underlying NvBufSurface memory.
+    /// (destination). Does not require a mutable owned buffer — the operation
+    /// uses NvBufSurfTransform directly on the underlying NvBufSurface memory.
     ///
     /// # Arguments
     ///

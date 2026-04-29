@@ -280,7 +280,7 @@ where
 /// Assert that a video frame carries `(namespace, label)` as a boolean-true
 /// persistent attribute.
 pub fn assert_has_stamp(
-    frame: &savant_core::primitives::frame::VideoFrameProxy,
+    frame: &savant_core::primitives::frame::VideoFrame,
     ns: &str,
     label: &str,
 ) {

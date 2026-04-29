@@ -544,7 +544,7 @@ impl Handler<ResetStreamPayload> for NvTracker {
 fn submit_pairs(
     operator: &SharedOperator,
     pairs: Vec<(
-        savant_core::primitives::frame::VideoFrameProxy,
+        savant_core::primitives::frame::VideoFrame,
         deepstream_buffers::SharedBuffer,
     )>,
     stage: &StageName,

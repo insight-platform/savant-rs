@@ -55,9 +55,9 @@ impl Service {
 
     /// Run a single RTSP source group.
     ///
-    /// Blocks until the group is stopped via [`stop_group`] / [`request_stop`]
-    /// or an unrecoverable error occurs.  Automatically reconnects on
-    /// transient failures.
+    /// Blocks until the group is stopped via [`Self::stop_group`] /
+    /// [`Self::request_stop`] or an unrecoverable error occurs.
+    /// Automatically reconnects on transient failures.
     pub async fn run_group(&self, group: &RtspSourceGroup, name: String) -> Result<()> {
         if matches!(group.backend, RtspBackend::Gstreamer) {
             gstreamer::init()?;

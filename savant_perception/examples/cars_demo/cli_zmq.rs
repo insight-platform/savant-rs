@@ -110,6 +110,26 @@ pub struct ProducerArgs {
     /// runs without inducing per-source teardown each time.
     #[arg(long = "no-eos", default_value_t = false)]
     pub no_eos: bool,
+
+    /// Loop the input forever — when the underlying demuxer
+    /// reaches end-of-stream, the producer immediately restarts a
+    /// fresh demuxer on the same `--input` and `--source-id`.  The
+    /// producer only exits on `Ctrl+C` (or a fatal demuxer error).
+    ///
+    /// `--loop` is **independent of** `--no-eos`: by default each
+    /// loop iteration still forwards its terminating
+    /// [`EncodedMsg::SourceEos`](savant_perception::envelopes::EncodedMsg::SourceEos),
+    /// which the [`ZmqSink`](savant_perception::stages::ZmqSink)
+    /// turns into a wire EOS.  Combine `--loop --no-eos` to suppress
+    /// per-iteration EOS markers when feeding a long-lived consumer
+    /// that should not transition to a "drained" state between
+    /// iterations.
+    ///
+    /// Useful for sustained load tests against a long-running
+    /// pipeline / consumer pair, or for replaying a short clip
+    /// against a pipeline that cannot be re-started easily.
+    #[arg(long = "loop", default_value_t = false)]
+    pub loop_input: bool,
 }
 
 /// Consumer subcommand arguments.
@@ -437,6 +457,7 @@ mod tests {
             source_id: "s".into(),
             channel_cap: 0,
             no_eos: false,
+            loop_input: false,
         };
         assert!(args.validate().is_err());
     }
@@ -467,6 +488,38 @@ mod tests {
         match cli.subcommand {
             Subcommand::Producer(args) => {
                 assert!(args.no_eos);
+                args.validate().unwrap();
+            }
+            other => panic!("expected Producer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn producer_loop_defaults_off() {
+        let cli = CliZmq::try_parse_from(["cars-demo-zmq", "producer", "--input", "/tmp/clip.mp4"])
+            .unwrap();
+        match cli.subcommand {
+            Subcommand::Producer(args) => {
+                assert!(!args.loop_input);
+                args.validate().unwrap();
+            }
+            other => panic!("expected Producer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn producer_loop_can_be_enabled() {
+        let cli = CliZmq::try_parse_from([
+            "cars-demo-zmq",
+            "producer",
+            "--input",
+            "/tmp/clip.mp4",
+            "--loop",
+        ])
+        .unwrap();
+        match cli.subcommand {
+            Subcommand::Producer(args) => {
+                assert!(args.loop_input);
                 args.validate().unwrap();
             }
             other => panic!("expected Producer, got {other:?}"),

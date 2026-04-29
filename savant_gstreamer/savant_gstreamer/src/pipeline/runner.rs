@@ -864,7 +864,7 @@ fn finalizer_sender() -> &'static Sender<FinalizerItem> {
 /// Enqueue GStreamer GObjects for finalization on the shared background thread
 /// and return a [`Receiver`] that fires when finalization completes.
 ///
-/// The caller should block on the receiver with [`FINALIZE_WAIT_TIMEOUT`] so
+/// The caller should block on the receiver with a bounded timeout so
 /// that the test/process does not exit while the finalizer is mid-drop (which
 /// would cause SIGSEGV on GPU/CUDA teardown).
 ///

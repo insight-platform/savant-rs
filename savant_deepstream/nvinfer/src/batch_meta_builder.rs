@@ -2,12 +2,12 @@
 //!
 //! The primary entry-point is [`attach_batch_meta_with_rois`], which:
 //!
-//! 1. Optionally **clears** existing [`NvDsObjectMeta`] entries from each
+//! 1. Optionally **clears** existing `NvDsObjectMeta` entries from each
 //!    frame if the buffer already carries a batch meta (see
 //!    [`MetaClearPolicy`]).
 //! 2. Creates a new batch meta (or reuses the existing one) and populates
 //!    frame metas for every batch slot.
-//! 3. Adds one [`NvDsObjectMeta`] per ROI to each slot's frame meta so that
+//! 3. Adds one `NvDsObjectMeta` per ROI to each slot's frame meta so that
 //!    `Gst-nvinfer` in secondary (`process-mode=2`) mode processes each ROI
 //!    independently.
 //!    When no ROIs are supplied for a slot a single full-frame sentinel object

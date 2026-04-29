@@ -1,4 +1,4 @@
-/// Attribute module specifies attribute code for [crate::primitives::BorrowedVideoObject] and [crate::primitives::VideoFrame].
+/// Attribute module specifies attribute code for `BorrowedVideoObject` and `VideoFrame`.
 ///
 pub mod attribute;
 pub mod attribute_value;

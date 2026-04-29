@@ -1,4 +1,4 @@
-use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::protobuf::serialize;
 use savant_protobuf::generated;
@@ -21,7 +21,7 @@ impl TryFrom<&generated::VideoFrameBatch> for VideoFrameBatch {
     fn try_from(b: &generated::VideoFrameBatch) -> Result<Self, Self::Error> {
         let mut batch = VideoFrameBatch::new();
         for (id, f) in b.batch.iter() {
-            batch.add(*id, VideoFrameProxy::try_from(f)?);
+            batch.add(*id, VideoFrame::try_from(f)?);
         }
         Ok(batch)
     }

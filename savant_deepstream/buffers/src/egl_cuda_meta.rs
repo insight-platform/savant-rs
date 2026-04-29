@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::LazyLock;
 use std::time::Instant;
 
-/// Process-wide monotonic epoch used by [`SlotRegistration::registered_at_ns`]
+/// Process-wide monotonic epoch used by `SlotRegistration::registered_at_ns`
 /// to derive a wallclock-style age for each slot registration.
 ///
 /// We avoid storing `Instant` directly on the slot because `SlotRegistration`

@@ -41,7 +41,7 @@ pub enum NvInferOutput {
 /// The NvInfer inference engine.
 ///
 /// Operates in secondary mode (`process-mode=2`): each submitted buffer must
-/// carry [`NvDsObjectMeta`] entries (one per ROI) so that `Gst-nvinfer` crops
+/// carry `NvDsObjectMeta` entries (one per ROI) so that `Gst-nvinfer` crops
 /// and processes each region independently. [`submit`](NvInfer::submit)
 /// accepts an optional per-slot ROI map and attaches the metadata
 /// automatically.
@@ -62,12 +62,12 @@ pub struct NvInfer {
     ///
     /// The feeder thread behind the GStreamer pipeline enforces
     /// [`PtsPolicy::StrictPts`] and fails the pipeline on the first
-    /// violation.  [`prepare_buffer`] and [`Sender::send`] are lengthy,
+    /// violation.  `prepare_buffer` and [`Sender::send`] are lengthy,
     /// non-atomic steps: with two concurrent submitters, thread A can
     /// read pts `291`, be preempted mid `prepare_buffer`, let thread B
     /// read pts `292` + finish `send` first, and then deliver its 291
     /// buffer after 292 — producing the very
-    /// [`PipelineError::TimestampOrderViolation`] the feeder enforces.
+    /// `PipelineError::TimestampOrderViolation` the feeder enforces.
     /// The [`NvInferBatchingOperator`](crate::NvInferBatchingOperator)
     /// calls `submit` from both the `add_frame` path (user thread) and
     /// the timer thread, so this race is reachable in practice.

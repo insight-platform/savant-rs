@@ -1,8 +1,8 @@
 //! Internal `GstMeta` marker that flags an NvTracker service batch.
 //!
 //! A *service batch* is a one-frame batch the crate submits internally during
-//! [`reset_stream_with_reason`](crate::pipeline::NvTracker::reset_stream_with_reason)
-//! to drive the DeepStream `nvtracker` element through the per-source release
+//! `NvTracker::reset_stream_with_reason` to drive the DeepStream `nvtracker`
+//! element through the per-source release
 //! sequence (synthetic frame for the source → `GST_NVEVENT_PAD_DELETED` →
 //! tracker drops the prev-frame pin on the next regular batch).
 //!
@@ -13,7 +13,7 @@
 //! instead of surfacing it as a [`TrackerOutput`](crate::output::TrackerOutput).
 //!
 //! Why a dedicated meta and not "absence of [`SavantIdMeta`](deepstream_buffers::SavantIdMeta)"?
-//! [`SavantIdMeta`] is optional on user batches (callers may legitimately
+//! `SavantIdMeta` is optional on user batches (callers may legitimately
 //! submit without ids), so its absence is not a reliable service marker.  An
 //! explicit meta is positive and unambiguous and survives any future change
 //! to the `SavantIdMeta` policy.

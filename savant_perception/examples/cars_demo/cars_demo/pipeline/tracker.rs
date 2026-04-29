@@ -9,7 +9,7 @@
 //! [`TrackedObject::to_track_update`] (keyed by
 //! [`TrackedObject::input_roi_id`] — no IoU reconciliation needed) and
 //! delegates to
-//! [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info).
+//! [`VideoFrame::apply_tracking_info`](savant_core::primitives::frame::VideoFrame::apply_tracking_info).
 //! Any [`TrackUpdate`](savant_core::primitives::misc_track::TrackUpdate)
 //! whose `object_id` does not resolve is forwarded in the returned
 //! `unmatched` vec; the sample logs each via the [`std::fmt::Display`]
@@ -36,7 +36,7 @@ use deepstream_nvtracker::{
     TrackedObject, TrackerBatchFormationCallback, TrackerBatchFormationResult,
     TrackerOperatorTrackingOutput,
 };
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::RBBox;
 // The `HashMap<i32, Vec<Roi>>` inside `TrackerBatchFormationResult.rois`
@@ -91,7 +91,7 @@ pub fn build_tracker_config(gpu_id: u32) -> Result<NvTrackerBatchingOperatorConf
 
 /// Build the batch-formation callback for the tracker.
 pub fn build_batch_formation() -> TrackerBatchFormationCallback {
-    Arc::new(|frames: &[VideoFrameProxy]| {
+    Arc::new(|frames: &[VideoFrame]| {
         let mut ids = Vec::with_capacity(frames.len());
         let mut rois = Vec::with_capacity(frames.len());
 
@@ -151,7 +151,7 @@ impl TrackerStats {
     /// Record `n` unmatched
     /// [`TrackUpdate`](savant_core::primitives::misc_track::TrackUpdate)s
     /// returned by
-    /// [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info).
+    /// [`VideoFrame::apply_tracking_info`](savant_core::primitives::frame::VideoFrame::apply_tracking_info).
     /// Per the `misc_obj_info[0]` preservation contract this should
     /// be 0 in normal operation; a non-zero value flags a
     /// tracker-config drift worth investigating.

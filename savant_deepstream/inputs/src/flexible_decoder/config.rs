@@ -1,7 +1,7 @@
 //! Configuration for [`super::FlexibleDecoder`].
 
 use deepstream_decoders::DecoderConfig;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,7 +15,7 @@ const DEFAULT_DETECT_BUFFER_LIMIT: usize = 30;
 /// [`DecoderConfig`] right before the underlying decoder is built.
 ///
 /// The callback takes ownership of the [`DecoderConfig`] and returns the
-/// (possibly modified) configuration. Receiving the [`VideoFrameProxy`]
+/// (possibly modified) configuration. Receiving the [`VideoFrame`]
 /// allows the callback to read per-stream metadata (source id, FPS,
 /// attributes, size, …) when deciding how to tune the decoder.
 ///
@@ -24,15 +24,15 @@ const DEFAULT_DETECT_BUFFER_LIMIT: usize = 30;
 /// already-active decoder — the config has already been baked into the
 /// running hardware decoder at that point.
 pub type DecoderConfigCallback =
-    Arc<dyn Fn(DecoderConfig, &VideoFrameProxy) -> DecoderConfig + Send + Sync + 'static>;
+    Arc<dyn Fn(DecoderConfig, &VideoFrame) -> DecoderConfig + Send + Sync + 'static>;
 
 /// Configuration for a [`super::FlexibleDecoder`].
 ///
 /// Every field maps 1:1 to an underlying API parameter. Pool dimensions and
-/// pixel format (`RGBA`) are derived from the [`VideoFrameProxy`] at decoder
+/// pixel format (`RGBA`) are derived from the [`VideoFrame`] at decoder
 /// activation time.
 ///
-/// [`VideoFrameProxy`]: savant_core::primitives::frame::VideoFrameProxy
+/// [`VideoFrame`]: savant_core::primitives::frame::VideoFrame
 #[derive(Clone)]
 pub struct FlexibleDecoderConfig {
     /// Bound source_id; frames with a different source_id are rejected.
@@ -118,7 +118,7 @@ impl FlexibleDecoderConfig {
     /// ```
     pub fn decoder_config_callback<F>(mut self, cb: F) -> Self
     where
-        F: Fn(DecoderConfig, &VideoFrameProxy) -> DecoderConfig + Send + Sync + 'static,
+        F: Fn(DecoderConfig, &VideoFrame) -> DecoderConfig + Send + Sync + 'static,
     {
         self.decoder_config_callback = Some(Arc::new(cb));
         self
@@ -145,8 +145,8 @@ mod tests {
     use savant_core::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
     use savant_core::primitives::video_codec::VideoCodec;
 
-    fn make_frame(source_id: &str) -> VideoFrameProxy {
-        VideoFrameProxy::new(
+    fn make_frame(source_id: &str) -> VideoFrame {
+        VideoFrame::new(
             source_id,
             (30, 1),
             64,

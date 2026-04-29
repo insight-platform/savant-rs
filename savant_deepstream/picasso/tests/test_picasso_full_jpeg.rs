@@ -29,7 +29,7 @@ use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -172,8 +172,8 @@ fn build_draw_spec() -> ObjectDrawSpec {
     spec
 }
 
-fn create_frame(source_id: &str) -> VideoFrameProxy {
-    let frame = VideoFrameProxy::new(
+fn create_frame(source_id: &str) -> VideoFrame {
+    let frame = VideoFrame::new(
         source_id,
         (30, 1),
         SRC_W as i64,
@@ -270,7 +270,7 @@ impl OnRender for PixelCapture {
         &self,
         _source_id: &str,
         renderer: &mut deepstream_buffers::SkiaRenderer,
-        _frame: &VideoFrameProxy,
+        _frame: &VideoFrame,
     ) {
         let canvas = renderer.canvas();
         let info = skia_safe::ImageInfo::new(

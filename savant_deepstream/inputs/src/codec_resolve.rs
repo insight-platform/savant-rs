@@ -70,7 +70,7 @@ pub enum CodecResolve {
     Ready(DecoderConfig),
 }
 
-/// Map [`VideoCodec`] from `VideoFrameProxy::get_codec()` to a resolve plan.
+/// Map [`VideoCodec`] from `VideoFrame::get_codec()` to a resolve plan.
 ///
 /// `(width, height)` are needed so raw-pixel codecs (`raw_rgba`, `raw_rgb`)
 /// can build a complete [`DecoderConfig`] in one step.

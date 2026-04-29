@@ -13,16 +13,19 @@ use nom::{
 /// A parser for human-friendly tag expressions
 ///
 /// Syntax examples:
-/// - "tag1"                   - Set("tag1")
-/// - [tag1]                   - Set("tag1")
-/// - !"tag1"                  - Not(Set("tag1"))
-/// - ![tag1]                  - Not(Set("tag1"))
-/// - "tag1" & "tag2"          - And([Set("tag1"), Set("tag2")])
-/// - [tag1] & [tag2]          - And([Set("tag1"), Set("tag2")])
-/// - "tag1" | "tag2"          - Or([Set("tag1"), Set("tag2")])
-/// - [tag1] | [tag2]          - Or([Set("tag1"), Set("tag2")])
-/// - "tag1" & !("tag2" | "tag3") - And([Set("tag1"), Not(Or([Set("tag2"), Set("tag3")]))])
-/// - [tag1] & !([tag2] | [tag3]) - And([Set("tag1"), Not(Or([Set("tag2"), Set("tag3")]))])
+///
+/// ```text
+/// "tag1"                       -> Set("tag1")
+/// [tag1]                       -> Set("tag1")
+/// !"tag1"                      -> Not(Set("tag1"))
+/// ![tag1]                      -> Not(Set("tag1"))
+/// "tag1" & "tag2"              -> And([Set("tag1"), Set("tag2")])
+/// [tag1] & [tag2]              -> And([Set("tag1"), Set("tag2")])
+/// "tag1" | "tag2"              -> Or([Set("tag1"), Set("tag2")])
+/// [tag1] | [tag2]              -> Or([Set("tag1"), Set("tag2")])
+/// "tag1" & !("tag2" | "tag3")  -> And([Set("tag1"), Not(Or([Set("tag2"), Set("tag3")]))])
+/// [tag1] & !([tag2] | [tag3])  -> And([Set("tag1"), Not(Or([Set("tag2"), Set("tag3")]))])
+/// ```
 pub struct LabelExpressionParser;
 
 impl LabelExpressionParser {

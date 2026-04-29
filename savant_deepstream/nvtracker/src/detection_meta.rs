@@ -45,7 +45,7 @@ fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
 /// `slots[i]` is `(pad_index, classified_detections)` for surface slot `i` (`i` in `0..num_filled`).
 /// Each detection is `(class_id, Roi)`.
 /// `frame_nums[i]` is the DeepStream `frame_num` for that slot (global per-source counter).
-/// Each [`Roi`] becomes an [`NvDsObjectMeta`] with `object_id = PRETRACK_OBJECT_ID`,
+/// Each [`Roi`] becomes an `NvDsObjectMeta` with `object_id = PRETRACK_OBJECT_ID`,
 /// the given `class_id`, `confidence = 1.0`, and `misc_obj_info[0] = roi.id`.
 /// Slots with an empty detection list get no object metas (allowed for shadow-track tests).
 pub fn attach_detection_meta(

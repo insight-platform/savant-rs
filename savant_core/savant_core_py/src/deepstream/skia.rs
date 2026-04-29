@@ -37,7 +37,7 @@ impl PySkiaContext {
     //             )
     //             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
     //         };
-    //         return Ok(Self { inner });
+    //         return Ok(Self(inner));
     //     }
     //     let shared = extract_shared_buffer(buf)?;
     //     let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
@@ -52,7 +52,7 @@ impl PySkiaContext {
     //         )
     //         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
     //     };
-    //     Ok(Self { inner })
+    //     Ok(Self(inner))
     // }
 
     #[getter]

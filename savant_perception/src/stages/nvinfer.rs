@@ -494,7 +494,7 @@ impl Handler<ShutdownPayload> for NvInfer {}
 fn submit_pairs(
     operator: &mut NvInferBatchingOperator,
     pairs: Vec<(
-        savant_core::primitives::frame::VideoFrameProxy,
+        savant_core::primitives::frame::VideoFrame,
         deepstream_buffers::SharedBuffer,
     )>,
     stage: &StageName,

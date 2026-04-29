@@ -23,9 +23,9 @@
 //! This module ships two ready-made aliases used across the DeepStream
 //! pipeline crates:
 //!
-//! * [`SealedDelivery`] — a single `(VideoFrameProxy, SharedBuffer)`
+//! * [`SealedDelivery`] — a single `(VideoFrame, SharedBuffer)`
 //!   pair (used by single-stream decoders like `FlexibleDecoder`).
-//! * [`SealedDeliveries`] — a batch `Vec<(VideoFrameProxy, SharedBuffer)>`
+//! * [`SealedDeliveries`] — a batch `Vec<(VideoFrame, SharedBuffer)>`
 //!   (used by batched operators such as `NvInferBatchingOperator` and
 //!   `NvTrackerBatchingOperator`).
 //!
@@ -53,7 +53,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::utils::release_seal::ReleaseSeal;
 
 use crate::SharedBuffer;
@@ -186,18 +186,18 @@ impl<T> std::fmt::Debug for Sealed<T> {
     }
 }
 
-/// A single `(VideoFrameProxy, SharedBuffer)` pair sealed until the
+/// A single `(VideoFrame, SharedBuffer)` pair sealed until the
 /// associated producer is dropped.
 ///
 /// Used by single-stream decoders (e.g. `FlexibleDecoder`).
-pub type SealedDelivery = Sealed<(VideoFrameProxy, SharedBuffer)>;
+pub type SealedDelivery = Sealed<(VideoFrame, SharedBuffer)>;
 
-/// A batch of `(VideoFrameProxy, SharedBuffer)` pairs sealed until the
+/// A batch of `(VideoFrame, SharedBuffer)` pairs sealed until the
 /// associated producer is dropped.
 ///
 /// Used by batched operators (e.g. `NvInferBatchingOperator`,
 /// `NvTrackerBatchingOperator`).
-pub type SealedDeliveries = Sealed<Vec<(VideoFrameProxy, SharedBuffer)>>;
+pub type SealedDeliveries = Sealed<Vec<(VideoFrame, SharedBuffer)>>;
 
 impl SealedDeliveries {
     /// Number of frames in the sealed batch.

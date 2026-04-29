@@ -256,51 +256,47 @@ impl TransformConfig {
     ///     .build();
     /// ```
     pub fn builder() -> TransformConfigBuilder {
-        TransformConfigBuilder {
-            inner: TransformConfig::default(),
-        }
+        TransformConfigBuilder(TransformConfig::default())
     }
 }
 
 /// Builder for [`TransformConfig`].
-pub struct TransformConfigBuilder {
-    inner: TransformConfig,
-}
+pub struct TransformConfigBuilder(TransformConfig);
 
 impl TransformConfigBuilder {
     /// Set the padding mode for letterboxing.
     pub fn padding(mut self, padding: Padding) -> Self {
-        self.inner.padding = padding;
+        self.0.padding = padding;
         self
     }
 
     /// Set optional per-side destination padding.
     pub fn dst_padding(mut self, dst_padding: DstPadding) -> Self {
-        self.inner.dst_padding = Some(dst_padding);
+        self.0.dst_padding = Some(dst_padding);
         self
     }
 
     /// Set the interpolation method.
     pub fn interpolation(mut self, interpolation: Interpolation) -> Self {
-        self.inner.interpolation = interpolation;
+        self.0.interpolation = interpolation;
         self
     }
 
     /// Set the compute backend.
     pub fn compute_mode(mut self, compute_mode: ComputeMode) -> Self {
-        self.inner.compute_mode = compute_mode;
+        self.0.compute_mode = compute_mode;
         self
     }
 
     /// Set the CUDA stream for the transform operation.
     pub fn cuda_stream(mut self, cuda_stream: CudaStream) -> Self {
-        self.inner.cuda_stream = cuda_stream;
+        self.0.cuda_stream = cuda_stream;
         self
     }
 
     /// Finish building and return the [`TransformConfig`].
     pub fn build(self) -> TransformConfig {
-        self.inner
+        self.0
     }
 }
 

@@ -561,7 +561,7 @@ impl VideoFrameTransformation {
 
 #[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
-pub struct VideoFrame(pub rust::VideoFrameProxy);
+pub struct VideoFrame(pub rust::VideoFrame);
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
@@ -699,7 +699,7 @@ impl VideoFrame {
         duration: Option<i64>,
     ) -> PyResult<Self> {
         Ok(VideoFrame(err_to_pyerr!(
-            rust::VideoFrameProxy::new(
+            rust::VideoFrame::new(
                 source_id,
                 fps,
                 width,
@@ -1506,7 +1506,7 @@ impl VideoFrame {
     fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
         detach!(no_gil, || {
-            let obj = from_pb::<savant_core::protobuf::VideoFrame, rust::VideoFrameProxy>(bytes)
+            let obj = from_pb::<savant_core::protobuf::VideoFrame, rust::VideoFrame>(bytes)
                 .map_err(|e| {
                     PyRuntimeError::new_err(format!(
                         "Failed to deserialize video frame from protobuf: {e}"

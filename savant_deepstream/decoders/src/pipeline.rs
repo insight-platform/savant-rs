@@ -116,9 +116,8 @@ impl NvDecoder {
     /// The pool is wrapped in an [`Arc`]`<`[`Mutex`]`<...>>` internally. Use
     /// [`with_shared_pool`](Self::with_shared_pool) when an existing shared
     /// handle should be reused — for example when a higher-level supervisor
-    /// (such as
-    /// [`FlexibleDecoder`](crate::flexible_decoder::FlexibleDecoder)) keeps
-    /// the pool alive across decoder restarts to avoid pool churn.
+    /// (such as `FlexibleDecoder` in `deepstream_inputs`) keeps the pool
+    /// alive across decoder restarts to avoid pool churn.
     pub fn new(
         config: NvDecoderConfig,
         pool: BufferGenerator,

@@ -3,15 +3,15 @@ use crate::config::TrackingIdResetMode;
 use crate::{MiscTrackData, MiscTrackFrame, TrackState, TrackedObject};
 use deepstream_buffers::BatchState;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use std::collections::HashMap as StdHashMap;
 use std::time::Duration;
 
-type FramePair = (VideoFrameProxy, deepstream_buffers::SharedBuffer);
+type FramePair = (VideoFrame, deepstream_buffers::SharedBuffer);
 
-fn make_frame(source_id: &str) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         320,

@@ -4,7 +4,7 @@ use deepstream_buffers::{SkiaRenderer, SurfaceView};
 use picasso::prelude::*;
 use pyo3::prelude::*;
 use savant_core::draw::ObjectDraw;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::object::BorrowedVideoObject;
 use std::sync::Arc;
 
@@ -43,7 +43,7 @@ unsafe impl Send for PyOnRender {}
 unsafe impl Sync for PyOnRender {}
 
 impl OnRender for PyOnRender {
-    fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrameProxy) {
+    fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrame) {
         let fbo_id = renderer.fbo_id();
         let width = renderer.width();
         let height = renderer.height();
@@ -100,7 +100,7 @@ unsafe impl Send for PyOnGpuMat {}
 unsafe impl Sync for PyOnGpuMat {}
 
 impl OnGpuMat for PyOnGpuMat {
-    fn call(&self, source_id: &str, frame: &VideoFrameProxy, view: &SurfaceView) {
+    fn call(&self, source_id: &str, frame: &VideoFrame, view: &SurfaceView) {
         let data_ptr = view.data_ptr() as usize;
         let pitch = view.pitch();
         let width = view.width();
@@ -157,16 +157,14 @@ impl OnEviction for PyOnEviction {
     module = "savant_rs.picasso"
 )]
 #[derive(Debug, Clone)]
-pub struct PyStreamResetReason {
-    inner: StreamResetReason,
-}
+pub struct PyStreamResetReason(StreamResetReason);
 
 #[pymethods]
 impl PyStreamResetReason {
     /// The PTS of the last successfully accepted frame (nanoseconds).
     #[getter]
     fn last_pts_ns(&self) -> u64 {
-        match &self.inner {
+        match &self.0 {
             StreamResetReason::PtsDecreased { last_pts_ns, .. } => *last_pts_ns,
         }
     }
@@ -174,13 +172,13 @@ impl PyStreamResetReason {
     /// The PTS of the incoming frame that triggered the reset (nanoseconds).
     #[getter]
     fn new_pts_ns(&self) -> u64 {
-        match &self.inner {
+        match &self.0 {
             StreamResetReason::PtsDecreased { new_pts_ns, .. } => *new_pts_ns,
         }
     }
 
     fn __repr__(&self) -> String {
-        match &self.inner {
+        match &self.0 {
             StreamResetReason::PtsDecreased {
                 last_pts_ns,
                 new_pts_ns,
@@ -195,7 +193,7 @@ impl PyStreamResetReason {
 
 impl PyStreamResetReason {
     pub(crate) fn from_rust(reason: StreamResetReason) -> Self {
-        Self { inner: reason }
+        Self(reason)
     }
 }
 

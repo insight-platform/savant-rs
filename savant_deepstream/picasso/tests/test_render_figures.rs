@@ -16,7 +16,7 @@ use picasso::skia::{bbox, blur, dot, label, object};
 use savant_core::draw::*;
 use savant_core::label_template::ParsedLabelFormats;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -82,8 +82,8 @@ fn make_frame_with_object(
     track_box: Option<RBBox>,
     confidence: Option<f32>,
     track_id: Option<i64>,
-) -> (VideoFrameProxy, i64) {
-    let frame = VideoFrameProxy::new(
+) -> (VideoFrame, i64) {
+    let frame = VideoFrame::new(
         "test",
         (30, 1),
         W as i64,

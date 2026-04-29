@@ -6,7 +6,7 @@ use crate::roi::RoiKind;
 use deepstream_buffers::{BatchState, SavantIdMetaKind, SharedBuffer};
 use log::{error, warn};
 use parking_lot::{Condvar, Mutex};
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_gstreamer::submit_gate::SubmitGate;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,7 +23,7 @@ use super::types::{BatchFormationCallback, OperatorResultCallback, PendingMap};
 /// them into batches, and delegates inference to [`NvInfer`].
 ///
 /// Results are delivered via a [`OperatorResultCallback`] with per-frame outputs
-/// mapped back to the original `(VideoFrameProxy, SharedBuffer)` pairs.
+/// mapped back to the original `(VideoFrame, SharedBuffer)` pairs.
 pub struct NvInferBatchingOperator {
     ctx: Arc<SubmitContext>,
     condvar: Arc<Condvar>,
@@ -128,7 +128,7 @@ impl NvInferBatchingOperator {
     ///
     /// If adding this frame fills the batch to `max_batch_size`, the batch is
     /// submitted immediately.
-    pub fn add_frame(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()> {
+    pub fn add_frame(&self, frame: VideoFrame, buffer: SharedBuffer) -> Result<()> {
         if self.ctx.failed.load(Ordering::Acquire) {
             return Err(NvInferError::OperatorFailed);
         }
@@ -412,7 +412,7 @@ fn process_inference_output(
     Some(OperatorOutput::Inference(operator_output))
 }
 
-/// Scan the output buffer's [`SavantIdMeta`] for a `Batch(id)` entry.
+/// Scan the output buffer's `SavantIdMeta` for a `Batch(id)` entry.
 fn find_batch_id(output: &BatchInferenceOutput) -> Option<u128> {
     let ids = output.buffer().savant_ids();
     ids.into_iter().find_map(|id| match id {

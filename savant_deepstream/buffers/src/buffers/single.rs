@@ -219,12 +219,12 @@ impl BufferGenerator {
     /// (symmetric or right-bottom), using the same NvBufSurfTransform API
     /// that nvinfer uses internally for ROI preparation.
     ///
-    /// The internally-constructed destination [`SurfaceView`] inherits
+    /// The internally-constructed destination `SurfaceView` inherits
     /// `config.cuda_stream`, so both the transform itself (driven by
-    /// [`SurfaceView::transform_into`]) and the destination's
+    /// `SurfaceView::transform_into`) and the destination's
     /// `Drop::sync()` run on the caller-provided stream.  This avoids
     /// the legacy default stream serialization point that
-    /// [`SurfaceView::from_buffer`] would otherwise introduce.
+    /// `SurfaceView::from_buffer` would otherwise introduce.
     ///
     /// # Arguments
     ///

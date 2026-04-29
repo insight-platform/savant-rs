@@ -24,7 +24,7 @@ use deepstream_nvinfer::{
 };
 use savant_core::converters::{NmsKind, YoloDetectionConverter, YoloFormat};
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::RBBox;
 use serial_test::serial;
@@ -45,8 +45,8 @@ fn assets_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
 }
 
-fn make_frame(source_id: &str, width: i64, height: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str, width: i64, height: i64) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         width,

@@ -16,7 +16,7 @@ use retina::{
     codec::CodecItem,
 };
 use savant_core::primitives::{
-    frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
+    frame::{VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod},
     rust::{ExternalFrame, VideoCodec},
 };
 use savant_services_common::job_writer::JobWriter;
@@ -488,7 +488,7 @@ impl RtspServiceGroup {
                 let pts = pts.round() as i64;
                 debug!(target: "retina_rtsp::pts_builder", "Source ID: {}, Int PTS: {}", source_id, pts);
 
-                let frame = VideoFrameProxy::new(
+                let frame = VideoFrame::new(
                     source_id,
                     fps,
                     stream_info.pixel_dimensions.0 as i64,

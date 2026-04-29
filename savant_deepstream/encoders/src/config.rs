@@ -11,7 +11,7 @@
 //!   with framework-level knobs (name, GPU id, channel capacities,
 //!   operation timeout).
 //!
-//! Platform-specific tuning structs (e.g. [`H264DgpuProps`],
+//! Platform-specific tuning structs (e.g. `H264DgpuProps`,
 //! [`H264JetsonProps`]) still live in [`crate::properties`]; the per-codec
 //! configs here pick the matching variant at compile time using
 //! `#[cfg(target_arch = "aarch64")]`, exactly as the decoder configs do.
@@ -466,7 +466,7 @@ pub struct NvEncoderConfig {
     ///
     /// Ensures per-source EOS markers escape the encoder element without
     /// requiring an explicit caller flush or a full graceful_shutdown,
-    /// mirroring [`deepstream_decoders::NvDecoderConfig::idle_flush_interval`].
+    /// mirroring `deepstream_decoders::NvDecoderConfig::idle_flush_interval`.
     pub idle_flush_interval: Option<Duration>,
 }
 

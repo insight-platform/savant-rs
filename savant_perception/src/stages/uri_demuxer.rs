@@ -27,18 +27,28 @@
 //!   `source-setup` signal (e.g. `rtspsrc.latency`,
 //!   `souphttpsrc.user-agent`).
 //!
+//! Like [`Mp4DemuxerSource`](super::mp4_demuxer::Mp4DemuxerSource),
+//! the URI demuxer is driven by a user-supplied [`InputRequester`]
+//! callback the framework asks before each input run (and again
+//! after every underlying demuxer exits).  The callback returns a
+//! [`DemuxInputRequest`] (see the
+//! [demux_input](super::demuxers::demux_input) module docs); use
+//! [`UriDemuxerBuilder::one_shot`] for the common single-URI case
+//! and [`UriDemuxerBuilder::looped`] for an infinite replay of the
+//! same URI.
+//!
 //! ```ignore
 //! sys.register_source(
 //!     UriDemuxerSource::builder(StageName::unnamed(StageKind::UriDemux))
-//!         .input("rtsp://cam/stream")
-//!         .source_id("cam1")
+//!         .one_shot("rtsp://cam/stream", "cam1")
 //!         .downstream(StageName::unnamed(StageKind::Decoder))
 //!         .source_properties(vec![
 //!             ("latency".into(), PropertyValue::U64(200)),
 //!         ])
 //!         .results(
 //!             UriDemuxerResults::builder()
-//!                 .on_packet(|pkt, info, source_id, router, _ctx| {
+//!                 .on_packet(|uri, source_id, info, pkt, router, _ctx| {
+//!                     log::debug!("packet from {uri}");
 //!                     router.send(EncodedMsg::Packet {
 //!                         source_id: source_id.to_string(),
 //!                         info: *info,
@@ -75,7 +85,7 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use parking_lot::Mutex;
@@ -89,6 +99,7 @@ use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
 use crate::envelopes::EncodedMsg;
 use crate::router::Router;
+use crate::stages::demuxers::demux_input::{DemuxInputRequest, InputRequester};
 use crate::supervisor::StageName;
 use crate::{ErrorAction, Flow, HookCtx, Source, SourceBuilder, SourceContext};
 
@@ -101,11 +112,17 @@ use crate::{ErrorAction, Flow, HookCtx, Source, SourceBuilder, SourceContext};
 pub type OnStreamInfoHook =
     Box<dyn FnMut(VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()> + Send + 'static>;
 
-/// Closure type for `on_packet` — receives each demuxed access
-/// unit, the stream-level [`VideoInfo`] (as seen in the preceding
-/// [`UriDemuxerOutput::StreamInfo`]), the `source_id`, and the
-/// router.  Typical use:
+/// Closure type for `on_packet` — receives the URI of the run
+/// currently in progress, the `source_id`, the stream-level
+/// [`VideoInfo`] (as seen in the preceding
+/// [`UriDemuxerOutput::StreamInfo`]), the demuxed access unit,
+/// and the router.  Typical use:
 /// `router.send(EncodedMsg::Packet { source_id: source_id.into(), info: *info, packet: pkt })`.
+///
+/// The leading `uri` argument is the same string the
+/// [`InputRequester`] returned in the [`DemuxInputRequest::Run`]
+/// that started this run, so multi-URI pipelines can route per
+/// URI without threading the value through external state.
 ///
 /// The [`VideoInfo`] is forwarded in-band with every
 /// [`EncodedMsg::Packet`]
@@ -116,7 +133,14 @@ pub type OnStreamInfoHook =
 /// via [`UriDemuxerSource::default_on_packet_as_frame`]).
 /// Returning `Err(_)` is fatal.
 pub type OnPacketHook = Box<
-    dyn FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    dyn FnMut(
+            &str,
+            &str,
+            &VideoInfo,
+            DemuxedPacket,
+            &Router<EncodedMsg>,
+            &HookCtx,
+        ) -> Result<()>
         + Send
         + 'static,
 >;
@@ -188,8 +212,7 @@ pub type OnStoppingHook = Box<dyn FnMut(&SourceContext) + Send + 'static>;
 /// inspects an `Option` — every demuxed variant is dispatched to a
 /// hook.
 pub struct UriDemuxerSource {
-    uri: String,
-    source_id: String,
+    request_input: InputRequester,
     downstream: Option<StageName>,
     parsed: bool,
     bin_properties: Vec<(String, PropertyValue)>,
@@ -227,7 +250,9 @@ impl UriDemuxerSource {
     /// [`EncodedMsg::Packet { source_id, info, packet }`](crate::envelopes::EncodedMsg::Packet)
     /// via `router.send(...)`, stamping every access unit with the
     /// stream-level [`VideoInfo`] observed on the preceding
-    /// [`UriDemuxerOutput::StreamInfo`].
+    /// [`UriDemuxerOutput::StreamInfo`].  The leading `uri`
+    /// argument (URI of the current run) is ignored by the
+    /// default forwarder.
     ///
     /// Attaching the [`VideoInfo`] in-band lets downstream consumers
     /// (notably the framework's
@@ -236,13 +261,19 @@ impl UriDemuxerSource {
     /// [`VideoInfo`] cache — the message is self-describing.  Use
     /// [`UriDemuxerSource::default_on_packet_as_frame`] instead
     /// when you want the demuxer to build the
-    /// [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// upstream.
-    pub fn default_on_packet(
-    ) -> impl FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    pub fn default_on_packet() -> impl FnMut(
+        &str,
+        &str,
+        &VideoInfo,
+        DemuxedPacket,
+        &Router<EncodedMsg>,
+        &HookCtx,
+    ) -> Result<()>
            + Send
            + 'static {
-        |packet, info, source_id, router, _ctx| {
+        |_uri, source_id, info, packet, router, _ctx| {
             router.send(EncodedMsg::Packet {
                 source_id: source_id.to_string(),
                 info: *info,
@@ -253,19 +284,27 @@ impl UriDemuxerSource {
     }
 
     /// Default `on_packet` forwarder that constructs the
-    /// decoder-facing [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// decoder-facing [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// **on the demuxer side** (via
     /// [`make_decode_frame`](super::decoder::make_decode_frame)) and
     /// sends
     /// [`EncodedMsg::Frame { frame, payload: Some(bytes) }`](crate::envelopes::EncodedMsg::Frame).
+    /// The leading `uri` argument (URI of the current run) is
+    /// ignored.
     ///
     /// Swap for [`UriDemuxerSource::default_on_packet`] when you
     /// want the decoder to own frame construction instead.
-    pub fn default_on_packet_as_frame(
-    ) -> impl FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    pub fn default_on_packet_as_frame() -> impl FnMut(
+        &str,
+        &str,
+        &VideoInfo,
+        DemuxedPacket,
+        &Router<EncodedMsg>,
+        &HookCtx,
+    ) -> Result<()>
            + Send
            + 'static {
-        |packet, info, source_id, router, _ctx| {
+        |_uri, source_id, info, packet, router, _ctx| {
             let frame = super::decoder::make_decode_frame(source_id, &packet, info);
             let payload = Some(packet.data);
             router.send(EncodedMsg::Frame { frame, payload });
@@ -327,11 +366,14 @@ struct UriDemuxerHooks {
     last_stream_info: Option<VideoInfo>,
 }
 
+/// Polling cadence used while waiting for the underlying demuxer
+/// to finish *and* during [`DemuxInputRequest::Idle`] sleeps.
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
 impl Source for UriDemuxerSource {
     fn run(self, ctx: SourceContext) -> Result<()> {
         let UriDemuxerSource {
-            uri,
-            source_id,
+            mut request_input,
             downstream,
             parsed,
             bin_properties,
@@ -349,11 +391,9 @@ impl Source for UriDemuxerSource {
         let default_sink = router.default_sink();
         let stop_flag = ctx.stop_flag();
 
-        log::info!("[{own_name}] starting source_id={source_id} uri={uri} parsed={parsed}");
-
-        // Local latch — first error seen on the pipeline bus is
-        // the diagnostically useful one.
-        let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        // Hooks live for the lifetime of the source — see the
+        // comment on the mp4 stage: shared across every per-input
+        // run via `Arc<Mutex<...>>`.
         let hooks: Arc<Mutex<UriDemuxerHooks>> = Arc::new(Mutex::new(UriDemuxerHooks {
             on_stream_info,
             on_packet,
@@ -362,175 +402,234 @@ impl Source for UriDemuxerSource {
             last_stream_info: None,
         }));
 
-        let router_cb = router.clone();
-        let default_sink_cb = default_sink.clone();
-        let stop_flag_cb = stop_flag.clone();
-        let first_error_cb = first_error.clone();
-        let hooks_cb = hooks.clone();
-        let source_id_cb = source_id.clone();
-        let own_name_cb = own_name.clone();
-        let hook_ctx_cb = hook_ctx.clone();
-
-        let mut cfg = UriDemuxerConfig::new(&uri).with_parsed(parsed);
-        cfg.bin_properties = bin_properties;
-        cfg.source_properties = source_properties;
-
-        let mut demuxer = UriDemuxer::new(cfg, move |output| {
-            // Cooperative-stop / already-aborted short-circuit.
-            if stop_flag_cb.load(Ordering::Relaxed)
-                || default_sink_cb
-                    .as_ref()
-                    .map(|s| s.aborted())
-                    .unwrap_or(false)
-            {
-                return;
-            }
-            let mut h = hooks_cb.lock();
-            match output {
-                UriDemuxerOutput::StreamInfo(info) => {
-                    log::info!(
-                        "[{own_name_cb}] stream info: source_id={source_id_cb} {}x{} @ {}/{} codec={:?}",
-                        info.width,
-                        info.height,
-                        info.framerate_num,
-                        info.framerate_den,
-                        info.codec
-                    );
-                    // Stash before running the user hook so that even
-                    // if the hook fails and aborts, any residual
-                    // `on_packet` already in flight can still resolve
-                    // the info.  `VideoInfo: Copy`, so this is free.
-                    h.last_stream_info = Some(info);
-                    if let Err(e) =
-                        (h.on_stream_info)(info, &source_id_cb, &router_cb, &hook_ctx_cb)
-                    {
-                        latch_error(&first_error_cb, format!("on_stream_info: {e}"));
-                        if let Some(s) = default_sink_cb.as_ref() {
-                            s.abort();
+        let outcome = (|| -> Result<()> {
+            loop {
+                if stop_flag.load(Ordering::Relaxed) {
+                    log::info!("[{own_name}] stop flag set; not requesting next input");
+                    return Ok(());
+                }
+                match request_input(&hook_ctx) {
+                    DemuxInputRequest::Stop => {
+                        log::info!("[{own_name}] input requester returned Stop");
+                        return Ok(());
+                    }
+                    DemuxInputRequest::Idle(d) => {
+                        log::info!("[{own_name}] input requester returned Idle({d:?})");
+                        if !idle_sleep(d, &stop_flag) {
+                            return Ok(());
                         }
                     }
-                }
-                UriDemuxerOutput::Packet(pkt) => {
-                    if let Some(info) = h.last_stream_info {
-                        if let Err(e) =
-                            (h.on_packet)(pkt, &info, &source_id_cb, &router_cb, &hook_ctx_cb)
-                        {
-                            latch_error(&first_error_cb, format!("on_packet: {e}"));
-                            if let Some(s) = default_sink_cb.as_ref() {
-                                s.abort();
-                            }
-                        }
-                    } else {
-                        latch_error(
-                            &first_error_cb,
-                            "on_packet fired before on_stream_info".to_string(),
-                        );
-                        if let Some(s) = default_sink_cb.as_ref() {
-                            s.abort();
-                        }
-                    }
-                }
-                UriDemuxerOutput::Eos => {
-                    log::info!("[{own_name_cb}] EOS (source_id={source_id_cb})");
-                    match (h.on_source_eos)(&source_id_cb, &router_cb, &hook_ctx_cb) {
-                        Ok(Flow::Cont) => {}
-                        Ok(Flow::Stop) => {
-                            log::info!(
-                                "[{own_name_cb}] on_source_eos({source_id_cb}) requested stop"
-                            );
-                            hook_ctx_cb.request_stop();
-                            if let Some(s) = default_sink_cb.as_ref() {
-                                s.abort();
-                            }
-                        }
-                        Err(e) => {
-                            let msg = format!("on_source_eos: {e}");
-                            log::error!("[{own_name_cb}] {msg}; requesting stop");
-                            latch_error(&first_error_cb, msg);
-                            hook_ctx_cb.request_stop();
-                            if let Some(s) = default_sink_cb.as_ref() {
-                                s.abort();
-                            }
-                        }
-                    }
-                }
-                UriDemuxerOutput::Error(e) => {
-                    let msg = e.to_string();
-                    log::error!("[{own_name_cb}] pipeline error: {msg}");
-                    let action = (h.on_error)(&e, &router_cb, &hook_ctx_cb);
-                    match action {
-                        ErrorAction::Fatal => {
-                            latch_error(&first_error_cb, msg);
-                            hook_ctx_cb.request_stop();
-                            if let Some(s) = default_sink_cb.as_ref() {
-                                s.abort();
-                            }
-                        }
-                        ErrorAction::LogAndContinue => {
-                            latch_error(&first_error_cb, msg);
-                        }
-                        ErrorAction::Swallow => {
-                            // Drop on the floor — recorded in the log above.
-                        }
+                    DemuxInputRequest::Run { input, source_id } => {
+                        run_one(
+                            &input,
+                            &source_id,
+                            &own_name,
+                            &router,
+                            default_sink.as_ref(),
+                            &stop_flag,
+                            &hook_ctx,
+                            &hooks,
+                            parsed,
+                            &bin_properties,
+                            &source_properties,
+                        )?;
                     }
                 }
             }
-        })
-        .map_err(|e| anyhow!("UriDemuxer::new: {e}"))?;
+        })();
 
-        // Poll the demuxer's "finished" condvar with a short
-        // timeout so an external stop request (Ctrl+C,
-        // cooperative-stop from a hook, or a supervisor broadcast
-        // that flips the shared `stop_flag`) is observed even when
-        // the underlying source produces no EOS — e.g. live RTSP /
-        // HTTP streams.  Without this, `wait()` would block on the
-        // condvar indefinitely and the source thread would prevent
-        // `System::run` from joining on shutdown.
-        //
-        // `POLL_INTERVAL` is short enough (100 ms) to keep Ctrl+C
-        // latency negligible while avoiding a busy loop.
-        const POLL_INTERVAL: Duration = Duration::from_millis(100);
-        let mut stopped_by_flag = false;
-        while !demuxer.wait_timeout(POLL_INTERVAL) {
-            if stop_flag.load(Ordering::Relaxed) {
-                log::info!(
-                    "[{own_name}] stop flag set; finishing URI demuxer (source_id={source_id})"
-                );
-                stopped_by_flag = true;
-                break;
-            }
-        }
-        // Tear the GStreamer pipeline down deterministically before
-        // `drop(demuxer)` would otherwise run it implicitly — this
-        // keeps the shutdown ordering explicit in the logs and lets
-        // the condvar wake any stragglers so the callback's last
-        // short-circuit returns immediately.
-        demuxer.finish();
-        let codec = demuxer.detected_codec();
-        log::info!(
-            "[{own_name}] finished, detected_codec={codec:?} stopped_by_flag={stopped_by_flag}"
-        );
-        drop(demuxer);
-        drop(hooks); // release the hook mutex (and its contents) last
+        drop(hooks);
 
-        // User stopping hook fires AFTER the demuxer has finished
-        // but BEFORE the first-error / codec-check exit path runs.
+        // User stopping hook fires AFTER the run loop ends.
         (stopping)(&ctx);
 
-        if let Some(err) = first_error.lock().take() {
-            bail!("[{own_name}] demux error: {err}");
-        }
-        // A cooperative stop (Ctrl+C / supervisor broadcast) may
-        // fire before the underlying source ever reported caps —
-        // typical for live URIs that are cancelled before the first
-        // STREAM-STARTED.  Treat that as a clean exit; only flag
-        // the "empty stream?" case when the demuxer actually
-        // finished under its own steam with no codec ever seen.
-        if codec.is_none() && !stopped_by_flag {
-            bail!("[{own_name}] demuxer did not detect a video codec (empty stream?)");
-        }
-        Ok(())
+        outcome
     }
+}
+
+/// Cooperative sleep used by [`DemuxInputRequest::Idle`].  Returns
+/// `true` if the full duration elapsed and the requester should be
+/// re-invoked, `false` if `stop_flag` flipped during the sleep.
+fn idle_sleep(d: Duration, stop_flag: &Arc<std::sync::atomic::AtomicBool>) -> bool {
+    let until = Instant::now() + d;
+    while Instant::now() < until {
+        if stop_flag.load(Ordering::Relaxed) {
+            return false;
+        }
+        let remaining = until.saturating_duration_since(Instant::now());
+        std::thread::sleep(remaining.min(POLL_INTERVAL));
+    }
+    !stop_flag.load(Ordering::Relaxed)
+}
+
+/// Drive one [`UriDemuxer`] from construction to drain for the
+/// supplied `(input, source_id)` pair.  See the mirror function on
+/// the mp4 stage for the full contract; the only differences are
+/// the underlying demuxer crate and the per-build URI config
+/// (`parsed`, `bin_properties`, `source_properties`).
+#[allow(clippy::too_many_arguments)]
+fn run_one(
+    input: &str,
+    source_id: &str,
+    own_name: &StageName,
+    router: &Router<EncodedMsg>,
+    default_sink: Option<&crate::OperatorSink<EncodedMsg>>,
+    stop_flag: &Arc<std::sync::atomic::AtomicBool>,
+    hook_ctx: &HookCtx,
+    hooks: &Arc<Mutex<UriDemuxerHooks>>,
+    parsed: bool,
+    bin_properties: &[(String, PropertyValue)],
+    source_properties: &[(String, PropertyValue)],
+) -> Result<()> {
+    log::info!("[{own_name}] starting source_id={source_id} uri={input} parsed={parsed}");
+
+    // Reset stream-info stash so a stale value from a previous run
+    // can never be observed by this run's `on_packet`.
+    hooks.lock().last_stream_info = None;
+
+    // Per-iteration error latch.
+    let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+    let router_cb = router.clone();
+    let default_sink_cb = default_sink.cloned();
+    let stop_flag_cb = stop_flag.clone();
+    let first_error_cb = first_error.clone();
+    let hooks_cb = hooks.clone();
+    let source_id_cb = source_id.to_string();
+    let input_cb = input.to_string();
+    let own_name_cb = own_name.clone();
+    let hook_ctx_cb = hook_ctx.clone();
+
+    let mut cfg = UriDemuxerConfig::new(input).with_parsed(parsed);
+    cfg.bin_properties = bin_properties.to_vec();
+    cfg.source_properties = source_properties.to_vec();
+
+    let mut demuxer = UriDemuxer::new(cfg, move |output| {
+        // Cooperative-stop / already-aborted short-circuit.
+        if stop_flag_cb.load(Ordering::Relaxed)
+            || default_sink_cb
+                .as_ref()
+                .map(|s| s.aborted())
+                .unwrap_or(false)
+        {
+            return;
+        }
+        let mut h = hooks_cb.lock();
+        match output {
+            UriDemuxerOutput::StreamInfo(info) => {
+                log::info!(
+                    "[{own_name_cb}] stream info: source_id={source_id_cb} {}x{} @ {}/{} codec={:?}",
+                    info.width,
+                    info.height,
+                    info.framerate_num,
+                    info.framerate_den,
+                    info.codec
+                );
+                h.last_stream_info = Some(info);
+                if let Err(e) =
+                    (h.on_stream_info)(info, &source_id_cb, &router_cb, &hook_ctx_cb)
+                {
+                    latch_error(&first_error_cb, format!("on_stream_info: {e}"));
+                    if let Some(s) = default_sink_cb.as_ref() {
+                        s.abort();
+                    }
+                }
+            }
+            UriDemuxerOutput::Packet(pkt) => {
+                if let Some(info) = h.last_stream_info {
+                    if let Err(e) = (h.on_packet)(
+                        &input_cb,
+                        &source_id_cb,
+                        &info,
+                        pkt,
+                        &router_cb,
+                        &hook_ctx_cb,
+                    ) {
+                        latch_error(&first_error_cb, format!("on_packet: {e}"));
+                        if let Some(s) = default_sink_cb.as_ref() {
+                            s.abort();
+                        }
+                    }
+                } else {
+                    latch_error(
+                        &first_error_cb,
+                        "on_packet fired before on_stream_info".to_string(),
+                    );
+                    if let Some(s) = default_sink_cb.as_ref() {
+                        s.abort();
+                    }
+                }
+            }
+            UriDemuxerOutput::Eos => {
+                log::info!("[{own_name_cb}] EOS (source_id={source_id_cb})");
+                match (h.on_source_eos)(&source_id_cb, &router_cb, &hook_ctx_cb) {
+                    Ok(Flow::Cont) => {}
+                    Ok(Flow::Stop) => {
+                        log::info!(
+                            "[{own_name_cb}] on_source_eos({source_id_cb}) requested stop"
+                        );
+                        hook_ctx_cb.request_stop();
+                        if let Some(s) = default_sink_cb.as_ref() {
+                            s.abort();
+                        }
+                    }
+                    Err(e) => {
+                        let msg = format!("on_source_eos: {e}");
+                        log::error!("[{own_name_cb}] {msg}; requesting stop");
+                        latch_error(&first_error_cb, msg);
+                        hook_ctx_cb.request_stop();
+                        if let Some(s) = default_sink_cb.as_ref() {
+                            s.abort();
+                        }
+                    }
+                }
+            }
+            UriDemuxerOutput::Error(e) => {
+                let msg = e.to_string();
+                log::error!("[{own_name_cb}] pipeline error: {msg}");
+                let action = (h.on_error)(&e, &router_cb, &hook_ctx_cb);
+                match action {
+                    ErrorAction::Fatal => {
+                        latch_error(&first_error_cb, msg);
+                        hook_ctx_cb.request_stop();
+                        if let Some(s) = default_sink_cb.as_ref() {
+                            s.abort();
+                        }
+                    }
+                    ErrorAction::LogAndContinue => {
+                        latch_error(&first_error_cb, msg);
+                    }
+                    ErrorAction::Swallow => {
+                        // Drop on the floor — recorded in the log above.
+                    }
+                }
+            }
+        }
+    })
+    .map_err(|e| anyhow!("UriDemuxer::new: {e}"))?;
+
+    let mut stopped_by_flag = false;
+    while !demuxer.wait_timeout(POLL_INTERVAL) {
+        if stop_flag.load(Ordering::Relaxed) {
+            log::info!("[{own_name}] stop flag set; finishing URI demuxer (source_id={source_id})");
+            stopped_by_flag = true;
+            break;
+        }
+    }
+    demuxer.finish();
+    let codec = demuxer.detected_codec();
+    log::info!(
+        "[{own_name}] finished, detected_codec={codec:?} stopped_by_flag={stopped_by_flag}"
+    );
+    drop(demuxer);
+
+    if let Some(err) = first_error.lock().take() {
+        bail!("[{own_name}] demux error: {err}");
+    }
+    if codec.is_none() && !stopped_by_flag {
+        bail!("[{own_name}] demuxer did not detect a video codec (empty stream?)");
+    }
+    Ok(())
 }
 
 fn latch_error(slot: &Arc<Mutex<Option<String>>>, msg: String) {
@@ -604,9 +703,20 @@ impl UriDemuxerResultsBuilder {
     /// Override the `on_packet` hook.  Omitting this setter is
     /// equivalent to calling
     /// `.on_packet(UriDemuxerSource::default_on_packet_as_frame())`.
+    ///
+    /// Closure signature: `(uri, source_id, info, pkt, router, ctx)`.
+    /// `uri` is the URI returned by the [`InputRequester`] for the
+    /// run currently in progress.
     pub fn on_packet<F>(mut self, f: F) -> Self
     where
-        F: FnMut(DemuxedPacket, &VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+        F: FnMut(
+                &str,
+                &str,
+                &VideoInfo,
+                DemuxedPacket,
+                &Router<EncodedMsg>,
+                &HookCtx,
+            ) -> Result<()>
             + Send
             + 'static,
     {
@@ -718,14 +828,14 @@ impl Default for UriDemuxerCommonBuilder {
 /// Fluent builder for [`UriDemuxerSource`].
 ///
 /// The builder exposes wiring-level configuration at the top level
-/// (`input`, `source_id`, `downstream`, `parsed`, `bin_properties`,
+/// (`input` and its `one_shot` / `looped` shortcuts, plus
+/// `downstream`, `parsed`, `bin_properties`,
 /// `source_properties`).  Per-variant demuxer-output hooks live on
 /// [`UriDemuxerResults`]; the user shutdown hook lives on
 /// [`UriDemuxerCommon`].
 pub struct UriDemuxerBuilder {
     name: StageName,
-    input: Option<String>,
-    source_id: Option<String>,
+    request_input: Option<InputRequester>,
     downstream: Option<StageName>,
     parsed: bool,
     bin_properties: Vec<(String, PropertyValue)>,
@@ -742,8 +852,7 @@ impl UriDemuxerBuilder {
     pub fn new(name: StageName) -> Self {
         Self {
             name,
-            input: None,
-            source_id: None,
+            request_input: None,
             downstream: None,
             parsed: true,
             bin_properties: Vec::new(),
@@ -753,21 +862,58 @@ impl UriDemuxerBuilder {
         }
     }
 
-    /// Required: URI passed to
-    /// [`UriDemuxerConfig::new`] (e.g. `file:///path.mp4`,
-    /// `http://…/a.m3u8`, `rtsp://cam/stream`).
-    pub fn input(mut self, input: impl Into<String>) -> Self {
-        self.input = Some(input.into());
+    /// Install the [`InputRequester`] driving this source.
+    ///
+    /// The framework calls `f` once at startup and again each time
+    /// the underlying demuxer finishes a clean drain.  See
+    /// [`DemuxInputRequest`] and the
+    /// [`Mp4DemuxerSource`](super::mp4_demuxer::Mp4DemuxerSource)
+    /// module docs for the full loop semantics — the URI source
+    /// behaves identically.
+    ///
+    /// For the common single-URI case use the
+    /// [`one_shot`](Self::one_shot) shortcut; for an infinite
+    /// replay of the same URI use [`looped`](Self::looped).
+    pub fn input<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(&HookCtx) -> DemuxInputRequest + Send + 'static,
+    {
+        self.request_input = Some(Box::new(f));
         self
     }
 
-    /// Required: `source_id` stamped on every
-    /// [`EncodedMsg::StreamInfo`],
-    /// [`EncodedMsg::Packet`],
-    /// and terminal
-    /// [`EncodedMsg::SourceEos`].
-    pub fn source_id(mut self, id: impl Into<String>) -> Self {
-        self.source_id = Some(id.into());
+    /// Convenience for the single-URI case: emit one
+    /// [`DemuxInputRequest::Run`] for `(input, source_id)` then
+    /// [`DemuxInputRequest::Stop`] on every subsequent invocation.
+    ///
+    /// Equivalent to
+    /// `.input(crate::stages::demuxers::demux_input::one_shot_requester(input, source_id))`.
+    pub fn one_shot(
+        mut self,
+        input: impl Into<String>,
+        source_id: impl Into<String>,
+    ) -> Self {
+        self.request_input = Some(crate::stages::demuxers::demux_input::one_shot_requester(
+            input, source_id,
+        ));
+        self
+    }
+
+    /// Convenience for an infinitely-looping single-URI source:
+    /// emit [`DemuxInputRequest::Run`] for the same
+    /// `(input, source_id)` pair on every invocation.  The source
+    /// only exits when `stop_flag` flips.
+    ///
+    /// Equivalent to
+    /// `.input(crate::stages::demuxers::demux_input::looped_requester(input, source_id))`.
+    pub fn looped(
+        mut self,
+        input: impl Into<String>,
+        source_id: impl Into<String>,
+    ) -> Self {
+        self.request_input = Some(crate::stages::demuxers::demux_input::looped_requester(
+            input, source_id,
+        ));
         self
     }
 
@@ -823,13 +969,14 @@ impl UriDemuxerBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if `input` or `source_id` is missing.
-    /// `downstream` is optional — omit it for a drain-only source.
+    /// Returns `Err` if no [`InputRequester`] has been installed
+    /// (via [`input`](Self::input), [`one_shot`](Self::one_shot),
+    /// or [`looped`](Self::looped)).  `downstream` is optional —
+    /// omit it for a drain-only source.
     pub fn build(self) -> Result<SourceBuilder<UriDemuxerSource>> {
         let UriDemuxerBuilder {
             name,
-            input,
-            source_id,
+            request_input,
             downstream,
             parsed,
             bin_properties,
@@ -837,8 +984,11 @@ impl UriDemuxerBuilder {
             results,
             common,
         } = self;
-        let input = input.ok_or_else(|| anyhow!("UriDemuxerSource: missing input"))?;
-        let source_id = source_id.ok_or_else(|| anyhow!("UriDemuxerSource: missing source_id"))?;
+        let request_input = request_input.ok_or_else(|| {
+            anyhow!(
+                "UriDemuxerSource: missing input (call .input(...), .one_shot(...), or .looped(...))"
+            )
+        })?;
         let UriDemuxerResults {
             on_stream_info,
             on_packet,
@@ -848,8 +998,7 @@ impl UriDemuxerBuilder {
         let UriDemuxerCommon { stopping } = common.unwrap_or_default();
         Ok(SourceBuilder::new(name).factory(move |_bx| {
             Ok(UriDemuxerSource {
-                uri: input,
-                source_id,
+                request_input,
                 downstream,
                 parsed,
                 bin_properties,
@@ -877,15 +1026,9 @@ mod tests {
     }
 
     #[test]
-    fn builder_requires_input_and_source_id() {
+    fn builder_requires_input() {
         let name = StageName::unnamed(StageKind::UriDemux);
-        assert!(err_msg(UriDemuxerSource::builder(name.clone()).build()).contains("missing input"));
-        assert!(err_msg(
-            UriDemuxerSource::builder(name.clone())
-                .input("file:///tmp/x.mp4")
-                .build()
-        )
-        .contains("missing source_id"));
+        assert!(err_msg(UriDemuxerSource::builder(name).build()).contains("missing input"));
     }
 
     /// `downstream` is optional — a drain-only source (no default
@@ -894,8 +1037,7 @@ mod tests {
     fn builder_without_downstream_is_accepted() {
         let name = StageName::unnamed(StageKind::UriDemux);
         let _ = UriDemuxerSource::builder(name)
-            .input("file:///tmp/x.mp4")
-            .source_id("s")
+            .one_shot("file:///tmp/x.mp4", "s")
             .build()
             .expect("no-downstream builder is accepted");
     }
@@ -904,8 +1046,7 @@ mod tests {
     fn builder_accepts_all_hooks() {
         let name = StageName::unnamed(StageKind::UriDemux);
         let sb = UriDemuxerSource::builder(name)
-            .input("file:///tmp/x.mp4")
-            .source_id("cam1")
+            .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .parsed(true)
             .bin_properties(vec![("buffer-size".into(), PropertyValue::I64(8192))])
@@ -919,7 +1060,8 @@ mod tests {
                         });
                         Ok(())
                     })
-                    .on_packet(|pkt, info, sid, router, _ctx| {
+                    .on_packet(|uri, sid, info, pkt, router, _ctx| {
+                        let _ = uri;
                         router.send(EncodedMsg::Packet {
                             source_id: sid.to_string(),
                             info: *info,
@@ -952,8 +1094,7 @@ mod tests {
     fn builder_accepts_default_forwarders() {
         let name = StageName::unnamed(StageKind::UriDemux);
         let sb = UriDemuxerSource::builder(name)
-            .input("file:///tmp/x.mp4")
-            .source_id("cam1")
+            .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .results(
                 UriDemuxerResults::builder()
@@ -974,8 +1115,7 @@ mod tests {
     fn builder_accepts_default_on_packet_as_frame() {
         let name = StageName::unnamed(StageKind::UriDemux);
         let sb = UriDemuxerSource::builder(name)
-            .input("file:///tmp/x.mp4")
-            .source_id("cam1")
+            .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .results(
                 UriDemuxerResults::builder()
@@ -999,8 +1139,7 @@ mod tests {
         let flag_hook = flag.clone();
         let name = StageName::unnamed(StageKind::UriDemux);
         let _ = UriDemuxerSource::builder(name)
-            .input("file:///tmp/x.mp4")
-            .source_id("cam1")
+            .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .common(
                 UriDemuxerCommon::builder()
@@ -1014,8 +1153,8 @@ mod tests {
         assert!(!flag.load(Ordering::SeqCst));
     }
 
-    /// Runtime invariant: `build()` succeeds with only the three
-    /// mandatory setters (`input`, `source_id`, `downstream`) and
+    /// Runtime invariant: `build()` succeeds with only the
+    /// mandatory setters (`one_shot` + `downstream`) and
     /// auto-installs all four `default_on_*` forwarders plus the
     /// no-op stopping hook, defaulting `parsed = true` and empty
     /// property vectors.
@@ -1027,8 +1166,7 @@ mod tests {
 
         let name = StageName::unnamed(StageKind::UriDemux);
         let sb = UriDemuxerSource::builder(name.clone())
-            .input("file:///tmp/x.mp4")
-            .source_id("cam1")
+            .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
             .build()
             .expect("bare-minimum builder is accepted");
@@ -1041,8 +1179,7 @@ mod tests {
         let src = (parts.factory)(&bx).expect("factory resolves");
         // Pattern-match proves every hook is non-`Option`.
         let UriDemuxerSource {
-            uri: _,
-            source_id: _,
+            request_input: _,
             downstream: _,
             parsed,
             bin_properties,
@@ -1056,5 +1193,74 @@ mod tests {
         assert!(parsed, "parsed defaults to true");
         assert!(bin_properties.is_empty());
         assert!(source_properties.is_empty());
+    }
+
+    /// The custom [`input`] setter accepts an arbitrary `FnMut`
+    /// returning a [`DemuxInputRequest`].
+    #[test]
+    fn builder_accepts_custom_input() {
+        use crate::context::BuildCtx;
+        use crate::registry::Registry;
+        use crate::shared::SharedStore;
+
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let sb = UriDemuxerSource::builder(name)
+            .input(|_ctx| DemuxInputRequest::Idle(Duration::from_millis(50)))
+            .downstream(StageName::unnamed(StageKind::Decoder))
+            .build()
+            .unwrap();
+        let parts = sb.into_parts();
+        let reg = Arc::new(Registry::new());
+        let shared = Arc::new(SharedStore::new());
+        let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let mut src = (parts.factory)(&bx).unwrap();
+        let hc = bx.hook_ctx();
+        match (src.request_input)(&hc) {
+            DemuxInputRequest::Idle(d) => assert_eq!(d, Duration::from_millis(50)),
+            other => panic!("expected Idle, got {other:?}"),
+        }
+    }
+
+    /// `looped` always returns the same `Run`.
+    #[test]
+    fn looped_yields_run_repeatedly() {
+        use crate::context::BuildCtx;
+        use crate::registry::Registry;
+        use crate::shared::SharedStore;
+
+        let name = StageName::unnamed(StageKind::UriDemux);
+        let sb = UriDemuxerSource::builder(name)
+            .looped("rtsp://cam/stream", "loop")
+            .build()
+            .unwrap();
+        let parts = sb.into_parts();
+        let reg = Arc::new(Registry::new());
+        let shared = Arc::new(SharedStore::new());
+        let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let mut src = (parts.factory)(&bx).unwrap();
+        let hc = bx.hook_ctx();
+        for _ in 0..3 {
+            assert!(matches!(
+                (src.request_input)(&hc),
+                DemuxInputRequest::Run { .. }
+            ));
+        }
+    }
+
+    /// `idle_sleep` honours the shared stop flag.
+    #[test]
+    fn idle_sleep_short_circuits_on_stop_flag() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let flag = Arc::new(AtomicBool::new(false));
+        let flag_for_sleep = flag.clone();
+        let handle = std::thread::spawn(move || {
+            idle_sleep(Duration::from_secs(60), &flag_for_sleep)
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        flag.store(true, Ordering::Relaxed);
+        let elapsed_ok = handle.join().expect("thread joins");
+        assert!(!elapsed_ok, "stop_flag must short-circuit the sleep");
     }
 }

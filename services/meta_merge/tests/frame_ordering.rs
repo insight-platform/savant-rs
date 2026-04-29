@@ -54,7 +54,7 @@ fn frame_ordering_test() -> Result<()> {
     let service_thread = start_service(conf, shutdown.clone());
     let mut source_writer = start_source_writer(&ingress_ipc)?;
 
-    let frames: Vec<savant_core::primitives::frame::VideoFrameProxy> =
+    let frames: Vec<savant_core::primitives::frame::VideoFrame> =
         (0..num_frames).map(|_| gen_frame()).collect();
     let expected_uuids: Vec<uuid::Uuid> = frames.iter().map(|f| f.get_uuid()).collect();
 

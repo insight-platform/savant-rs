@@ -19,7 +19,7 @@ use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{IdCollisionResolutionPolicy, VideoObjectBuilder};
 use savant_core::primitives::RBBox;
@@ -76,8 +76,8 @@ fn build_draw_spec() -> ObjectDrawSpec {
     spec
 }
 
-fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
-    let frame = VideoFrameProxy::new(
+fn make_frame(source_id: &str, idx: u64) -> VideoFrame {
+    let frame = VideoFrame::new(
         source_id,
         (30, 1),
         W as i64,
@@ -112,7 +112,7 @@ impl OnRender for RenderCounter {
         &self,
         _source_id: &str,
         _renderer: &mut deepstream_buffers::SkiaRenderer,
-        _frame: &VideoFrameProxy,
+        _frame: &VideoFrame,
     ) {
         self.0.fetch_add(1, Ordering::Relaxed);
     }

@@ -2,14 +2,14 @@ use crate::callbacks::Callbacks;
 use crate::message::OutputMessage;
 use deepstream_buffers::SurfaceView;
 use log::{debug, error};
-use savant_core::primitives::frame::{VideoFrameProxy, VideoFrameTranscodingMethod};
+use savant_core::primitives::frame::{VideoFrame, VideoFrameTranscodingMethod};
 use std::sync::Arc;
 
 /// Bypass mode: mark the frame as copy (no re-encoding), transform bboxes
 /// from current → initial coordinates, then fire `on_bypass_frame`.
 pub(crate) fn process_bypass(
     source_id: &str,
-    mut frame: VideoFrameProxy,
+    mut frame: VideoFrame,
     _view: SurfaceView,
     callbacks: &Arc<Callbacks>,
 ) {

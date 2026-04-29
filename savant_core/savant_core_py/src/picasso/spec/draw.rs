@@ -9,61 +9,55 @@ use savant_core::draw as rust_draw;
 /// mechanism exposed by `savant_core_py`.
 #[pyclass(from_py_object, name = "ObjectDrawSpec", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
-pub struct PyObjectDrawSpec {
-    inner: ObjectDrawSpec,
-}
+pub struct PyObjectDrawSpec(ObjectDrawSpec);
 
 #[pymethods]
 impl PyObjectDrawSpec {
     #[new]
     fn new() -> Self {
-        Self {
-            inner: ObjectDrawSpec::new(),
-        }
+        Self(ObjectDrawSpec::new())
     }
 
     /// Insert a draw specification for the given `(namespace, label)` pair.
     fn insert(&mut self, namespace: &str, label: &str, draw: &crate::draw_spec::ObjectDraw) {
         let ptr = draw.memory_handle() as *const rust_draw::ObjectDraw;
         let rust_draw = unsafe { &*ptr };
-        self.inner.insert(namespace, label, rust_draw.clone());
+        self.0.insert(namespace, label, rust_draw.clone());
     }
 
     /// Look up the draw spec for an exact `(namespace, label)` match.
     fn lookup(&self, namespace: &str, label: &str) -> Option<crate::draw_spec::ObjectDraw> {
-        self.inner
+        self.0
             .lookup(namespace, label)
             .map(rebuild_py_object_draw)
     }
 
     /// Returns `True` if no draw specs have been inserted.
     fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.0.is_empty()
     }
 
     /// Number of `(namespace, label)` entries.
     fn len(&self) -> usize {
-        self.inner.len()
+        self.0.len()
     }
 
     fn __len__(&self) -> usize {
-        self.inner.len()
+        self.0.len()
     }
 
     fn __repr__(&self) -> String {
-        format!("ObjectDrawSpec(len={})", self.inner.len())
+        format!("ObjectDrawSpec(len={})", self.0.len())
     }
 }
 
 impl PyObjectDrawSpec {
     pub(crate) fn to_rust(&self) -> ObjectDrawSpec {
-        self.inner.clone()
+        self.0.clone()
     }
 
     pub(crate) fn default_empty() -> Self {
-        Self {
-            inner: ObjectDrawSpec::new(),
-        }
+        Self(ObjectDrawSpec::new())
     }
 }
 

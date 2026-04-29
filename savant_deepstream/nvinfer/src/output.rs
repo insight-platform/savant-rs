@@ -14,7 +14,7 @@ use std::ffi::c_void;
 /// the pointers remain valid until the output is dropped.
 ///
 /// **Important**: if the owning `BatchInferenceOutput` was created with
-/// [`MetaClearPolicy::After`] or [`MetaClearPolicy::Both`], dropping the
+/// `MetaClearPolicy::After` or `MetaClearPolicy::Both`, dropping the
 /// `BatchInferenceOutput` will release object metadata and invalidate these
 /// pointers.  Consume all `TensorView`s before dropping the owning output.
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub struct TensorView {
     /// Byte length of the tensor.
     pub byte_length: usize,
     /// `true` when the host buffer contains valid data (D2H copy was performed).
-    /// When `false`, only [`device_ptr`] is usable.
+    /// When `false`, only `device_ptr` is usable.
     pub host_copy_enabled: bool,
 }
 
@@ -92,8 +92,8 @@ impl TensorView {
     ///
     /// Supports [`DataType::Float`] (zero conversion, cloned into the
     /// returned `Vec`) and [`DataType::Half`] (each `f16` element is
-    /// widened to `f32`).  Returns [`NvInferError::TensorTypeMismatch`]
-    /// for any other dtype and [`NvInferError::HostDataUnavailable`] when
+    /// widened to `f32`).  Returns `NvInferError::TensorTypeMismatch`
+    /// for any other dtype and `NvInferError::HostDataUnavailable` when
     /// the host copy is disabled or the pointer is null.
     ///
     /// This is the canonical helper for downstream decoders such as YOLO
@@ -172,8 +172,8 @@ pub struct ElementOutput {
 
 /// Owns the output gst::Sample (and thus the buffer); tensor views borrow from it.
 ///
-/// When constructed with [`MetaClearPolicy::After`] or
-/// [`MetaClearPolicy::Both`], dropping this value calls
+/// When constructed with `MetaClearPolicy::After` or
+/// `MetaClearPolicy::Both`, dropping this value calls
 /// `nvds_clear_obj_meta_list` on every frame, returning all
 /// `NvDsObjectMeta` entries to the DeepStream pool.  This invalidates the
 /// raw pointers inside any [`TensorView`]s still alive, so all `TensorView`s

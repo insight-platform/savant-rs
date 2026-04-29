@@ -55,14 +55,14 @@ impl TrackedObject {
     /// `savant_core::primitives::VideoObject` (or any other caller-side
     /// datum) whose id was stamped into the `Roi` that fed the tracker,
     /// e.g. when building `savant_core::primitives::misc_track::TrackUpdate`s
-    /// for `VideoFrameProxy::apply_tracking_info`.
+    /// for `VideoFrame::apply_tracking_info`.
     #[inline]
     pub fn input_roi_id(&self) -> i64 {
         self.misc_obj_info[0]
     }
 
     /// Convert this [`TrackedObject`] into a [`TrackUpdate`] ready to be
-    /// passed to [`VideoFrameProxy::apply_tracking_info`](savant_core::primitives::frame::VideoFrameProxy::apply_tracking_info).
+    /// passed to [`VideoFrame::apply_tracking_info`](savant_core::primitives::frame::VideoFrame::apply_tracking_info).
     ///
     /// This is the single source of truth for the
     /// [`TrackedObject`] → [`TrackUpdate`] mapping used by the

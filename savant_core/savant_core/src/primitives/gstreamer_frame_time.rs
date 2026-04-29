@@ -1,7 +1,7 @@
-//! Convert Savant [`VideoFrameProxy`](super::frame::VideoFrameProxy) timestamps to **GStreamer clock scale**
+//! Convert Savant [`VideoFrame`](super::frame::VideoFrame) timestamps to **GStreamer clock scale**
 //! (unsigned nanoseconds).
 
-use super::frame::VideoFrameProxy;
+use super::frame::VideoFrame;
 use log::warn;
 
 /// GStreamer clock: one nanosecond per unit (`ClockTime` tick).
@@ -48,7 +48,7 @@ pub struct FrameClockNs {
 /// If the frame's time base is invalid (`num <= 0` or `den <= 0`), every field that depends on
 /// rational conversion is set as if timestamps were `0` / unset — do not treat raw PTS/DTS/duration
 /// integers as nanoseconds.
-pub fn frame_clock_ns(frame: &VideoFrameProxy) -> FrameClockNs {
+pub fn frame_clock_ns(frame: &VideoFrame) -> FrameClockNs {
     let tb = frame.get_time_base();
     let pts = frame.get_pts();
     let pts_ns = time_base_to_ns(tb, pts).unwrap_or(0);
@@ -68,11 +68,11 @@ fn ns_to_i64(ns: u64) -> i64 {
     ns.min(i64::MAX as u64) as i64
 }
 
-/// Rewrite [`VideoFrameProxy`] `pts` / `dts` / `duration` / `time_base` to GStreamer nanosecond scale.
+/// Rewrite [`VideoFrame`] `pts` / `dts` / `duration` / `time_base` to GStreamer nanosecond scale.
 ///
 /// If `time_base` is already [`GST_TIME_BASE`], returns immediately. If `time_base` is invalid
 /// (`num <= 0` or `den <= 0`), logs a warning and leaves the frame unchanged.
-pub fn normalize_frame_to_gst_ns(frame: &mut VideoFrameProxy) {
+pub fn normalize_frame_to_gst_ns(frame: &mut VideoFrame) {
     let (n, d) = frame.get_time_base();
     if n == GST_TIME_BASE.0 && d == GST_TIME_BASE.1 {
         return;
@@ -118,7 +118,7 @@ pub fn normalize_frame_to_gst_ns(frame: &mut VideoFrameProxy) {
 mod tests {
     use super::*;
     use crate::primitives::frame::{
-        VideoFrame, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+        VideoFrame, VideoFrameContent, VideoFrameInner, VideoFrameTranscodingMethod,
     };
     use crate::primitives::video_codec::VideoCodec;
 
@@ -127,8 +127,8 @@ mod tests {
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
-    ) -> VideoFrameProxy {
-        VideoFrameProxy::new(
+    ) -> VideoFrame {
+        VideoFrame::new(
             "src",
             (30, 1),
             320,
@@ -162,9 +162,9 @@ mod tests {
 
     #[test]
     fn invalid_time_base_no_raw_pts_as_ns() {
-        // `VideoFrameProxy::new` rejects non-positive time_base; malformed values can still
+        // `VideoFrame::new` rejects non-positive time_base; malformed values can still
         // appear via `from_inner` / deserialization — `frame_clock_ns` must not treat PTS as ns.
-        let f = VideoFrameProxy::from_inner(VideoFrame {
+        let f = VideoFrame::from_inner(VideoFrameInner {
             time_base: (-1, 90_000),
             pts: 90_000,
             dts: Some(90_000),

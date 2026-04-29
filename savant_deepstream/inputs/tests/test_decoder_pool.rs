@@ -10,7 +10,7 @@ use deepstream_inputs::decoder_pool::{
 };
 use parking_lot::Mutex;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use serial_test::serial;
@@ -27,8 +27,8 @@ fn make_jpeg(width: u32, height: u32) -> Vec<u8> {
     buf.into_inner()
 }
 
-fn make_frame(source_id: &str, width: i64, height: i64, pts: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str, width: i64, height: i64, pts: i64) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         width,

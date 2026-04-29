@@ -1,7 +1,7 @@
 //! Transform helpers for the Picasso pipeline.
 //!
 //! Provides [`compute_letterbox_params`] to convert a GPU letterbox/resize
-//! operation into [`VideoFrameTransformation::LetterBox`] parameters.
+//! operation into `VideoFrameTransformation::LetterBox` parameters.
 
 use crate::error::PicassoError;
 use deepstream_buffers::{DstPadding, Padding, MIN_EFFECTIVE_DIM};
@@ -26,7 +26,7 @@ pub struct LetterboxParams {
     pub pad_bottom: u64,
 }
 
-/// Compute [`VideoFrameTransformation::LetterBox`] parameters that describe
+/// Compute `VideoFrameTransformation::LetterBox` parameters that describe
 /// the GPU letterbox/resize from `(src_w, src_h)` to `(dst_w, dst_h)` with the
 /// given padding mode and optional destination padding.
 ///

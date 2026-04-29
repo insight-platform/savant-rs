@@ -5,7 +5,7 @@ use savant_core::primitives::RBBox;
 /// A region of interest to process: an identifier paired with a bounding box.
 ///
 /// `Roi` values are passed to [`crate::pipeline::NvInfer::submit`] per batch
-/// slot. DeepStream secondary mode receives them as [`NvDsObjectMeta`] entries
+/// slot. DeepStream secondary mode receives them as `NvDsObjectMeta` entries
 /// with `object_id = roi.id as u64`.
 ///
 /// When the `RBBox` carries a non-zero angle the batch-meta builder

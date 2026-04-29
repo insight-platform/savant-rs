@@ -7,7 +7,7 @@ use std::{
 use hashbrown::HashMap;
 use log::{debug, error, info};
 use savant_core::primitives::{
-    rust::{AttributeValue, VideoFrameProxy},
+    rust::{AttributeValue, VideoFrame},
     Attribute, WithAttributes,
 };
 
@@ -15,7 +15,7 @@ use crate::utils::{ts2epoch_duration, ONE_NS};
 
 pub struct NtpSync {
     pub group_name: String,
-    pub sync_window: VecDeque<(Duration, VideoFrameProxy, Vec<u8>)>,
+    pub sync_window: VecDeque<(Duration, VideoFrame, Vec<u8>)>,
     pub sync_window_duration: Duration,
     pub batch_duration: Duration,
     pub rtp_marks: HashMap<String, VecDeque<(i64, Duration, NonZeroU32)>>,
@@ -146,7 +146,7 @@ impl NtpSync {
         })
     }
 
-    pub fn add_frame(&mut self, rtp: i64, mut frame: VideoFrameProxy, frame_data: &[u8]) {
+    pub fn add_frame(&mut self, rtp: i64, mut frame: VideoFrame, frame_data: &[u8]) {
         let current_rtp_mark = self.current_rtp_mark(&frame.get_source_id());
         if let Some((rtp_mark, ntp_mark, clock_rate)) = current_rtp_mark {
             let diff = rtp - rtp_mark;
@@ -182,7 +182,7 @@ impl NtpSync {
         }
     }
 
-    pub fn pull_frames(&mut self) -> Vec<(VideoFrameProxy, Duration, Vec<u8>)> {
+    pub fn pull_frames(&mut self) -> Vec<(VideoFrame, Duration, Vec<u8>)> {
         let mut res = HashMap::new();
         if self.sync_window.is_empty() {
             return res.into_values().collect();

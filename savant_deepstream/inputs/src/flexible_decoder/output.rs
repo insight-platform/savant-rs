@@ -2,7 +2,7 @@
 
 use deepstream_decoders::DecoderError;
 use gstreamer as gst;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ pub struct DecoderParameters {
 /// # Delivery flow (Frame variant)
 ///
 /// 1. Callback receives `FlexibleDecoderOutput::Frame` — reads metadata on
-///    [`VideoFrameProxy`] and scalar fields of [`DecodedFrame`].
+///    [`VideoFrame`] and scalar fields of `DecodedFrame`.
 /// 2. Callback calls [`take_delivery`](Self::take_delivery) to get a
 ///    [`SealedDelivery`] containing the `(frame, buffer)` pair.
 /// 3. Callback (or its scope end) drops this struct.  [`Drop`] releases the
@@ -32,12 +32,12 @@ pub struct DecoderParameters {
 #[derive(Debug)]
 pub enum FlexibleDecoderOutput {
     /// Decoded RGBA frame from the underlying `NvDecoder`, paired with the
-    /// original [`VideoFrameProxy`] that was submitted.
+    /// original [`VideoFrame`] that was submitted.
     ///
-    /// The [`SharedBuffer`] inside `decoded.buffer` can be extracted via
+    /// The `SharedBuffer` inside `decoded.buffer` can be extracted via
     /// [`take_delivery`](Self::take_delivery).
     Frame {
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         decoded: deepstream_decoders::DecodedFrame,
         #[doc(hidden)]
         seal: Arc<ReleaseSeal>,
@@ -53,11 +53,11 @@ pub enum FlexibleDecoderOutput {
     /// `data` is the extracted payload when available (`None` for
     /// `SourceIdMismatch` and `NoPayload` where no extraction happened).
     Skipped {
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         data: Option<Vec<u8>>,
         reason: SkipReason,
     },
-    /// A decoded frame whose `frame_id` had no matching [`VideoFrameProxy`] in
+    /// A decoded frame whose `frame_id` had no matching [`VideoFrame`] in
     /// the frame map.  The GPU buffer is still live so the callback can reclaim
     /// or log it.
     OrphanFrame {
@@ -98,13 +98,13 @@ pub enum FlexibleDecoderOutput {
 }
 
 impl FlexibleDecoderOutput {
-    /// Extract the `(VideoFrameProxy, SharedBuffer)` delivery from a `Frame`
+    /// Extract the `(VideoFrame, SharedBuffer)` delivery from a `Frame`
     /// variant as a [`SealedDelivery`].
     ///
     /// Returns `None` for non-`Frame` variants, or if the buffer has already
     /// been taken by a prior call.
     ///
-    /// The [`VideoFrameProxy`] is **cloned** (cheap Arc bump) and the
+    /// The [`VideoFrame`] is **cloned** (cheap Arc bump) and the
     /// [`deepstream_buffers::SharedBuffer`] is **taken** from the
     /// `DecodedFrame`.  Scalar fields on `decoded` (`pts_ns`, `codec`,
     /// `format`, …) remain readable.

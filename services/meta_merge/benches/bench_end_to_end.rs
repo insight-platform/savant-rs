@@ -13,7 +13,7 @@ use meta_merge::configuration::{
 };
 use savant_core::message::Message;
 use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::WithAttributes;
 use savant_core::test::gen_frame;
 use savant_core::transport::zeromq::{
@@ -36,7 +36,7 @@ fn now_nanos() -> i64 {
         .as_nanos() as i64
 }
 
-fn get_int_attr(f: &VideoFrameProxy, namespace: &str, name: &str) -> i64 {
+fn get_int_attr(f: &VideoFrame, namespace: &str, name: &str) -> i64 {
     let attr = f
         .get_attribute(namespace, name)
         .unwrap_or_else(|| panic!("missing ({}, {})", namespace, name));

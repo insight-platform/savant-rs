@@ -24,7 +24,7 @@ use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{IdCollisionResolutionPolicy, VideoObjectBuilder};
 use savant_core::primitives::RBBox;
@@ -129,9 +129,9 @@ fn build_draw_spec() -> ObjectDrawSpec {
 }
 
 /// Creates a FullHD frame with `num_objects` detection boxes for Skia rendering.
-fn make_frame_with_objects(source_id: &str, frame_idx: i64, num_objects: usize) -> VideoFrameProxy {
+fn make_frame_with_objects(source_id: &str, frame_idx: i64, num_objects: usize) -> VideoFrame {
     let pts = (frame_idx as u64 * FRAME_DURATION_NS) as i64;
-    let frame = VideoFrameProxy::new(
+    let frame = VideoFrame::new(
         source_id,
         (30, 1),
         WIDTH as i64,

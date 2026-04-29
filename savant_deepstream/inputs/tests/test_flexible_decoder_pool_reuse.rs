@@ -27,7 +27,7 @@ use deepstream_inputs::flexible_decoder::{
     FlexibleDecoder, FlexibleDecoderConfig, FlexibleDecoderOutput,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use serial_test::serial;
@@ -44,8 +44,8 @@ fn make_jpeg(width: u32, height: u32) -> Vec<u8> {
     buf.into_inner()
 }
 
-fn jpeg_frame(source_id: &str, width: i64, height: i64, pts_ns: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn jpeg_frame(source_id: &str, width: i64, height: i64, pts_ns: i64) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         width,

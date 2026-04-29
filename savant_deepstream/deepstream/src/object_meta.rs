@@ -137,7 +137,7 @@ impl ObjectMeta {
         }
     }
 
-    /// Copy [`Self::rect_params`] dimensions into `detector_bbox_info.org_bbox_coords`.
+    /// Copy `rect_params` dimensions into `detector_bbox_info.org_bbox_coords`.
     pub fn sync_detector_bbox_from_rect(&mut self) {
         unsafe {
             let r = &(*self.raw).rect_params;
@@ -148,7 +148,7 @@ impl ObjectMeta {
         }
     }
 
-    /// Copy [`Self::rect_params`] dimensions into `tracker_bbox_info.org_bbox_coords`.
+    /// Copy `rect_params` dimensions into `tracker_bbox_info.org_bbox_coords`.
     pub fn sync_tracker_bbox_from_rect(&mut self) {
         unsafe {
             let r = &(*self.raw).rect_params;

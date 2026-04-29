@@ -31,9 +31,7 @@ fn extract_cuda_gpu_id(obj: &Bound<'_, PyAny>) -> u32 {
 /// Manages per-source worker threads, a watchdog for idle-source eviction,
 /// and dispatches frames to the appropriate worker.
 #[pyclass(name = "PicassoEngine", module = "savant_rs.picasso")]
-pub struct PyPicassoEngine {
-    inner: Option<PicassoEngine>,
-}
+pub struct PyPicassoEngine(Option<PicassoEngine>);
 
 #[pymethods]
 impl PyPicassoEngine {
@@ -43,9 +41,7 @@ impl PyPicassoEngine {
     #[new]
     fn new(py: Python<'_>, general: &PyGeneralSpec, callbacks: &PyCallbacks) -> Self {
         let engine = PicassoEngine::new(general.to_rust(), callbacks.to_rust(py));
-        Self {
-            inner: Some(engine),
-        }
+        Self(Some(engine))
     }
 
     /// Set or replace the processing spec for a specific source.
@@ -56,7 +52,7 @@ impl PyPicassoEngine {
         spec: &PySourceSpec,
     ) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
         let rust_spec = spec.to_rust();
@@ -70,7 +66,7 @@ impl PyPicassoEngine {
     /// Remove the spec for a source.  The worker will be shut down.
     fn remove_source_spec(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
         py.detach(|| engine.remove_source_spec(source_id));
@@ -108,7 +104,7 @@ impl PyPicassoEngine {
         src_rect: Option<&PyRect>,
     ) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
 
@@ -151,7 +147,7 @@ impl PyPicassoEngine {
     /// Send an end-of-stream signal to a specific source.
     fn send_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
         py.detach(|| engine.send_eos(source_id).map_err(to_py_err))
@@ -163,13 +159,13 @@ impl PyPicassoEngine {
     /// Python callbacks (on_encoded_frame, on_render, etc.) can acquire
     /// the GIL and complete without deadlocking.
     fn shutdown(&mut self, py: Python<'_>) {
-        if let Some(engine) = self.inner.take() {
+        if let Some(engine) = self.0.take() {
             py.detach(|| engine.shutdown());
         }
     }
 
     fn __repr__(&self) -> String {
-        if self.inner.is_some() {
+        if self.0.is_some() {
             "PicassoEngine(running)".to_string()
         } else {
             "PicassoEngine(shut_down)".to_string()

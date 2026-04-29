@@ -10,7 +10,7 @@ use savant_core::draw::{
     BBoxSource, BoundingBoxDraw, ColorDraw, LabelDraw, LabelPosition, LabelPositionKind,
     ObjectDraw, PaddingDraw,
 };
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::object::{IdCollisionResolutionPolicy, VideoObjectBuilder};
 use savant_core::primitives::RBBox;
 
@@ -202,7 +202,7 @@ fn build_frame_id_overlay_draw() -> anyhow::Result<ObjectDraw> {
 /// Returns an error only if the `VideoObject` fails to build (missing
 /// required fields — all supplied here) or `add_object` rejects the
 /// frame (shouldn't happen under `GenerateNewId`).
-pub fn attach_frame_id_overlay(frame: &VideoFrameProxy, frame_id: u64) -> anyhow::Result<()> {
+pub fn attach_frame_id_overlay(frame: &VideoFrame, frame_id: u64) -> anyhow::Result<()> {
     let obj = VideoObjectBuilder::default()
         .id(0)
         .namespace(OVERLAY_NAMESPACE.to_string())
@@ -250,8 +250,8 @@ mod tests {
         Ok(())
     }
 
-    fn empty_frame() -> VideoFrameProxy {
-        VideoFrameProxy::new(
+    fn empty_frame() -> VideoFrame {
+        VideoFrame::new(
             "test",
             (30, 1),
             1920,
@@ -265,7 +265,7 @@ mod tests {
             None,
             None,
         )
-        .expect("VideoFrameProxy::new")
+        .expect("VideoFrame::new")
     }
 
     #[test]

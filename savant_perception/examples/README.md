@@ -163,11 +163,11 @@ Same logical pipeline as `cars-demo`, but the ingress, the analytics
 middle, and the egress can each run as a separate process talking
 over ZMQ.  Three subcommands are exposed by **one** binary:
 
-| Subcommand  | Role                                       | Exits when                                         |
-| ----------- | ------------------------------------------ | -------------------------------------------------- |
-| `producer`  | `file/URI → decode-frame envelopes → ZMQ`  | upstream demuxer reaches end-of-input + sends EOS  |
-| `pipeline`  | `ZMQ → decode → YOLO → NvDCF → Picasso → ZMQ` | only on `Ctrl+C` (it is a pure transit pipeline) |
-| `consumer`  | `ZMQ → MP4`                                | first wire EOS arrives for the active source       |
+| Subcommand  | Role                                       | Exits when                                                                |
+| ----------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| `producer`  | `file/URI → decode-frame envelopes → ZMQ`  | upstream demuxer reaches end-of-input + sends EOS (or never, with `--loop`) |
+| `pipeline`  | `ZMQ → decode → YOLO → NvDCF → Picasso → ZMQ` | only on `Ctrl+C` (it is a pure transit pipeline)                          |
+| `consumer`  | `ZMQ → MP4`                                | first wire EOS arrives for the active source                              |
 
 The pipeline subcommand uses the **same** middle stages as `cars-demo`
 (reused via `PipelineHead::Zmq` / `PipelineTail::Zmq`).  ZMQ sources
@@ -256,12 +256,26 @@ cargo run --release -p savant-perception-framework --example cars-demo-zmq -- pr
 cargo run --release -p savant-perception-framework --example cars-demo-zmq -- producer \
   --input  /path/to/cars.mp4 \
   --no-eos
+
+# Loop the input forever — replay the same clip / URI back-to-back
+# until Ctrl+C.  `ZmqSink` keeps running across iterations (the
+# single-shot Flow::Stop on first EOS is suppressed when --loop is
+# set).  Each iteration's wire EOS is *still* forwarded by default,
+# so a single-shot consumer terminates after iteration #1 — combine
+# with --no-eos when feeding a long-lived consumer that must not
+# observe per-iteration EOS markers.
+cargo run --release -p savant-perception-framework --example cars-demo-zmq -- producer \
+  --input  /path/to/cars.mp4 \
+  --loop
 ```
 
 `--input` accepts any URI that `cars-demo --input` accepts (file
 path, `file://`, `rtsp://`, `http(s)://`, `rtmp://`, `hls://`, …).
-Exits as soon as the upstream demuxer drains and broadcasts the
-shutdown signal — i.e. when the source clip ends or the URI EOFs.
+By default the producer exits as soon as the upstream demuxer
+drains and broadcasts the shutdown signal — i.e. when the source
+clip ends or the URI EOFs.  With `--loop` the producer keeps
+restarting the demuxer on every EOS and only exits on `Ctrl+C` (or
+a fatal demuxer error).
 
 `--no-eos` suppresses the terminating
 `EncodedMsg::SourceEos` envelope: the demuxer stops forwarding
@@ -269,6 +283,18 @@ frames, the supervisor broadcasts Shutdown as soon as the demuxer
 source exits, and `ZmqSink` is torn down without ever issuing a
 wire EOS.  Downstream pipeline / consumer therefore observe the
 silence but never transition to a "drained" state.
+
+`--loop` and `--no-eos` are **independent**: the demuxer's
+per-iteration `SourceEos` forwarding is only gated by `--no-eos`,
+not by `--loop`.  Combine them when running a sustained load test
+against a long-lived consumer / pipeline that should not see EOS
+between iterations:
+
+```bash
+cargo run --release -p savant-perception-framework --example cars-demo-zmq -- producer \
+  --input /path/to/cars.mp4 \
+  --loop --no-eos
+```
 
 #### `pipeline`
 

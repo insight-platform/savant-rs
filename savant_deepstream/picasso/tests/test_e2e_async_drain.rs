@@ -18,7 +18,7 @@ use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
 use log::Level;
 use picasso::prelude::*;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::test::log_capture::log_records;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -52,7 +52,7 @@ const W: u32 = 640;
 const H: u32 = 480;
 const DUR: u64 = 33_333_333;
 
-fn make_numbered_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
+fn make_numbered_frame(source_id: &str, idx: u64) -> VideoFrame {
     let mut frame = make_frame_sized(source_id, W as i64, H as i64);
     frame.set_pts((idx * DUR) as i64).unwrap();
     frame.set_duration(Some(DUR as i64)).unwrap();

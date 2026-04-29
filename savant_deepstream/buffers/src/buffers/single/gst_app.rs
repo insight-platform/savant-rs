@@ -2,7 +2,7 @@
 //!
 //! Free functions for pushing buffers to an `appsrc` element and sending
 //! end-of-stream signals. Separated from the core generator to keep the
-//! public API surface of [`BufferGenerator`] focused on pool management.
+//! public API surface of `BufferGenerator` focused on pool management.
 
 use crate::NvBufSurfaceError;
 use gstreamer as gst;

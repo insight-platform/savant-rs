@@ -10,7 +10,7 @@
 //! pipeline.  The name **`Function`** reflects the actor's real
 //! purpose: it hosts an arbitrary user-supplied callback
 //! (`on_delivery`) that receives every
-//! `(VideoFrameProxy, SharedBuffer)` batch by **shared
+//! `(VideoFrame, SharedBuffer)` batch by **shared
 //! reference**, and is therefore well-suited for pipeline
 //! termini *and* for inline analytics / custom processing
 //! stages.
@@ -46,7 +46,7 @@
 //! Override per-hook for domain behaviour via the bundles:
 //!
 //! * [`FunctionInboxBuilder::on_delivery`] — called with every
-//!   unsealed `(VideoFrameProxy, SharedBuffer)` batch (both the
+//!   unsealed `(VideoFrame, SharedBuffer)` batch (both the
 //!   single-delivery and batched-delivery variants funnel through
 //!   here after unsealing).  The batch is passed by **shared
 //!   slice reference** so the hook body can route it into nested
@@ -85,7 +85,7 @@ use crate::{
     Actor, ActorBuilder, Context, Dispatch, Flow, Handler, ShutdownPayload, SourceEosPayload,
 };
 use deepstream_buffers::SharedBuffer;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 
 /// Closure type for `on_delivery`: observes a batch of
 /// `(frame, buffer)` pairs by **shared reference**.  The owned
@@ -97,7 +97,7 @@ use savant_core::primitives::frame::VideoFrameProxy;
 /// helpers (e.g. inference / tracking / encoding) without
 /// consuming is now the natural shape.
 pub type DeliveryHook = Box<
-    dyn FnMut(&[(VideoFrameProxy, SharedBuffer)], &mut Context<Function>) -> Result<()>
+    dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Function>) -> Result<()>
         + Send
         + 'static,
 >;
@@ -143,7 +143,7 @@ impl Function {
 
     /// Default `on_delivery` hook — drops every unsealed batch.
     pub fn default_on_delivery(
-    ) -> impl FnMut(&[(VideoFrameProxy, SharedBuffer)], &mut Context<Function>) -> Result<()>
+    ) -> impl FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Function>) -> Result<()>
            + Send
            + 'static {
         |_pairs, _ctx| Ok(())
@@ -268,7 +268,7 @@ impl FunctionInboxBuilder {
     }
 
     /// Install a custom delivery hook.  The hook receives the
-    /// unsealed batch of `(VideoFrameProxy, SharedBuffer)` pairs by
+    /// unsealed batch of `(VideoFrame, SharedBuffer)` pairs by
     /// **shared slice reference**, which lets the body forward the
     /// batch to nested helpers (inference / tracking / encoding)
     /// without consuming it.  Returning `Err` aborts the loop and
@@ -280,7 +280,7 @@ impl FunctionInboxBuilder {
     /// automatically as soon as this hook returns.
     pub fn on_delivery<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&[(VideoFrameProxy, SharedBuffer)], &mut Context<Function>) -> Result<()>
+        F: FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Function>) -> Result<()>
             + Send
             + 'static,
     {

@@ -36,7 +36,7 @@ pub struct NvInferConfig {
     /// `network-type`, and `gie-unique-id` are auto-injected if missing.
     ///
     /// `infer-dims` must **not** be set here; it is auto-injected from
-    /// [`model_width`] and [`model_height`].
+    /// `model_width` and `model_height`.
     pub nvinfer_properties: HashMap<String, String>,
     /// Additional GStreamer element properties (e.g. "unique-id" -> "1").
     pub element_properties: HashMap<String, String>,
@@ -44,10 +44,10 @@ pub struct NvInferConfig {
     pub gpu_id: u32,
     /// Pixel format for the appsrc caps (e.g. [`VideoFormat::RGBA`]).
     pub input_format: VideoFormat,
-    /// Model input tensor width in pixels.  Used by [`CoordinateScaler`] and
+    /// Model input tensor width in pixels.  Used by `CoordinateScaler` and
     /// auto-injected into the nvinfer config as part of `infer-dims`.
     pub model_width: u32,
-    /// Model input tensor height in pixels.  Same semantics as [`model_width`].
+    /// Model input tensor height in pixels.  Same semantics as `model_width`.
     pub model_height: u32,
     /// Color space the model expects.  Auto-injected as `model-color-format`
     /// in the nvinfer config; that key must not appear in `nvinfer_properties`.
@@ -57,7 +57,7 @@ pub struct NvInferConfig {
     /// buffer. Defaults to [`MetaClearPolicy::Before`].
     pub meta_clear_policy: MetaClearPolicy,
     /// When `true`, nvinfer skips the device-to-host copy of output tensors.
-    /// Host pointers in [`TensorView`] will contain stale data;
+    /// Host pointers in `TensorView` will contain stale data;
     /// only device pointers are valid. Default: `false` (copy enabled).
     pub disable_output_host_copy: bool,
     /// How frames are scaled to the model input size. Injected as
@@ -69,7 +69,7 @@ pub struct NvInferConfig {
     /// the pipeline enters a terminal failed state. Default: 30 s.
     pub operation_timeout: Duration,
     /// Capacity of the bounded input channel (framework backpressure).
-    /// When the channel is full, [`NvInfer::submit`] blocks.
+    /// When the channel is full, `NvInfer::submit` blocks.
     /// Default: 16.
     pub input_channel_capacity: usize,
     /// Capacity of the bounded output channel.
@@ -157,7 +157,7 @@ impl NvInferConfig {
 
     /// Skip the device-to-host copy of output tensors.
     ///
-    /// When `true`, only device (GPU) pointers in [`TensorView`] are valid;
+    /// When `true`, only device (GPU) pointers in `TensorView` are valid;
     /// host pointers will contain stale/uninitialized data.
     pub fn disable_output_host_copy(mut self, disable: bool) -> Self {
         self.disable_output_host_copy = disable;

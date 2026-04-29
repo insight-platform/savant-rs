@@ -26,7 +26,7 @@ use picasso::skia::context::DrawContext;
 use picasso::skia::object::draw_object;
 use savant_core::draw::{BoundingBoxDraw, ColorDraw, ObjectDraw, PaddingDraw};
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -86,8 +86,8 @@ fn build_draw_spec() -> ObjectDrawSpec {
     spec
 }
 
-fn create_frame(source_id: &str) -> VideoFrameProxy {
-    let frame = VideoFrameProxy::new(
+fn create_frame(source_id: &str) -> VideoFrame {
+    let frame = VideoFrame::new(
         source_id,
         (30, 1),
         SRC_W as i64,

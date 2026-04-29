@@ -30,7 +30,7 @@ type HevcParamSets = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
 
 /// Inspect one access unit (packet) to determine the H264/HEVC stream format.
 ///
-/// Returns [`Some(DecoderConfig)`] with the correct stream format and, for length-prefixed
+/// Returns `Some(DecoderConfig)` with the correct stream format and, for length-prefixed
 /// formats (AVCC / `hvc1`), the constructed `codec_data`. Returns [`None`] when:
 /// - `codec` is not [`VideoCodec::H264`] or [`VideoCodec::Hevc`]
 /// - the prefix is neither Annex-B nor a valid 4-byte length-prefixed layout

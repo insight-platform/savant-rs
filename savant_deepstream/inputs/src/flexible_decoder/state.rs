@@ -3,7 +3,7 @@
 use crate::codec_resolve::DetectionStrategy;
 use deepstream_decoders::{DecoderConfig, NvDecoder};
 use parking_lot::Mutex;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::gstreamer_frame_time::FrameClockNs;
 use savant_core::primitives::video_codec::VideoCodec;
 use std::collections::HashMap;
@@ -11,12 +11,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
-/// Shared map from frame UUID to the original [`VideoFrameProxy`].
+/// Shared map from frame UUID to the original [`VideoFrame`].
 ///
 /// Populated by [`super::FlexibleDecoder::submit`] when a packet is handed to
 /// [`NvDecoder`], consumed by the worker thread / drain callback when the
 /// decoded frame comes back.
-pub(crate) type FrameMap = Arc<Mutex<HashMap<u128, VideoFrameProxy>>>;
+pub(crate) type FrameMap = Arc<Mutex<HashMap<u128, VideoFrame>>>;
 
 /// Tuple returned from decoder activation: `(decoder, worker_join, worker_stop)`.
 pub(crate) type ActivatedDecoder = (Arc<NvDecoder>, JoinHandle<()>, Arc<AtomicBool>);
@@ -28,7 +28,7 @@ pub(crate) type ActivatedDecoder = (Arc<NvDecoder>, JoinHandle<()>, Arc<AtomicBo
 ///
 /// The lifetime `'a` allows the closure to borrow from the calling context
 /// (e.g. capturing `&self` in [`super::FlexibleDecoder::submit`]).
-pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, VideoCodec, i64, i64, &VideoFrameProxy) -> Result<ActivatedDecoder, String>
+pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, VideoCodec, i64, i64, &VideoFrame) -> Result<ActivatedDecoder, String>
     + 'a;
 
 /// Packet buffered during H.264/HEVC stream detection.
@@ -46,7 +46,7 @@ pub(crate) type ActivateFn<'a> = dyn Fn(DecoderConfig, VideoCodec, i64, i64, &Vi
 /// frame proxy) and `data` (for the [`Skipped::data`](super::output::FlexibleDecoderOutput::Skipped)
 /// payload) are needed downstream.
 pub(crate) struct BufferedPacket {
-    pub frame: VideoFrameProxy,
+    pub frame: VideoFrame,
     pub data: Vec<u8>,
 }
 
@@ -124,7 +124,7 @@ pub(crate) struct SubmitContext<'a> {
     pub video_codec: Option<VideoCodec>,
     pub width: i64,
     pub height: i64,
-    pub frame: &'a VideoFrameProxy,
+    pub frame: &'a VideoFrame,
     pub payload: &'a [u8],
     pub frame_id: u128,
     pub clk: &'a FrameClockNs,
@@ -135,8 +135,8 @@ pub(crate) fn new_frame_map() -> FrameMap {
     Arc::new(Mutex::new(HashMap::new()))
 }
 
-/// Insert a [`VideoFrameProxy`] into the shared frame map.
-pub(crate) fn register_frame(frame_map: &FrameMap, frame_id: u128, frame: &VideoFrameProxy) {
+/// Insert a [`VideoFrame`] into the shared frame map.
+pub(crate) fn register_frame(frame_map: &FrameMap, frame_id: u128, frame: &VideoFrame) {
     frame_map.lock().insert(frame_id, frame.clone());
 }
 
