@@ -2,7 +2,7 @@
 
 use crate::flexible_decoder::{DecoderConfigCallback, FlexibleDecoderConfig};
 use deepstream_decoders::DecoderConfig;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -95,7 +95,7 @@ impl FlexibleDecoderPoolConfig {
     /// produced by [`Self::to_flexible_config`].
     pub fn decoder_config_callback<F>(mut self, cb: F) -> Self
     where
-        F: Fn(DecoderConfig, &VideoFrameProxy) -> DecoderConfig + Send + Sync + 'static,
+        F: Fn(DecoderConfig, &VideoFrame) -> DecoderConfig + Send + Sync + 'static,
     {
         self.decoder_config_callback = Some(Arc::new(cb));
         self

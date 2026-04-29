@@ -1,5 +1,5 @@
 use crate::primitives::attribute_set::AttributeSet;
-use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObject;
@@ -94,7 +94,7 @@ where
     Ok(obj)
 }
 
-impl ToProtobuf<'_, generated::VideoFrame> for VideoFrameProxy {}
+impl ToProtobuf<'_, generated::VideoFrame> for VideoFrame {}
 impl ToProtobuf<'_, generated::VideoFrameUpdate> for VideoFrameUpdate {}
 impl ToProtobuf<'_, generated::VideoFrameBatch> for VideoFrameBatch {}
 impl ToProtobuf<'_, generated::VideoObject> for VideoObject {}
@@ -105,7 +105,7 @@ impl ToProtobuf<'_, generated::Attribute> for Attribute {}
 #[cfg(test)]
 mod tests {
     use crate::json_api::ToSerdeJsonValue;
-    use crate::primitives::rust::VideoFrameProxy;
+    use crate::primitives::rust::VideoFrame;
     use crate::protobuf::serialize::{from_pb, ToProtobuf};
     use crate::test::gen_frame;
     use savant_protobuf::generated;
@@ -114,7 +114,7 @@ mod tests {
     fn test() {
         let frame = gen_frame();
         let bytes = frame.to_pb().unwrap();
-        let restored_frame = from_pb::<generated::VideoFrame, VideoFrameProxy>(&bytes).unwrap();
+        let restored_frame = from_pb::<generated::VideoFrame, VideoFrame>(&bytes).unwrap();
         assert_eq!(
             frame.to_serde_json_value(),
             restored_frame.to_serde_json_value()

@@ -2,7 +2,7 @@ pub mod rocksdb;
 
 use anyhow::Result;
 use savant_core::message::Message;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::test::gen_frame;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-pub fn gen_properly_filled_frame(kf: bool) -> Result<VideoFrameProxy> {
+pub fn gen_properly_filled_frame(kf: bool) -> Result<VideoFrame> {
     let mut f = gen_frame();
     let (tbn, tbd) = (1, 1_000_000);
     let now_nanos = SystemTime::now()

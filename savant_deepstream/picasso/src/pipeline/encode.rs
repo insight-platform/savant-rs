@@ -11,7 +11,7 @@ use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, DstInset, LetterBoxKind, ScaleSpec};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTransformation,
+    VideoFrameContent, VideoFrame, VideoFrameTransformation,
 };
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::rust::VideoFrameTranscodingMethod;
@@ -27,7 +27,7 @@ use crate::spec::draw::ObjectDrawSpec;
 pub(crate) type SharedEncoder = Arc<NvEncoder>;
 
 /// Shared map of frames submitted to the encoder but not yet drained.
-pub(crate) type SharedPendingFrames = Arc<parking_lot::Mutex<HashMap<u128, VideoFrameProxy>>>;
+pub(crate) type SharedPendingFrames = Arc<parking_lot::Mutex<HashMap<u128, VideoFrame>>>;
 
 /// Handle to the background drain thread that blocks on
 /// [`NvEncoder::recv_timeout`] and fires callbacks for encoded output.
@@ -103,7 +103,7 @@ pub(crate) struct RenderOpts<'a> {
 fn fire_on_gpumat(
     source_id: &str,
     callbacks: &Callbacks,
-    frame: &savant_core::primitives::frame::VideoFrameProxy,
+    frame: &savant_core::primitives::frame::VideoFrame,
     view: &deepstream_buffers::SurfaceView,
 ) {
     if let Some(cb) = &callbacks.on_gpumat {
@@ -372,7 +372,7 @@ pub(crate) fn process_encode(
 /// match the frame's width/height.  Objects are in the InitialSize coordinate
 /// space — no backward transform is needed.
 pub fn rewrite_frame_transformations(
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
     target_w: u32,
     target_h: u32,
     config: &TransformConfig,
@@ -512,9 +512,9 @@ pub(crate) fn dispatch_encoded(
     }
 }
 
-/// Update a [`VideoFrameProxy`] with encoded output and fire the callback.
+/// Update a [`VideoFrame`] with encoded output and fire the callback.
 pub(crate) fn fill_encoded_frame(
-    mut frame: VideoFrameProxy,
+    mut frame: VideoFrame,
     encoded: EncodedFrame,
     cb: &Arc<dyn OnEncodedFrame>,
 ) {

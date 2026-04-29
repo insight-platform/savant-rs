@@ -9,7 +9,7 @@ use deepstream_buffers::BufferGenerator;
 use deepstream_encoders::prelude::*;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -26,9 +26,9 @@ pub const FRAME_DUR_NS: u64 = 33_333_333;
 // Frame helpers
 // ---------------------------------------------------------------------------
 
-/// Creates a VideoFrameProxy with default 320x240 size.
-pub fn make_frame(source_id: &str) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+/// Creates a VideoFrame with default 320x240 size.
+pub fn make_frame(source_id: &str) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         320,
@@ -45,9 +45,9 @@ pub fn make_frame(source_id: &str) -> VideoFrameProxy {
     .unwrap()
 }
 
-/// Creates a VideoFrameProxy with custom width and height.
-pub fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+/// Creates a VideoFrame with custom width and height.
+pub fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         w,
@@ -76,7 +76,7 @@ pub fn make_surface_view() -> deepstream_buffers::SurfaceView {
 }
 
 /// Creates a frame with PTS, duration, and a persistent attribute.
-pub fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> VideoFrameProxy {
+pub fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> VideoFrame {
     let frame = make_frame(source_id);
     let mut fm = frame.clone();
     fm.set_pts((idx * FRAME_DUR_NS) as i64).unwrap();
@@ -86,13 +86,13 @@ pub fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> 
 }
 
 /// Adds a detection object to the frame. Returns the object ID.
-pub fn add_object(frame: &VideoFrameProxy, cx: f32, cy: f32, w: f32, h: f32) -> i64 {
+pub fn add_object(frame: &VideoFrame, cx: f32, cy: f32, w: f32, h: f32) -> i64 {
     add_object_with_label(frame, "det", "car", cx, cy, w, h)
 }
 
 /// Adds a detection object with custom namespace and label.
 pub fn add_object_with_label(
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
     ns: &str,
     label: &str,
     cx: f32,

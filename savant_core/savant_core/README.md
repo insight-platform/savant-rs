@@ -4,7 +4,7 @@
 
 ## What's inside
 
-- **Primitives and metadata:** `primitives` is the heart of `savant-core`. It defines `RBBox`, `Point`, `PolygonalArea`, `Segment`, `Intersection`, `Attribute`, `AttributeValue`, `AttributeSet`, `VideoObject`, `VideoObjectBuilder`, `VideoFrameProxy`, `VideoFrameContent`, `VideoFrameTransformation`, `VideoFrameBatch`, `VideoFrameUpdate`, `MiscTrackData`, `EndOfStream`, `Shutdown`, `UserData`, and `VideoCodec`.
+- **Primitives and metadata:** `primitives` is the heart of `savant-core`. It defines `RBBox`, `Point`, `PolygonalArea`, `Segment`, `Intersection`, `Attribute`, `AttributeValue`, `AttributeSet`, `VideoObject`, `VideoObjectBuilder`, `VideoFrame`, `VideoFrameContent`, `VideoFrameTransformation`, `VideoFrameBatch`, `VideoFrameUpdate`, `MiscTrackData`, `EndOfStream`, `Shutdown`, `UserData`, and `VideoCodec`.
 - **Messaging and protobuf:** `message` provides the high-level `Message`, `MessageEnvelope`, `MessageMeta`, and `SeqStore` types used to package frames, updates, EOS, shutdown, and user data for transport. `protobuf` bridges those Rust types to `savant-protobuf` with `ToProtobuf`, `from_pb`, `serialize()`, and `deserialize()`.
 - **Geometry and postprocessing:** `geometry::Affine2D` composes frame transformation chains so object coordinates can be remapped between letterboxed, padded, cropped, and original spaces. `converters::nms` exposes `iou_xcycwh`, `nms_class_agnostic`, and `nms_class_aware`, while `converters::yolo::YoloDetectionConverter` turns raw YOLO tensors into structured detections.
 - **Pipeline execution and querying:** `pipeline` defines `Pipeline`, `PipelineConfiguration`, `PipelineStageFunction`, `PipelinePayload`, and stage statistics for multi-stage analytics flows. `match_query::MatchQuery` and its helper expressions let you filter `VideoObject` collections by IDs, labels, attributes, bounding boxes, frame fields, and eval-based predicates.
@@ -15,7 +15,7 @@
 ```rust
 use savant_core::primitives::bbox::RBBox;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -23,7 +23,7 @@ use savant_core::primitives::object::{
 use savant_core::protobuf::ToProtobuf;
 
 fn main() -> anyhow::Result<()> {
-    let frame = VideoFrameProxy::new(
+    let frame = VideoFrame::new(
         "camera-1",
         (30, 1),
         1920,

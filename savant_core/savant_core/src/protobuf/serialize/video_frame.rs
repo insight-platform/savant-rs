@@ -1,5 +1,5 @@
 use crate::primitives::frame::{
-    VideoFrame, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrameInner, VideoFrame, VideoFrameTranscodingMethod,
     VideoFrameTransformation,
 };
 use crate::primitives::misc_track::{MiscTrackCategory, MiscTrackData, MiscTrackFrame, TrackState};
@@ -198,16 +198,16 @@ fn misc_track_data_from_pb(d: &generated::MiscTrackData) -> Result<MiscTrackData
     })
 }
 
-impl From<&VideoFrameProxy> for generated::VideoFrame {
-    fn from(vfp: &VideoFrameProxy) -> Self {
+impl From<&VideoFrame> for generated::VideoFrame {
+    fn from(vfp: &VideoFrame) -> Self {
         let bind = vfp.get_inner();
         let o = bind.read();
         generated::VideoFrame::from(&*o)
     }
 }
 
-impl From<&Box<VideoFrame>> for generated::VideoFrame {
-    fn from(video_frame: &Box<VideoFrame>) -> Self {
+impl From<&Box<VideoFrameInner>> for generated::VideoFrame {
+    fn from(video_frame: &Box<VideoFrameInner>) -> Self {
         let objects = video_frame
             .get_objects()
             .values()
@@ -259,7 +259,7 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
     }
 }
 
-impl TryFrom<&generated::VideoFrame> for VideoFrame {
+impl TryFrom<&generated::VideoFrame> for VideoFrameInner {
     type Error = Error;
 
     fn try_from(value: &generated::VideoFrame) -> Result<Self, Self::Error> {
@@ -295,7 +295,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
 
         let max_object_id = objects.keys().max().copied().unwrap_or_default();
 
-        Ok(VideoFrame {
+        Ok(VideoFrameInner {
             previous_frame_seq_id: value.previous_frame_seq_id,
             previous_keyframe: value
                 .previous_keyframe
@@ -334,11 +334,13 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
     }
 }
 
-impl TryFrom<&generated::VideoFrame> for VideoFrameProxy {
+impl TryFrom<&generated::VideoFrame> for VideoFrame {
     type Error = Error;
 
     fn try_from(value: &generated::VideoFrame) -> Result<Self, Self::Error> {
-        Ok(VideoFrameProxy::from_inner(VideoFrame::try_from(value)?))
+        Ok(VideoFrame::from_inner(VideoFrameInner::try_from(
+            value,
+        )?))
     }
 }
 
@@ -346,7 +348,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrameProxy {
 mod tests {
     use super::*;
     use crate::json_api::ToSerdeJsonValue;
-    use crate::primitives::frame::VideoFrameProxy;
+    use crate::primitives::frame::VideoFrame;
     use crate::test::gen_frame;
     use savant_protobuf::generated;
 
@@ -354,10 +356,10 @@ mod tests {
     fn test_video_frame() {
         let frame = gen_frame();
         let pattern = 0x10213243_54657687_98A9BACB_DCEDFE0F_u128;
-        frame.inner.write().creation_timestamp_ns = pattern;
+        frame.0.write().creation_timestamp_ns = pattern;
         let serialized = generated::VideoFrame::from(&frame);
-        let restored = VideoFrameProxy::try_from(&serialized).unwrap();
-        assert_eq!(restored.inner.read().creation_timestamp_ns, pattern);
+        let restored = VideoFrame::try_from(&serialized).unwrap();
+        assert_eq!(restored.0.read().creation_timestamp_ns, pattern);
         assert_eq!(frame.to_serde_json_value(), restored.to_serde_json_value());
     }
 
@@ -446,7 +448,7 @@ mod tests {
         let serialized = generated::VideoFrame::from(&frame);
         assert_eq!(serialized.misc_tracks.len(), 2);
 
-        let restored = VideoFrameProxy::try_from(&serialized).unwrap();
+        let restored = VideoFrame::try_from(&serialized).unwrap();
         let tracks = restored.get_misc_tracks();
         assert_eq!(tracks.len(), 2);
 
@@ -485,7 +487,7 @@ mod tests {
             },
         ]);
         let pb = generated::VideoFrame::from(&frame);
-        let restored = VideoFrameProxy::try_from(&pb).unwrap();
+        let restored = VideoFrame::try_from(&pb).unwrap();
         let tracks = restored.get_misc_tracks();
         assert_eq!(tracks[0].class_id, i64::MAX);
         assert_eq!(tracks[1].class_id, i64::MIN);
@@ -513,7 +515,7 @@ mod tests {
             }],
         }];
         assert!(matches!(
-            VideoFrame::try_from(&pb),
+            VideoFrameInner::try_from(&pb),
             Err(Error::UnknownTrackState(42))
         ));
     }
@@ -530,7 +532,7 @@ mod tests {
             frames: vec![],
         }];
         assert!(matches!(
-            VideoFrame::try_from(&pb),
+            VideoFrameInner::try_from(&pb),
             Err(Error::UnknownMiscTrackCategory(7))
         ));
     }

@@ -1,10 +1,10 @@
 # savant-deepstream-inputs
 
-`savant-deepstream-inputs` adapts compressed Savant video packets into DeepStream decode sessions, especially when frames arrive from ZeroMQ, RTSP, file source, MP4 demuxer, or similar ingest layers as `VideoFrameProxy` metadata plus payload bytes. Import it as `deepstream_inputs` (the Rust library module name is `deepstream_inputs`) when you need a flexible single-stream decoder, multi-source ingest pool, `SharedBuffer` delivery, codec detection, or JPEG/JFIF-aware packet handling.
+`savant-deepstream-inputs` adapts compressed Savant video packets into DeepStream decode sessions, especially when frames arrive from ZeroMQ, RTSP, file source, MP4 demuxer, or similar ingest layers as `VideoFrame` metadata plus payload bytes. Import it as `deepstream_inputs` (the Rust library module name is `deepstream_inputs`) when you need a flexible single-stream decoder, multi-source ingest pool, `SharedBuffer` delivery, codec detection, or JPEG/JFIF-aware packet handling.
 
 ## What's inside
 
-- `flexible_decoder::FlexibleDecoder` is the single-stream entry point. It watches incoming `VideoFrameProxy` metadata, resolves codecs, creates an internal `NvDecoder` on demand, and recreates it when codec or resolution changes.
+- `flexible_decoder::FlexibleDecoder` is the single-stream entry point. It watches incoming `VideoFrame` metadata, resolves codecs, creates an internal `NvDecoder` on demand, and recreates it when codec or resolution changes.
 - `FlexibleDecoderConfig` controls GPU selection, buffer-pool size, idle drain timeout, keyframe detection buffering, and an optional `DecoderConfigCallback` that can rewrite the resolved `DecoderConfig` right before activation.
 - `FlexibleDecoderOutput` is the callback payload for decoded frames, parameter changes, skipped packets, orphan frames, per-source EOS, GStreamer events, and decode errors. `DecoderParameters`, `SkipReason`, and `SealedDelivery` make it practical to reason about decoder state and buffer ownership.
 - `decoder_pool::FlexibleDecoderPool` and `FlexibleDecoderPoolConfig` scale the same model across many sources. The pool creates one `FlexibleDecoder` per `source_id`, routes packets automatically, and evicts idle decoders with `EvictionDecision::{Keep, Evict}`.
@@ -18,7 +18,7 @@ use deepstream_inputs::flexible_decoder::{
     FlexibleDecoder, FlexibleDecoderConfig, FlexibleDecoderOutput,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use std::time::Duration;
@@ -34,7 +34,7 @@ let decoder = FlexibleDecoder::new(
     },
 );
 
-let frame = VideoFrameProxy::new(
+let frame = VideoFrame::new(
     "cam-1",
     (30, 1),
     1280,

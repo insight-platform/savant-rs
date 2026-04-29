@@ -7,9 +7,7 @@ use pyo3::prelude::*;
 /// [`eos_on_decreasing_pts`] or [`recreate_on_decreasing_pts`].
 #[pyclass(from_py_object, name = "PtsResetPolicy", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
-pub struct PyPtsResetPolicy {
-    inner: PtsResetPolicy,
-}
+pub struct PyPtsResetPolicy(PtsResetPolicy);
 
 #[pymethods]
 impl PyPtsResetPolicy {
@@ -18,21 +16,17 @@ impl PyPtsResetPolicy {
     /// Downstream sees a clean EOS boundary between old and new streams.
     #[staticmethod]
     fn eos_on_decreasing_pts() -> Self {
-        Self {
-            inner: PtsResetPolicy::EosOnDecreasingPts,
-        }
+        Self(PtsResetPolicy::EosOnDecreasingPts)
     }
 
     /// Silently recreate the encoder without emitting EOS.
     #[staticmethod]
     fn recreate_on_decreasing_pts() -> Self {
-        Self {
-            inner: PtsResetPolicy::RecreateOnDecreasingPts,
-        }
+        Self(PtsResetPolicy::RecreateOnDecreasingPts)
     }
 
     fn __repr__(&self) -> String {
-        match self.inner {
+        match self.0 {
             PtsResetPolicy::EosOnDecreasingPts => {
                 "PtsResetPolicy.eos_on_decreasing_pts()".to_string()
             }
@@ -43,21 +37,21 @@ impl PyPtsResetPolicy {
     }
 
     fn __eq__(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        self.0 == other.0
     }
 
     fn __ne__(&self, other: &Self) -> bool {
-        self.inner != other.inner
+        self.0 != other.0
     }
 
     fn __hash__(&self) -> u64 {
-        self.inner as u64
+        self.0 as u64
     }
 }
 
 impl PyPtsResetPolicy {
     pub(crate) fn to_rust(&self) -> PtsResetPolicy {
-        self.inner
+        self.0
     }
 }
 
@@ -129,38 +123,30 @@ impl PyGeneralSpec {
     module = "savant_rs.picasso"
 )]
 #[derive(Debug, Clone)]
-pub struct PyEvictionDecision {
-    inner: EvictionDecision,
-}
+pub struct PyEvictionDecision(EvictionDecision);
 
 #[pymethods]
 impl PyEvictionDecision {
     /// Keep the source alive for at least `secs` more seconds.
     #[staticmethod]
     fn keep_for(secs: u64) -> Self {
-        Self {
-            inner: EvictionDecision::KeepFor(secs),
-        }
+        Self(EvictionDecision::KeepFor(secs))
     }
 
     /// Drain the encoder (send EOS) then terminate the worker.
     #[staticmethod]
     fn terminate() -> Self {
-        Self {
-            inner: EvictionDecision::Terminate,
-        }
+        Self(EvictionDecision::Terminate)
     }
 
     /// Terminate the worker immediately without draining.
     #[staticmethod]
     fn terminate_immediately() -> Self {
-        Self {
-            inner: EvictionDecision::TerminateImmediately,
-        }
+        Self(EvictionDecision::TerminateImmediately)
     }
 
     fn __repr__(&self) -> String {
-        match &self.inner {
+        match &self.0 {
             EvictionDecision::KeepFor(s) => format!("EvictionDecision.keep_for({s})"),
             EvictionDecision::Terminate => "EvictionDecision.terminate()".to_string(),
             EvictionDecision::TerminateImmediately => {
@@ -172,11 +158,11 @@ impl PyEvictionDecision {
 
 impl PyEvictionDecision {
     pub(crate) fn to_rust(&self) -> EvictionDecision {
-        self.inner.clone()
+        self.0.clone()
     }
 
     #[allow(dead_code)]
     pub(crate) fn from_rust(d: EvictionDecision) -> Self {
-        Self { inner: d }
+        Self(d)
     }
 }

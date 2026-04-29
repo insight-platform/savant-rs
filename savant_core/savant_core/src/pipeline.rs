@@ -11,7 +11,7 @@ pub use implementation::PipelineConfigurationBuilder;
 
 use crate::match_query::MatchQuery;
 use crate::pipeline::stage::PipelineStage;
-use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
@@ -50,7 +50,7 @@ pub enum PipelineStagePayloadType {
 #[derive(Debug)]
 pub enum PipelinePayload {
     Frame(
-        VideoFrameProxy,
+        VideoFrame,
         Vec<VideoFrameUpdate>,
         Context,
         Option<String>,
@@ -153,14 +153,14 @@ impl Pipeline {
         self.0.add_batched_frame_update(batch_id, frame_id, update)
     }
 
-    pub fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> Result<i64> {
+    pub fn add_frame(&self, stage_name: &str, frame: VideoFrame) -> Result<i64> {
         self.0.add_frame(stage_name, frame)
     }
 
     pub fn add_frame_with_telemetry(
         &self,
         stage_name: &str,
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         parent_ctx: Context,
     ) -> Result<i64> {
         self.0
@@ -175,7 +175,7 @@ impl Pipeline {
         self.0.get_stage_queue_len(stage)
     }
 
-    pub fn get_independent_frame(&self, frame_id: i64) -> Result<(VideoFrameProxy, Context)> {
+    pub fn get_independent_frame(&self, frame_id: i64) -> Result<(VideoFrame, Context)> {
         self.0.get_independent_frame(frame_id)
     }
 
@@ -183,7 +183,7 @@ impl Pipeline {
         &self,
         batch_id: i64,
         frame_id: i64,
-    ) -> Result<(VideoFrameProxy, Context)> {
+    ) -> Result<(VideoFrame, Context)> {
         self.0.get_batched_frame(batch_id, frame_id)
     }
 
@@ -223,7 +223,7 @@ impl Pipeline {
         self.0.get_id_locations_len()
     }
 
-    pub fn get_keyframe_history(&self, frame: &VideoFrameProxy) -> Option<Vec<(u128, i64)>> {
+    pub fn get_keyframe_history(&self, frame: &VideoFrame) -> Option<Vec<(u128, i64)>> {
         self.0.get_keyframe_history(frame)
     }
 }
@@ -254,7 +254,7 @@ pub(super) mod implementation {
     use crate::pipeline::{
         PipelinePayload, PipelineStageFunction, PipelineStagePayloadType, MAX_TRACKED_STREAMS,
     };
-    use crate::primitives::frame::VideoFrameProxy;
+    use crate::primitives::frame::VideoFrame;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::BorrowedVideoObject;
@@ -535,7 +535,7 @@ pub(super) mod implementation {
             }
         }
 
-        pub fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> Result<i64> {
+        pub fn add_frame(&self, stage_name: &str, frame: VideoFrame) -> Result<i64> {
             let sampling_period = self.get_sampling_period();
             let next_frame = self.frame_counter.load(Ordering::SeqCst) + 1;
             let ctx = if *sampling_period <= 0 || next_frame % *sampling_period != 0 {
@@ -549,7 +549,7 @@ pub(super) mod implementation {
         pub fn add_frame_with_telemetry(
             &self,
             stage_name: &str,
-            mut frame: VideoFrameProxy,
+            mut frame: VideoFrame,
             parent_ctx: Context,
         ) -> Result<i64> {
             if matches!(
@@ -624,7 +624,7 @@ pub(super) mod implementation {
             Ok(id_counter)
         }
 
-        pub fn get_keyframe_history(&self, frame: &VideoFrameProxy) -> Option<Vec<(u128, i64)>> {
+        pub fn get_keyframe_history(&self, frame: &VideoFrame) -> Option<Vec<(u128, i64)>> {
             let mut keyframe_history = self.keyframe_history.write();
             keyframe_history
                 .get(&frame.stream_compatibility_hash())
@@ -642,7 +642,7 @@ pub(super) mod implementation {
             Ok(())
         }
 
-        fn add_frame_json(&self, frame: &VideoFrameProxy, ctx: &Context) {
+        fn add_frame_json(&self, frame: &VideoFrame, ctx: &Context) {
             if self.configuration.append_frame_meta_to_otlp_span {
                 match frame.get_json() {
                     Ok(json) => {
@@ -739,7 +739,7 @@ pub(super) mod implementation {
             Ok(results)
         }
 
-        pub fn get_independent_frame(&self, frame_id: i64) -> Result<(VideoFrameProxy, Context)> {
+        pub fn get_independent_frame(&self, frame_id: i64) -> Result<(VideoFrame, Context)> {
             let stage = self.get_stage_for_id(frame_id)?;
             if let Some(stage) = self.stages.get(stage) {
                 stage.get_independent_frame(frame_id)
@@ -752,7 +752,7 @@ pub(super) mod implementation {
             &self,
             batch_id: i64,
             frame_id: i64,
-        ) -> Result<(VideoFrameProxy, Context)> {
+        ) -> Result<(VideoFrame, Context)> {
             let stage = self.get_stage_for_id(batch_id)?;
             if let Some(stage) = self.stages.get(stage) {
                 stage.get_batched_frame(batch_id, frame_id)

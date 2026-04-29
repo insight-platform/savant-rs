@@ -134,9 +134,7 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<VideoCodec> {
 ///                dts_ns=0, duration_ns=33_333_333)
 ///     muxer.finish()
 #[pyclass(name = "Mp4Muxer", module = "savant_rs.gstreamer")]
-pub struct PyMp4Muxer {
-    inner: Mp4Muxer,
-}
+pub struct PyMp4Muxer(Mp4Muxer);
 
 #[pymethods]
 impl PyMp4Muxer {
@@ -174,7 +172,7 @@ impl PyMp4Muxer {
         duration_ns: Option<u64>,
     ) -> PyResult<()> {
         py.detach(|| {
-            self.inner
+            self.0
                 .push(data, pts_ns, dts_ns, duration_ns)
                 .map_err(muxer_err)
         })
@@ -184,13 +182,13 @@ impl PyMp4Muxer {
     ///
     /// Safe to call multiple times. After this call, :meth:`push` will raise.
     fn finish(&mut self, py: Python<'_>) -> PyResult<()> {
-        py.detach(|| self.inner.finish().map_err(muxer_err))
+        py.detach(|| self.0.finish().map_err(muxer_err))
     }
 
     /// Whether the muxer has been finalized.
     #[getter]
     fn is_finished(&self) -> bool {
-        self.inner.is_finished()
+        self.0.is_finished()
     }
 }
 
@@ -207,50 +205,48 @@ impl PyMp4Muxer {
 ///     duration_ns (int | None): Frame duration in nanoseconds, if present.
 ///     is_keyframe (bool): Whether this packet is a keyframe (sync point).
 #[pyclass(name = "DemuxedPacket", module = "savant_rs.gstreamer")]
-pub struct PyDemuxedPacket {
-    inner: DemuxedPacket,
-}
+pub struct PyDemuxedPacket(DemuxedPacket);
 
 #[pymethods]
 impl PyDemuxedPacket {
     /// Encoded bitstream payload.
     #[getter]
     fn data<'py>(&self, py: Python<'py>) -> Bound<'py, pyo3::types::PyBytes> {
-        pyo3::types::PyBytes::new(py, &self.inner.data)
+        pyo3::types::PyBytes::new(py, &self.0.data)
     }
 
     /// Presentation timestamp in nanoseconds.
     #[getter]
     fn pts_ns(&self) -> u64 {
-        self.inner.pts_ns
+        self.0.pts_ns
     }
 
     /// Decode timestamp in nanoseconds, or ``None``.
     #[getter]
     fn dts_ns(&self) -> Option<u64> {
-        self.inner.dts_ns
+        self.0.dts_ns
     }
 
     /// Frame duration in nanoseconds, or ``None``.
     #[getter]
     fn duration_ns(&self) -> Option<u64> {
-        self.inner.duration_ns
+        self.0.duration_ns
     }
 
     /// Whether this packet is a keyframe.
     #[getter]
     fn is_keyframe(&self) -> bool {
-        self.inner.is_keyframe
+        self.0.is_keyframe
     }
 
     fn __repr__(&self) -> String {
         format!(
             "DemuxedPacket(pts_ns={}, dts_ns={:?}, duration_ns={:?}, is_keyframe={}, len={})",
-            self.inner.pts_ns,
-            self.inner.dts_ns,
-            self.inner.duration_ns,
-            self.inner.is_keyframe,
-            self.inner.data.len(),
+            self.0.pts_ns,
+            self.0.dts_ns,
+            self.0.duration_ns,
+            self.0.is_keyframe,
+            self.0.data.len(),
         )
     }
 }
@@ -272,45 +268,43 @@ impl PyDemuxedPacket {
 /// transform is NOT applied here.
 #[pyclass(from_py_object, name = "VideoInfo", module = "savant_rs.gstreamer")]
 #[derive(Debug, Clone, Copy)]
-pub struct PyVideoInfo {
-    inner: VideoInfo,
-}
+pub struct PyVideoInfo(VideoInfo);
 
 #[pymethods]
 impl PyVideoInfo {
     #[getter]
     fn codec(&self) -> PyVideoCodec {
-        self.inner.codec.into()
+        self.0.codec.into()
     }
 
     #[getter]
     fn width(&self) -> u32 {
-        self.inner.width
+        self.0.width
     }
 
     #[getter]
     fn height(&self) -> u32 {
-        self.inner.height
+        self.0.height
     }
 
     #[getter]
     fn framerate_num(&self) -> u32 {
-        self.inner.framerate_num
+        self.0.framerate_num
     }
 
     #[getter]
     fn framerate_den(&self) -> u32 {
-        self.inner.framerate_den
+        self.0.framerate_den
     }
 
     fn __repr__(&self) -> String {
         format!(
             "VideoInfo(codec={:?}, width={}, height={}, framerate={}/{})",
-            self.inner.codec,
-            self.inner.width,
-            self.inner.height,
-            self.inner.framerate_num,
-            self.inner.framerate_den,
+            self.0.codec,
+            self.0.width,
+            self.0.height,
+            self.0.framerate_num,
+            self.0.framerate_den,
         )
     }
 }
@@ -339,10 +333,10 @@ impl PyMp4DemuxerOutput {
     fn from_rust(py: Python<'_>, output: Mp4DemuxerOutput) -> PyResult<Self> {
         let variant = match output {
             Mp4DemuxerOutput::StreamInfo(info) => {
-                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo { inner: info })?)
+                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo(info))?)
             }
             Mp4DemuxerOutput::Packet(pkt) => {
-                DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket { inner: pkt })?)
+                DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket(pkt))?)
             }
             Mp4DemuxerOutput::Eos => DemuxerOutputVariant::Eos,
             Mp4DemuxerOutput::Error(e) => DemuxerOutputVariant::Error(e.to_string()),
@@ -355,10 +349,10 @@ impl PyMp4DemuxerOutput {
     fn from_uri_rust(py: Python<'_>, output: UriDemuxerOutput) -> PyResult<Self> {
         let variant = match output {
             UriDemuxerOutput::StreamInfo(info) => {
-                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo { inner: info })?)
+                DemuxerOutputVariant::StreamInfo(Py::new(py, PyVideoInfo(info))?)
             }
             UriDemuxerOutput::Packet(pkt) => {
-                DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket { inner: pkt })?)
+                DemuxerOutputVariant::Packet(Py::new(py, PyDemuxedPacket(pkt))?)
             }
             UriDemuxerOutput::Eos => DemuxerOutputVariant::Eos,
             UriDemuxerOutput::Error(e) => DemuxerOutputVariant::Error(e.to_string()),
@@ -467,9 +461,7 @@ impl PyMp4DemuxerOutput {
 ///     for pkt in packets:
 ///         print(pkt.pts_ns, len(pkt.data))
 #[pyclass(name = "Mp4Demuxer", module = "savant_rs.gstreamer")]
-pub struct PyMp4Demuxer {
-    inner: Option<Mp4Demuxer>,
-}
+pub struct PyMp4Demuxer(Option<Mp4Demuxer>);
 
 #[pymethods]
 impl PyMp4Demuxer {
@@ -507,9 +499,7 @@ impl PyMp4Demuxer {
             .map_err(demuxer_err)
         })?;
 
-        Ok(Self {
-            inner: Some(demuxer),
-        })
+        Ok(Self(Some(demuxer)))
     }
 
     /// Block until the demuxer reaches EOS, encounters an error, or
@@ -517,7 +507,7 @@ impl PyMp4Demuxer {
     ///
     /// The GIL is released while waiting so the callback can fire.
     fn wait(&self, py: Python<'_>) -> PyResult<()> {
-        if let Some(ref inner) = self.inner {
+        if let Some(ref inner) = self.0 {
             py.detach(|| inner.wait());
         }
         Ok(())
@@ -531,7 +521,7 @@ impl PyMp4Demuxer {
     /// Returns:
     ///     bool: ``True`` if finished, ``False`` on timeout.
     fn wait_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<bool> {
-        if let Some(ref inner) = self.inner {
+        if let Some(ref inner) = self.0 {
             let timeout = Duration::from_millis(timeout_ms);
             Ok(py.detach(|| inner.wait_timeout(timeout)))
         } else {
@@ -542,7 +532,7 @@ impl PyMp4Demuxer {
     /// Auto-detected video codec from the container, or ``None``.
     #[getter]
     fn detected_codec(&self) -> Option<PyVideoCodec> {
-        self.inner
+        self.0
             .as_ref()
             .and_then(|d| d.detected_codec())
             .map(|c| c.into())
@@ -552,10 +542,10 @@ impl PyMp4Demuxer {
     /// observed yet.
     #[getter]
     fn video_info(&self, py: Python<'_>) -> PyResult<Option<Py<PyVideoInfo>>> {
-        self.inner
+        self.0
             .as_ref()
             .and_then(|d| d.video_info())
-            .map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .map(|inner| Py::new(py, PyVideoInfo(inner)))
             .transpose()
     }
 
@@ -575,12 +565,12 @@ impl PyMp4Demuxer {
         py: Python<'_>,
         timeout_ms: u64,
     ) -> PyResult<Option<Py<PyVideoInfo>>> {
-        let Some(ref inner) = self.inner else {
+        let Some(ref inner) = self.0 else {
             return Ok(None);
         };
         let timeout = Duration::from_millis(timeout_ms);
         let info = py.detach(|| inner.wait_for_video_info(timeout));
-        info.map(|inner| Py::new(py, PyVideoInfo { inner }))
+        info.map(|inner| Py::new(py, PyVideoInfo(inner)))
             .transpose()
     }
 
@@ -591,7 +581,7 @@ impl PyMp4Demuxer {
     ///
     /// Must **not** be called from within the ``result_callback``.
     fn finish(&mut self, py: Python<'_>) {
-        if let Some(mut inner) = self.inner.take() {
+        if let Some(mut inner) = self.0.take() {
             py.detach(move || inner.finish());
         }
     }
@@ -599,13 +589,13 @@ impl PyMp4Demuxer {
     /// Whether the demuxer has been finalized.
     #[getter]
     fn is_finished(&self) -> bool {
-        self.inner.as_ref().map(|d| d.is_finished()).unwrap_or(true)
+        self.0.as_ref().map(|d| d.is_finished()).unwrap_or(true)
     }
 }
 
 impl Drop for PyMp4Demuxer {
     fn drop(&mut self) {
-        if let Some(inner) = self.inner.take() {
+        if let Some(inner) = self.0.take() {
             // Move the demuxer to a detached thread so that the GC thread
             // (which holds the GIL) does not block on GStreamer streaming
             // threads that try to re-acquire the GIL via callbacks.
@@ -675,9 +665,7 @@ impl Drop for PyMp4Demuxer {
 ///     for pkt in packets:
 ///         print(pkt.pts_ns, len(pkt.data))
 #[pyclass(name = "UriDemuxer", module = "savant_rs.gstreamer")]
-pub struct PyUriDemuxer {
-    inner: Option<UriDemuxer>,
-}
+pub struct PyUriDemuxer(Option<UriDemuxer>);
 
 #[pymethods]
 impl PyUriDemuxer {
@@ -724,9 +712,7 @@ impl PyUriDemuxer {
             UriDemuxer::new(cfg, move |out| on_output(out)).map_err(uri_demuxer_err)
         })?;
 
-        Ok(Self {
-            inner: Some(demuxer),
-        })
+        Ok(Self(Some(demuxer)))
     }
 
     /// Block until the demuxer reaches EOS, encounters an error, or
@@ -734,7 +720,7 @@ impl PyUriDemuxer {
     ///
     /// The GIL is released while waiting so the callback can fire.
     fn wait(&self, py: Python<'_>) -> PyResult<()> {
-        if let Some(ref inner) = self.inner {
+        if let Some(ref inner) = self.0 {
             py.detach(|| inner.wait());
         }
         Ok(())
@@ -748,7 +734,7 @@ impl PyUriDemuxer {
     /// Returns:
     ///     bool: ``True`` if finished, ``False`` on timeout.
     fn wait_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<bool> {
-        if let Some(ref inner) = self.inner {
+        if let Some(ref inner) = self.0 {
             let timeout = Duration::from_millis(timeout_ms);
             Ok(py.detach(|| inner.wait_timeout(timeout)))
         } else {
@@ -759,7 +745,7 @@ impl PyUriDemuxer {
     /// Auto-detected video codec from the stream, or ``None``.
     #[getter]
     fn detected_codec(&self) -> Option<PyVideoCodec> {
-        self.inner
+        self.0
             .as_ref()
             .and_then(|d| d.detected_codec())
             .map(|c| c.into())
@@ -769,10 +755,10 @@ impl PyUriDemuxer {
     /// observed yet.
     #[getter]
     fn video_info(&self, py: Python<'_>) -> PyResult<Option<Py<PyVideoInfo>>> {
-        self.inner
+        self.0
             .as_ref()
             .and_then(|d| d.video_info())
-            .map(|inner| Py::new(py, PyVideoInfo { inner }))
+            .map(|inner| Py::new(py, PyVideoInfo(inner)))
             .transpose()
     }
 
@@ -792,12 +778,12 @@ impl PyUriDemuxer {
         py: Python<'_>,
         timeout_ms: u64,
     ) -> PyResult<Option<Py<PyVideoInfo>>> {
-        let Some(ref inner) = self.inner else {
+        let Some(ref inner) = self.0 else {
             return Ok(None);
         };
         let timeout = Duration::from_millis(timeout_ms);
         let info = py.detach(|| inner.wait_for_video_info(timeout));
-        info.map(|inner| Py::new(py, PyVideoInfo { inner }))
+        info.map(|inner| Py::new(py, PyVideoInfo(inner)))
             .transpose()
     }
 
@@ -808,7 +794,7 @@ impl PyUriDemuxer {
     ///
     /// Must **not** be called from within the ``result_callback``.
     fn finish(&mut self, py: Python<'_>) {
-        if let Some(mut inner) = self.inner.take() {
+        if let Some(mut inner) = self.0.take() {
             py.detach(move || inner.finish());
         }
     }
@@ -816,13 +802,13 @@ impl PyUriDemuxer {
     /// Whether the demuxer has been finalized.
     #[getter]
     fn is_finished(&self) -> bool {
-        self.inner.as_ref().map(|d| d.is_finished()).unwrap_or(true)
+        self.0.as_ref().map(|d| d.is_finished()).unwrap_or(true)
     }
 }
 
 impl Drop for PyUriDemuxer {
     fn drop(&mut self) {
-        if let Some(inner) = self.inner.take() {
+        if let Some(inner) = self.0.take() {
             // Move the demuxer to a detached thread so that the GC thread
             // (which holds the GIL) does not block on GStreamer streaming
             // threads that try to re-acquire the GIL via callbacks.

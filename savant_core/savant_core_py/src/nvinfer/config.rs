@@ -46,9 +46,7 @@ use std::collections::HashMap;
     skip_from_py_object
 )]
 #[derive(Debug, Clone)]
-pub struct PyNvInferConfig {
-    pub(crate) inner: NvInferConfig,
-}
+pub struct PyNvInferConfig(pub(crate) NvInferConfig);
 
 #[pymethods]
 impl PyNvInferConfig {
@@ -111,92 +109,92 @@ impl PyNvInferConfig {
         if let Some(ep) = element_properties {
             cfg = cfg.with_element_properties(ep);
         }
-        Self { inner: cfg }
+        Self(cfg)
     }
 
     #[getter]
     fn name(&self) -> &str {
-        &self.inner.name
+        &self.0.name
     }
 
     #[getter]
     fn gpu_id(&self) -> u32 {
-        self.inner.gpu_id
+        self.0.gpu_id
     }
 
     #[getter]
     fn input_channel_capacity(&self) -> usize {
-        self.inner.input_channel_capacity
+        self.0.input_channel_capacity
     }
 
     #[getter]
     fn output_channel_capacity(&self) -> usize {
-        self.inner.output_channel_capacity
+        self.0.output_channel_capacity
     }
 
     #[getter]
     fn drain_poll_interval_ms(&self) -> u64 {
-        self.inner.drain_poll_interval.as_millis() as u64
+        self.0.drain_poll_interval.as_millis() as u64
     }
 
     /// NvInfer config keys (copy of the map passed at construction).
     #[getter]
     fn nvinfer_properties(&self) -> HashMap<String, String> {
-        self.inner.nvinfer_properties.clone()
+        self.0.nvinfer_properties.clone()
     }
 
     /// Additional GStreamer element properties (copy).
     #[getter]
     fn element_properties(&self) -> HashMap<String, String> {
-        self.inner.element_properties.clone()
+        self.0.element_properties.clone()
     }
 
     /// Model input tensor ``(width, height)`` in pixels — same as ``model_width`` and ``model_height``.
     fn model_input_dimensions(&self) -> (u32, u32) {
-        self.inner.model_input_dimensions()
+        self.0.model_input_dimensions()
     }
 
     #[getter]
     fn input_format(&self) -> PyVideoFormat {
-        self.inner.input_format.into()
+        self.0.input_format.into()
     }
 
     #[getter]
     fn model_width(&self) -> u32 {
-        self.inner.model_width
+        self.0.model_width
     }
 
     #[getter]
     fn model_height(&self) -> u32 {
-        self.inner.model_height
+        self.0.model_height
     }
 
     #[getter]
     fn model_color_format(&self) -> PyModelColorFormat {
-        self.inner.model_color_format.into()
+        self.0.model_color_format.into()
     }
 
     #[getter]
     fn meta_clear_policy(&self) -> PyMetaClearPolicy {
-        self.inner.meta_clear_policy.into()
+        self.0.meta_clear_policy.into()
     }
 
     /// Whether the device-to-host copy of output tensors is disabled.
     #[getter]
     fn disable_output_host_copy(&self) -> bool {
-        self.inner.disable_output_host_copy
+        self.0.disable_output_host_copy
     }
 
     /// How input frames are scaled to the model input size.
     #[getter]
     fn scaling(&self) -> PyModelInputScaling {
-        self.inner.scaling.into()
+        self.0.scaling.into()
     }
 
     /// Operation timeout in milliseconds.
     #[getter]
     fn operation_timeout_ms(&self) -> u64 {
-        self.inner.operation_timeout.as_millis() as u64
+        self.0.operation_timeout.as_millis() as u64
     }
 
     fn __repr__(&self) -> String {
@@ -205,18 +203,18 @@ impl PyNvInferConfig {
              in_ch={}, out_ch={}, drain_poll_ms={}, input_format={}, \
              model_width={}, model_height={}, model_color_format={}, \
              meta_clear_policy={:?}, disable_output_host_copy={}, scaling={})",
-            self.inner.name,
-            self.inner.gpu_id,
-            self.inner.input_channel_capacity,
-            self.inner.output_channel_capacity,
-            self.inner.drain_poll_interval.as_millis(),
-            self.inner.input_format.gst_name(),
-            self.inner.model_width,
-            self.inner.model_height,
-            PyModelColorFormat::from(self.inner.model_color_format).repr_str(),
-            PyMetaClearPolicy::from(self.inner.meta_clear_policy),
-            self.inner.disable_output_host_copy,
-            PyModelInputScaling::from(self.inner.scaling).repr_str(),
+            self.0.name,
+            self.0.gpu_id,
+            self.0.input_channel_capacity,
+            self.0.output_channel_capacity,
+            self.0.drain_poll_interval.as_millis(),
+            self.0.input_format.gst_name(),
+            self.0.model_width,
+            self.0.model_height,
+            PyModelColorFormat::from(self.0.model_color_format).repr_str(),
+            PyMetaClearPolicy::from(self.0.meta_clear_policy),
+            self.0.disable_output_host_copy,
+            PyModelInputScaling::from(self.0.scaling).repr_str(),
         )
     }
 }

@@ -15,7 +15,7 @@ use hashbrown::HashMap;
 use log::{debug, error, info, warn};
 use parking_lot::Mutex as ParkingMutex;
 use savant_core::primitives::{
-    frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
+    frame::{VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod},
     rust::{ExternalFrame, VideoCodec},
 };
 use savant_core::utils::rtp_pts_mapper::RtpPtsMapper;
@@ -567,7 +567,7 @@ pub async fn run_group(
                         // guarantee an AU delimiter; downstream DeepStream decoders need one.
                         let data = ensure_au_delimiter(data, &encoding);
 
-                        let frame = VideoFrameProxy::new(
+                        let frame = VideoFrame::new(
                             source_id,
                             fps,
                             width as i64,

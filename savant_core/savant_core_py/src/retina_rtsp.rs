@@ -45,33 +45,29 @@ impl PyRtspBackend {
     from_py_object
 )]
 #[derive(Debug, Clone)]
-pub struct PyRtspSourceOptions {
-    inner: configuration::RtspSourceOptions,
-}
+pub struct PyRtspSourceOptions(configuration::RtspSourceOptions);
 
 #[pymethods]
 impl PyRtspSourceOptions {
     #[new]
     fn new(username: String, password: String) -> Self {
-        Self {
-            inner: configuration::RtspSourceOptions { username, password },
-        }
+        Self(configuration::RtspSourceOptions { username, password })
     }
 
     #[getter]
     fn username(&self) -> &str {
-        &self.inner.username
+        &self.0.username
     }
 
     #[getter]
     fn password(&self) -> &str {
-        &self.inner.password
+        &self.0.password
     }
 
     pub fn __repr__(&self) -> String {
         format!(
             "RtspSourceOptions(username={:?}, password=***)",
-            self.inner.username
+            self.0.username
         )
     }
 }
@@ -80,9 +76,7 @@ impl PyRtspSourceOptions {
 
 #[pyclass(name = "RtspSource", module = "savant_rs.retina_rtsp", from_py_object)]
 #[derive(Debug, Clone)]
-pub struct PyRtspSource {
-    inner: configuration::RtspSource,
-}
+pub struct PyRtspSource(configuration::RtspSource);
 
 #[pymethods]
 impl PyRtspSource {
@@ -94,43 +88,41 @@ impl PyRtspSource {
         stream_position: Option<usize>,
         options: Option<PyRtspSourceOptions>,
     ) -> Self {
-        Self {
-            inner: configuration::RtspSource {
+        Self(configuration::RtspSource {
                 source_id,
                 url,
                 stream_position,
-                options: options.map(|o| o.inner),
-            },
-        }
+                options: options.map(|o| o.0),
+            })
     }
 
     #[getter]
     fn source_id(&self) -> &str {
-        &self.inner.source_id
+        &self.0.source_id
     }
 
     #[getter]
     fn url(&self) -> &str {
-        &self.inner.url
+        &self.0.url
     }
 
     #[getter]
     fn stream_position(&self) -> Option<usize> {
-        self.inner.stream_position
+        self.0.stream_position
     }
 
     #[getter]
     fn options(&self) -> Option<PyRtspSourceOptions> {
-        self.inner
+        self.0
             .options
             .as_ref()
-            .map(|o| PyRtspSourceOptions { inner: o.clone() })
+            .map(|o| PyRtspSourceOptions(o.clone()))
     }
 
     pub fn __repr__(&self) -> String {
         format!(
             "RtspSource(source_id={:?}, url={:?})",
-            self.inner.source_id, self.inner.url
+            self.0.source_id, self.0.url
         )
     }
 }
@@ -143,9 +135,7 @@ impl PyRtspSource {
     from_py_object
 )]
 #[derive(Debug, Clone)]
-pub struct PySyncConfiguration {
-    inner: configuration::SyncConfiguration,
-}
+pub struct PySyncConfiguration(configuration::SyncConfiguration);
 
 #[pymethods]
 impl PySyncConfiguration {
@@ -157,34 +147,32 @@ impl PySyncConfiguration {
         network_skew_correction: bool,
         rtcp_once: bool,
     ) -> Self {
-        Self {
-            inner: configuration::SyncConfiguration {
+        Self(configuration::SyncConfiguration {
                 group_window_duration: Duration::from_millis(group_window_duration_ms),
                 batch_duration: Duration::from_millis(batch_duration_ms),
                 network_skew_correction: Some(network_skew_correction),
                 rtcp_once: Some(rtcp_once),
-            },
-        }
+            })
     }
 
     #[getter]
     fn group_window_duration_ms(&self) -> u64 {
-        self.inner.group_window_duration.as_millis() as u64
+        self.0.group_window_duration.as_millis() as u64
     }
 
     #[getter]
     fn batch_duration_ms(&self) -> u64 {
-        self.inner.batch_duration.as_millis() as u64
+        self.0.batch_duration.as_millis() as u64
     }
 
     #[getter]
     fn network_skew_correction(&self) -> bool {
-        self.inner.network_skew_correction.unwrap_or(false)
+        self.0.network_skew_correction.unwrap_or(false)
     }
 
     #[getter]
     fn rtcp_once(&self) -> bool {
-        self.inner.rtcp_once.unwrap_or(false)
+        self.0.rtcp_once.unwrap_or(false)
     }
 
     pub fn __repr__(&self) -> String {
@@ -204,13 +192,11 @@ impl PySyncConfiguration {
     from_py_object
 )]
 #[derive(Debug, Clone)]
-pub struct PyRtspSourceGroup {
-    inner: configuration::RtspSourceGroup,
-}
+pub struct PyRtspSourceGroup(configuration::RtspSourceGroup);
 
 impl PyRtspSourceGroup {
     pub fn to_rust(&self) -> configuration::RtspSourceGroup {
-        self.inner.clone()
+        self.0.clone()
     }
 }
 
@@ -223,27 +209,25 @@ impl PyRtspSourceGroup {
         backend: PyRtspBackend,
         rtcp_sr_sync: Option<PySyncConfiguration>,
     ) -> Self {
-        Self {
-            inner: configuration::RtspSourceGroup {
-                sources: sources.into_iter().map(|s| s.inner).collect(),
+        Self(configuration::RtspSourceGroup {
+                sources: sources.into_iter().map(|s| s.0).collect(),
                 backend: backend.into(),
-                rtcp_sr_sync: rtcp_sr_sync.map(|s| s.inner),
-            },
-        }
+                rtcp_sr_sync: rtcp_sr_sync.map(|s| s.0),
+            })
     }
 
     #[getter]
     fn sources(&self) -> Vec<PyRtspSource> {
-        self.inner
+        self.0
             .sources
             .iter()
-            .map(|s| PyRtspSource { inner: s.clone() })
+            .map(|s| PyRtspSource(s.clone()))
             .collect()
     }
 
     #[getter]
     fn backend(&self) -> PyRtspBackend {
-        match self.inner.backend {
+        match self.0.backend {
             configuration::RtspBackend::Retina => PyRtspBackend::Retina,
             configuration::RtspBackend::Gstreamer => PyRtspBackend::Gstreamer,
         }
@@ -251,17 +235,17 @@ impl PyRtspSourceGroup {
 
     #[getter]
     fn rtcp_sr_sync(&self) -> Option<PySyncConfiguration> {
-        self.inner
+        self.0
             .rtcp_sr_sync
             .as_ref()
-            .map(|s| PySyncConfiguration { inner: s.clone() })
+            .map(|s| PySyncConfiguration(s.clone()))
     }
 
     pub fn __repr__(&self) -> String {
         format!(
             "RtspSourceGroup(sources={}, backend={:?})",
-            self.inner.sources.len(),
-            self.inner.backend
+            self.0.sources.len(),
+            self.0.backend
         )
     }
 }

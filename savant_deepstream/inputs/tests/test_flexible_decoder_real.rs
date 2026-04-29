@@ -46,9 +46,9 @@ fn find_entry<'a>(manifest: &'a Manifest, file: &str) -> Option<&'a AssetEntry> 
 }
 
 /// Submit a slice of [`AccessUnit`]s to the decoder, wrapping each in a
-/// [`VideoFrameProxy`] with correct metadata.
+/// [`VideoFrame`] with correct metadata.
 ///
-/// Returns the UUIDs of every submitted [`VideoFrameProxy`] (in submission order).
+/// Returns the UUIDs of every submitted [`VideoFrame`] (in submission order).
 fn submit_access_units(
     dec: &FlexibleDecoder,
     aus: &[AccessUnit],
@@ -70,7 +70,7 @@ fn submit_access_units(
 /// Like [`submit_access_units`] but with explicit codec name and dimensions,
 /// allowing tests to inject mismatched metadata.
 ///
-/// Returns the UUIDs of every submitted [`VideoFrameProxy`] (in submission order).
+/// Returns the UUIDs of every submitted [`VideoFrame`] (in submission order).
 fn submit_access_units_with_dims(
     dec: &FlexibleDecoder,
     aus: &[AccessUnit],
@@ -871,7 +871,7 @@ fn test_h264_bt709_then_bt2020_same_session() {
 //  Mismatched VideoFrame dimensions vs actual bitstream
 // ═══════════════════════════════════════════════════════════════════
 
-/// Submit H.264 frames whose `VideoFrameProxy` width/height (640×480) differs
+/// Submit H.264 frames whose `VideoFrame` width/height (640×480) differs
 /// from the actual encoded resolution (320×240 in test_h264_bt709_ip.mp4).
 ///
 /// The NvDecoder pipeline discovers the real dimensions from the bitstream's

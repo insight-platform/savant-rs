@@ -12,7 +12,7 @@ use deepstream_inputs::flexible_decoder::{
 };
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame as RustVideoFrame;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use std::time::Duration;
 /// `log::error!` and the original config is returned unchanged.
 fn make_decoder_config_callback(cb: Py<PyAny>) -> DecoderConfigCallback {
     Arc::new(
-        move |cfg: DecoderConfig, frame: &VideoFrameProxy| -> DecoderConfig {
+        move |cfg: DecoderConfig, frame: &RustVideoFrame| -> DecoderConfig {
             Python::attach(|py| {
                 let py_cfg = PyDecoderConfig::from_rust(cfg.clone());
                 let py_frame = VideoFrame(frame.clone());
@@ -366,7 +366,7 @@ impl PySealedDelivery {
 fn delivery_to_py(
     py: Python<'_>,
     pair: (
-        savant_core::primitives::frame::VideoFrameProxy,
+        savant_core::primitives::frame::VideoFrame,
         deepstream_buffers::SharedBuffer,
     ),
 ) -> PyResult<Py<PyTuple>> {
@@ -470,7 +470,7 @@ impl PyFrameOutput {
     fn as_frame_ref(
         &self,
     ) -> PyResult<(
-        &savant_core::primitives::frame::VideoFrameProxy,
+        &savant_core::primitives::frame::VideoFrame,
         &DecodedFrame,
     )> {
         match &self.0 {

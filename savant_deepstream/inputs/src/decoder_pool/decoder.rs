@@ -12,7 +12,7 @@ use crate::flexible_decoder::{
     FlexibleDecoder, FlexibleDecoderError, FlexibleDecoderOutput, PoolCacheRegistry,
 };
 use parking_lot::{Condvar, Mutex};
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -172,7 +172,7 @@ impl FlexibleDecoderPool {
     /// until the eviction completes (the seal is released), then retries.
     pub fn submit(
         &self,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
         data: Option<&[u8]>,
     ) -> Result<(), FlexibleDecoderError> {
         if self.shut_down.load(Ordering::Relaxed) {
@@ -375,7 +375,7 @@ impl FlexibleDecoderPool {
     fn resolve_and_submit(
         &self,
         source_id: &str,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
         data: Option<&[u8]>,
     ) -> Result<(), FlexibleDecoderError> {
         loop {

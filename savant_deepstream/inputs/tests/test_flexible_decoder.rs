@@ -8,7 +8,7 @@ use deepstream_inputs::flexible_decoder::{
 };
 use parking_lot::Mutex;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use serial_test::serial;
@@ -37,7 +37,7 @@ fn make_png(width: u32, height: u32) -> Vec<u8> {
     buf.into_inner()
 }
 
-/// Build a [`VideoFrameProxy`] for testing.
+/// Build a [`VideoFrame`] for testing.
 fn make_frame(
     source_id: &str,
     width: i64,
@@ -45,8 +45,8 @@ fn make_frame(
     codec: Option<VideoCodec>,
     content: VideoFrameContent,
     pts: i64,
-) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         width,
@@ -632,7 +632,7 @@ fn test_frame_output_carries_video_frame_proxy() {
     submitted_uuids.sort();
     assert_eq!(
         submitted_uuids, returned_uuids,
-        "every submitted VideoFrameProxy UUID must appear in Frame outputs"
+        "every submitted VideoFrame UUID must appear in Frame outputs"
     );
 }
 
@@ -1010,7 +1010,7 @@ fn test_garbage_png_then_valid_png() {
     );
 }
 
-/// Verify `take_delivery()` extracts the sealed `(VideoFrameProxy, SharedBuffer)`
+/// Verify `take_delivery()` extracts the sealed `(VideoFrame, SharedBuffer)`
 /// pair from a `Frame` output and returns `None` for non-frame variants.
 ///
 /// The seal blocks `unseal()` until the parent `FlexibleDecoderOutput` is dropped.

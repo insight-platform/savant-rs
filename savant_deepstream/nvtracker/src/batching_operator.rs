@@ -1,6 +1,6 @@
 //! Higher-level batching layer over [`NvTracker`](crate::pipeline::NvTracker).
 //!
-//! [`NvTrackerBatchingOperator`] accepts `(VideoFrameProxy, SharedBuffer)` pairs
+//! [`NvTrackerBatchingOperator`] accepts `(VideoFrame, SharedBuffer)` pairs
 //! one at a time, accumulates them into batches according to configurable
 //! policies, constructs [`crate::pipeline::TrackedFrame`] values using the
 //! batch-formation callback, and submits to the underlying [`NvTracker`]

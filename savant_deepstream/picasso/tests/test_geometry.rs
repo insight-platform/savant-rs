@@ -2,14 +2,14 @@ use deepstream_buffers::{Padding, Rect, TransformConfig};
 use picasso::rewrite_frame_transformations;
 use savant_core::primitives::bbox::RBBox;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };
 use savant_core::primitives::object::{
     BorrowedVideoObject, IdCollisionResolutionPolicy, ObjectOperations,
 };
 
-fn make_frame(w: i64, h: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(w: i64, h: i64) -> VideoFrame {
+    VideoFrame::new(
         "test",
         (30, 1),
         w,
@@ -26,7 +26,7 @@ fn make_frame(w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn add_object(frame: &VideoFrameProxy, cx: f32, cy: f32, w: f32, h: f32) -> i64 {
+fn add_object(frame: &VideoFrame, cx: f32, cy: f32, w: f32, h: f32) -> i64 {
     use savant_core::primitives::object::VideoObjectBuilder;
     let obj = VideoObjectBuilder::default()
         .id(0)
@@ -41,7 +41,7 @@ fn add_object(frame: &VideoFrameProxy, cx: f32, cy: f32, w: f32, h: f32) -> i64 
     borrowed.get_id()
 }
 
-fn get_object(frame: &VideoFrameProxy, id: i64) -> BorrowedVideoObject {
+fn get_object(frame: &VideoFrame, id: i64) -> BorrowedVideoObject {
     frame
         .get_all_objects()
         .into_iter()
@@ -50,7 +50,7 @@ fn get_object(frame: &VideoFrameProxy, id: i64) -> BorrowedVideoObject {
 }
 
 fn assert_bbox_approx(
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
     id: i64,
     expected_cx: f32,
     expected_cy: f32,
@@ -88,7 +88,7 @@ fn assert_bbox_approx(
 
 /// Delegate to the production `rewrite_frame_transformations` helper.
 fn encode_transform(
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
     target_w: u32,
     target_h: u32,
     config: &TransformConfig,

@@ -3,7 +3,7 @@ pub mod label_filter_parser;
 
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;
-use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::shutdown::Shutdown;
@@ -105,7 +105,7 @@ impl SeqStore {
                 true
             }
             MessageEnvelope::VideoFrame(vf) => {
-                self.validate_seq_i_raw(system_id, &vf.inner.read().source_id, seq_id)
+                self.validate_seq_i_raw(system_id, &vf.0.read().source_id, seq_id)
             }
             MessageEnvelope::UserData(ud) => {
                 self.validate_seq_i_raw(system_id, &ud.source_id, seq_id)
@@ -118,7 +118,7 @@ impl SeqStore {
 #[derive(Debug)]
 pub enum MessageEnvelope {
     EndOfStream(EndOfStream),
-    VideoFrame(VideoFrameProxy),
+    VideoFrame(VideoFrame),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
     UserData(UserData),
@@ -211,7 +211,7 @@ impl Message {
         }
     }
 
-    pub fn video_frame(frame: &VideoFrameProxy) -> Self {
+    pub fn video_frame(frame: &VideoFrame) -> Self {
         //let seq_id = generate_message_seq_id(frame.get_source_id().as_str());
         let frame_ref = frame.clone();
         // let frame_copy = frame.deep_copy();
@@ -330,7 +330,7 @@ impl Message {
             _ => None,
         }
     }
-    pub fn as_video_frame(&self) -> Option<VideoFrameProxy> {
+    pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.payload {
             MessageEnvelope::VideoFrame(frame) => Some(frame.clone()),
             _ => None,
@@ -423,8 +423,8 @@ mod tests {
         // ensure objects belong the frame
         let obj = frame.get_object(0).unwrap();
         assert!(Arc::ptr_eq(
-            &obj.get_frame().unwrap().inner.0,
-            &frame.inner.0
+            &obj.get_frame().unwrap().0.0,
+            &frame.0.0
         ));
     }
 

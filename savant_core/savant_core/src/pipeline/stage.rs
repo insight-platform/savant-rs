@@ -14,7 +14,7 @@ use crate::pipeline::stats::{StageLatencyStat, StageProcessingStat, StageStats};
 use crate::pipeline::{
     PipelinePayload, PipelineStageFunction, PipelineStageFunctionOrder, PipelineStagePayloadType,
 };
-use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
@@ -133,7 +133,7 @@ impl PipelineStage {
         })?
     }
 
-    fn update_processing_stats_for_frame(&self, f: &VideoFrameProxy) {
+    fn update_processing_stats_for_frame(&self, f: &VideoFrame) {
         let mut stat_bind = self.stat.lock();
         stat_bind.0.frame_counter += 1;
         stat_bind.0.queue_length += 1;
@@ -320,7 +320,7 @@ impl PipelineStage {
     pub fn get_independent_frame(
         &self,
         frame_id: i64,
-    ) -> anyhow::Result<(VideoFrameProxy, Context)> {
+    ) -> anyhow::Result<(VideoFrame, Context)> {
         self.with_payload_item(frame_id, |payload| match payload {
             PipelinePayload::Frame(frame, _, ctx, _, _) => Ok((frame.clone(), ctx.clone())),
             _ => bail!("Payload must be a frame"),
@@ -331,7 +331,7 @@ impl PipelineStage {
         &self,
         batch_id: i64,
         frame_id: i64,
-    ) -> anyhow::Result<(VideoFrameProxy, Context)> {
+    ) -> anyhow::Result<(VideoFrame, Context)> {
         self.with_payload_item(batch_id, |payload| match payload {
             PipelinePayload::Batch(batch, _, contexts, _, _) => {
                 if let Some(frame) = batch.get(frame_id) {

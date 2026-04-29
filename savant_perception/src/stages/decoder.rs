@@ -129,7 +129,7 @@ use deepstream_inputs::prelude::{
 };
 use gstreamer as gst;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
@@ -182,7 +182,7 @@ pub type StreamInfoObserver =
     Box<dyn FnMut(&StreamInfoPayload, &mut Context<Decoder>) + Send + 'static>;
 
 /// Hook fired for [`FlexibleDecoderOutput::Frame`] — receives the
-/// sealed `(VideoFrameProxy, SharedBuffer)` delivery together with
+/// sealed `(VideoFrame, SharedBuffer)` delivery together with
 /// the stage's [`Router<PipelineMsg>`] so the user decides whether
 /// and where to forward it.  Runs on the pool's output callback
 /// thread; must be `Fn + Send + Sync` and non-blocking.
@@ -233,14 +233,14 @@ pub type OnParameterChangeHook = Arc<
 /// the reason, the router, and the [`HookCtx`].  Runs on the pool's
 /// output thread.
 pub type OnSkippedHook = Arc<
-    dyn Fn(&VideoFrameProxy, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
+    dyn Fn(&VideoFrame, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
         + Send
         + Sync
         + 'static,
 >;
 
 /// Hook fired for [`FlexibleDecoderOutput::OrphanFrame`] — a decoded
-/// frame whose originating [`VideoFrameProxy`] could not be located
+/// frame whose originating [`VideoFrame`] could not be located
 /// in the pool's frame map (typically a late delivery after a
 /// reset).  Runs on the pool's output thread.
 pub type OnOrphanFrameHook =
@@ -395,7 +395,7 @@ impl Decoder {
     /// with the [`SkipReason`] prefixed by the stage name from
     /// the [`HookCtx`].
     pub fn default_on_skipped(
-    ) -> impl Fn(&VideoFrameProxy, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
+    ) -> impl Fn(&VideoFrame, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
            + Send
            + Sync
            + 'static {
@@ -750,7 +750,7 @@ impl DecoderResultsBuilder {
     /// [`FlexibleDecoderOutput::Skipped`].
     pub fn on_skipped<F>(mut self, f: F) -> Self
     where
-        F: Fn(&VideoFrameProxy, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
+        F: Fn(&VideoFrame, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
             + Send
             + Sync
             + 'static,
@@ -1039,7 +1039,7 @@ impl DecoderBuilder {
     where
         F: Fn(
                 deepstream_decoders::DecoderConfig,
-                &VideoFrameProxy,
+                &VideoFrame,
             ) -> deepstream_decoders::DecoderConfig
             + Send
             + Sync
@@ -1281,20 +1281,20 @@ fn build_pool(
     }
 }
 
-/// Build the per-packet [`VideoFrameProxy`] the decoder pool
+/// Build the per-packet [`VideoFrame`] the decoder pool
 /// consumes.  Kept `pub` so unit tests and downstream users can
 /// verify the [`VideoInfo::codec`] round-trip.
 pub fn make_decode_frame(
     source_id: &str,
     pkt: &DemuxedPacket,
     info: &VideoInfo,
-) -> VideoFrameProxy {
+) -> VideoFrame {
     let (fps_num, fps_den) = if info.framerate_num == 0 {
         (FALLBACK_FPS_NUM, FALLBACK_FPS_DEN)
     } else {
         (info.framerate_num as i64, info.framerate_den.max(1) as i64)
     };
-    VideoFrameProxy::new(
+    VideoFrame::new(
         source_id,
         (fps_num, fps_den),
         info.width as i64,
@@ -1308,7 +1308,7 @@ pub fn make_decode_frame(
         pkt.dts_ns.map(|v| v as i64),
         pkt.duration_ns.map(|v| v as i64),
     )
-    .expect("VideoFrameProxy::new (decode)")
+    .expect("VideoFrame::new (decode)")
 }
 
 #[cfg(test)]

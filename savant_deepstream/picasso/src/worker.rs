@@ -13,7 +13,7 @@ use deepstream_buffers::{CudaStream, SkiaRenderer};
 use deepstream_encoders::prelude::*;
 use log::{debug, error, info, warn};
 use savant_core::primitives::eos::EndOfStream;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::WithAttributes;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,7 +76,7 @@ impl SourceWorker {
     /// Send a frame to this worker.
     pub fn send_frame(
         &self,
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         view: deepstream_buffers::SurfaceView,
         src_rect: Option<deepstream_buffers::Rect>,
     ) -> Result<(), PicassoError> {
@@ -147,7 +147,7 @@ struct WorkerState {
 impl WorkerState {
     fn process_frame(
         &mut self,
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         view: deepstream_buffers::SurfaceView,
         src_rect: Option<deepstream_buffers::Rect>,
     ) {

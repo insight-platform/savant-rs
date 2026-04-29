@@ -81,7 +81,7 @@
 //!   [`EncodedMsg::Packet`].
 //!   Use when the downstream decoder owns frame construction.
 //! * [`Mp4DemuxerSource::default_on_packet_as_frame`] — constructs
-//!   a [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+//!   a [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
 //!   on the demuxer side (via
 //!   [`make_decode_frame`](super::decoder::make_decode_frame)) and
 //!   sends
@@ -93,7 +93,7 @@
 //!
 //! Pick exactly one of `default_on_packet` / `default_on_packet_as_frame`
 //! per source — the two differ only in whether the
-//! [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+//! [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
 //! is built upstream or downstream.
 //!
 //! Because each one is an associated function that returns an owned
@@ -333,7 +333,7 @@ impl Mp4DemuxerSource {
     /// [`VideoInfo`] cache — the message is self-describing.  Use
     /// [`Mp4DemuxerSource::default_on_packet_as_frame`] instead
     /// when you want the demuxer to build the
-    /// [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// upstream.
     ///
     /// For per-source dispatch across multiple decoders, replace
@@ -361,7 +361,7 @@ impl Mp4DemuxerSource {
     }
 
     /// Default `on_packet` forwarder that constructs the
-    /// decoder-facing [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// decoder-facing [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// **on the demuxer side** (via
     /// [`make_decode_frame`](super::decoder::make_decode_frame)) and
     /// sends
@@ -828,7 +828,7 @@ impl Mp4DemuxerResultsBuilder {
     /// equivalent to calling
     /// `.on_packet(Mp4DemuxerSource::default_on_packet_as_frame())`
     /// — the demuxer constructs a
-    /// [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// upstream and sends
     /// [`EncodedMsg::Frame`].
     /// Swap to [`Mp4DemuxerSource::default_on_packet`] for

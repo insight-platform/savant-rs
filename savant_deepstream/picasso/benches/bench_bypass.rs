@@ -17,7 +17,7 @@ use deepstream_buffers::SurfaceView;
 use deepstream_encoders::prelude::*;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -46,8 +46,8 @@ fn source_id(idx: usize) -> String {
     format!("bypass-{idx}")
 }
 
-fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
-    let f = VideoFrameProxy::new(
+fn make_frame(source_id: &str, idx: u64) -> VideoFrame {
+    let f = VideoFrame::new(
         source_id,
         (30, 1),
         WIDTH as i64,
@@ -71,7 +71,7 @@ fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     f
 }
 
-fn add_objects(frame: &VideoFrameProxy) {
+fn add_objects(frame: &VideoFrame) {
     for i in 0..NUM_BOXES {
         let cx = 100.0 + (i as f32 * 80.0) % (WIDTH as f32 - 200.0);
         let cy = 100.0 + (i as f32 * 50.0) % (HEIGHT as f32 - 200.0);

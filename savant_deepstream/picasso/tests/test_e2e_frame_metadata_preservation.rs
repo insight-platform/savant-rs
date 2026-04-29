@@ -1,6 +1,6 @@
 //! E2E test: Object/attribute survival through encode pipeline.
 //!
-//! Validates that objects, bboxes, and attributes on VideoFrameProxy
+//! Validates that objects, bboxes, and attributes on VideoFrame
 //! survive the full encode pipeline.
 
 mod common;
@@ -33,12 +33,12 @@ fn e2e_frame_metadata_preservation() {
     cuda_init(0).unwrap();
 
     let enc_count = Arc::new(AtomicUsize::new(0));
-    let captured: Arc<parking_lot::Mutex<Option<savant_core::primitives::frame::VideoFrameProxy>>> =
+    let captured: Arc<parking_lot::Mutex<Option<savant_core::primitives::frame::VideoFrame>>> =
         Arc::new(parking_lot::Mutex::new(None));
 
     struct CaptureFrame {
         count: Arc<AtomicUsize>,
-        captured: Arc<parking_lot::Mutex<Option<savant_core::primitives::frame::VideoFrameProxy>>>,
+        captured: Arc<parking_lot::Mutex<Option<savant_core::primitives::frame::VideoFrame>>>,
     }
     impl OnEncodedFrame for CaptureFrame {
         fn call(&self, output: OutputMessage) {

@@ -1,5 +1,5 @@
 use crate::match_query::MatchQuery;
-use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame::VideoFrame;
 use crate::primitives::object::BorrowedVideoObject;
 use hashbrown::HashMap;
 
@@ -7,7 +7,7 @@ const DEFAULT_BATCH_SIZE: usize = 64;
 
 #[derive(Debug, Clone, Default)]
 pub struct VideoFrameBatch {
-    pub(crate) frames: HashMap<i64, VideoFrameProxy>,
+    pub(crate) frames: HashMap<i64, VideoFrame>,
 }
 
 impl VideoFrameBatch {
@@ -54,19 +54,19 @@ impl VideoFrameBatch {
         }
     }
 
-    pub fn add(&mut self, id: i64, frame: VideoFrameProxy) {
+    pub fn add(&mut self, id: i64, frame: VideoFrame) {
         self.frames.insert(id, frame);
     }
 
-    pub fn get(&self, id: i64) -> Option<VideoFrameProxy> {
+    pub fn get(&self, id: i64) -> Option<VideoFrame> {
         self.frames.get(&id).cloned()
     }
 
-    pub fn del(&mut self, id: i64) -> Option<VideoFrameProxy> {
+    pub fn del(&mut self, id: i64) -> Option<VideoFrame> {
         self.frames.remove(&id)
     }
 
-    pub fn frames(&self) -> &HashMap<i64, VideoFrameProxy> {
+    pub fn frames(&self) -> &HashMap<i64, VideoFrame> {
         &self.frames
     }
 }

@@ -4,16 +4,16 @@ use crate::model_input_scaling::ModelInputScaling;
 use crate::roi::{Roi, RoiKind};
 use deepstream_buffers::{BatchState, SavantIdMetaKind};
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::RBBox;
 use std::collections::HashMap as StdHashMap;
 use std::time::Duration;
 
-type FramePair = (VideoFrameProxy, deepstream_buffers::SharedBuffer);
+type FramePair = (VideoFrame, deepstream_buffers::SharedBuffer);
 
-fn make_frame(source_id: &str) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         320,
@@ -299,7 +299,7 @@ fn operator_inference_output_with_frames() {
     assert_eq!(output.frames()[1].frame.get_source_id(), "cam1");
 }
 
-// ── VideoFrameProxy helper ──────────────────────────────────────────
+// ── VideoFrame helper ──────────────────────────────────────────
 
 #[test]
 fn make_frame_returns_correct_source_id() {
@@ -533,7 +533,7 @@ fn sealed_deliveries_debug_format() {
     let mut output = make_test_output(2);
     let sealed = output.take_deliveries().unwrap();
     let dbg = format!("{sealed:?}");
-    // `SealedDeliveries` is `Sealed<Vec<(VideoFrameProxy, SharedBuffer)>>`
+    // `SealedDeliveries` is `Sealed<Vec<(VideoFrame, SharedBuffer)>>`
     // — the generic Debug impl prints the payload type name and the
     // seal state.
     assert!(dbg.contains("Sealed"), "got: {dbg}");

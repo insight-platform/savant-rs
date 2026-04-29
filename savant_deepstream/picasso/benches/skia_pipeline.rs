@@ -46,7 +46,7 @@ use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -269,7 +269,7 @@ impl OnRender for BenchOnRender {
         &self,
         _source_id: &str,
         renderer: &mut deepstream_buffers::SkiaRenderer,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
     ) {
         let canvas = renderer.canvas();
         let frame_idx = frame.get_pts() as u64 / FRAME_DURATION_NS;
@@ -285,7 +285,7 @@ fn draw_scene_overlay(
     canvas: &skia_safe::Canvas,
     ctx: &mut OverlayCtx,
     frame_idx: u64,
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
 ) {
     let width = WIDTH as f32;
     let height = HEIGHT as f32;
@@ -445,8 +445,8 @@ impl OnEncodedFrame for BenchEncodedSink {
 // Frame + object generation helpers
 // -----------------------------------------------------------------------
 
-fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         w,
@@ -470,7 +470,7 @@ fn make_nvmm_buffer(gen: &BufferGenerator, frame_id: i64) -> deepstream_buffers:
     shared
 }
 
-fn add_objects_to_frame(frame: &VideoFrameProxy, frame_idx: u64) {
+fn add_objects_to_frame(frame: &VideoFrame, frame_idx: u64) {
     let scene_w = WIDTH as f32 - (WIDTH as f32 * 0.22).min(340.0);
     let height = HEIGHT as f32;
     let t = frame_idx as f32 / 60.0;

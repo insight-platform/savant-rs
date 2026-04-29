@@ -259,7 +259,7 @@ impl UriDemuxerSource {
     /// [`VideoInfo`] cache — the message is self-describing.  Use
     /// [`UriDemuxerSource::default_on_packet_as_frame`] instead
     /// when you want the demuxer to build the
-    /// [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// upstream.
     pub fn default_on_packet() -> impl FnMut(
         &str,
@@ -282,7 +282,7 @@ impl UriDemuxerSource {
     }
 
     /// Default `on_packet` forwarder that constructs the
-    /// decoder-facing [`VideoFrameProxy`](savant_core::primitives::frame::VideoFrameProxy)
+    /// decoder-facing [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// **on the demuxer side** (via
     /// [`make_decode_frame`](super::decoder::make_decode_frame)) and
     /// sends

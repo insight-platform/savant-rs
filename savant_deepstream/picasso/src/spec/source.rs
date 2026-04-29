@@ -63,9 +63,7 @@ impl Default for SourceSpec {
 impl SourceSpec {
     /// Create a new builder starting from default values.
     pub fn builder() -> SourceSpecBuilder {
-        SourceSpecBuilder {
-            inner: SourceSpec::default(),
-        }
+        SourceSpecBuilder(SourceSpec::default())
     }
 }
 
@@ -79,54 +77,52 @@ impl SourceSpec {
 ///     .use_on_render(true)
 ///     .build();
 /// ```
-pub struct SourceSpecBuilder {
-    inner: SourceSpec,
-}
+pub struct SourceSpecBuilder(SourceSpec);
 
 impl SourceSpecBuilder {
     pub fn codec(mut self, codec: CodecSpec) -> Self {
-        self.inner.codec = codec;
+        self.0.codec = codec;
         self
     }
 
     pub fn conditional(mut self, conditional: ConditionalSpec) -> Self {
-        self.inner.conditional = conditional;
+        self.0.conditional = conditional;
         self
     }
 
     pub fn draw(mut self, draw: ObjectDrawSpec) -> Self {
-        self.inner.draw = draw;
+        self.0.draw = draw;
         self
     }
 
     pub fn font_family(mut self, font_family: impl Into<String>) -> Self {
-        self.inner.font_family = font_family.into();
+        self.0.font_family = font_family.into();
         self
     }
 
     pub fn idle_timeout_secs(mut self, secs: u64) -> Self {
-        self.inner.idle_timeout_secs = Some(secs);
+        self.0.idle_timeout_secs = Some(secs);
         self
     }
 
     pub fn use_on_render(mut self, enable: bool) -> Self {
-        self.inner.use_on_render = enable;
+        self.0.use_on_render = enable;
         self
     }
 
     pub fn use_on_gpumat(mut self, enable: bool) -> Self {
-        self.inner.use_on_gpumat = enable;
+        self.0.use_on_gpumat = enable;
         self
     }
 
     pub fn callback_order(mut self, order: CallbackInvocationOrder) -> Self {
-        self.inner.callback_order = order;
+        self.0.callback_order = order;
         self
     }
 
     /// Finish building and return the [`SourceSpec`].
     pub fn build(self) -> SourceSpec {
-        self.inner
+        self.0
     }
 }
 

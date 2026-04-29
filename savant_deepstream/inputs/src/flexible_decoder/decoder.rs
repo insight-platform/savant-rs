@@ -9,7 +9,7 @@ use deepstream_decoders::{
     DecoderConfig, JpegBackend, NvDecoder, NvDecoderConfig, NvDecoderOutput,
 };
 use parking_lot::Mutex;
-use savant_core::primitives::frame::{VideoFrameContent, VideoFrameProxy};
+use savant_core::primitives::frame::{VideoFrameContent, VideoFrame};
 use savant_core::primitives::gstreamer_frame_time::frame_clock_ns;
 use savant_core::primitives::video_codec::VideoCodec;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,11 +34,11 @@ const WORKER_POLL_INTERVAL: Duration = Duration::from_millis(5);
 /// Single-stream adaptive GPU decoder.
 ///
 /// Wraps [`NvDecoder`] and automatically manages codec/resolution changes:
-/// when a parameter change is detected in incoming [`VideoFrameProxy`] metadata,
+/// when a parameter change is detected in incoming [`VideoFrame`] metadata,
 /// the old decoder is gracefully drained and a new one is created.
 ///
 /// All output is delivered through a callback: decoded frames (paired with their
-/// original [`VideoFrameProxy`]), parameter changes, skipped frames, source EOS,
+/// original [`VideoFrame`]), parameter changes, skipped frames, source EOS,
 /// and errors.
 ///
 /// **Callback safety**: the user callback is never invoked while an internal
@@ -136,7 +136,7 @@ impl FlexibleDecoder {
     /// callback. Returns `Err` only for infrastructure failures.
     pub fn submit(
         &self,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
         data: Option<&[u8]>,
     ) -> Result<(), FlexibleDecoderError> {
         {
@@ -225,7 +225,7 @@ impl FlexibleDecoder {
         let mut resolve_opt = Some(resolve);
 
         let activate_fn =
-            |cfg, codec, w, h, f: &VideoFrameProxy| self.activate(cfg, codec, w, h, f);
+            |cfg, codec, w, h, f: &VideoFrame| self.activate(cfg, codec, w, h, f);
         let ctx = SubmitContext {
             video_codec,
             width,
@@ -588,7 +588,7 @@ impl FlexibleDecoder {
         }
     }
 
-    fn extract_payload(&self, frame: &VideoFrameProxy, data: Option<&[u8]>) -> Option<Vec<u8>> {
+    fn extract_payload(&self, frame: &VideoFrame, data: Option<&[u8]>) -> Option<Vec<u8>> {
         if let Some(b) = data {
             return Some(b.to_vec());
         }
@@ -607,7 +607,7 @@ impl FlexibleDecoder {
     fn apply_decoder_config_callback(
         &self,
         decoder_config: DecoderConfig,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
     ) -> DecoderConfig {
         match &self.config.decoder_config_callback {
             Some(cb) => cb(decoder_config, frame),
@@ -639,7 +639,7 @@ impl FlexibleDecoder {
         gst_codec: VideoCodec,
         width: i64,
         height: i64,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
     ) -> Result<ActivatedDecoder, String> {
         let decoder_config = self.apply_decoder_config_callback(decoder_config, frame);
 
@@ -737,8 +737,8 @@ impl FlexibleDecoder {
 
 // ── Free helpers ─────────────────────────────────────────────────────
 
-/// Extract positive `(width, height)` and `(fps_num, fps_den)` from a [`VideoFrameProxy`].
-fn stream_pool_params(frame: &VideoFrameProxy) -> Result<(u32, u32, i32, i32), String> {
+/// Extract positive `(width, height)` and `(fps_num, fps_den)` from a [`VideoFrame`].
+fn stream_pool_params(frame: &VideoFrame) -> Result<(u32, u32, i32, i32), String> {
     let w = frame.get_width();
     let h = frame.get_height();
     if w <= 0 || h <= 0 || w > u32::MAX as i64 || h > u32::MAX as i64 {
@@ -750,8 +750,8 @@ fn stream_pool_params(frame: &VideoFrameProxy) -> Result<(u32, u32, i32, i32), S
     Ok((w as u32, h as u32, fps_num, fps_den))
 }
 
-/// Look up and remove the [`VideoFrameProxy`] for a decoded frame.
-fn take_frame_proxy(fm: &FrameMap, frame_id: Option<u128>) -> Option<VideoFrameProxy> {
+/// Look up and remove the [`VideoFrame`] for a decoded frame.
+fn take_frame_proxy(fm: &FrameMap, frame_id: Option<u128>) -> Option<VideoFrame> {
     frame_id.and_then(|id| fm.lock().remove(&id))
 }
 
@@ -809,7 +809,7 @@ impl FlexibleDecoder {
     pub(crate) fn apply_decoder_config_callback_for_test(
         &self,
         cfg: DecoderConfig,
-        frame: &VideoFrameProxy,
+        frame: &VideoFrame,
     ) -> DecoderConfig {
         self.apply_decoder_config_callback(cfg, frame)
     }
@@ -915,8 +915,8 @@ mod tests {
     use savant_core::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
     use savant_core::primitives::video_codec::VideoCodec;
 
-    fn test_frame() -> VideoFrameProxy {
-        VideoFrameProxy::new(
+    fn test_frame() -> VideoFrame {
+        VideoFrame::new(
             "src",
             (30, 1),
             64,

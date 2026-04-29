@@ -3,20 +3,20 @@ pub mod encode;
 
 use deepstream_buffers::SurfaceView;
 use gstreamer as gst;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 
 /// Per-frame data bundle passed into encode / render pipeline stages.
 pub(crate) struct FrameInput {
-    pub(crate) frame: VideoFrameProxy,
+    pub(crate) frame: VideoFrame,
     pub(crate) view: SurfaceView,
     pub(crate) frame_id: u128,
 }
 
-/// Apply pts, dts, and duration from [`VideoFrameProxy`] to a [`gst::Buffer`].
+/// Apply pts, dts, and duration from [`VideoFrame`] to a [`gst::Buffer`].
 /// Call this at pipeline entry so the buffer carries frame timestamps rather
 /// than assuming they were set by the producer.
 pub(crate) fn apply_frame_timestamps_to_buffer(
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
     buf_ref: &mut gst::BufferRef,
 ) {
     let pts_ns = frame.get_pts().max(0) as u64;

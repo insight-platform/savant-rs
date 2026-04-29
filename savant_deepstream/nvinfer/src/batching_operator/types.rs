@@ -2,7 +2,7 @@ use crate::model_input_scaling::ModelInputScaling;
 use crate::roi::RoiKind;
 use deepstream_buffers::{SavantIdMetaKind, SharedBuffer};
 use parking_lot::Mutex;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -20,16 +20,16 @@ pub struct BatchFormationResult {
 
 /// Callback invoked when a batch is formed, before submission to NvInfer.
 ///
-/// Receives the list of [`VideoFrameProxy`]s in the batch. Must return per-frame
+/// Receives the list of [`VideoFrame`]s in the batch. Must return per-frame
 /// ROIs and Savant IDs.
 pub type BatchFormationCallback =
-    Arc<dyn Fn(&[VideoFrameProxy]) -> BatchFormationResult + Send + Sync>;
+    Arc<dyn Fn(&[VideoFrame]) -> BatchFormationResult + Send + Sync>;
 
 /// Callback invoked when inference results for a batch are ready.
 pub type OperatorResultCallback = Box<dyn FnMut(OperatorOutput) + Send>;
 
 /// Per-frame pair stored in the pending batch.
-pub(super) type FramePair = (VideoFrameProxy, SharedBuffer);
+pub(super) type FramePair = (VideoFrame, SharedBuffer);
 
 /// A pending batch: original frame/buffer pairs plus the ROI and model
 /// configuration needed to construct [`super::scaler::CoordinateScaler`]s when

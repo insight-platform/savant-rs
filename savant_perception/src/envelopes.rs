@@ -28,7 +28,7 @@
 //!
 //! * **Decoded-data channels** carry deliverables of decoded
 //!   frames plus their backing GPU buffers — either as a single
-//!   `(VideoFrameProxy, SharedBuffer)` pair
+//!   `(VideoFrame, SharedBuffer)` pair
 //!   ([`PipelineMsg::Delivery`]) or as a batched set of such
 //!   pairs ([`PipelineMsg::Deliveries`]).  Both variants share a
 //!   single envelope ([`PipelineMsg`]) so any actor that
@@ -40,7 +40,7 @@
 //!   of any specific operator.
 //! * **Encoded-data channels** carry encoded access units — raw
 //!   container packets from a demuxer, fully-encoded frames from
-//!   an encoder, or pre-built [`VideoFrameProxy`] values handed
+//!   an encoder, or pre-built [`VideoFrame`] values handed
 //!   in by a custom producer.  These all share a single envelope
 //!   ([`EncodedMsg`]) so the same actor stage (e.g. a muxer
 //!   terminus, a ZeroMQ sink) can consume output from any
@@ -58,7 +58,7 @@ use std::time::Duration;
 
 use deepstream_buffers::{SealedDeliveries, SharedBuffer};
 use deepstream_inputs::prelude::SealedDelivery;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
 use super::{Dispatch, Envelope, Flow, Handler, ShutdownHint};
@@ -105,7 +105,7 @@ pub enum PipelineMsg {
 
 impl PipelineMsg {
     /// Normalize a delivery-carrying message into a flat
-    /// `Vec<(VideoFrameProxy, SharedBuffer)>`.
+    /// `Vec<(VideoFrame, SharedBuffer)>`.
     ///
     /// * [`PipelineMsg::Delivery`]   → exactly 1 pair.
     /// * [`PipelineMsg::Deliveries`] → the full batch.
@@ -117,7 +117,7 @@ impl PipelineMsg {
     /// consumer of [`PipelineMsg`] handle either delivery shape
     /// with a single code path — iterate the vec and feed each
     /// pair downstream.
-    pub fn into_pairs(self) -> Vec<(VideoFrameProxy, SharedBuffer)> {
+    pub fn into_pairs(self) -> Vec<(VideoFrame, SharedBuffer)> {
         match self {
             PipelineMsg::Delivery(d) => vec![d.unseal()],
             PipelineMsg::Deliveries(d) => d.unseal(),
@@ -197,7 +197,7 @@ pub enum EncodedMsg {
         /// The encoded access unit.
         packet: DemuxedPacket,
     },
-    /// A pre-built [`VideoFrameProxy`] delivered with its encoded
+    /// A pre-built [`VideoFrame`] delivered with its encoded
     /// payload, ready for direct submission to a decoder.
     ///
     /// Unlike [`EncodedMsg::Packet`] — which is raw container
@@ -230,7 +230,7 @@ pub enum EncodedMsg {
         /// Pre-built frame.  Its `source_id`, `codec`, `width`,
         /// `height`, `fps`, `uuid`, and `keyframe` fields must
         /// already be set.
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         /// Encoded bitstream for this frame, or `None` to have the
         /// decoder extract it from `frame.get_content()`.
         payload: Option<Vec<u8>>,
@@ -330,19 +330,19 @@ pub struct PacketPayload {
     pub source_id: String,
     /// Stream-level metadata for this packet's source.  Lets
     /// downstream consumers (decoder, muxer) construct
-    /// [`VideoFrameProxy`] values or route by codec without
+    /// [`VideoFrame`] values or route by codec without
     /// maintaining a per-source cache of stream parameters.
     pub info: VideoInfo,
     /// The encoded access unit.
     pub packet: DemuxedPacket,
 }
 
-/// Per-variant payload: a pre-built [`VideoFrameProxy`] with its
+/// Per-variant payload: a pre-built [`VideoFrame`] with its
 /// encoded bitstream (from [`EncodedMsg::Frame`]).
 pub struct FramePayload {
     /// Pre-built frame (source_id, codec, dims, fps, uuid, keyframe
     /// set).
-    pub frame: VideoFrameProxy,
+    pub frame: VideoFrame,
     /// Encoded payload, or `None` to have the decoder extract it
     /// from the frame.
     pub payload: Option<Vec<u8>>,

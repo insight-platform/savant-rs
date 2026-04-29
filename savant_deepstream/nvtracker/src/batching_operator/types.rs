@@ -1,7 +1,7 @@
 use crate::roi::Roi;
 use deepstream_buffers::{SavantIdMetaKind, SharedBuffer};
 use parking_lot::Mutex;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -21,16 +21,16 @@ pub struct TrackerBatchFormationResult {
 
 /// Callback invoked when a batch is formed, before submission to NvTracker.
 ///
-/// Receives the list of [`VideoFrameProxy`] values in the batch. Must return
+/// Receives the list of [`VideoFrame`] values in the batch. Must return
 /// per-frame ROIs and optional Savant IDs.
 pub type TrackerBatchFormationCallback =
-    Arc<dyn Fn(&[VideoFrameProxy]) -> TrackerBatchFormationResult + Send + Sync>;
+    Arc<dyn Fn(&[VideoFrame]) -> TrackerBatchFormationResult + Send + Sync>;
 
 /// Callback invoked when tracking results for a batch are ready.
 pub type TrackerOperatorResultCallback = Box<dyn FnMut(TrackerOperatorOutput) + Send>;
 
 /// Per-frame pair stored in the pending batch.
-pub(super) type FramePair = (VideoFrameProxy, SharedBuffer);
+pub(super) type FramePair = (VideoFrame, SharedBuffer);
 
 /// A pending batch: original frame/buffer pairs awaiting callback correlation.
 pub(super) struct PendingBatch {

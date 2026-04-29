@@ -4,7 +4,7 @@ use crate::pipeline::{NvTracker, NvTrackerOutput};
 use deepstream_buffers::{BatchState, SavantIdMetaKind, SharedBuffer};
 use log::{error, warn};
 use parking_lot::{Condvar, Mutex};
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_gstreamer::submit_gate::SubmitGate;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -119,7 +119,7 @@ impl NvTrackerBatchingOperator {
     ///
     /// If adding this frame fills the batch to `max_batch_size`, the batch is
     /// submitted immediately.
-    pub fn add_frame(&self, frame: VideoFrameProxy, buffer: SharedBuffer) -> Result<()> {
+    pub fn add_frame(&self, frame: VideoFrame, buffer: SharedBuffer) -> Result<()> {
         if self.ctx.failed.load(Ordering::Acquire) {
             return Err(NvTrackerError::OperatorFailed);
         }
@@ -369,7 +369,7 @@ fn process_tracking_output(
     }
 
     let mut frame_outputs = Vec::with_capacity(pending.frames.len());
-    let mut deliveries: Vec<(VideoFrameProxy, SharedBuffer)> =
+    let mut deliveries: Vec<(VideoFrame, SharedBuffer)> =
         Vec::with_capacity(pending.frames.len());
     for (slot_idx, ((frame, buffer), frame_num)) in pending
         .frames

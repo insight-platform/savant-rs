@@ -499,7 +499,7 @@ impl Pipeline {
     /// ----------
     /// stage_name : str
     ///   The name of the stage. Must be a stage of type independent frames.
-    /// frame : :py:class:`savant_rs.primitives.VideoFrameProxy`
+    /// frame : :py:class:`savant_rs.primitives.VideoFrame`
     ///   The frame to add.
     ///
     /// Returns
@@ -526,7 +526,7 @@ impl Pipeline {
     /// ----------
     /// stage_name : str
     ///   The name of the stage. Must be a stage of type independent frames.
-    /// frame : :py:class:`savant_rs.primitives.VideoFrameProxy`
+    /// frame : :py:class:`savant_rs.primitives.VideoFrame`
     ///   The frame to add.
     /// parent_ctx : :py:class:`savant_rs.utils.TelemetrySpan`
     ///   The parent context to add to the frame.
@@ -616,7 +616,7 @@ impl Pipeline {
     ///
     /// Returns
     /// -------
-    /// (:py:class:`savant_rs.primitives.VideoFrameProxy`, :py:class:`savant_rs.utils.TelemetrySpan`)
+    /// (:py:class:`savant_rs.primitives.VideoFrame`, :py:class:`savant_rs.utils.TelemetrySpan`)
     ///   The frame.
     ///
     /// Raises
@@ -643,7 +643,7 @@ impl Pipeline {
     ///
     /// Returns
     /// -------
-    /// (:py:class:`savant_rs.primitives.VideoFrameProxy`, :py:class:`savant_rs.utils.TelemetrySpan`)
+    /// (:py:class:`savant_rs.primitives.VideoFrame`, :py:class:`savant_rs.utils.TelemetrySpan`)
     ///   The frame and the OTLP propagation context corresponding to the current phase of processing.
     ///
     /// Raises

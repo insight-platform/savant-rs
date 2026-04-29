@@ -132,7 +132,7 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
 }
 
 #[derive(Debug, Clone, Builder)]
-pub struct VideoFrame {
+pub struct VideoFrameInner {
     #[builder(setter(skip))]
     pub previous_frame_seq_id: Option<i64>,
     #[builder(setter(skip))]
@@ -172,7 +172,7 @@ const DEFAULT_TRANSFORMATIONS_COUNT: usize = 4;
 const DEFAULT_ATTRIBUTES_COUNT: usize = 8;
 const DEFAULT_OBJECTS_COUNT: usize = 64;
 
-impl Default for VideoFrame {
+impl Default for VideoFrameInner {
     fn default() -> Self {
         Self {
             previous_frame_seq_id: None,
@@ -203,7 +203,7 @@ impl Default for VideoFrame {
     }
 }
 
-impl ToSerdeJsonValue for VideoFrame {
+impl ToSerdeJsonValue for VideoFrameInner {
     fn to_serde_json_value(&self) -> Value {
         let frame_uuid = Uuid::from_u128(self.uuid).to_string();
         let previous_keyframe = self
@@ -246,7 +246,7 @@ impl ToSerdeJsonValue for VideoFrame {
     }
 }
 
-impl WithAttributes for VideoFrame {
+impl WithAttributes for VideoFrameInner {
     fn with_attributes_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Vec<Attribute>) -> R,
@@ -262,7 +262,7 @@ impl WithAttributes for VideoFrame {
     }
 }
 
-impl VideoFrame {
+impl VideoFrameInner {
     pub fn stream_compatibility_hash(&self) -> u64 {
         let compatibility_info = StreamCompatibilityInformation::new(
             &self.source_id,
@@ -316,18 +316,14 @@ impl VideoFrame {
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct VideoFrameProxy {
-    pub(crate) inner: SavantArcRwLock<Box<VideoFrame>>,
-}
+pub struct VideoFrame(pub(crate) SavantArcRwLock<Box<VideoFrameInner>>);
 
 #[derive(Clone)]
-pub struct BelongingVideoFrame {
-    pub(crate) inner: Weak<SavantRwLock<Box<VideoFrame>>>,
-}
+pub struct BelongingVideoFrame(pub(crate) Weak<SavantRwLock<Box<VideoFrameInner>>>);
 
 impl Debug for BelongingVideoFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.inner.upgrade() {
+        match self.0.upgrade() {
             Some(inner) => f
                 .debug_struct("BelongingVideoFrame")
                 .field("stream_id", &trace!(inner.read_recursive()).source_id)
@@ -337,44 +333,40 @@ impl Debug for BelongingVideoFrame {
     }
 }
 
-impl From<&VideoFrameProxy> for BelongingVideoFrame {
-    fn from(value: &VideoFrameProxy) -> Self {
-        Self {
-            inner: Arc::downgrade(&value.inner.0),
-        }
+impl From<&VideoFrame> for BelongingVideoFrame {
+    fn from(value: &VideoFrame) -> Self {
+        Self(Arc::downgrade(&value.0.0))
     }
 }
 
-impl From<VideoFrameProxy> for BelongingVideoFrame {
-    fn from(value: VideoFrameProxy) -> Self {
+impl From<VideoFrame> for BelongingVideoFrame {
+    fn from(value: VideoFrame) -> Self {
         (&value).into()
     }
 }
 
-impl From<&BelongingVideoFrame> for VideoFrameProxy {
+impl From<&BelongingVideoFrame> for VideoFrame {
     fn from(value: &BelongingVideoFrame) -> Self {
-        Self {
-            inner: value
-                .inner
+        Self(value
+                .0
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore")
-                .into(),
-        }
+                .into())
     }
 }
 
-impl From<BelongingVideoFrame> for VideoFrameProxy {
+impl From<BelongingVideoFrame> for VideoFrame {
     fn from(value: BelongingVideoFrame) -> Self {
         (&value).into()
     }
 }
 
-impl WithAttributes for VideoFrameProxy {
+impl WithAttributes for VideoFrame {
     fn with_attributes_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Vec<Attribute>) -> R,
     {
-        let bind = trace!(self.inner.read_recursive());
+        let bind = trace!(self.0.read_recursive());
         f(&bind.attributes)
     }
 
@@ -382,30 +374,30 @@ impl WithAttributes for VideoFrameProxy {
     where
         F: FnOnce(&mut Vec<Attribute>) -> R,
     {
-        let mut bind = trace!(self.inner.write());
+        let mut bind = trace!(self.0.write());
         f(&mut bind.attributes)
     }
 }
 
-impl ToSerdeJsonValue for VideoFrameProxy {
+impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
-        let inner = trace!(self.inner.read_recursive()).clone();
+        let inner = trace!(self.0.read_recursive()).clone();
         inner.to_serde_json_value()
     }
 }
 
-impl VideoFrameProxy {
+impl VideoFrame {
     pub fn stream_compatibility_hash(&self) -> u64 {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.stream_compatibility_hash()
     }
     pub fn exclude_all_temporary_attributes(&self) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.exclude_all_temporary_attributes()
     }
 
     pub(crate) fn get_object_count(&self) -> usize {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.objects.len()
     }
 
@@ -497,7 +489,7 @@ impl VideoFrameProxy {
     }
 
     pub fn smart_copy(&self) -> Self {
-        let inner = trace!(self.inner.read());
+        let inner = trace!(self.0.read());
         let inner_copy = inner.smart_copy();
         drop(inner);
         Self::from_inner(inner_copy)
@@ -510,20 +502,18 @@ impl VideoFrameProxy {
         }
     }
 
-    pub(crate) fn get_inner(&self) -> SavantArcRwLock<Box<VideoFrame>> {
-        self.inner.clone()
+    pub(crate) fn get_inner(&self) -> SavantArcRwLock<Box<VideoFrameInner>> {
+        self.0.clone()
     }
 
-    pub(crate) fn from_inner(inner: VideoFrame) -> Self {
-        let res = VideoFrameProxy {
-            inner: SavantArcRwLock::from(Arc::new(SavantRwLock::new(Box::new(inner)))),
-        };
+    pub(crate) fn from_inner(inner: VideoFrameInner) -> Self {
+        let res = VideoFrame(SavantArcRwLock::from(Arc::new(SavantRwLock::new(Box::new(inner)))));
         res.fix_object_owned_frame();
         res
     }
 
     pub fn get_all_objects(&self) -> Vec<BorrowedVideoObject> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner
             .objects
             .values()
@@ -532,12 +522,12 @@ impl VideoFrameProxy {
     }
 
     pub fn has_objects(&self) -> bool {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         !inner.objects.is_empty()
     }
 
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<BorrowedVideoObject> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         let objects = inner.objects.values().cloned().collect::<Vec<_>>();
         drop(inner);
         fiter_map_with_control_flow(objects, |o| q.execute_with_new_context(o))
@@ -555,7 +545,7 @@ impl VideoFrameProxy {
     }
 
     pub fn access_objects_with_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         ids.iter()
             .filter_map(|id| {
                 if inner.objects.contains_key(id) {
@@ -568,7 +558,7 @@ impl VideoFrameProxy {
     }
 
     pub fn delete_objects_with_ids(&self, ids: &[i64]) -> Vec<VideoObject> {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         let objects = mem::take(&mut inner.objects);
         let (mut retained, removed): (HashMap<i64, VideoObject>, HashMap<i64, VideoObject>) =
             objects.into_iter().partition(|(id, _)| !ids.contains(id));
@@ -594,7 +584,7 @@ impl VideoFrameProxy {
     }
 
     pub fn object_exists(&self, id: i64) -> bool {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.objects.contains_key(&id)
     }
 
@@ -605,7 +595,7 @@ impl VideoFrameProxy {
     }
 
     pub fn get_object(&self, id: i64) -> Option<BorrowedVideoObject> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         let obj = inner.objects.get(&id);
         obj.map(|_| BorrowedVideoObject(self.into(), id))
     }
@@ -637,7 +627,7 @@ impl VideoFrameProxy {
     ) -> anyhow::Result<Vec<BorrowedVideoObject>> {
         let frame_opt = parent.get_frame();
         if let Some(frame) = frame_opt {
-            if !Arc::ptr_eq(&frame.inner.0, &self.inner.0) {
+            if !Arc::ptr_eq(&frame.0.0, &self.0.0) {
                 bail!(
                     "Parent object ID={} must be attached to the same frame.",
                     parent.get_id()
@@ -735,7 +725,7 @@ impl VideoFrameProxy {
 
         let object_id = object.get_id();
         let new_id = self.get_max_object_id() + 1;
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         object.attach_to_video_frame(self.clone());
         let assigned_object_id = if inner.objects.contains_key(&object_id) {
             match policy {
@@ -765,7 +755,7 @@ impl VideoFrameProxy {
     }
 
     pub fn get_max_object_id(&self) -> i64 {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.max_object_id
     }
 
@@ -834,14 +824,14 @@ impl VideoFrameProxy {
         use crate::primitives::frame_update::AttributeUpdatePolicy::*;
         match &update.frame_attribute_policy {
             ReplaceWithForeign => {
-                let mut inner = trace!(self.inner.write());
+                let mut inner = trace!(self.0.write());
                 let other_inner = update.get_frame_attributes().clone();
                 other_inner.iter().for_each(|a| {
                     inner.set_attribute(a.clone());
                 });
             }
             KeepOwn => {
-                let mut inner = trace!(self.inner.write());
+                let mut inner = trace!(self.0.write());
                 let other_inner = update.get_frame_attributes();
                 for attr in other_inner {
                     if inner.get_attribute(&attr.namespace, &attr.name).is_none() {
@@ -850,7 +840,7 @@ impl VideoFrameProxy {
                 }
             }
             Error => {
-                let mut inner = trace!(self.inner.write());
+                let mut inner = trace!(self.0.write());
                 let other_inner = update.get_frame_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
@@ -956,7 +946,7 @@ impl VideoFrameProxy {
             }
         }
 
-        Ok(VideoFrameProxy::from_inner(VideoFrame {
+        Ok(VideoFrame::from_inner(VideoFrameInner {
             source_id: source_id.to_string(),
             pts,
             fps,
@@ -982,20 +972,20 @@ impl VideoFrameProxy {
     }
 
     pub fn get_source_id(&self) -> String {
-        trace!(self.inner.read_recursive()).source_id.clone()
+        trace!(self.0.read_recursive()).source_id.clone()
     }
 
     pub fn get_previous_frame_seq_id(&self) -> Option<i64> {
-        trace!(self.inner.read_recursive()).previous_frame_seq_id
+        trace!(self.0.read_recursive()).previous_frame_seq_id
     }
 
     pub(crate) fn set_previous_frame_seq_id(&mut self, previous_frame_seq_id: Option<i64>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.previous_frame_seq_id = previous_frame_seq_id;
     }
 
     pub fn get_previous_keyframe(&self) -> Option<u128> {
-        trace!(self.inner.read_recursive()).previous_keyframe
+        trace!(self.0.read_recursive()).previous_keyframe
     }
 
     pub fn get_previous_keyframe_as_string(&self) -> Option<String> {
@@ -1004,12 +994,12 @@ impl VideoFrameProxy {
     }
 
     pub(crate) fn set_previous_keyframe(&mut self, previous_keyframe: Option<u128>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.previous_keyframe = previous_keyframe;
     }
 
     pub fn set_source_id(&mut self, source_id: &str) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.source_id = source_id.to_string();
     }
 
@@ -1017,21 +1007,21 @@ impl VideoFrameProxy {
         if time_base.0 <= 0 || time_base.1 <= 0 {
             bail!("Time base must be greater than 0, got {:?}", time_base);
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.time_base = time_base;
         Ok(())
     }
 
     pub fn get_time_base(&self) -> (i64, i64) {
-        trace!(self.inner.read_recursive()).time_base
+        trace!(self.0.read_recursive()).time_base
     }
 
     pub fn get_uuid(&self) -> Uuid {
-        Uuid::from_u128(trace!(self.inner.read_recursive()).uuid)
+        Uuid::from_u128(trace!(self.0.read_recursive()).uuid)
     }
 
     pub fn get_uuid_u128(&self) -> u128 {
-        trace!(self.inner.read_recursive()).uuid
+        trace!(self.0.read_recursive()).uuid
     }
 
     pub fn get_uuid_as_string(&self) -> String {
@@ -1039,70 +1029,70 @@ impl VideoFrameProxy {
     }
 
     pub fn get_creation_timestamp_ns(&self) -> u128 {
-        trace!(self.inner.read_recursive()).creation_timestamp_ns
+        trace!(self.0.read_recursive()).creation_timestamp_ns
     }
 
     pub fn set_creation_timestamp_ns(&mut self, creation_timestamp_ns: u128) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.creation_timestamp_ns = creation_timestamp_ns;
     }
 
     pub fn get_pts(&self) -> i64 {
-        trace!(self.inner.read_recursive()).pts
+        trace!(self.0.read_recursive()).pts
     }
     pub fn set_pts(&mut self, pts: i64) -> anyhow::Result<()> {
         if pts < 0 {
             bail!("PTS value must be greater than or equal to 0, got {}", pts);
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.pts = pts;
 
         Ok(())
     }
 
     pub fn get_fps(&self) -> (i64, i64) {
-        trace!(self.inner.read_recursive()).fps
+        trace!(self.0.read_recursive()).fps
     }
 
     pub fn set_fps(&mut self, fps: (i64, i64)) -> anyhow::Result<()> {
         if fps.0 <= 0 || fps.1 <= 0 {
             bail!("FPS rational must be positive, got {:?}", fps);
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.fps = fps;
         Ok(())
     }
 
     pub fn get_width(&self) -> i64 {
-        trace!(self.inner.read_recursive()).width
+        trace!(self.0.read_recursive()).width
     }
 
     pub fn set_width(&mut self, width: i64) -> anyhow::Result<()> {
         if width <= 0 {
             bail!("Width value must be greater than 0, got {}", width);
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.width = width;
 
         Ok(())
     }
 
     pub fn get_height(&self) -> i64 {
-        trace!(self.inner.read_recursive()).height
+        trace!(self.0.read_recursive()).height
     }
 
     pub fn set_height(&mut self, height: i64) -> anyhow::Result<()> {
         if height <= 0 {
             bail!("Height value must be greater than 0, got {}", height);
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.height = height;
 
         Ok(())
     }
 
     pub fn get_dts(&self) -> Option<i64> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.dts
     }
 
@@ -1115,14 +1105,14 @@ impl VideoFrameProxy {
                 );
             }
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.dts = dts;
 
         Ok(())
     }
 
     pub fn get_duration(&self) -> Option<i64> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.duration
     }
 
@@ -1135,69 +1125,69 @@ impl VideoFrameProxy {
                 );
             }
         }
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.duration = duration;
 
         Ok(())
     }
 
     pub fn get_transcoding_method(&self) -> VideoFrameTranscodingMethod {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.transcoding_method.clone()
     }
 
     pub fn set_transcoding_method(&mut self, transcoding_method: VideoFrameTranscodingMethod) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.transcoding_method = transcoding_method;
     }
 
     pub fn get_codec(&self) -> Option<VideoCodec> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.codec
     }
 
     pub fn set_codec(&mut self, codec: Option<VideoCodec>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.codec = codec;
     }
 
     pub fn clear_transformations(&mut self) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.transformations.clear();
     }
 
     pub fn add_transformation(&mut self, transformation: VideoFrameTransformation) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.transformations.push(transformation);
     }
 
     pub fn get_transformations(&self) -> Vec<VideoFrameTransformation> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.transformations.clone()
     }
 
     pub fn get_keyframe(&self) -> Option<bool> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.keyframe
     }
 
     pub fn set_keyframe(&mut self, keyframe: Option<bool>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.keyframe = keyframe;
     }
 
     pub fn get_content(&self) -> Arc<VideoFrameContent> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.content.clone()
     }
 
     pub fn set_content(&mut self, content: VideoFrameContent) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.content = Arc::new(content);
     }
 
     pub fn clear_objects(&self) {
-        let mut frame = trace!(self.inner.write());
+        let mut frame = trace!(self.0.write());
         frame.objects.clear();
     }
 
@@ -1304,25 +1294,25 @@ impl VideoFrameProxy {
 
     /// Append a single misc track to the frame.
     pub fn add_misc_track(&self, track: MiscTrackData) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.misc_tracks.push(track);
     }
 
     /// Append multiple misc tracks to the frame.
     pub fn add_misc_tracks(&self, tracks: Vec<MiscTrackData>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.misc_tracks.extend(tracks);
     }
 
     /// Return a clone of all misc tracks stored on the frame.
     pub fn get_misc_tracks(&self) -> Vec<MiscTrackData> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.misc_tracks.clone()
     }
 
     /// Return clones of misc tracks matching the given category.
     pub fn get_misc_tracks_by_category(&self, cat: MiscTrackCategory) -> Vec<MiscTrackData> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner
             .misc_tracks
             .iter()
@@ -1333,13 +1323,13 @@ impl VideoFrameProxy {
 
     /// Remove all misc tracks from the frame.
     pub fn clear_misc_tracks(&self) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.misc_tracks.clear();
     }
 
     /// Remove misc tracks of the given category from the frame.
     pub fn clear_misc_tracks_by_category(&self, cat: MiscTrackCategory) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.misc_tracks.retain(|t| t.category != cat);
     }
 
@@ -1363,7 +1353,7 @@ impl VideoFrameProxy {
         track_updates: Vec<TrackUpdate>,
         misc_tracks: Vec<MiscTrackData>,
     ) -> anyhow::Result<Vec<TrackUpdate>> {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         let mut unmatched: Vec<TrackUpdate> = Vec::new();
         for tu in track_updates {
             match inner.objects.get_mut(&tu.object_id) {
@@ -1625,7 +1615,7 @@ mod tests {
         // check that the objects are attached to the new frame
         let o = new_f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
-        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner.0, &new_f.inner.0));
+        assert!(Arc::ptr_eq(&o.get_frame().unwrap().0.0, &new_f.0.0));
     }
 
     #[test]

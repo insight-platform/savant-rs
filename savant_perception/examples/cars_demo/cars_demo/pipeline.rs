@@ -484,7 +484,7 @@ pub fn run_pipeline(
     // Three head variants are supported:
     //
     // * [`PipelineHead::Mp4Demux`] / [`PipelineHead::UriDemux`] —
-    //   build the [`VideoFrameProxy`] on the demuxer side via
+    //   build the [`VideoFrame`] on the demuxer side via
     //   `make_decode_frame` + [`EncodedMsg::Frame`] (carrier =
     //   multipart payload).  The demuxer stage doesn't call
     //   `router.send` itself — every downstream dispatch happens

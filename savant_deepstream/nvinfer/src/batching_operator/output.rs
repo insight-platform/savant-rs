@@ -4,7 +4,7 @@ use crate::output::ElementOutput;
 use deepstream::clear_all_frame_objects;
 use deepstream_buffers::{Sealed, SharedBuffer};
 use deepstream_sys::GstBuffer;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::RBBox;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::cell::OnceCell;
@@ -156,8 +156,8 @@ impl std::fmt::Debug for OperatorElement {
 /// [`OperatorInferenceOutput::take_deliveries`] and then
 /// [`SealedDeliveries::unseal`].
 pub struct OperatorFrameOutput {
-    /// The original [`VideoFrameProxy`] submitted for this frame.
-    pub frame: VideoFrameProxy,
+    /// The original [`VideoFrame`] submitted for this frame.
+    pub frame: VideoFrame,
     /// Inference results for this frame, wrapped with lazy coordinate scaling.
     pub elements: Vec<OperatorElement>,
 }
@@ -181,7 +181,7 @@ unsafe impl Send for OperatorFrameOutput {}
 /// # Delivery flow
 ///
 /// 1. Callback receives `OperatorInferenceOutput` — reads tensors via
-///    `frames()`, modifies `VideoFrameProxy` metadata, etc.
+///    `frames()`, modifies `VideoFrame` metadata, etc.
 /// 2. Callback calls [`take_deliveries`](Self::take_deliveries) to get a
 ///    [`SealedDeliveries`] containing the `(frame, buffer)` pairs.
 /// 3. Callback (or its scope end) drops this struct.  [`Drop`] clears tensor
@@ -190,7 +190,7 @@ unsafe impl Send for OperatorFrameOutput {}
 ///    obtain the pairs — the call blocks until step 3 completes.
 pub struct OperatorInferenceOutput {
     frames: Vec<OperatorFrameOutput>,
-    deliveries: Option<Vec<(VideoFrameProxy, SharedBuffer)>>,
+    deliveries: Option<Vec<(VideoFrame, SharedBuffer)>>,
     host_copy_enabled: bool,
     seal: Arc<ReleaseSeal>,
     /// Wrapped in `Option` so `Drop` can manually release it **before**
@@ -207,7 +207,7 @@ impl OperatorInferenceOutput {
     /// Build a new `OperatorInferenceOutput` from its constituent parts.
     pub(super) fn new(
         frames: Vec<OperatorFrameOutput>,
-        deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
+        deliveries: Vec<(VideoFrame, SharedBuffer)>,
         host_copy_enabled: bool,
         output_buffer: SharedBuffer,
     ) -> Self {

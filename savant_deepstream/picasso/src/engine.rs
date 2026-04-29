@@ -125,7 +125,7 @@ impl PicassoEngine {
     pub fn send_frame(
         &self,
         source_id: &str,
-        frame: savant_core::primitives::frame::VideoFrameProxy,
+        frame: savant_core::primitives::frame::VideoFrame,
         view: deepstream_buffers::SurfaceView,
         src_rect: Option<deepstream_buffers::Rect>,
     ) -> Result<(), PicassoError> {

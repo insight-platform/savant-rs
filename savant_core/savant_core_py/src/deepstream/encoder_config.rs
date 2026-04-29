@@ -1310,71 +1310,53 @@ impl PyAv1JetsonProps {
     module = "savant_rs.deepstream"
 )]
 #[derive(Debug, Clone)]
-pub struct PyEncoderProperties {
-    pub(crate) inner: EncoderProperties,
-}
+pub struct PyEncoderProperties(pub(crate) EncoderProperties);
 
 #[pymethods]
 impl PyEncoderProperties {
     #[staticmethod]
     fn h264_dgpu(props: PyH264DgpuProps) -> Self {
-        Self {
-            inner: EncoderProperties::H264Dgpu(props.to_rust()),
-        }
+        Self(EncoderProperties::H264Dgpu(props.to_rust()))
     }
 
     #[staticmethod]
     fn h264_jetson(props: PyH264JetsonProps) -> Self {
-        Self {
-            inner: EncoderProperties::H264Jetson(props.to_rust()),
-        }
+        Self(EncoderProperties::H264Jetson(props.to_rust()))
     }
 
     #[staticmethod]
     fn hevc_dgpu(props: PyHevcDgpuProps) -> Self {
-        Self {
-            inner: EncoderProperties::HevcDgpu(props.to_rust()),
-        }
+        Self(EncoderProperties::HevcDgpu(props.to_rust()))
     }
 
     #[staticmethod]
     fn hevc_jetson(props: PyHevcJetsonProps) -> Self {
-        Self {
-            inner: EncoderProperties::HevcJetson(props.to_rust()),
-        }
+        Self(EncoderProperties::HevcJetson(props.to_rust()))
     }
 
     #[staticmethod]
     fn jpeg(props: PyJpegProps) -> Self {
-        Self {
-            inner: EncoderProperties::Jpeg(props.to_rust()),
-        }
+        Self(EncoderProperties::Jpeg(props.to_rust()))
     }
 
     #[staticmethod]
     fn av1_dgpu(props: PyAv1DgpuProps) -> Self {
-        Self {
-            inner: EncoderProperties::Av1Dgpu(props.to_rust()),
-        }
+        Self(EncoderProperties::Av1Dgpu(props.to_rust()))
     }
 
     #[staticmethod]
     fn av1_jetson(props: PyAv1JetsonProps) -> Self {
-        Self {
-            inner: EncoderProperties::Av1Jetson(props.to_rust()),
-        }
+        Self(EncoderProperties::Av1Jetson(props.to_rust()))
     }
 
     /// Create PNG encoder properties (CPU-based, gst-plugins-good).
     #[staticmethod]
     fn png(props: PyPngProps) -> Self {
-        Self {
-            inner: EncoderProperties::Png(props.to_rust()),
-        }
+        Self(EncoderProperties::Png(props.to_rust()))
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner)
+        format!("{:?}", self.0)
     }
 }
 
@@ -1514,7 +1496,7 @@ impl PyEncoderConfig {
             "EncoderConfig(codec={:?}, {}x{}, format={:?}, fps={}/{}, gpu_id={}, mem_type={:?}, encoder_params={:?})",
             self.codec, self.width, self.height, self.format,
             self.fps_num, self.fps_den, self.gpu_id, self.mem_type,
-            self.encoder_params.as_ref().map(|p| format!("{:?}", p.inner)).unwrap_or_else(|| "None".to_string()),
+            self.encoder_params.as_ref().map(|p| format!("{:?}", p.0)).unwrap_or_else(|| "None".to_string()),
         )
     }
 }
@@ -1554,7 +1536,7 @@ impl PyEncoderConfig {
         let w = self.width;
         let h = self.height;
 
-        let params = self.encoder_params.as_ref().map(|p| p.inner.clone());
+        let params = self.encoder_params.as_ref().map(|p| p.0.clone());
 
         // Validate that, if the user supplied encoder_params, they match both
         // the configured codec and the platform this binary was built for.

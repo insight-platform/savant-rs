@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::fmt::Debug;
 
 use crate::json_api::ToSerdeJsonValue;
-use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
+use crate::primitives::frame::{BelongingVideoFrame, VideoFrame};
 use crate::primitives::object::private::{
     SealedObjectOperations, SealedWithFrame, SealedWithParent,
 };
@@ -168,8 +168,8 @@ impl WithAttributes for BorrowedVideoObject {
     where
         F: FnOnce(&Vec<Attribute>) -> R,
     {
-        let frame = <&BelongingVideoFrame as Into<VideoFrameProxy>>::into(&self.0);
-        let frame = frame.inner.0.read_recursive();
+        let frame = <&BelongingVideoFrame as Into<VideoFrame>>::into(&self.0);
+        let frame = frame.0.0.read_recursive();
         let object = frame
             .objects
             .get(&self.1)
@@ -181,8 +181,8 @@ impl WithAttributes for BorrowedVideoObject {
     where
         F: FnOnce(&mut Vec<Attribute>) -> R,
     {
-        let frame = <&BelongingVideoFrame as Into<VideoFrameProxy>>::into(&self.0);
-        let mut frame = frame.inner.0.write();
+        let frame = <&BelongingVideoFrame as Into<VideoFrame>>::into(&self.0);
+        let mut frame = frame.0.0.write();
         let uuid = frame.uuid;
         let object = frame
             .objects
@@ -193,7 +193,7 @@ impl WithAttributes for BorrowedVideoObject {
 }
 
 pub(crate) mod private {
-    use crate::primitives::frame::VideoFrameProxy;
+    use crate::primitives::frame::VideoFrame;
     use crate::primitives::object::{BorrowedVideoObject, ObjectAccess, ObjectOperations};
     use anyhow::bail;
 
@@ -201,7 +201,7 @@ pub(crate) mod private {
     where
         Self: Sized,
     {
-        fn get_frame(&self) -> Option<VideoFrameProxy> {
+        fn get_frame(&self) -> Option<VideoFrame> {
             self.with_object_ref(|o| o.frame.as_ref().map(|f| f.into()))
         }
     }
@@ -210,7 +210,7 @@ pub(crate) mod private {
     where
         Self: Sized + ObjectAccess + SealedWithFrame,
     {
-        fn attach_to_video_frame(&mut self, frame: VideoFrameProxy) {
+        fn attach_to_video_frame(&mut self, frame: VideoFrame) {
             self.with_object_mut(|o| o.frame = Some(frame.into()));
         }
     }
@@ -452,8 +452,8 @@ impl ObjectAccess for BorrowedVideoObject {
     where
         F: FnOnce(&VideoObject) -> R,
     {
-        let frame = <&BelongingVideoFrame as Into<VideoFrameProxy>>::into(&self.0);
-        let frame = frame.inner.read_recursive();
+        let frame = <&BelongingVideoFrame as Into<VideoFrame>>::into(&self.0);
+        let frame = frame.0.read_recursive();
         let object = frame
             .objects
             .get(&self.1)
@@ -465,8 +465,8 @@ impl ObjectAccess for BorrowedVideoObject {
     where
         F: FnOnce(&mut VideoObject) -> R,
     {
-        let frame = <&BelongingVideoFrame as Into<VideoFrameProxy>>::into(&self.0);
-        let mut frame = frame.inner.0.write();
+        let frame = <&BelongingVideoFrame as Into<VideoFrame>>::into(&self.0);
+        let mut frame = frame.0.0.write();
         let uuid = frame.uuid;
         let object = frame
             .objects

@@ -1,7 +1,7 @@
 use crate::error::NvTrackerError;
 use crate::{MiscTrackData, TrackedObject};
 use deepstream_buffers::{Sealed, SharedBuffer};
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::misc_track::TrackUpdate;
 use savant_core::utils::release_seal::ReleaseSeal;
 use std::sync::Arc;
@@ -15,8 +15,8 @@ pub use deepstream_buffers::SealedDeliveries;
 /// [`TrackerOperatorTrackingOutput::take_deliveries`] and then
 /// [`SealedDeliveries::unseal`].
 pub struct TrackerOperatorFrameOutput {
-    /// The original [`VideoFrameProxy`] submitted for this frame.
-    pub frame: VideoFrameProxy,
+    /// The original [`VideoFrame`] submitted for this frame.
+    pub frame: VideoFrame,
     /// Tracked objects for this frame.
     pub tracked_objects: Vec<TrackedObject>,
     /// Shadow tracks relevant to this frame source.
@@ -28,9 +28,9 @@ pub struct TrackerOperatorFrameOutput {
 }
 
 impl TrackerOperatorFrameOutput {
-    /// Apply this per-frame tracker output to its [`VideoFrameProxy`]
+    /// Apply this per-frame tracker output to its [`VideoFrame`]
     /// in a single call, delegating to
-    /// [`VideoFrameProxy::apply_tracking_info`].
+    /// [`VideoFrame::apply_tracking_info`].
     ///
     /// Each [`TrackedObject`] becomes a [`TrackUpdate`] via
     /// [`TrackedObject::to_track_update`] (keyed by
@@ -43,7 +43,7 @@ impl TrackerOperatorFrameOutput {
     ///
     /// The caller-visible policy (update existing, silently collect
     /// unresolved ids, replace misc tracks) is fully inherited from
-    /// [`VideoFrameProxy::apply_tracking_info`].
+    /// [`VideoFrame::apply_tracking_info`].
     ///
     /// Returns the vec of unmatched [`TrackUpdate`]s forwarded
     /// verbatim from the core method (empty on the happy path).
@@ -70,7 +70,7 @@ impl TrackerOperatorFrameOutput {
 /// Full batch tracking result with sealed buffer delivery.
 pub struct TrackerOperatorTrackingOutput {
     frames: Vec<TrackerOperatorFrameOutput>,
-    deliveries: Option<Vec<(VideoFrameProxy, SharedBuffer)>>,
+    deliveries: Option<Vec<(VideoFrame, SharedBuffer)>>,
     seal: Arc<ReleaseSeal>,
 }
 
@@ -80,7 +80,7 @@ impl TrackerOperatorTrackingOutput {
     /// Build a new tracking output from its constituent parts.
     pub(super) fn new(
         frames: Vec<TrackerOperatorFrameOutput>,
-        deliveries: Vec<(VideoFrameProxy, SharedBuffer)>,
+        deliveries: Vec<(VideoFrame, SharedBuffer)>,
     ) -> Self {
         Self {
             frames,
@@ -110,7 +110,7 @@ impl TrackerOperatorTrackingOutput {
     /// with [`Self::frames`]** (same length, same order) so callers
     /// can pair each per-frame result with its source frame without
     /// rebuilding an index.  Unresolved ids are silently collected
-    /// inside [`VideoFrameProxy::apply_tracking_info`] so the batch
+    /// inside [`VideoFrame::apply_tracking_info`] so the batch
     /// never aborts for that reason; `Err` is still propagated for
     /// any other failure (e.g. lock poisoning) reported by the core
     /// method.
@@ -219,7 +219,7 @@ mod tests {
     }
 
     fn frame_output(
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         tracked_objects: Vec<TrackedObject>,
         shadow_tracks: Vec<MiscTrackData>,
         terminated_tracks: Vec<MiscTrackData>,

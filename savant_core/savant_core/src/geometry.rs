@@ -175,7 +175,7 @@ impl Affine2D {
     }
 
     /// Convert to [`VideoObjectBBoxTransformation`] ops that can be passed
-    /// to [`crate::primitives::frame::VideoFrameProxy::transform_geometry()`].
+    /// to [`crate::primitives::frame::VideoFrame::transform_geometry()`].
     pub fn to_bbox_ops(&self) -> Vec<VideoObjectBBoxTransformation> {
         vec![
             VideoObjectBBoxTransformation::Scale(self.sx, self.sy),

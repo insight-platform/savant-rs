@@ -1,13 +1,13 @@
 use savant_core::primitives::bbox::RBBox;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };
 use savant_core::primitives::object::{
     BorrowedVideoObject, IdCollisionResolutionPolicy, ObjectOperations,
 };
 
-fn make_frame(w: i64, h: i64) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+fn make_frame(w: i64, h: i64) -> VideoFrame {
+    VideoFrame::new(
         "test",
         (30, 1),
         w,
@@ -24,12 +24,12 @@ fn make_frame(w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn add_object(frame: &VideoFrameProxy, cx: f32, cy: f32, w: f32, h: f32) -> i64 {
+fn add_object(frame: &VideoFrame, cx: f32, cy: f32, w: f32, h: f32) -> i64 {
     add_object_angled(frame, cx, cy, w, h, None)
 }
 
 fn add_object_angled(
-    frame: &VideoFrameProxy,
+    frame: &VideoFrame,
     cx: f32,
     cy: f32,
     w: f32,
@@ -50,7 +50,7 @@ fn add_object_angled(
     borrowed.get_id()
 }
 
-fn get_object(frame: &VideoFrameProxy, id: i64) -> BorrowedVideoObject {
+fn get_object(frame: &VideoFrame, id: i64) -> BorrowedVideoObject {
     frame
         .get_all_objects()
         .into_iter()

@@ -1,14 +1,14 @@
 use hashbrown::HashMap;
 use log::{debug, warn};
-use savant_core::primitives::rust::VideoFrameProxy;
+use savant_core::primitives::rust::VideoFrame;
 use std::{
     cmp::Ordering,
     collections::VecDeque,
     time::{Duration, SystemTime},
 };
 pub struct Syncer {
-    duration_queues: HashMap<String, VecDeque<(VideoFrameProxy, Vec<u8>)>>,
-    sync_queues: HashMap<String, VecDeque<(VideoFrameProxy, Vec<u8>)>>,
+    duration_queues: HashMap<String, VecDeque<(VideoFrame, Vec<u8>)>>,
+    sync_queues: HashMap<String, VecDeque<(VideoFrame, Vec<u8>)>>,
     last_sent: HashMap<String, SystemTime>,
 }
 
@@ -29,9 +29,9 @@ impl Syncer {
 
     pub fn add_frame(
         &mut self,
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         data: Vec<u8>,
-    ) -> Option<(VideoFrameProxy, Vec<u8>)> {
+    ) -> Option<(VideoFrame, Vec<u8>)> {
         if let Some((frame, data)) = self.add_frame_to_duration_queue(frame, data) {
             self.add_frame_to_send_queue(frame, data)
         } else {
@@ -41,9 +41,9 @@ impl Syncer {
 
     fn add_frame_to_send_queue(
         &mut self,
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         data: Vec<u8>,
-    ) -> Option<(VideoFrameProxy, Vec<u8>)> {
+    ) -> Option<(VideoFrame, Vec<u8>)> {
         let source_id = frame.get_source_id();
 
         let sync_queue = self.sync_queues.entry(source_id.clone()).or_default();
@@ -77,9 +77,9 @@ impl Syncer {
 
     fn add_frame_to_duration_queue(
         &mut self,
-        frame: VideoFrameProxy,
+        frame: VideoFrame,
         data: Vec<u8>,
-    ) -> Option<(VideoFrameProxy, Vec<u8>)> {
+    ) -> Option<(VideoFrame, Vec<u8>)> {
         let source_id = frame.get_source_id();
         let queue = self.duration_queues.entry(source_id.clone()).or_default();
         queue.push_back((frame, data));

@@ -1,12 +1,12 @@
 //! Single-stream adaptive GPU decoder: one [`NvDecoder`] per codec/resolution
 //! session, automatically replaced on parameter changes.
 //!
-//! Call [`FlexibleDecoder::submit`] with a [`VideoFrameProxy`] reference and an
+//! Call [`FlexibleDecoder::submit`] with a [`VideoFrame`] reference and an
 //! optional byte slice; the decoder detects codec and resolution from frame
 //! metadata, creates / drains / replaces the underlying hardware decoder as
 //! needed, and delivers all results through a single callback.
 //!
-//! [`VideoFrameProxy`]: savant_core::primitives::frame::VideoFrameProxy
+//! [`VideoFrame`]: savant_core::primitives::frame::VideoFrame
 
 mod config;
 mod decoder;

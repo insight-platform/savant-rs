@@ -10,7 +10,7 @@ use deepstream_decoders::cuda_init;
 use deepstream_inputs::flexible_decoder::FlexibleDecoderOutput;
 use parking_lot::Mutex;
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, Mp4Demuxer};
@@ -100,7 +100,7 @@ pub fn codec_name_to_video_codec(name: &str) -> Option<VideoCodec> {
 
 // ── Frame construction ──────────────────────────────────────────────
 
-/// Build a [`VideoFrameProxy`] with nanosecond time base (payload passed separately).
+/// Build a [`VideoFrame`] with nanosecond time base (payload passed separately).
 #[allow(clippy::too_many_arguments)]
 pub fn make_video_frame_ns(
     source_id: &str,
@@ -111,8 +111,8 @@ pub fn make_video_frame_ns(
     dts_ns: Option<i64>,
     duration_ns: Option<i64>,
     keyframe: Option<bool>,
-) -> VideoFrameProxy {
-    VideoFrameProxy::new(
+) -> VideoFrame {
+    VideoFrame::new(
         source_id,
         (30, 1),
         width,

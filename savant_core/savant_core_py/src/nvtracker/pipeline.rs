@@ -111,9 +111,7 @@ enum PyNvTrackerOutputInner {
 /// Discriminate with ``is_tracking``, ``is_event``, ``is_eos``, ``is_error`` and use
 /// ``as_tracking()``, ``event_summary``, ``eos_source_id``, ``error_message`` accordingly.
 #[pyclass(name = "NvTrackerOutput", module = "savant_rs.nvtracker")]
-pub struct PyNvTrackerOutput {
-    inner: PyNvTrackerOutputInner,
-}
+pub struct PyNvTrackerOutput(PyNvTrackerOutputInner);
 
 impl PyNvTrackerOutput {
     pub(crate) fn from_rust(output: NvTrackerOutput) -> Self {
@@ -141,27 +139,27 @@ fn format_gst_event(e: &gst::Event) -> String {
 impl PyNvTrackerOutput {
     #[getter]
     fn is_tracking(&self) -> bool {
-        matches!(self.inner, PyNvTrackerOutputInner::Tracking(_))
+        matches!(self.0, PyNvTrackerOutputInner::Tracking(_))
     }
 
     #[getter]
     fn is_event(&self) -> bool {
-        matches!(self.inner, PyNvTrackerOutputInner::Event { .. })
+        matches!(self.0, PyNvTrackerOutputInner::Event { .. })
     }
 
     #[getter]
     fn is_eos(&self) -> bool {
-        matches!(self.inner, PyNvTrackerOutputInner::Eos { .. })
+        matches!(self.0, PyNvTrackerOutputInner::Eos { .. })
     }
 
     #[getter]
     fn is_error(&self) -> bool {
-        matches!(self.inner, PyNvTrackerOutputInner::Error { .. })
+        matches!(self.0, PyNvTrackerOutputInner::Error { .. })
     }
 
     /// Return tracking payload if this is a tracking result, else ``None``.
     fn as_tracking(&self) -> Option<PyTrackerOutput> {
-        match &self.inner {
+        match &self.0 {
             PyNvTrackerOutputInner::Tracking(t) => Some(t.clone()),
             _ => None,
         }
@@ -169,7 +167,7 @@ impl PyNvTrackerOutput {
 
     #[getter]
     fn event_summary(&self) -> Option<String> {
-        match &self.inner {
+        match &self.0 {
             PyNvTrackerOutputInner::Event { summary } => Some(summary.clone()),
             _ => None,
         }
@@ -177,7 +175,7 @@ impl PyNvTrackerOutput {
 
     #[getter]
     fn eos_source_id(&self) -> Option<String> {
-        match &self.inner {
+        match &self.0 {
             PyNvTrackerOutputInner::Eos { source_id } => Some(source_id.clone()),
             _ => None,
         }
@@ -185,14 +183,14 @@ impl PyNvTrackerOutput {
 
     #[getter]
     fn error_message(&self) -> Option<String> {
-        match &self.inner {
+        match &self.0 {
             PyNvTrackerOutputInner::Error { message } => Some(message.clone()),
             _ => None,
         }
     }
 
     fn __repr__(&self) -> String {
-        match &self.inner {
+        match &self.0 {
             PyNvTrackerOutputInner::Tracking(t) => {
                 format!(
                     "NvTrackerOutput(Tracking(current_tracks={}))",
@@ -217,22 +215,18 @@ impl PyNvTrackerOutput {
 /// Args:
 ///     config (NvTrackerConfig): Tracker configuration.
 #[pyclass(name = "NvTracker", module = "savant_rs.nvtracker")]
-pub struct PyNvTracker {
-    inner: Option<NvTracker>,
-}
+pub struct PyNvTracker(Option<NvTracker>);
 
 #[pymethods]
 impl PyNvTracker {
     #[new]
     fn new(py: Python<'_>, config: &PyNvTrackerConfig) -> PyResult<Self> {
-        let rust_config = config.inner.clone();
+        let rust_config = config.0.clone();
         let engine = py.detach(|| {
             NvTracker::new(rust_config)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
-        Ok(Self {
-            inner: Some(engine),
-        })
+        Ok(Self(Some(engine)))
     }
 
     /// Submit frames for tracking.
@@ -247,7 +241,7 @@ impl PyNvTracker {
         ids: Vec<(PySavantIdMetaKind, u128)>,
     ) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         let rust_frames = extract_frames(frames)?;
@@ -264,7 +258,7 @@ impl PyNvTracker {
 
     fn recv(&self, py: Python<'_>) -> PyResult<PyNvTrackerOutput> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         let out = py.detach(|| {
@@ -277,7 +271,7 @@ impl PyNvTracker {
 
     fn recv_timeout(&self, py: Python<'_>, timeout_ms: u64) -> PyResult<Option<PyNvTrackerOutput>> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         let timeout = Duration::from_millis(timeout_ms);
@@ -291,7 +285,7 @@ impl PyNvTracker {
 
     fn try_recv(&self, py: Python<'_>) -> PyResult<Option<PyNvTrackerOutput>> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         let out = py.detach(|| {
@@ -304,7 +298,7 @@ impl PyNvTracker {
 
     fn send_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         py.detach(|| {
@@ -332,7 +326,7 @@ impl PyNvTracker {
         let structure = b.build();
         let event = gst::event::CustomDownstream::new(structure);
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         py.detach(|| {
@@ -344,7 +338,7 @@ impl PyNvTracker {
 
     fn is_failed(&self) -> PyResult<bool> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         Ok(engine.is_failed())
@@ -352,7 +346,7 @@ impl PyNvTracker {
 
     fn reset_stream(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
         let engine = self
-            .inner
+            .0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvTracker is shut down"))?;
         py.detach(|| {
@@ -368,7 +362,7 @@ impl PyNvTracker {
         py: Python<'_>,
         timeout_ms: u64,
     ) -> PyResult<Vec<Py<PyNvTrackerOutput>>> {
-        let engine = self.inner.take().ok_or_else(|| {
+        let engine = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvTracker is already shut down")
         })?;
         let outs = py.detach(|| {
@@ -382,7 +376,7 @@ impl PyNvTracker {
     }
 
     fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
-        let engine = self.inner.take().ok_or_else(|| {
+        let engine = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvTracker is already shut down")
         })?;
         py.detach(|| {
@@ -393,7 +387,7 @@ impl PyNvTracker {
     }
 
     fn __repr__(&self) -> &'static str {
-        if self.inner.is_some() {
+        if self.0.is_some() {
             "NvTracker(running)"
         } else {
             "NvTracker(shut_down)"

@@ -46,9 +46,7 @@ type SharedOperatorOutput = Arc<Mutex<Option<OperatorInferenceOutput>>>;
 ///         batch can remain pending. When exceeded, the operator enters a
 ///         terminal failed state. Default: ``60000``.
 #[pyclass(name = "NvInferBatchingOperatorConfig", module = "savant_rs.nvinfer")]
-pub struct PyNvInferBatchingOperatorConfig {
-    pub(crate) inner: NvInferBatchingOperatorConfig,
-}
+pub struct PyNvInferBatchingOperatorConfig(pub(crate) NvInferBatchingOperatorConfig);
 
 #[pymethods]
 impl PyNvInferBatchingOperatorConfig {
@@ -60,39 +58,37 @@ impl PyNvInferBatchingOperatorConfig {
         nvinfer_config: &PyNvInferConfig,
         pending_batch_timeout_ms: u64,
     ) -> Self {
-        Self {
-            inner: NvInferBatchingOperatorConfig {
+        Self(NvInferBatchingOperatorConfig {
                 max_batch_size,
                 max_batch_wait: Duration::from_millis(max_batch_wait_ms),
-                nvinfer: nvinfer_config.inner.clone(),
+                nvinfer: nvinfer_config.0.clone(),
                 pending_batch_timeout: Duration::from_millis(pending_batch_timeout_ms),
-            },
-        }
+            })
     }
 
     /// Maximum batch size; triggers inference when reached.
     #[getter]
     fn max_batch_size(&self) -> usize {
-        self.inner.max_batch_size
+        self.0.max_batch_size
     }
 
     /// Maximum wait before submitting a partial batch (milliseconds).
     #[getter]
     fn max_batch_wait_ms(&self) -> u64 {
-        self.inner.max_batch_wait.as_millis() as u64
+        self.0.max_batch_wait.as_millis() as u64
     }
 
     /// Pending batch timeout (milliseconds).
     #[getter]
     fn pending_batch_timeout_ms(&self) -> u64 {
-        self.inner.pending_batch_timeout.as_millis() as u64
+        self.0.pending_batch_timeout.as_millis() as u64
     }
 
     /// The embedded NvInfer engine configuration.
     #[getter]
     fn nvinfer_config(&self) -> PyNvInferConfig {
         PyNvInferConfig {
-            inner: self.inner.nvinfer.clone(),
+            inner: self.0.nvinfer.clone(),
         }
     }
 
@@ -100,9 +96,9 @@ impl PyNvInferBatchingOperatorConfig {
         format!(
             "NvInferBatchingOperatorConfig(max_batch_size={}, \
              max_batch_wait_ms={}, gpu_id={})",
-            self.inner.max_batch_size,
-            self.inner.max_batch_wait.as_millis(),
-            self.inner.nvinfer.gpu_id,
+            self.0.max_batch_size,
+            self.0.max_batch_wait.as_millis(),
+            self.0.nvinfer.gpu_id,
         )
     }
 }
@@ -115,9 +111,7 @@ impl PyNvInferBatchingOperatorConfig {
 ///     ids (list[tuple[SavantIdMetaKind, int]]): Per-frame Savant IDs.
 ///     rois (list[RoiKind]): Per-frame ROI specification.
 #[pyclass(name = "BatchFormationResult", module = "savant_rs.nvinfer")]
-pub struct PyBatchFormationResult {
-    pub(super) inner: BatchFormationResult,
-}
+pub struct PyBatchFormationResult(pub(super) BatchFormationResult);
 
 #[pymethods]
 impl PyBatchFormationResult {
@@ -128,25 +122,23 @@ impl PyBatchFormationResult {
             .map(|(kind, id)| to_rust_id_kind(kind, id))
             .collect();
         let rust_rois: Vec<RoiKind> = rois.iter().map(|r| r.to_rust()).collect();
-        Self {
-            inner: BatchFormationResult {
+        Self(BatchFormationResult {
                 ids: rust_ids,
                 rois: rust_rois,
-            },
-        }
+            })
     }
 
     /// Per-frame Savant IDs as ``(SavantIdMetaKind, int)`` tuples.
     #[getter]
     fn ids(&self) -> Vec<(PySavantIdMetaKind, u128)> {
-        self.inner.ids.iter().map(from_rust_id_kind).collect()
+        self.0.ids.iter().map(from_rust_id_kind).collect()
     }
 
     fn __repr__(&self) -> String {
         format!(
             "BatchFormationResult(ids_len={}, rois_len={})",
-            self.inner.ids.len(),
-            self.inner.rois.len(),
+            self.0.ids.len(),
+            self.0.rois.len(),
         )
     }
 }
@@ -485,7 +477,7 @@ fn f32x4_to_array<'py>(py: Python<'py>, boxes: &[[f32; 4]]) -> Bound<'py, PyArra
 pub struct PyOperatorFrameOutput {
     shared: SharedOperatorOutput,
     slot_idx: usize,
-    frame: savant_core::primitives::frame::VideoFrameProxy,
+    frame: savant_core::primitives::frame::VideoFrame,
     num_elements: usize,
 }
 
@@ -542,19 +534,15 @@ impl PyOperatorFrameOutput {
 /// ``unseal()`` is safe — contained buffers are freed and no deadlock
 /// can occur.
 #[pyclass(name = "SealedDeliveries", module = "savant_rs.nvinfer")]
-pub struct PySealedDeliveries {
-    inner: Option<SealedDeliveries>,
-}
+pub struct PySealedDeliveries(Option<SealedDeliveries>);
 
 impl PySealedDeliveries {
     pub(crate) fn from_rust(sealed: SealedDeliveries) -> Self {
-        Self {
-            inner: Some(sealed),
-        }
+        Self(Some(sealed))
     }
 
     fn ensure_alive(&self) -> PyResult<&SealedDeliveries> {
-        self.inner.as_ref().ok_or_else(|| {
+        self.0.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
         })
     }
@@ -596,7 +584,7 @@ impl PySealedDeliveries {
     ///     TimeoutError: If the timeout expires before the seal is released.
     #[pyo3(signature = (timeout_ms=None))]
     fn unseal(&mut self, py: Python<'_>, timeout_ms: Option<u64>) -> PyResult<Py<PyList>> {
-        let sealed = self.inner.take().ok_or_else(|| {
+        let sealed = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
         })?;
         let pairs = match timeout_ms {
@@ -605,7 +593,7 @@ impl PySealedDeliveries {
                 match py.detach(move || sealed.unseal_timeout(timeout)) {
                     Ok(pairs) => pairs,
                     Err(still_sealed) => {
-                        self.inner = Some(still_sealed);
+                        self.0 = Some(still_sealed);
                         return Err(pyo3::exceptions::PyTimeoutError::new_err(
                             "unseal timed out",
                         ));
@@ -631,7 +619,7 @@ impl PySealedDeliveries {
     /// Raises:
     ///     RuntimeError: If already consumed by a previous call.
     fn try_unseal(&mut self, py: Python<'_>) -> PyResult<Option<Py<PyList>>> {
-        let sealed = self.inner.take().ok_or_else(|| {
+        let sealed = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SealedDeliveries already consumed")
         })?;
         match sealed.try_unseal() {
@@ -645,14 +633,14 @@ impl PySealedDeliveries {
                 Ok(Some(list.unbind()))
             }
             Err(still_sealed) => {
-                self.inner = Some(still_sealed);
+                self.0 = Some(still_sealed);
                 Ok(None)
             }
         }
     }
 
     fn __repr__(&self) -> String {
-        match &self.inner {
+        match &self.0 {
             Some(s) => format!(
                 "SealedDeliveries(len={}, released={})",
                 s.len(),
@@ -767,9 +755,7 @@ enum PyOperatorOutputInner {
 /// Use ``is_inference`` / ``is_eos`` / ``is_error`` and ``as_operator_inference_output()``,
 /// ``eos_source_id``, ``error_message`` as appropriate.
 #[pyclass(name = "OperatorOutput", module = "savant_rs.nvinfer")]
-pub struct PyOperatorOutput {
-    inner: PyOperatorOutputInner,
-}
+pub struct PyOperatorOutput(PyOperatorOutputInner);
 
 impl PyOperatorOutput {
     pub(crate) fn from_rust(output: OperatorOutput) -> Self {
@@ -790,22 +776,22 @@ impl PyOperatorOutput {
 impl PyOperatorOutput {
     #[getter]
     fn is_inference(&self) -> bool {
-        matches!(self.inner, PyOperatorOutputInner::Inference(_))
+        matches!(self.0, PyOperatorOutputInner::Inference(_))
     }
 
     #[getter]
     fn is_eos(&self) -> bool {
-        matches!(self.inner, PyOperatorOutputInner::Eos { .. })
+        matches!(self.0, PyOperatorOutputInner::Eos { .. })
     }
 
     #[getter]
     fn is_error(&self) -> bool {
-        matches!(self.inner, PyOperatorOutputInner::Error { .. })
+        matches!(self.0, PyOperatorOutputInner::Error { .. })
     }
 
     /// Inference payload if this is an inference result, else ``None``.
     fn as_operator_inference_output(&self) -> Option<PyOperatorInferenceOutput> {
-        match &self.inner {
+        match &self.0 {
             PyOperatorOutputInner::Inference(o) => Some(o.share()),
             _ => None,
         }
@@ -813,7 +799,7 @@ impl PyOperatorOutput {
 
     #[getter]
     fn eos_source_id(&self) -> Option<String> {
-        match &self.inner {
+        match &self.0 {
             PyOperatorOutputInner::Eos { source_id } => Some(source_id.clone()),
             _ => None,
         }
@@ -821,14 +807,14 @@ impl PyOperatorOutput {
 
     #[getter]
     fn error_message(&self) -> Option<String> {
-        match &self.inner {
+        match &self.0 {
             PyOperatorOutputInner::Error { message } => Some(message.clone()),
             _ => None,
         }
     }
 
     fn __repr__(&self) -> String {
-        match &self.inner {
+        match &self.0 {
             PyOperatorOutputInner::Inference(o) => {
                 format!("OperatorOutput(Inference(num_frames={}))", o.num_frames)
             }
@@ -859,9 +845,7 @@ impl PyOperatorOutput {
 ///     result_callback (Callable[[OperatorOutput], None]):
 ///         Called for each operator result: inference batch, per-source EOS, or pipeline error.
 #[pyclass(name = "NvInferBatchingOperator", module = "savant_rs.nvinfer")]
-pub struct PyNvInferBatchingOperator {
-    inner: Option<NvInferBatchingOperator>,
-}
+pub struct PyNvInferBatchingOperator(Option<NvInferBatchingOperator>);
 
 #[pymethods]
 impl PyNvInferBatchingOperator {
@@ -872,7 +856,7 @@ impl PyNvInferBatchingOperator {
         batch_formation_callback: Py<PyAny>,
         result_callback: Py<PyAny>,
     ) -> PyResult<Self> {
-        let rust_config = config.inner.clone();
+        let rust_config = config.0.clone();
 
         let batch_cb: BatchFormationCallback = Arc::new(move |frames| {
             Python::attach(|py| {
@@ -893,8 +877,8 @@ impl PyNvInferBatchingOperator {
                 let bound = result.bind(py);
                 match bound.extract::<PyRef<'_, PyBatchFormationResult>>() {
                     Ok(py_result) => BatchFormationResult {
-                        ids: py_result.inner.ids.clone(),
-                        rois: py_result.inner.rois.clone(),
+                        ids: py_result.0.ids.clone(),
+                        rois: py_result.0.rois.clone(),
                     },
                     Err(e) => {
                         log::error!(
@@ -924,9 +908,7 @@ impl PyNvInferBatchingOperator {
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
 
-        Ok(Self {
-            inner: Some(operator),
-        })
+        Ok(Self(Some(operator)))
     }
 
     /// Add a single frame for batched inference.
@@ -945,7 +927,7 @@ impl PyNvInferBatchingOperator {
         frame: &VideoFrame,
         buffer: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        let op = self.inner.as_ref().ok_or_else(|| {
+        let op = self.0.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvInferBatchingOperator is shut down")
         })?;
         let shared_buf = take_shared_buffer(buffer)?;
@@ -961,7 +943,7 @@ impl PyNvInferBatchingOperator {
     /// Raises:
     ///     RuntimeError: If the operator is shut down or submission fails.
     fn flush(&self, py: Python<'_>) -> PyResult<()> {
-        let op = self.inner.as_ref().ok_or_else(|| {
+        let op = self.0.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvInferBatchingOperator is shut down")
         })?;
         py.detach(|| {
@@ -972,7 +954,7 @@ impl PyNvInferBatchingOperator {
 
     /// Send logical per-source EOS to the inner NvInfer pipeline.
     fn send_eos(&self, py: Python<'_>, source_id: &str) -> PyResult<()> {
-        let op = self.inner.as_ref().ok_or_else(|| {
+        let op = self.0.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("NvInferBatchingOperator is shut down")
         })?;
         py.detach(|| {
@@ -987,7 +969,7 @@ impl PyNvInferBatchingOperator {
         py: Python<'_>,
         timeout_ms: u64,
     ) -> PyResult<Vec<Py<PyOperatorOutput>>> {
-        let mut op = self.inner.take().ok_or_else(|| {
+        let mut op = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
                 "NvInferBatchingOperator is already shut down",
             )
@@ -1006,7 +988,7 @@ impl PyNvInferBatchingOperator {
     /// Raises:
     ///     RuntimeError: If the operator has already been shut down.
     fn shutdown(&mut self, py: Python<'_>) -> PyResult<()> {
-        let mut op = self.inner.take().ok_or_else(|| {
+        let mut op = self.0.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
                 "NvInferBatchingOperator is already shut down",
             )
@@ -1018,7 +1000,7 @@ impl PyNvInferBatchingOperator {
     }
 
     fn __repr__(&self) -> &'static str {
-        if self.inner.is_some() {
+        if self.0.is_some() {
             "NvInferBatchingOperator(running)"
         } else {
             "NvInferBatchingOperator(shut_down)"

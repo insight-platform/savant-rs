@@ -2,7 +2,7 @@ use crate::message::OutputMessage;
 use crate::spec::EvictionDecision;
 use deepstream_buffers::{SkiaRenderer, SurfaceView};
 use savant_core::draw::ObjectDraw;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::object::BorrowedVideoObject;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub trait OnBypassFrame: Send + Sync + 'static {
 /// [`SkiaRenderer::canvas()`]; Python callers receive the renderer's FBO
 /// info and build a `SkiaCanvas` wrapper around it.
 pub trait OnRender: Send + Sync + 'static {
-    fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrameProxy);
+    fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrame);
 }
 
 /// Per-object callback that can override the static `ObjectDrawSpec`.
@@ -60,7 +60,7 @@ pub trait OnObjectDrawSpec: Send + Sync + 'static {
 /// `view.cuda_stream()`.  Callers may enqueue GPU work on this stream;
 /// the worker synchronises the stream when the view is dropped.
 pub trait OnGpuMat: Send + Sync + 'static {
-    fn call(&self, source_id: &str, frame: &VideoFrameProxy, view: &SurfaceView);
+    fn call(&self, source_id: &str, frame: &VideoFrame, view: &SurfaceView);
 }
 
 /// Called when a source has been idle longer than its timeout.
@@ -103,9 +103,7 @@ pub struct Callbacks {
 impl Callbacks {
     /// Create a new builder with all callbacks set to `None`.
     pub fn builder() -> CallbacksBuilder {
-        CallbacksBuilder {
-            inner: Callbacks::default(),
-        }
+        CallbacksBuilder(Callbacks::default())
     }
 }
 
@@ -119,49 +117,47 @@ impl Callbacks {
 ///     .on_render(my_render_cb)
 ///     .build();
 /// ```
-pub struct CallbacksBuilder {
-    inner: Callbacks,
-}
+pub struct CallbacksBuilder(Callbacks);
 
 impl CallbacksBuilder {
     pub fn on_encoded_frame(mut self, cb: impl OnEncodedFrame) -> Self {
-        self.inner.on_encoded_frame = Some(Arc::new(cb));
+        self.0.on_encoded_frame = Some(Arc::new(cb));
         self
     }
 
     pub fn on_bypass_frame(mut self, cb: impl OnBypassFrame) -> Self {
-        self.inner.on_bypass_frame = Some(Arc::new(cb));
+        self.0.on_bypass_frame = Some(Arc::new(cb));
         self
     }
 
     pub fn on_render(mut self, cb: impl OnRender) -> Self {
-        self.inner.on_render = Some(Arc::new(cb));
+        self.0.on_render = Some(Arc::new(cb));
         self
     }
 
     pub fn on_object_draw_spec(mut self, cb: impl OnObjectDrawSpec) -> Self {
-        self.inner.on_object_draw_spec = Some(Arc::new(cb));
+        self.0.on_object_draw_spec = Some(Arc::new(cb));
         self
     }
 
     pub fn on_gpumat(mut self, cb: impl OnGpuMat) -> Self {
-        self.inner.on_gpumat = Some(Arc::new(cb));
+        self.0.on_gpumat = Some(Arc::new(cb));
         self
     }
 
     pub fn on_eviction(mut self, cb: impl OnEviction) -> Self {
-        self.inner.on_eviction = Some(Arc::new(cb));
+        self.0.on_eviction = Some(Arc::new(cb));
         self
     }
 
     pub fn on_stream_reset(mut self, cb: impl OnStreamReset) -> Self {
-        self.inner.on_stream_reset = Some(Arc::new(cb));
+        self.0.on_stream_reset = Some(Arc::new(cb));
         self
     }
 
     /// Finish building and return the [`Callbacks`].
     pub fn build(self) -> Callbacks {
-        self.inner
+        self.0
     }
 }
 

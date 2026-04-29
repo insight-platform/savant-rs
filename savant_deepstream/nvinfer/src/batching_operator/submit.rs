@@ -4,7 +4,7 @@ use crate::roi::{Roi, RoiKind};
 use deepstream_buffers::{BatchState, NonUniformBatch, SavantIdMetaKind, SurfaceView};
 use log::debug;
 use parking_lot::Mutex;
-use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::frame::VideoFrame;
 use savant_gstreamer::submit_gate::SubmitGate;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -92,7 +92,7 @@ impl SubmitContext {
             let batch_id = *next_batch_id as u128;
             *next_batch_id += 1;
 
-            let frame_refs: Vec<VideoFrameProxy> = frames.iter().map(|(f, _)| f.clone()).collect();
+            let frame_refs: Vec<VideoFrame> = frames.iter().map(|(f, _)| f.clone()).collect();
             let BatchFormationResult { mut ids, rois } = (self.batch_formation)(&frame_refs);
 
             let mut batch = NonUniformBatch::new(self.config.nvinfer.gpu_id);

@@ -1,7 +1,7 @@
 use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::frame::{
-    VideoFrameBuilder, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
+    VideoFrameContent, VideoFrameInnerBuilder, VideoFrame, VideoFrameTranscodingMethod,
 };
 use crate::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
@@ -10,9 +10,9 @@ use crate::primitives::{RBBox, WithAttributes};
 use crate::utils::uuid_v7::incremental_uuid_v7;
 use std::sync::Arc;
 
-pub fn gen_empty_frame() -> VideoFrameProxy {
-    VideoFrameProxy::from_inner(
-        VideoFrameBuilder::default()
+pub fn gen_empty_frame() -> VideoFrame {
+    VideoFrame::from_inner(
+        VideoFrameInnerBuilder::default()
             .source_id("test".to_string())
             .pts(0)
             .fps((30, 1))
@@ -28,9 +28,9 @@ pub fn gen_empty_frame() -> VideoFrameProxy {
     )
 }
 
-pub fn gen_frame() -> VideoFrameProxy {
-    let mut f = VideoFrameProxy::from_inner(
-        VideoFrameBuilder::default()
+pub fn gen_frame() -> VideoFrame {
+    let mut f = VideoFrame::from_inner(
+        VideoFrameInnerBuilder::default()
             .source_id("test".to_string())
             .pts(1000000)
             .fps((30, 1))

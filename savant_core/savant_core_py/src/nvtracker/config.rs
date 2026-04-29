@@ -45,9 +45,7 @@ use std::collections::HashMap;
     skip_from_py_object
 )]
 #[derive(Debug, Clone)]
-pub struct PyNvTrackerConfig {
-    pub(crate) inner: NvTrackerConfig,
-}
+pub struct PyNvTrackerConfig(pub(crate) NvTrackerConfig);
 
 #[pymethods]
 impl PyNvTrackerConfig {
@@ -110,74 +108,74 @@ impl PyNvTrackerConfig {
         if let Some(ep) = element_properties {
             cfg.element_properties = ep;
         }
-        Self { inner: cfg }
+        Self(cfg)
     }
 
     #[getter]
     fn ll_lib_file(&self) -> String {
-        self.inner.ll_lib_file.clone()
+        self.0.ll_lib_file.clone()
     }
 
     #[getter]
     fn ll_config_file(&self) -> String {
-        self.inner.ll_config_file.clone()
+        self.0.ll_config_file.clone()
     }
 
     /// Operation timeout in milliseconds.
     #[getter]
     fn operation_timeout_ms(&self) -> u64 {
-        self.inner.operation_timeout.as_millis() as u64
+        self.0.operation_timeout.as_millis() as u64
     }
 
     #[getter]
     fn input_channel_capacity(&self) -> usize {
-        self.inner.input_channel_capacity
+        self.0.input_channel_capacity
     }
 
     #[getter]
     fn output_channel_capacity(&self) -> usize {
-        self.inner.output_channel_capacity
+        self.0.output_channel_capacity
     }
 
     #[getter]
     fn drain_poll_interval_ms(&self) -> u64 {
-        self.inner.drain_poll_interval.as_millis() as u64
+        self.0.drain_poll_interval.as_millis() as u64
     }
 
     #[getter]
     fn stale_source_after_ms(&self) -> Option<u64> {
-        self.inner.stale_source_after.map(|d| d.as_millis() as u64)
+        self.0.stale_source_after.map(|d| d.as_millis() as u64)
     }
 
     #[getter]
     fn name(&self) -> String {
-        self.inner.name.clone()
+        self.0.name.clone()
     }
 
     #[getter]
     fn tracker_width(&self) -> u32 {
-        self.inner.tracker_width
+        self.0.tracker_width
     }
 
     #[getter]
     fn tracker_height(&self) -> u32 {
-        self.inner.tracker_height
+        self.0.tracker_height
     }
 
     #[getter]
     fn max_batch_size(&self) -> u32 {
-        self.inner.max_batch_size
+        self.0.max_batch_size
     }
 
     #[getter]
     fn gpu_id(&self) -> u32 {
-        self.inner.gpu_id
+        self.0.gpu_id
     }
 
     /// `NvDsObjectMeta` clearing policy.
     #[getter]
     fn meta_clear_policy(&self) -> PyMetaClearPolicy {
-        self.inner.meta_clear_policy.into()
+        self.0.meta_clear_policy.into()
     }
 
     fn __repr__(&self) -> String {
@@ -186,10 +184,10 @@ impl PyNvTrackerConfig {
              meta_clear_policy={:?}, operation_timeout_ms={}, \
              input_channel_capacity={}, output_channel_capacity={}, \
              drain_poll_interval_ms={})",
-            self.inner.name,
-            self.inner.gpu_id,
-            self.inner.max_batch_size,
-            self.inner.meta_clear_policy,
+            self.0.name,
+            self.0.gpu_id,
+            self.0.max_batch_size,
+            self.0.meta_clear_policy,
             self.operation_timeout_ms(),
             self.input_channel_capacity(),
             self.output_channel_capacity(),

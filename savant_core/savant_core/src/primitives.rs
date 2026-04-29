@@ -34,7 +34,7 @@ pub mod rust {
     pub use super::eos::EndOfStream;
     pub use super::frame::BelongingVideoFrame;
     pub use super::frame::VideoFrameContent;
-    pub use super::frame::VideoFrameProxy;
+    pub use super::frame::VideoFrame;
     pub use super::frame::VideoFrameTranscodingMethod;
     pub use super::frame::VideoFrameTransformation;
     pub use super::frame::VideoObjectTree;
