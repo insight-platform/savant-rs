@@ -161,19 +161,35 @@ pub struct PyStreamResetReason(StreamResetReason);
 
 #[pymethods]
 impl PyStreamResetReason {
-    /// The PTS of the last successfully accepted frame (nanoseconds).
+    /// Variant tag — `"pts_decreased"` or `"encoder_spec_changed"`.
+    /// Use this to dispatch on the reset reason from Python; the
+    /// per-variant getters return `None` when the variant does not
+    /// carry the corresponding field.
     #[getter]
-    fn last_pts_ns(&self) -> u64 {
+    fn kind(&self) -> &'static str {
         match &self.0 {
-            StreamResetReason::PtsDecreased { last_pts_ns, .. } => *last_pts_ns,
+            StreamResetReason::PtsDecreased { .. } => "pts_decreased",
+            StreamResetReason::EncoderSpecChanged => "encoder_spec_changed",
         }
     }
 
-    /// The PTS of the incoming frame that triggered the reset (nanoseconds).
+    /// PTS (ns) of the last successfully accepted frame.  `None` for
+    /// variants that don't carry a PTS context (e.g. `EncoderSpecChanged`).
     #[getter]
-    fn new_pts_ns(&self) -> u64 {
+    fn last_pts_ns(&self) -> Option<u64> {
         match &self.0 {
-            StreamResetReason::PtsDecreased { new_pts_ns, .. } => *new_pts_ns,
+            StreamResetReason::PtsDecreased { last_pts_ns, .. } => Some(*last_pts_ns),
+            StreamResetReason::EncoderSpecChanged => None,
+        }
+    }
+
+    /// PTS (ns) of the incoming frame that triggered the reset.
+    /// `None` for variants that don't carry a PTS context.
+    #[getter]
+    fn new_pts_ns(&self) -> Option<u64> {
+        match &self.0 {
+            StreamResetReason::PtsDecreased { new_pts_ns, .. } => Some(*new_pts_ns),
+            StreamResetReason::EncoderSpecChanged => None,
         }
     }
 
@@ -186,6 +202,9 @@ impl PyStreamResetReason {
                 format!(
                     "StreamResetReason.pts_decreased(last_pts_ns={last_pts_ns}, new_pts_ns={new_pts_ns})"
                 )
+            }
+            StreamResetReason::EncoderSpecChanged => {
+                "StreamResetReason.encoder_spec_changed()".to_string()
             }
         }
     }
