@@ -53,18 +53,23 @@ use std::fmt;
 /// conditionally on *what kind* of stage stopped with exhaustive
 /// `match` coverage.  Pair with an instance string via
 /// [`StageName`] when a single kind can have multiple live
-/// instances (e.g. several nvinfer models in one pipeline).
+/// instances (e.g. several nvinfer models, or `Mp4DemuxerSource`
+/// and `UriDemuxerSource` both registered as `BitstreamSource`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StageKind {
-    /// MP4/container demuxer source — [`Mp4DemuxerSource`](super::stages::Mp4DemuxerSource).
-    Mp4Demux,
-    /// URI demuxer source — `UriDemuxer` wrapper around
-    /// `urisourcebin` / `parsebin` for file://, http://, rtsp://,
-    /// rtmp://, hls://, … inputs.  Like `Mp4Demux`, this source can
-    /// exit naturally when its input reaches end-of-stream; the
-    /// application shutdown policy decides whether that should stop
-    /// the whole system.
-    UriDemux,
+    /// Source that emits *encoded* frames / packets — concrete
+    /// implementations include
+    /// [`Mp4DemuxerSource`](super::stages::Mp4DemuxerSource),
+    /// [`UriDemuxerSource`](super::stages::UriDemuxerSource), and
+    /// [`ZmqSource`](super::stages::ZmqSource).  All such sources
+    /// can exit naturally when their input reaches end-of-stream;
+    /// the application shutdown policy decides whether that should
+    /// stop the whole system.
+    BitstreamSource,
+    /// Source that emits *raw* GPU/system buffers (no current
+    /// implementation; reserved for future buffer-producing
+    /// drivers such as `nvargus`).
+    Source,
     /// Decoder actor — [`Decoder`](super::stages::Decoder) wrapper
     /// around `FlexibleDecoderPool`.
     Decoder,
@@ -74,22 +79,54 @@ pub enum StageKind {
     /// Tracker actor — [`NvTracker`](super::stages::NvTracker)
     /// wrapper around an NvDCF batching operator.
     Tracker,
-    /// Picasso draw/encode actor — [`Picasso`](super::stages::Picasso).
-    Picasso,
-    /// Generic user-function actor (pipeline tail, analytics tap,
-    /// custom processing stage, …).
-    Function,
-    /// MP4 muxer terminus — [`Mp4Muxer`](super::stages::Mp4Muxer).
-    Mp4Mux,
-    /// ZeroMQ-backed source — `NonBlockingReader` wrapper exposed
-    /// by [`stages::zmq_source`](super::stages::zmq_source).
-    /// Shares the "natural exit is expected" policy with the
-    /// other source kinds (`Mp4Demux`, `UriDemux`).
-    ZmqSource,
-    /// ZeroMQ-backed sink — `NonBlockingWriter` wrapper exposed
-    /// by [`stages::zmq_sink`](super::stages::zmq_sink).
-    /// Sibling of `Mp4Mux` for terminus-style policies.
-    ZmqSink,
+    /// Reorder buffer for `PipelineMsg` —
+    /// [`Sorter`](super::stages::Sorter).  Restores per-source
+    /// frame ordering after a fan-out / fan-in section by
+    /// reading explicit `(source_id, uuid)` registrations sent
+    /// via [`PipelineMsg::message_ex`].  Pure
+    /// `PipelineMsg → PipelineMsg`; sits before any
+    /// PipelineMsg-to-EncodedMsg converter (typically before
+    /// [`Render`](StageKind::Render)).
+    Sorter,
+    /// Render / draw / encode actor —
+    /// [`Picasso`](super::stages::Picasso) and any future
+    /// drop-in equivalents.
+    Render,
+    /// Generic user-function actor consuming decoded
+    /// `(VideoFrame, SharedBuffer)` deliveries — pipeline tail,
+    /// analytics tap, custom processing stage —
+    /// [`DeepStreamFunction`](super::stages::DeepStreamFunction).
+    DeepStreamFunction,
+    /// Generic user-function actor consuming the encoded-bitstream
+    /// envelope —
+    /// [`BitstreamFunction`](super::stages::BitstreamFunction).
+    BitstreamFunction,
+    /// Sink that consumes *encoded* frames / packets — concrete
+    /// implementations include
+    /// [`Mp4Muxer`](super::stages::Mp4Muxer) and
+    /// [`ZmqSink`](super::stages::ZmqSink).
+    BitstreamSink,
+    /// Sink that consumes *raw* GPU/system buffers (no current
+    /// implementation; reserved for future buffer-consuming
+    /// outputs such as direct framebuffer / display sinks).
+    Sink,
+    /// Escape hatch for 3rd-party stages that don't naturally fit
+    /// any of the framework-provided kinds.  Use it when a
+    /// downstream crate introduces a novel stage role
+    /// (encryptors, custom rate-limiters, format converters,
+    /// transcoders, …) and promoting the kind into the canonical
+    /// list isn't appropriate.
+    ///
+    /// The wrapped `&'static str` becomes the role tag in
+    /// supervisor logs and [`StageKind::as_str`] output.
+    /// Convention: `snake_case` ASCII without spaces — matches the
+    /// canonical kind identifiers.  Use a `const` declaration in
+    /// your crate so the tag is stable:
+    ///
+    /// ```ignore
+    /// pub const ENCRYPTOR_KIND: StageKind = StageKind::Custom("encryptor");
+    /// ```
+    Custom(&'static str),
     /// Synthetic signal posted by the Ctrl+C handler so user-cancel
     /// flows through the same single recv-point as natural exits.
     CtrlC,
@@ -97,19 +134,21 @@ pub enum StageKind {
 
 impl StageKind {
     /// Lower-case static identifier used in log lines, e.g.
-    /// `"mp4_demux"`, `"infer"`, `"ctrl-c"`.
+    /// `"bitstream_source"`, `"infer"`, `"ctrl-c"`.
     pub const fn as_str(&self) -> &'static str {
         match self {
-            StageKind::Mp4Demux => "mp4_demux",
-            StageKind::UriDemux => "uri_demux",
+            StageKind::BitstreamSource => "bitstream_source",
+            StageKind::Source => "source",
             StageKind::Decoder => "decoder",
             StageKind::Infer => "infer",
             StageKind::Tracker => "tracker",
-            StageKind::Picasso => "picasso",
-            StageKind::Function => "function",
-            StageKind::Mp4Mux => "mp4_mux",
-            StageKind::ZmqSource => "zmq_source",
-            StageKind::ZmqSink => "zmq_sink",
+            StageKind::Sorter => "sorter",
+            StageKind::Render => "render",
+            StageKind::DeepStreamFunction => "deepstream_function",
+            StageKind::BitstreamFunction => "bitstream_function",
+            StageKind::BitstreamSink => "bitstream_sink",
+            StageKind::Sink => "sink",
+            StageKind::Custom(tag) => tag,
             StageKind::CtrlC => "ctrl-c",
         }
     }
@@ -131,7 +170,7 @@ impl fmt::Display for StageKind {
 /// which one signalled.
 ///
 /// Conditional shutdown policy (e.g. "ignore a natural
-/// `Mp4Demux` exit") matches on the [`StageKind`] only; the
+/// `BitstreamSource` exit") matches on the [`StageKind`] only; the
 /// instance is purely for operator visibility.
 ///
 /// Construct with:
@@ -277,10 +316,10 @@ mod tests {
     fn guard_sends_on_drop() {
         let (tx, rx) = exit_channel();
         {
-            let _guard = StageExitGuard::new(StageName::unnamed(StageKind::Mp4Demux), tx);
+            let _guard = StageExitGuard::new(StageName::unnamed(StageKind::BitstreamSource), tx);
         }
         let got = rx.recv().expect("guard must push one signal");
-        assert_eq!(got.stage.kind, StageKind::Mp4Demux);
+        assert_eq!(got.stage.kind, StageKind::BitstreamSource);
         assert!(got.stage.is_unnamed());
         assert!(rx.try_recv().is_err(), "guard must not fire twice");
     }
@@ -340,16 +379,18 @@ mod tests {
     #[test]
     fn stage_kind_as_str_covers_every_variant() {
         for (kind, expected) in [
-            (StageKind::Mp4Demux, "mp4_demux"),
-            (StageKind::UriDemux, "uri_demux"),
+            (StageKind::BitstreamSource, "bitstream_source"),
+            (StageKind::Source, "source"),
             (StageKind::Decoder, "decoder"),
             (StageKind::Infer, "infer"),
             (StageKind::Tracker, "tracker"),
-            (StageKind::Picasso, "picasso"),
-            (StageKind::Function, "function"),
-            (StageKind::Mp4Mux, "mp4_mux"),
-            (StageKind::ZmqSource, "zmq_source"),
-            (StageKind::ZmqSink, "zmq_sink"),
+            (StageKind::Sorter, "sorter"),
+            (StageKind::Render, "render"),
+            (StageKind::DeepStreamFunction, "deepstream_function"),
+            (StageKind::BitstreamFunction, "bitstream_function"),
+            (StageKind::BitstreamSink, "bitstream_sink"),
+            (StageKind::Sink, "sink"),
+            (StageKind::Custom("encryptor"), "encryptor"),
             (StageKind::CtrlC, "ctrl-c"),
         ] {
             assert_eq!(kind.as_str(), expected);
@@ -357,20 +398,38 @@ mod tests {
         }
     }
 
+    /// `StageKind::Custom` survives the `Copy + Eq + Hash` derives —
+    /// 3rd-party crates need this to use it as a registry key.
+    #[test]
+    fn custom_stage_kind_is_copy_eq_hashable() {
+        const A: StageKind = StageKind::Custom("rate_limiter");
+        const B: StageKind = StageKind::Custom("rate_limiter");
+        const C: StageKind = StageKind::Custom("transcoder");
+        assert_eq!(A, B);
+        assert_ne!(A, C);
+        let copy = A;
+        assert_eq!(copy.as_str(), "rate_limiter");
+        let mut set = std::collections::HashSet::new();
+        set.insert(A);
+        set.insert(B);
+        set.insert(C);
+        assert_eq!(set.len(), 2);
+    }
+
     /// `StageName` display distinguishes unnamed (`"mp4_demux"`)
     /// from named (`"infer[yolo11n]"`) instances.
     #[test]
     fn stage_name_display_formats_instance() {
-        let unnamed = StageName::unnamed(StageKind::Mp4Demux);
-        assert_eq!(unnamed.to_string(), "mp4_demux");
+        let unnamed = StageName::unnamed(StageKind::BitstreamSource);
+        assert_eq!(unnamed.to_string(), "bitstream_source");
         assert!(unnamed.is_unnamed());
 
         let named = StageName::new(StageKind::Infer, "yolo11n");
         assert_eq!(named.to_string(), "infer[yolo11n]");
         assert!(!named.is_unnamed());
 
-        let empty = StageName::new(StageKind::Mp4Mux, "");
-        assert_eq!(empty.to_string(), "mp4_mux");
+        let empty = StageName::new(StageKind::BitstreamSink, "");
+        assert_eq!(empty.to_string(), "bitstream_sink");
         assert!(empty.is_unnamed());
 
         let owned = StageName::new(StageKind::Tracker, String::from("lane_a"));

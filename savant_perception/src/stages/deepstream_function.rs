@@ -1,13 +1,13 @@
-//! [`Function`] — generic user-function actor (default: pipeline
+//! [`DeepStreamFunction`] — generic user-function actor (default: pipeline
 //! terminus).
 //!
-//! A [`Function`] is the simplest stage actor shape: it
+//! A [`DeepStreamFunction`] is the simplest stage actor shape: it
 //! consumes every
 //! [`PipelineMsg`]
 //! variant the upstream stage emits and — by default — drops the
 //! payload, releasing any resources (e.g. GPU slots held by
 //! [`SharedBuffer`]) back to the
-//! pipeline.  The name **`Function`** reflects the actor's real
+//! pipeline.  The name **`DeepStreamFunction`** reflects the actor's real
 //! purpose: it hosts an arbitrary user-supplied callback
 //! (`on_delivery`) that receives every
 //! `(VideoFrame, SharedBuffer)` batch by **shared
@@ -20,18 +20,18 @@
 //! The stage exposes two hook bundles matching the cross-stage
 //! grouped-builder pattern:
 //!
-//! * [`FunctionInbox`] — inbox hooks dispatched on the actor thread
+//! * [`DeepStreamFunctionInbox`] — inbox hooks dispatched on the actor thread
 //!   (`on_delivery`, `on_source_eos`).
-//! * [`FunctionCommon`] — lifecycle + loop-level knobs
+//! * [`DeepStreamFunctionCommon`] — lifecycle + loop-level knobs
 //!   (`on_started`, `stopping`, `poll_timeout`).
 //!
 //! Build a function with zero user code:
 //!
 //! ```ignore
 //! use savant_perception::supervisor::{StageKind, StageName};
-//! use savant_perception::stages::Function;
+//! use savant_perception::stages::DeepStreamFunction;
 //!
-//! let builder = Function::builder(StageName::unnamed(StageKind::Function), 16).build();
+//! let builder = DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 16).build();
 //! ```
 //!
 //! The resulting actor drops every delivery and logs `SourceEos`
@@ -45,7 +45,7 @@
 //!
 //! Override per-hook for domain behaviour via the bundles:
 //!
-//! * [`FunctionInboxBuilder::on_delivery`] — called with every
+//! * [`DeepStreamFunctionInboxBuilder::on_delivery`] — called with every
 //!   unsealed `(VideoFrame, SharedBuffer)` batch (both the
 //!   single-delivery and batched-delivery variants funnel through
 //!   here after unsealing).  The batch is passed by **shared
@@ -54,13 +54,13 @@
 //!   consuming it.  The stage drops the owned `Vec` as soon as
 //!   the hook returns; clone the frames / buffers inside the hook
 //!   if they need to outlive the call.  Default: drop (no-op).
-//! * [`FunctionInboxBuilder::on_source_eos`] — called on every
+//! * [`DeepStreamFunctionInboxBuilder::on_source_eos`] — called on every
 //!   [`PipelineMsg::SourceEos`].
 //!   Returns [`Flow`] so the function can self-terminate on the
 //!   first EOS (e.g. single-source pipeline) or stay alive
 //!   (default).
-//! * [`FunctionCommonBuilder::on_started`] /
-//!   [`FunctionCommonBuilder::stopping`] — optional lifecycle logs.
+//! * [`DeepStreamFunctionCommonBuilder::on_started`] /
+//!   [`DeepStreamFunctionCommonBuilder::stopping`] — optional lifecycle logs.
 //!   Both always installed; default is a single `info!` log line.
 //!
 //! All hooks run on the actor's OS thread; they may capture
@@ -68,12 +68,12 @@
 //!
 //! # Runtime invariant
 //!
-//! Every hook slot on the runtime [`Function`] struct is a
+//! Every hook slot on the runtime [`DeepStreamFunction`] struct is a
 //! non-`Option` boxed closure.  The bundle builders' `Option<...>`
 //! fields exist purely as "was the setter called?" markers;
-//! [`FunctionInboxBuilder::build`] and
-//! [`FunctionCommonBuilder::build`] always substitute the matching
-//! default before the [`FunctionBuilder`] is finalised.
+//! [`DeepStreamFunctionInboxBuilder::build`] and
+//! [`DeepStreamFunctionCommonBuilder::build`] always substitute the matching
+//! default before the [`DeepStreamFunctionBuilder`] is finalised.
 
 use std::time::Duration;
 
@@ -97,7 +97,7 @@ use savant_core::primitives::frame::VideoFrame;
 /// helpers (e.g. inference / tracking / encoding) without
 /// consuming is now the natural shape.
 pub type DeliveryHook = Box<
-    dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Function>) -> Result<()>
+    dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<DeepStreamFunction>) -> Result<()>
         + Send
         + 'static,
 >;
@@ -105,28 +105,28 @@ pub type DeliveryHook = Box<
 /// Closure type for `on_source_eos`.  Returning [`Flow::Stop`] exits
 /// the receive loop on that EOS; [`Flow::Cont`] keeps the function
 /// alive.
-pub type EosHook = Box<dyn FnMut(&str, &mut Context<Function>) -> Result<Flow> + Send + 'static>;
+pub type EosHook = Box<dyn FnMut(&str, &mut Context<DeepStreamFunction>) -> Result<Flow> + Send + 'static>;
 
 /// Closure type for `on_started` — runs once when the actor's
 /// receive loop starts.  Always populated at runtime (the default
 /// is a single `info!` log line).
-pub type OnStartedHook = Box<dyn FnMut(&mut Context<Function>) + Send + 'static>;
+pub type OnStartedHook = Box<dyn FnMut(&mut Context<DeepStreamFunction>) + Send + 'static>;
 
 /// User shutdown hook invoked from [`Actor::stopping`] — the
 /// stage has no load-bearing built-in cleanup, so the hook body
 /// is the only work done on stop.  Runs on the actor thread with
 /// full access to the [`Context`].  Always populated at runtime;
 /// default is a single `info!` log line.
-pub type OnStoppingHook = Box<dyn FnMut(&mut Context<Function>) + Send + 'static>;
+pub type OnStoppingHook = Box<dyn FnMut(&mut Context<DeepStreamFunction>) + Send + 'static>;
 
 /// Generic user-function actor (default: pipeline terminus).
 ///
-/// Construct with [`Function::builder`].  The actor carries its
+/// Construct with [`DeepStreamFunction::builder`].  The actor carries its
 /// hooks as boxed closures.  Every slot is non-`Option` by
-/// construction — the [`FunctionInbox`] / [`FunctionCommon`]
+/// construction — the [`DeepStreamFunctionInbox`] / [`DeepStreamFunctionCommon`]
 /// bundles auto-install the matching default when the user omits
 /// a setter.
-pub struct Function {
+pub struct DeepStreamFunction {
     delivery: DeliveryHook,
     source_eos: EosHook,
     started: OnStartedHook,
@@ -134,16 +134,16 @@ pub struct Function {
     poll_timeout: Duration,
 }
 
-impl Function {
+impl DeepStreamFunction {
     /// Start a fluent builder for a function registered under
     /// `name` with inbox capacity `capacity`.
-    pub fn builder(name: StageName, capacity: usize) -> FunctionBuilder {
-        FunctionBuilder::new(name, capacity)
+    pub fn builder(name: StageName, capacity: usize) -> DeepStreamFunctionBuilder {
+        DeepStreamFunctionBuilder::new(name, capacity)
     }
 
     /// Default `on_delivery` hook — drops every unsealed batch.
     pub fn default_on_delivery(
-    ) -> impl FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Function>) -> Result<()>
+    ) -> impl FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<DeepStreamFunction>) -> Result<()>
            + Send
            + 'static {
         |_pairs, _ctx| Ok(())
@@ -153,7 +153,7 @@ impl Function {
     /// returns `Ok(Flow::Cont)` so the function stays alive through
     /// an arbitrary number of per-source drainages.
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &mut Context<Function>) -> Result<Flow> + Send + 'static {
+    ) -> impl FnMut(&str, &mut Context<DeepStreamFunction>) -> Result<Flow> + Send + 'static {
         |source_id, ctx| {
             log::info!("[{}] SourceEos {source_id}: continuing", ctx.own_name());
             Ok(Flow::Cont)
@@ -162,7 +162,7 @@ impl Function {
 
     /// Default `on_started` hook — logs `[{stage}] function started`
     /// at `info` level.
-    pub fn default_on_started() -> impl FnMut(&mut Context<Function>) + Send + 'static {
+    pub fn default_on_started() -> impl FnMut(&mut Context<DeepStreamFunction>) + Send + 'static {
         |ctx| {
             log::info!("[{}] function started", ctx.own_name());
         }
@@ -171,14 +171,14 @@ impl Function {
     /// Default user shutdown hook — emits one info-level log line.
     /// The stage has no load-bearing built-in cleanup, so this
     /// hook body is the only work done on stop.
-    pub fn default_stopping() -> impl FnMut(&mut Context<Function>) + Send + 'static {
+    pub fn default_stopping() -> impl FnMut(&mut Context<DeepStreamFunction>) + Send + 'static {
         |ctx| {
             log::info!("[{}] function stopping", ctx.own_name());
         }
     }
 }
 
-impl Actor for Function {
+impl Actor for DeepStreamFunction {
     type Msg = PipelineMsg;
 
     fn handle(&mut self, msg: PipelineMsg, ctx: &mut Context<Self>) -> Result<Flow> {
@@ -199,7 +199,7 @@ impl Actor for Function {
     }
 }
 
-impl Handler<SingleDelivery> for Function {
+impl Handler<SingleDelivery> for DeepStreamFunction {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
         let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
         (self.delivery)(&pairs, ctx)?;
@@ -207,7 +207,7 @@ impl Handler<SingleDelivery> for Function {
     }
 }
 
-impl Handler<BatchDelivery> for Function {
+impl Handler<BatchDelivery> for DeepStreamFunction {
     fn handle(&mut self, msg: BatchDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
         let pairs = msg.0.unseal();
         (self.delivery)(&pairs, ctx)?;
@@ -215,7 +215,7 @@ impl Handler<BatchDelivery> for Function {
     }
 }
 
-impl Handler<SourceEosPayload> for Function {
+impl Handler<SourceEosPayload> for DeepStreamFunction {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
         (self.source_eos)(&msg.source_id, ctx)
     }
@@ -225,41 +225,41 @@ impl Handler<SourceEosPayload> for Function {
 /// consumed the shutdown hint from [`PipelineMsg::Shutdown`] via
 /// [`Envelope::as_shutdown`](super::super::Envelope::as_shutdown),
 /// so the in-band sentinel has no remaining work to do here.
-impl Handler<ShutdownPayload> for Function {}
+impl Handler<ShutdownPayload> for DeepStreamFunction {}
 
-/// Inbox hook bundle for [`Function`] — one branch per inbox
-/// message kind.  Built through [`FunctionInbox::builder`] and
-/// handed to [`FunctionBuilder::inbox`].  Omitted branches
-/// auto-install the matching `Function::default_on_*` at build
+/// Inbox hook bundle for [`DeepStreamFunction`] — one branch per inbox
+/// message kind.  Built through [`DeepStreamFunctionInbox::builder`] and
+/// handed to [`DeepStreamFunctionBuilder::inbox`].  Omitted branches
+/// auto-install the matching `DeepStreamFunction::default_on_*` at build
 /// time.
-pub struct FunctionInbox {
+pub struct DeepStreamFunctionInbox {
     delivery: DeliveryHook,
     source_eos: EosHook,
 }
 
-impl FunctionInbox {
+impl DeepStreamFunctionInbox {
     /// Start a builder that auto-installs every default on
-    /// [`FunctionInboxBuilder::build`].
-    pub fn builder() -> FunctionInboxBuilder {
-        FunctionInboxBuilder::new()
+    /// [`DeepStreamFunctionInboxBuilder::build`].
+    pub fn builder() -> DeepStreamFunctionInboxBuilder {
+        DeepStreamFunctionInboxBuilder::new()
     }
 }
 
-impl Default for FunctionInbox {
+impl Default for DeepStreamFunctionInbox {
     fn default() -> Self {
-        FunctionInboxBuilder::new().build()
+        DeepStreamFunctionInboxBuilder::new().build()
     }
 }
 
-/// Fluent builder for [`FunctionInbox`].
-pub struct FunctionInboxBuilder {
+/// Fluent builder for [`DeepStreamFunctionInbox`].
+pub struct DeepStreamFunctionInboxBuilder {
     delivery: Option<DeliveryHook>,
     source_eos: Option<EosHook>,
 }
 
-impl FunctionInboxBuilder {
+impl DeepStreamFunctionInboxBuilder {
     /// Empty bundle — both hooks default to the matching
-    /// `Function::default_on_*` at [`build`](Self::build) time.
+    /// `DeepStreamFunction::default_on_*` at [`build`](Self::build) time.
     pub fn new() -> Self {
         Self {
             delivery: None,
@@ -280,7 +280,7 @@ impl FunctionInboxBuilder {
     /// automatically as soon as this hook returns.
     pub fn on_delivery<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Function>) -> Result<()>
+        F: FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<DeepStreamFunction>) -> Result<()>
             + Send
             + 'static,
     {
@@ -295,7 +295,7 @@ impl FunctionInboxBuilder {
     /// pipelines).
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &mut Context<Function>) -> Result<Flow> + Send + 'static,
+        F: FnMut(&str, &mut Context<DeepStreamFunction>) -> Result<Flow> + Send + 'static,
     {
         self.source_eos = Some(Box::new(f));
         self
@@ -303,61 +303,61 @@ impl FunctionInboxBuilder {
 
     /// Finalise the bundle, substituting defaults for every omitted
     /// setter.
-    pub fn build(self) -> FunctionInbox {
-        let FunctionInboxBuilder {
+    pub fn build(self) -> DeepStreamFunctionInbox {
+        let DeepStreamFunctionInboxBuilder {
             delivery,
             source_eos,
         } = self;
-        FunctionInbox {
-            delivery: delivery.unwrap_or_else(|| Box::new(Function::default_on_delivery())),
-            source_eos: source_eos.unwrap_or_else(|| Box::new(Function::default_on_source_eos())),
+        DeepStreamFunctionInbox {
+            delivery: delivery.unwrap_or_else(|| Box::new(DeepStreamFunction::default_on_delivery())),
+            source_eos: source_eos.unwrap_or_else(|| Box::new(DeepStreamFunction::default_on_source_eos())),
         }
     }
 }
 
-impl Default for FunctionInboxBuilder {
+impl Default for DeepStreamFunctionInboxBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Lifecycle + loop-level knob bundle for [`Function`].  Built
-/// through [`FunctionCommon::builder`] and handed to
-/// [`FunctionBuilder::common`].
-pub struct FunctionCommon {
+/// Lifecycle + loop-level knob bundle for [`DeepStreamFunction`].  Built
+/// through [`DeepStreamFunctionCommon::builder`] and handed to
+/// [`DeepStreamFunctionBuilder::common`].
+pub struct DeepStreamFunctionCommon {
     started: OnStartedHook,
     stopping: OnStoppingHook,
     poll_timeout: Duration,
 }
 
-impl FunctionCommon {
+impl DeepStreamFunctionCommon {
     /// Start a builder seeded with defaults.
-    pub fn builder() -> FunctionCommonBuilder {
-        FunctionCommonBuilder::new()
+    pub fn builder() -> DeepStreamFunctionCommonBuilder {
+        DeepStreamFunctionCommonBuilder::new()
     }
 }
 
-impl Default for FunctionCommon {
+impl Default for DeepStreamFunctionCommon {
     fn default() -> Self {
-        FunctionCommonBuilder::new().build()
+        DeepStreamFunctionCommonBuilder::new().build()
     }
 }
 
-/// Fluent builder for [`FunctionCommon`].
-pub struct FunctionCommonBuilder {
+/// Fluent builder for [`DeepStreamFunctionCommon`].
+pub struct DeepStreamFunctionCommonBuilder {
     started: Option<OnStartedHook>,
     stopping: Option<OnStoppingHook>,
     poll_timeout: Option<Duration>,
 }
 
-impl FunctionCommonBuilder {
+impl DeepStreamFunctionCommonBuilder {
     /// Default receive-poll cadence — matches
     /// [`Actor::poll_timeout`]'s
     /// 200 ms default.
     pub const DEFAULT_POLL: Duration = Duration::from_millis(200);
 
     /// Empty bundle — both hooks default to the matching
-    /// `Function::default_*` and `poll_timeout` defaults to
+    /// `DeepStreamFunction::default_*` and `poll_timeout` defaults to
     /// [`Self::DEFAULT_POLL`].
     pub fn new() -> Self {
         Self {
@@ -371,20 +371,20 @@ impl FunctionCommonBuilder {
     /// `[{stage}] function started` at `info` level.
     pub fn on_started<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&mut Context<Function>) + Send + 'static,
+        F: FnMut(&mut Context<DeepStreamFunction>) + Send + 'static,
     {
         self.started = Some(Box::new(f));
         self
     }
 
     /// Install a custom `stopping` hook; the default
-    /// ([`Function::default_stopping`]) logs
+    /// ([`DeepStreamFunction::default_stopping`]) logs
     /// `[{stage}] function stopping`.  The stage has no
     /// load-bearing built-in cleanup on [`Actor::stopping`], so
     /// this hook's body is the **only** work done on stop.
     pub fn stopping<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&mut Context<Function>) + Send + 'static,
+        F: FnMut(&mut Context<DeepStreamFunction>) + Send + 'static,
     {
         self.stopping = Some(Box::new(f));
         self
@@ -398,43 +398,43 @@ impl FunctionCommonBuilder {
 
     /// Finalise the bundle, substituting defaults for every omitted
     /// setter.
-    pub fn build(self) -> FunctionCommon {
-        let FunctionCommonBuilder {
+    pub fn build(self) -> DeepStreamFunctionCommon {
+        let DeepStreamFunctionCommonBuilder {
             started,
             stopping,
             poll_timeout,
         } = self;
-        FunctionCommon {
-            started: started.unwrap_or_else(|| Box::new(Function::default_on_started())),
-            stopping: stopping.unwrap_or_else(|| Box::new(Function::default_stopping())),
+        DeepStreamFunctionCommon {
+            started: started.unwrap_or_else(|| Box::new(DeepStreamFunction::default_on_started())),
+            stopping: stopping.unwrap_or_else(|| Box::new(DeepStreamFunction::default_stopping())),
             poll_timeout: poll_timeout.unwrap_or(Self::DEFAULT_POLL),
         }
     }
 }
 
-impl Default for FunctionCommonBuilder {
+impl Default for DeepStreamFunctionCommonBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Fluent builder for [`Function`].
+/// Fluent builder for [`DeepStreamFunction`].
 ///
 /// Every hook defaults to the "pure terminus" behaviour described
-/// in [`Function`]'s module docs.  Install the [`FunctionInbox`]
-/// and [`FunctionCommon`] bundles via [`FunctionBuilder::inbox`] /
-/// [`FunctionBuilder::common`] to override.  Terminate with
-/// [`FunctionBuilder::build`] to obtain an
-/// [`ActorBuilder<Function>`] suitable for
+/// in [`DeepStreamFunction`]'s module docs.  Install the [`DeepStreamFunctionInbox`]
+/// and [`DeepStreamFunctionCommon`] bundles via [`DeepStreamFunctionBuilder::inbox`] /
+/// [`DeepStreamFunctionBuilder::common`] to override.  Terminate with
+/// [`DeepStreamFunctionBuilder::build`] to obtain an
+/// [`ActorBuilder<DeepStreamFunction>`] suitable for
 /// [`System::register_actor`](super::super::System::register_actor).
-pub struct FunctionBuilder {
+pub struct DeepStreamFunctionBuilder {
     name: StageName,
     capacity: usize,
-    inbox: Option<FunctionInbox>,
-    common: Option<FunctionCommon>,
+    inbox: Option<DeepStreamFunctionInbox>,
+    common: Option<DeepStreamFunctionCommon>,
 }
 
-impl FunctionBuilder {
+impl DeepStreamFunctionBuilder {
     /// Build a function under `name` with inbox capacity `capacity`
     /// and the default hooks — drop every delivery, log+continue
     /// on every EOS.
@@ -447,39 +447,39 @@ impl FunctionBuilder {
         }
     }
 
-    /// Install a [`FunctionInbox`] bundle — inbox hook slots
+    /// Install a [`DeepStreamFunctionInbox`] bundle — inbox hook slots
     /// (`on_delivery`, `on_source_eos`).  Omitting this call is
-    /// equivalent to `.inbox(FunctionInbox::default())`, which
-    /// wires every slot to the matching `Function::default_on_*`.
-    pub fn inbox(mut self, i: FunctionInbox) -> Self {
+    /// equivalent to `.inbox(DeepStreamFunctionInbox::default())`, which
+    /// wires every slot to the matching `DeepStreamFunction::default_on_*`.
+    pub fn inbox(mut self, i: DeepStreamFunctionInbox) -> Self {
         self.inbox = Some(i);
         self
     }
 
-    /// Install a [`FunctionCommon`] bundle — lifecycle and
+    /// Install a [`DeepStreamFunctionCommon`] bundle — lifecycle and
     /// loop-level knobs (`on_started`, `stopping`, `poll_timeout`).
     /// Omitting this call is equivalent to
-    /// `.common(FunctionCommon::default())`.
-    pub fn common(mut self, c: FunctionCommon) -> Self {
+    /// `.common(DeepStreamFunctionCommon::default())`.
+    pub fn common(mut self, c: DeepStreamFunctionCommon) -> Self {
         self.common = Some(c);
         self
     }
 
     /// Finalise the stage configuration and obtain the
-    /// Layer-A [`ActorBuilder<Function>`] ready for
+    /// Layer-A [`ActorBuilder<DeepStreamFunction>`] ready for
     /// [`System::register_actor`](super::super::System::register_actor).
-    pub fn build(self) -> ActorBuilder<Function> {
+    pub fn build(self) -> ActorBuilder<DeepStreamFunction> {
         let Self {
             name,
             capacity,
             inbox,
             common,
         } = self;
-        let FunctionInbox {
+        let DeepStreamFunctionInbox {
             delivery,
             source_eos,
         } = inbox.unwrap_or_default();
-        let FunctionCommon {
+        let DeepStreamFunctionCommon {
             started,
             stopping,
             poll_timeout,
@@ -487,7 +487,7 @@ impl FunctionBuilder {
         ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
             .factory(move |_bx| {
-                Ok(Function {
+                Ok(DeepStreamFunction {
                     delivery,
                     source_eos,
                     started,
@@ -521,7 +521,7 @@ mod tests {
                 })
             });
         let addr = sys
-            .register_actor(Function::builder(StageName::unnamed(StageKind::Function), 4).build())
+            .register_actor(DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 4).build())
             .unwrap();
 
         addr.send(PipelineMsg::SourceEos {
@@ -549,9 +549,9 @@ mod tests {
             .quiescence(Duration::from_millis(0));
         let addr = sys
             .register_actor(
-                Function::builder(StageName::unnamed(StageKind::Function), 4)
+                DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 4)
                     .inbox(
-                        FunctionInbox::builder()
+                        DeepStreamFunctionInbox::builder()
                             .on_source_eos(move |sid, _ctx| {
                                 counter_clone.fetch_add(1, Ordering::Relaxed);
                                 let _ = sid;
@@ -580,9 +580,9 @@ mod tests {
     /// acceptance by the framework).
     #[test]
     fn custom_on_delivery_is_installed() {
-        let _ = Function::builder(StageName::unnamed(StageKind::Function), 2)
+        let _ = DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 2)
             .inbox(
-                FunctionInbox::builder()
+                DeepStreamFunctionInbox::builder()
                     .on_delivery(|pairs, _ctx| {
                         let _n = pairs.len();
                         Ok(())
@@ -590,7 +590,7 @@ mod tests {
                     .build(),
             )
             .common(
-                FunctionCommon::builder()
+                DeepStreamFunctionCommon::builder()
                     .on_started(|ctx| log::debug!("started {}", ctx.own_name()))
                     .stopping(|ctx| log::debug!("stopping {}", ctx.own_name()))
                     .poll_timeout(Duration::from_millis(50))
@@ -599,13 +599,13 @@ mod tests {
             .build();
     }
 
-    /// Every slot on the runtime [`Function`] struct is non-`Option`
+    /// Every slot on the runtime [`DeepStreamFunction`] struct is non-`Option`
     /// — the bundle builders always substitute a default.  Compile-
     /// only check via a destructuring pattern that refuses any
     /// `Option<_>` wrapper.
     #[test]
     fn runtime_invariant_all_hooks_populated() {
-        let sb = Function::builder(StageName::unnamed(StageKind::Function), 2).build();
+        let sb = DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 2).build();
         // Extract the factory and run it to materialise the
         // runtime struct with all its defaults.
         use crate::context::BuildCtx;
@@ -617,7 +617,7 @@ mod tests {
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
         let func = (parts.factory)(&bx).expect("factory resolves");
-        let Function {
+        let DeepStreamFunction {
             delivery: _,
             source_eos: _,
             started: _,

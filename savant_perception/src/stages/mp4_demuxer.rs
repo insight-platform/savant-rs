@@ -50,7 +50,7 @@
 //!
 //! ```ignore
 //! sys.register_source(
-//!     Mp4DemuxerSource::builder(StageName::unnamed(StageKind::Mp4Demux))
+//!     Mp4DemuxerSource::builder(StageName::unnamed(StageKind::BitstreamSource))
 //!         .one_shot(input_path, "cam1")
 //!         .downstream(StageName::unnamed(StageKind::Decoder))
 //!         .results(
@@ -84,7 +84,7 @@
 //! * [`Mp4DemuxerSource::default_on_packet_as_frame`] — constructs
 //!   a [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
 //!   on the demuxer side (via
-//!   [`make_decode_frame`](super::decoder::make_decode_frame)) and
+//!   [`make_decode_frame`](super::demuxers::decode_frame::make_decode_frame)) and
 //!   sends
 //!   [`EncodedMsg::Frame`].
 //!   Use when you want upstream frame construction so the decoder
@@ -364,7 +364,7 @@ impl Mp4DemuxerSource {
     /// Default `on_packet` forwarder that constructs the
     /// decoder-facing [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// **on the demuxer side** (via
-    /// [`make_decode_frame`](super::decoder::make_decode_frame)) and
+    /// [`make_decode_frame`](super::demuxers::decode_frame::make_decode_frame)) and
     /// sends
     /// [`EncodedMsg::Frame { frame, payload: Some(bytes) }`](crate::envelopes::EncodedMsg::Frame).
     /// The leading `input` argument (path / URI of the current
@@ -395,7 +395,7 @@ impl Mp4DemuxerSource {
            + Send
            + 'static {
         |_input, source_id, info, packet, router, _ctx| {
-            let frame = super::decoder::make_decode_frame(source_id, &packet, info);
+            let frame = super::demuxers::decode_frame::make_decode_frame(source_id, &packet, info);
             let payload = Some(packet.data);
             router.send(EncodedMsg::Frame { frame, payload });
             Ok(())
@@ -1156,7 +1156,7 @@ mod tests {
 
     #[test]
     fn builder_requires_input() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         assert!(err_msg(Mp4DemuxerSource::builder(name).build()).contains("missing input"));
     }
 
@@ -1165,7 +1165,7 @@ mod tests {
     /// drops all packets through the default `router.send(...)` path.
     #[test]
     fn builder_without_downstream_is_accepted() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let _ = Mp4DemuxerSource::builder(name)
             .one_shot("/tmp/x.mp4", "s")
             .build()
@@ -1174,7 +1174,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_all_hooks() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name)
             .one_shot("/tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1221,7 +1221,7 @@ mod tests {
     /// generic hook bounds as-is.
     #[test]
     fn builder_accepts_default_forwarders() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name)
             .one_shot("/tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1242,7 +1242,7 @@ mod tests {
     /// builder in place of `default_on_packet`.
     #[test]
     fn builder_accepts_default_on_packet_as_frame() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name)
             .one_shot("/tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1266,7 +1266,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let flag = Arc::new(AtomicBool::new(false));
         let flag_hook = flag.clone();
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let _ = Mp4DemuxerSource::builder(name)
             .one_shot("/tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1295,7 +1295,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name.clone())
             .one_shot("/tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1339,7 +1339,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name.clone())
             .input(|_ctx| DemuxInputRequest::Run {
                 input: "/tmp/y.mp4".to_string(),
@@ -1372,7 +1372,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name)
             .looped("/tmp/loop.mp4", "loop")
             .build()
@@ -1400,7 +1400,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = Mp4DemuxerSource::builder(name)
             .one_shot("/tmp/z.mp4", "z")
             .build()

@@ -1065,7 +1065,7 @@ mod tests {
     /// registered `PipelineMsg` inbox.  Returns the router and the
     /// receiver so tests can observe forwarded messages.
     fn router_with_default_peer() -> (Router<PipelineMsg>, Receiver<PipelineMsg>) {
-        let peer = StageName::unnamed(StageKind::Picasso);
+        let peer = StageName::unnamed(StageKind::Render);
         let (tx, rx) = bounded::<PipelineMsg>(4);
         let mut reg = Registry::new();
         reg.insert::<PipelineMsg>(peer.clone(), Addr::new(peer.clone(), tx));
@@ -1115,7 +1115,7 @@ mod tests {
     fn builder_accepts_full_config() {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
-            .downstream(StageName::unnamed(StageKind::Picasso))
+            .downstream(StageName::unnamed(StageKind::Render))
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()
@@ -1142,7 +1142,7 @@ mod tests {
     fn builder_accepts_default_forwarders() {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
-            .downstream(StageName::unnamed(StageKind::Picasso))
+            .downstream(StageName::unnamed(StageKind::Render))
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .build()
             .unwrap();
@@ -1154,7 +1154,7 @@ mod tests {
     fn builder_accepts_explicit_defaults() {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name.clone(), 4)
-            .downstream(StageName::unnamed(StageKind::Picasso))
+            .downstream(StageName::unnamed(StageKind::Render))
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()
@@ -1182,7 +1182,7 @@ mod tests {
         let flag_hook = flag.clone();
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
-            .downstream(StageName::unnamed(StageKind::Picasso))
+            .downstream(StageName::unnamed(StageKind::Render))
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .common(
                 NvTrackerCommon::builder()
@@ -1264,7 +1264,7 @@ mod tests {
         use crate::shared::SharedStore;
 
         let mut reg = Registry::new();
-        let picasso = StageName::unnamed(StageKind::Picasso);
+        let picasso = StageName::unnamed(StageKind::Render);
         let (tx, _rx) = bounded::<PipelineMsg>(1);
         reg.insert::<PipelineMsg>(picasso.clone(), Addr::new(picasso.clone(), tx));
         let mut shared = SharedStore::new();
@@ -1296,7 +1296,7 @@ mod tests {
     fn builder_needs_no_reset_handle_setter() {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
-            .downstream(StageName::unnamed(StageKind::Picasso))
+            .downstream(StageName::unnamed(StageKind::Render))
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()

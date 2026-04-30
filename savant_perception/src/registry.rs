@@ -195,6 +195,6 @@ mod tests {
         assert_eq!(r.stages().len(), 3);
         assert_eq!(r.stages_of(StageKind::Infer).len(), 2);
         assert_eq!(r.stages_of(StageKind::Tracker).len(), 1);
-        assert_eq!(r.stages_of(StageKind::Picasso).len(), 0);
+        assert_eq!(r.stages_of(StageKind::Render).len(), 0);
     }
 }

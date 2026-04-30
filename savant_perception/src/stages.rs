@@ -28,19 +28,26 @@
 //!   [`Context`](super::Context) unless they explicitly want to
 //!   (via a custom hook).
 //!
-//! See [`function`] for a minimal, dependency-free stage
+//! See [`deepstream_function`] for a minimal, dependency-free stage
 //! that the same patterns are layered onto in heavier stages
 //! (e.g. [`decoder`], [`nvinfer`], [`mp4_muxer`]).
 
 pub mod bitstream_function;
+#[cfg(feature = "deepstream")]
 pub mod decoder;
 pub mod demuxers;
-pub mod function;
+#[cfg(feature = "deepstream")]
+pub mod deepstream_function;
 pub mod mp4_demuxer;
 pub mod mp4_muxer;
+#[cfg(feature = "deepstream")]
 pub mod nvinfer;
+#[cfg(feature = "deepstream")]
 pub mod nvtracker;
+#[cfg(feature = "deepstream")]
 pub mod picasso;
+#[cfg(feature = "deepstream")]
+pub mod sorter;
 pub mod uri_demuxer;
 pub mod zmq_sink;
 pub mod zmq_source;
@@ -55,15 +62,18 @@ pub use bitstream_function::{
     OnStartedHook as BitstreamFunctionOnStartedHook,
     OnStoppingHook as BitstreamFunctionOnStoppingHook,
 };
+#[cfg(feature = "deepstream")]
 pub use decoder::{
     Decoder, DecoderBuilder, DecoderCommon, DecoderCommonBuilder, DecoderInbox,
     DecoderInboxBuilder, DecoderResults, DecoderResultsBuilder,
     OnStoppingHook as DecoderOnStoppingHook,
 };
-pub use function::{
-    Function, FunctionBuilder, FunctionCommon, FunctionCommonBuilder, FunctionInbox,
-    FunctionInboxBuilder, OnStartedHook as FunctionOnStartedHook,
-    OnStoppingHook as FunctionOnStoppingHook,
+#[cfg(feature = "deepstream")]
+pub use deepstream_function::{
+    DeepStreamFunction, DeepStreamFunctionBuilder, DeepStreamFunctionCommon,
+    DeepStreamFunctionCommonBuilder, DeepStreamFunctionInbox, DeepStreamFunctionInboxBuilder,
+    OnStartedHook as DeepStreamFunctionOnStartedHook,
+    OnStoppingHook as DeepStreamFunctionOnStoppingHook,
 };
 pub use mp4_demuxer::{
     Mp4DemuxerBuilder, Mp4DemuxerCommon, Mp4DemuxerCommonBuilder, Mp4DemuxerResults,
@@ -73,21 +83,31 @@ pub use mp4_muxer::{
     Mp4Muxer, Mp4MuxerBuilder, Mp4MuxerCommon, Mp4MuxerCommonBuilder, Mp4MuxerInbox,
     Mp4MuxerInboxBuilder, OnStoppingHook as Mp4MuxerOnStoppingHook,
 };
+#[cfg(feature = "deepstream")]
 pub use nvinfer::{
     NvInfer, NvInferBuilder, NvInferCommon, NvInferCommonBuilder, NvInferOperatorFactory,
     NvInferResults, NvInferResultsBuilder, OnErrorHook as NvInferOnErrorHook, OnInferenceHook,
     OnSourceEosHook as NvInferOnSourceEosHook, OnStoppingHook as NvInferOnStoppingHook,
 };
+#[cfg(feature = "deepstream")]
 pub use nvtracker::{
     NvTracker, NvTrackerBuilder, NvTrackerCommon, NvTrackerCommonBuilder, NvTrackerHookCtx,
     NvTrackerOperatorFactory, NvTrackerResults, NvTrackerResultsBuilder,
     OnErrorHook as NvTrackerOnErrorHook, OnSourceEosHook as NvTrackerOnSourceEosHook,
     OnStoppingHook as NvTrackerOnStoppingHook, OnTrackingHook,
 };
+#[cfg(feature = "deepstream")]
 pub use picasso::{
     DeliveryHook as PicassoDeliveryHook, OnStoppingHook as PicassoOnStoppingHook, Picasso,
     PicassoBuilder, PicassoCommon, PicassoCommonBuilder, PicassoEngineFactory, PicassoInbox,
     PicassoInboxBuilder, SourceSpecFactory, SrcRectProvider,
+};
+#[cfg(feature = "deepstream")]
+pub use sorter::{
+    OnMessageHook as SorterOnMessageHook, OnSourceEosHook as SorterOnSourceEosHook,
+    OnStoppingHook as SorterOnStoppingHook, Sorter, SorterBuilder, SorterCommon,
+    SorterCommonBuilder, SorterInbox, SorterInboxBuilder, SorterRegistration, SorterResults,
+    SorterResultsBuilder, UnregisteredHook as SorterUnregisteredHook,
 };
 pub use uri_demuxer::{
     OnStoppingHook as UriDemuxerOnStoppingHook, UriDemuxerBuilder, UriDemuxerCommon,

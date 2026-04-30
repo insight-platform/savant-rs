@@ -48,14 +48,14 @@ impl<M: Envelope> OperatorSink<M> {
     /// `addr`.  `owner` is used for log-record attribution; `addr`
     /// targets the peer.
     ///
-    /// Internal: user code should obtain sinks via
+    /// First-party pipeline code should obtain sinks via
     /// [`BuildCtx::sink`](super::context::BuildCtx::sink) or
     /// [`Context::sink`](super::context::Context::sink).
-    #[allow(
-        dead_code,
-        reason = "called by BuildCtx/Context when handing a sink to user code"
-    )]
-    pub(crate) fn new(owner: StageName, addr: Addr<M>) -> Self {
+    ///
+    /// Public so that 3rd-party crates can construct sinks in
+    /// their own unit tests or custom runtimes that don't go
+    /// through [`System`](super::system::System).
+    pub fn new(owner: StageName, addr: Addr<M>) -> Self {
         Self {
             owner,
             addr,

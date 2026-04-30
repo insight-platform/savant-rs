@@ -39,7 +39,7 @@
 //!
 //! ```ignore
 //! sys.register_source(
-//!     UriDemuxerSource::builder(StageName::unnamed(StageKind::UriDemux))
+//!     UriDemuxerSource::builder(StageName::unnamed(StageKind::BitstreamSource))
 //!         .one_shot("rtsp://cam/stream", "cam1")
 //!         .downstream(StageName::unnamed(StageKind::Decoder))
 //!         .source_properties(vec![
@@ -286,7 +286,7 @@ impl UriDemuxerSource {
     /// Default `on_packet` forwarder that constructs the
     /// decoder-facing [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
     /// **on the demuxer side** (via
-    /// [`make_decode_frame`](super::decoder::make_decode_frame)) and
+    /// [`make_decode_frame`](super::demuxers::decode_frame::make_decode_frame)) and
     /// sends
     /// [`EncodedMsg::Frame { frame, payload: Some(bytes) }`](crate::envelopes::EncodedMsg::Frame).
     /// The leading `uri` argument (URI of the current run) is
@@ -305,7 +305,7 @@ impl UriDemuxerSource {
            + Send
            + 'static {
         |_uri, source_id, info, packet, router, _ctx| {
-            let frame = super::decoder::make_decode_frame(source_id, &packet, info);
+            let frame = super::demuxers::decode_frame::make_decode_frame(source_id, &packet, info);
             let payload = Some(packet.data);
             router.send(EncodedMsg::Frame { frame, payload });
             Ok(())
@@ -1027,7 +1027,7 @@ mod tests {
 
     #[test]
     fn builder_requires_input() {
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         assert!(err_msg(UriDemuxerSource::builder(name).build()).contains("missing input"));
     }
 
@@ -1035,7 +1035,7 @@ mod tests {
     /// peer) still builds.
     #[test]
     fn builder_without_downstream_is_accepted() {
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let _ = UriDemuxerSource::builder(name)
             .one_shot("file:///tmp/x.mp4", "s")
             .build()
@@ -1044,7 +1044,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_all_hooks() {
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = UriDemuxerSource::builder(name)
             .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1092,7 +1092,7 @@ mod tests {
     /// generic hook bounds as-is.
     #[test]
     fn builder_accepts_default_forwarders() {
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = UriDemuxerSource::builder(name)
             .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1113,7 +1113,7 @@ mod tests {
     /// builder in place of `default_on_packet`.
     #[test]
     fn builder_accepts_default_on_packet_as_frame() {
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = UriDemuxerSource::builder(name)
             .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1137,7 +1137,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let flag = Arc::new(AtomicBool::new(false));
         let flag_hook = flag.clone();
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let _ = UriDemuxerSource::builder(name)
             .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1164,7 +1164,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = UriDemuxerSource::builder(name.clone())
             .one_shot("file:///tmp/x.mp4", "cam1")
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1203,7 +1203,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = UriDemuxerSource::builder(name)
             .input(|_ctx| DemuxInputRequest::Idle(Duration::from_millis(50)))
             .downstream(StageName::unnamed(StageKind::Decoder))
@@ -1229,7 +1229,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::UriDemux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = UriDemuxerSource::builder(name)
             .looped("rtsp://cam/stream", "loop")
             .build()

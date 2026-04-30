@@ -125,7 +125,7 @@ mod tests {
 
     fn hook_ctx() -> HookCtx {
         HookCtx::new(
-            StageName::unnamed(StageKind::Mp4Demux),
+            StageName::unnamed(StageKind::BitstreamSource),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),

@@ -1,8 +1,38 @@
 //! End-to-end streaming orchestrator for the `cars_demo` sample.
 //!
 //! ```text
-//! Mp4Demuxer | UriDemuxer -> FlexibleDecoderPool -> NvInfer -> NvTracker -> Picasso -> Mp4Muxer
+//! Mp4Demuxer | UriDemuxer -> FlexibleDecoderPool -> NvInfer -> NvTracker -> Sorter -> Picasso -> Mp4Muxer
 //! ```
+//!
+//! The [`Sorter`] sits between the tracker and picasso purely as a
+//! demonstration of the standard reorder-buffer stage.  The
+//! `(infer → tracker)` chain is the *route path* that could in
+//! principle reorder per-source frames; the **decoder** — the
+//! route's fan-out origin — is therefore the registrar that
+//! publishes the intended order with the sorter:
+//!
+//! * The decoder peeks each frame's uuid (via
+//!   [`SealedDelivery::peek_frame`](deepstream_buffers::SealedDelivery::peek_frame))
+//!   and emits [`Sorter::register_frame`] **before** forwarding the
+//!   sealed delivery into the route.
+//! * The decoder also emits [`Sorter::register_eos`] for every
+//!   per-source EOS — and **continues to forward**
+//!   `PipelineMsg::SourceEos` through the route, because the
+//!   decoder doesn't know which downstream stages depend on
+//!   observing the sentinel directly.  The sorter silently
+//!   discards ingress source-EOS sentinels by design; its EOS
+//!   contract is driven entirely by the registered entries.
+//! * The tracker simply forwards its `(infer, tracker)` route
+//!   output to the sorter — it has no part in the registration
+//!   protocol.
+//! * The sorter unseals every delivery on arrival, re-seals each
+//!   frame individually, and forwards in registration order to the
+//!   picasso stage.
+//!
+//! This sample only has one route, so no actual reordering occurs —
+//! the wiring is included to exercise the
+//! [`PipelineMsg::message_ex`](savant_perception::envelopes::PipelineMsg::message_ex)
+//! registration mechanism end-to-end.
 //!
 //! The demuxer actor is selected from the resolved CLI input: a
 //! filesystem path uses [`Mp4DemuxerSource`] (bit-identical legacy
@@ -42,9 +72,11 @@ use ::picasso::prelude::OnEncodedFrame;
 use ::picasso::{Callbacks, GeneralSpec, OutputMessage, PicassoEngine};
 use anyhow::{anyhow, bail, Context, Result};
 use deepstream_buffers::cuda_init;
+use deepstream_buffers::sealed::Sealed;
 use savant_core::pipeline::stats::{StageStats, Stats};
 use savant_core::primitives::frame::VideoFrameContent;
 use savant_core::transport::zeromq::{ReaderConfig, WriterConfig};
+use savant_core::utils::release_seal::ReleaseSeal;
 
 pub mod infer;
 pub mod picasso;
@@ -67,10 +99,10 @@ use savant_perception::router::Router;
 use savant_perception::shutdown::{ShutdownAction, ShutdownCause, ShutdownCtx};
 use savant_perception::stages::decoder::make_decode_frame;
 use savant_perception::stages::{
-    BitstreamFunction, BitstreamFunctionInbox, Decoder, DecoderResults, Function, FunctionInbox,
-    Mp4DemuxerResults, Mp4DemuxerSource, Mp4Muxer, NvInfer, NvInferResults, NvTracker,
-    NvTrackerResults, PayloadCarrier, Picasso, PicassoInbox, UriDemuxerResults, UriDemuxerSource,
-    ZmqSink, ZmqSource,
+    BitstreamFunction, BitstreamFunctionInbox, Decoder, DecoderResults, DeepStreamFunction,
+    DeepStreamFunctionInbox, Mp4DemuxerResults, Mp4DemuxerSource, Mp4Muxer, NvInfer,
+    NvInferResults, NvTracker, NvTrackerResults, PayloadCarrier, Picasso, PicassoInbox, Sorter,
+    SorterResults, UriDemuxerResults, UriDemuxerSource, ZmqSink, ZmqSource,
 };
 use savant_perception::supervisor::{StageKind, StageName};
 use savant_perception::{Flow, HookCtx, System};
@@ -220,6 +252,7 @@ pub enum ShutdownPolicy {
 const ROLE_DECODER: &str = "decoder";
 const ROLE_INFER: &str = "infer";
 const ROLE_TRACKER: &str = "track";
+const ROLE_SORTER: &str = "sorter";
 const ROLE_TAIL: &str = "tail";
 const ROLE_PICASSO: &str = "picasso";
 
@@ -389,6 +422,13 @@ pub fn run_pipeline(
     let decoder_stage = make_stage("decoder");
     let infer_stage = make_stage("infer");
     let track_stage = make_stage("track");
+    // Sorter sits between the tracker and the tail (or between
+    // the tracker and picasso when picasso is enabled).  Always
+    // present in this demo regardless of `picasso_enabled`, so the
+    // stage handle is unconditional — the 📊 line includes a
+    // `sorter` row alongside every other actor stage.  Tick site
+    // is the `SorterResults::on_message` hook below.
+    let sorter_stage = make_stage("sorter");
     let tail_stage_name = match &tail {
         PipelineTail::Mp4Mux { .. } => "encode",
         PipelineTail::Bitstream => "bitstream",
@@ -396,7 +436,7 @@ pub fn run_pipeline(
         PipelineTail::Zmq { .. } => "zmq_sink",
     };
     let tail_stage = make_stage(tail_stage_name);
-    // Picasso lives between the tracker and the tail when it is
+    // Picasso lives between the sorter and the tail when it is
     // enabled; we register a dedicated `picasso` `StageStats` so the
     // 📊 line shows whether the encoder is actually receiving frames.
     // The tick site is the `PicassoInbox::on_delivery` hook below — we
@@ -406,6 +446,7 @@ pub fn run_pipeline(
     core_stats.add_stage_stats(decoder_stage.clone());
     core_stats.add_stage_stats(infer_stage.clone());
     core_stats.add_stage_stats(track_stage.clone());
+    core_stats.add_stage_stats(sorter_stage.clone());
     if let Some(s) = picasso_stage.as_ref() {
         core_stats.add_stage_stats(s.clone());
     }
@@ -420,25 +461,26 @@ pub fn run_pipeline(
     // logs and supervisor policy can disambiguate `mp4_demux` /
     // `uri_demux` / `zmq_source` pipelines.
     let head_name = match &head {
-        PipelineHead::Mp4Demux { .. } => StageName::unnamed(StageKind::Mp4Demux),
-        PipelineHead::UriDemux { .. } => StageName::unnamed(StageKind::UriDemux),
-        PipelineHead::Zmq { .. } => StageName::unnamed(StageKind::ZmqSource),
+        PipelineHead::Mp4Demux { .. }
+        | PipelineHead::UriDemux { .. }
+        | PipelineHead::Zmq { .. } => StageName::unnamed(StageKind::BitstreamSource),
     };
     let decoder_name = StageName::unnamed(StageKind::Decoder);
     let infer_name = StageName::unnamed(StageKind::Infer);
     let tracker_name = StageName::unnamed(StageKind::Tracker);
-    let picasso_name = StageName::unnamed(StageKind::Picasso);
+    let sorter_name = StageName::unnamed(StageKind::Sorter);
+    let picasso_name = StageName::unnamed(StageKind::Render);
     // Tail-actor name is selected from the chosen tail variant so
     // multiple tail kinds can coexist in the supervisor's
     // role-routing tables without name clashes.
     let tail_name = match &tail {
-        PipelineTail::Mp4Mux { .. } | PipelineTail::Bitstream => {
-            StageName::unnamed(StageKind::Mp4Mux)
+        PipelineTail::Mp4Mux { .. } | PipelineTail::Zmq { .. } => {
+            StageName::unnamed(StageKind::BitstreamSink)
         }
-        PipelineTail::Function => StageName::unnamed(StageKind::Function),
-        PipelineTail::Zmq { .. } => StageName::unnamed(StageKind::ZmqSink),
+        PipelineTail::Bitstream => StageName::unnamed(StageKind::BitstreamFunction),
+        PipelineTail::Function => StageName::unnamed(StageKind::DeepStreamFunction),
     };
-    let function_name = StageName::unnamed(StageKind::Function);
+    let function_name = StageName::unnamed(StageKind::DeepStreamFunction);
 
     // Pick the logical tail stage downstream of the tracker.  The
     // chosen name is used both as the tracker's downstream target
@@ -474,6 +516,7 @@ pub fn run_pipeline(
     sys.insert_shared_as::<StageStats>(ROLE_DECODER, decoder_stage.clone());
     sys.insert_shared_as::<StageStats>(ROLE_INFER, infer_stage.clone());
     sys.insert_shared_as::<StageStats>(ROLE_TRACKER, track_stage.clone());
+    sys.insert_shared_as::<StageStats>(ROLE_SORTER, sorter_stage.clone());
     sys.insert_shared_as::<StageStats>(ROLE_TAIL, tail_stage.clone());
     if let Some(s) = picasso_stage.as_ref() {
         sys.insert_shared_as::<StageStats>(ROLE_PICASSO, s.clone());
@@ -570,16 +613,71 @@ pub fn run_pipeline(
     // fall through to the stage's `Decoder::default_on_*`
     // forwarders/loggers, installed automatically by the builder
     // when their setters are omitted.
+    //
+    // The decoder is also the fan-out origin for the (infer →
+    // tracker) route, so it doubles as the **registrar** that
+    // publishes each frame's intended order with the [`Sorter`]
+    // before the frame can be reordered downstream.  Frame uuids
+    // are peeked from the [`SealedDelivery`] (no unseal —
+    // `peek_frame` borrows the inner `VideoFrame` while the seal
+    // stays in place) and registered through the same channel
+    // that carries the deliveries; the per-source EOS is
+    // registered the same way and **also** forwarded through the
+    // default peer because the decoder doesn't know which
+    // downstream stages need to observe the sentinel directly.
     let decoder = Decoder::builder(decoder_name.clone(), knobs.channel_cap)
         .downstream(infer_name.clone())
         .gpu_id(knobs.gpu)
         .results(
             DecoderResults::builder()
-                .on_frame(|sealed, router, ctx| {
-                    if router.send(PipelineMsg::Delivery(sealed)) {
-                        if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_DECODER) {
-                            tick_stage(&stage, 1, 0);
+                .on_frame({
+                    let sorter_peer = sorter_name.clone();
+                    move |sealed, router, ctx| {
+                        // Peek the uuid + source id without
+                        // unsealing so the registration arrives at
+                        // the sorter ahead of the delivery payload
+                        // travelling through the route.
+                        let (sid, uuid) = {
+                            let frame = sealed.peek_frame();
+                            (frame.get_source_id(), frame.get_uuid_u128())
+                        };
+                        let reg = Sorter::register_frame(sid.clone(), uuid);
+                        if let Err(e) = router.send_to(&sorter_peer, reg) {
+                            log::warn!("[{}] sorter unreachable for register_frame({sid}, {uuid}): {e}", ctx.own_name());
                         }
+                        // Forward the sealed delivery to the
+                        // route's first stage (infer = default
+                        // peer).
+                        if router.send(PipelineMsg::Delivery(sealed)) {
+                            if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_DECODER) {
+                                tick_stage(&stage, 1, 0);
+                            }
+                        }
+                    }
+                })
+                .on_source_eos({
+                    let sorter_peer = sorter_name.clone();
+                    move |source_id, router, ctx| {
+                        // Register the EOS sentinel with the
+                        // sorter's per-source queue — the sorter
+                        // fires its `on_source_eos` once every
+                        // registered frame ahead of it has drained.
+                        let reg = Sorter::register_eos(source_id);
+                        if let Err(e) = router.send_to(&sorter_peer, reg) {
+                            log::warn!("[{}] sorter unreachable for register_eos({source_id}): {e}", ctx.own_name());
+                        }
+                        // Forward `PipelineMsg::SourceEos` to the
+                        // default peer (infer) — the decoder
+                        // doesn't know which downstream stages
+                        // depend on observing the sentinel
+                        // directly, so it must continue to emit it
+                        // even after registering with the sorter.
+                        if !router.send(PipelineMsg::SourceEos {
+                            source_id: source_id.to_string(),
+                        }) {
+                            log::warn!("[{}] downstream closed; dropping SourceEos({source_id})", ctx.own_name());
+                        }
+                        Ok(Flow::Cont)
                     }
                 })
                 .build(),
@@ -694,10 +792,17 @@ pub fn run_pipeline(
         // per-stream state once a source has ended.  The hook ctx
         // carries the operator handle automatically — no separate
         // `NvTrackerResetHandle` wiring required.
+        // The tracker is the LAST stop on the (infer → tracker)
+        // route — its egress feeds the sorter, which reorders each
+        // source's frames per the registrations the *decoder* (the
+        // route's fan-out origin) emitted earlier.  The tracker
+        // therefore needs no knowledge of the registration
+        // protocol; it simply routes to `sorter_name` instead of
+        // the eventual tail.
         .results(
             NvTrackerResults::builder()
                 .on_tracking({
-                    let tail_peer = tail_actor_name.clone();
+                    let sorter_peer = sorter_name.clone();
                     move |tracking, router: &Router<PipelineMsg>, ctx| {
                         let frame_count = tracking.frames().len() as u64;
                         let tracker_stats = ctx.shared::<TrackerStats>();
@@ -709,15 +814,14 @@ pub fn run_pipeline(
                             tracker_stats.as_deref(),
                             ctx.own_name(),
                         );
-                        // Routing decision lives here — the tracker
-                        // has no default peer, so the hook
-                        // explicitly fans out to `tail_peer` by
-                        // name.
+                        // Route output forwards to the sorter; the
+                        // sorter dissolves the batch and forwards
+                        // each frame in registration order.
                         if let Some(sealed) = sealed {
                             let msg = PipelineMsg::Deliveries(sealed);
-                            if !router.send_to(&tail_peer, msg).unwrap_or(false) {
+                            if !router.send_to(&sorter_peer, msg).unwrap_or(false) {
                                 log::warn!(
-                                    "[{}] result receiver closed; dropping sealed batch",
+                                    "[{}] sorter closed; dropping sealed batch",
                                     ctx.own_name()
                                 );
                             }
@@ -730,10 +834,10 @@ pub fn run_pipeline(
                     }
                 })
                 .on_source_eos({
-                    let tail_peer = tail_actor_name.clone();
+                    let sorter_peer = sorter_name.clone();
                     move |source_id, router: &Router<PipelineMsg>, ctx| {
                         log::info!(
-                            "TrackerOperatorOutput::Eos for source_id={source_id}; propagating"
+                            "TrackerOperatorOutput::Eos for source_id={source_id}; forwarding to sorter"
                         );
                         match ctx.reset_stream(source_id) {
                             Ok(()) => {
@@ -743,10 +847,17 @@ pub fn run_pipeline(
                                 log::warn!("[tracker] reset_stream({source_id}) failed on EOS: {e}")
                             }
                         }
+                        // Forward `PipelineMsg::SourceEos` to the
+                        // sorter exactly as in the no-sorter
+                        // pipeline.  The sorter silently discards
+                        // ingress source-EOS sentinels — its
+                        // per-source EOS contract is driven by the
+                        // [`Sorter::register_eos`] entries the
+                        // *decoder* emits via `MessageEx`.
                         let msg = PipelineMsg::SourceEos {
                             source_id: source_id.to_string(),
                         };
-                        if !router.send_to(&tail_peer, msg).unwrap_or(false) {
+                        if !router.send_to(&sorter_peer, msg).unwrap_or(false) {
                             log::warn!("downstream closed; dropping SourceEos({source_id})");
                         }
                         Ok(Flow::Cont)
@@ -756,6 +867,55 @@ pub fn run_pipeline(
         )
         .build()?;
     sys.register_actor(tracker)?;
+
+    // ── Sorter ──────────────────────────────────────────────────────────
+    //
+    // Demo-only insertion of the framework's standard reorder
+    // buffer.  This pipeline has a single linear route through
+    // `NvTracker`, so no actual reordering is required — but the
+    // sorter is wired up end-to-end to exercise the
+    // [`PipelineMsg::message_ex`] registration flow:
+    //
+    // * The tracker registers every uuid via
+    //   [`Sorter::register_frame`] and the per-source EOS via
+    //   [`Sorter::register_eos`] (see the `on_tracking` and
+    //   `on_source_eos` hooks above).
+    // * The sorter's default hooks unseal each delivery, re-seal
+    //   each frame as a fresh `PipelineMsg::Delivery` (immediately
+    //   released), and forward to the same `tail_actor_name` the
+    //   tracker would otherwise have targeted directly.
+    //
+    // The egress hook mirrors `Sorter::default_on_message` (re-seal
+    // each ordered pair as a fresh single-frame
+    // `PipelineMsg::Delivery`, forward via `router.send`) and adds
+    // a per-frame [`StageStats`] tick on successful send so the
+    // 📊 line includes a `sorter` row alongside every other actor
+    // stage.  Source-EOS, unregistered-frame, and lifecycle hooks
+    // fall through to their stage defaults.
+    let sorter = Sorter::builder(sorter_name.clone(), knobs.channel_cap)
+        .downstream(tail_actor_name.clone())
+        .results(
+            SorterResults::builder()
+                .on_message(|frame, buffer, router, ctx| {
+                    let seal = Arc::new(ReleaseSeal::new());
+                    let sealed = Sealed::new((frame, buffer), Arc::clone(&seal));
+                    seal.release();
+                    if router.send(PipelineMsg::Delivery(sealed)) {
+                        if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_SORTER) {
+                            tick_stage(&stage, 1, 0);
+                        }
+                    } else {
+                        log::warn!(
+                            "[{}] downstream closed; dropping ordered frame",
+                            ctx.own_name()
+                        );
+                    }
+                    Ok(Flow::Cont)
+                })
+                .build(),
+        )
+        .build();
+    sys.register_actor(sorter)?;
 
     // ── Pipeline tail ───────────────────────────────────────────────────
     //
@@ -943,9 +1103,9 @@ pub fn run_pipeline(
         //   the next cycle, so we keep the actor alive on EOS and
         //   let `Ctrl+C` be the only shutdown trigger.
         let exit_on_eos = matches!(shutdown_policy, ShutdownPolicy::TerminusBroadcast);
-        let function = Function::builder(function_name.clone(), knobs.channel_cap)
+        let function = DeepStreamFunction::builder(function_name.clone(), knobs.channel_cap)
             .inbox(
-                FunctionInbox::builder()
+                DeepStreamFunctionInbox::builder()
                     .on_delivery(|pairs, ctx| {
                         let tail = ctx.shared_as::<StageStats>(ROLE_TAIL);
                         let core = ctx.shared::<Stats>();
@@ -997,7 +1157,7 @@ pub fn run_pipeline(
         0.0
     };
     log::info!(
-        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux_packets={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} {}={} bytes={}",
+        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux_packets={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} sorter_frames={} {}={} bytes={}",
         pipeline_elapsed.as_secs_f64(),
         pipeline_fps,
         stats.demux_packets.load(Ordering::Relaxed),
@@ -1007,6 +1167,7 @@ pub fn run_pipeline(
         stage_frames(&track_stage),
         tracker_stats.unique_tracks(),
         tracker_stats.unmatched_updates(),
+        stage_frames(&sorter_stage),
         tail_stage_name,
         tail_frames,
         stats.encoded_bytes.load(Ordering::Relaxed),
@@ -1049,7 +1210,7 @@ fn cars_shutdown_handler(
         ShutdownCause::StageExit { stage }
             if matches!(
                 stage.kind,
-                StageKind::Mp4Demux | StageKind::UriDemux | StageKind::ZmqSource
+                StageKind::BitstreamSource
             ) =>
         {
             log::info!(
@@ -1218,7 +1379,7 @@ mod tests {
         let history: [ShutdownCause; 0] = [];
         let mut ctx = ShutdownCtx::fake(&stages, &history);
         let cause = ShutdownCause::StageExit {
-            stage: StageName::unnamed(StageKind::Mp4Demux),
+            stage: StageName::unnamed(StageKind::BitstreamSource),
         };
         let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
         assert!(matches!(action, ShutdownAction::Ignore));
@@ -1232,13 +1393,13 @@ mod tests {
         let history: [ShutdownCause; 0] = [];
         let mut ctx = ShutdownCtx::fake(&stages, &history);
         let cause = ShutdownCause::StageExit {
-            stage: StageName::unnamed(StageKind::Mp4Mux),
+            stage: StageName::unnamed(StageKind::BitstreamSink),
         };
         let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
         match action {
             ShutdownAction::Broadcast { grace, reason } => {
                 assert_eq!(grace, None, "no quiescence pause needed on terminus exit");
-                assert!(reason.contains("mp4_mux"), "unexpected reason: {reason}");
+                assert!(reason.contains("bitstream_sink"), "unexpected reason: {reason}");
             }
             other => panic!("expected Broadcast, got {other:?}"),
         }
@@ -1252,7 +1413,7 @@ mod tests {
         let history: [ShutdownCause; 0] = [];
         let mut ctx = ShutdownCtx::fake(&stages, &history);
         let cause = ShutdownCause::StageExit {
-            stage: StageName::unnamed(StageKind::Function),
+            stage: StageName::unnamed(StageKind::DeepStreamFunction),
         };
         let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
         match action {
@@ -1333,7 +1494,7 @@ mod tests {
         let history: [ShutdownCause; 0] = [];
         let mut ctx = ShutdownCtx::fake(&stages, &history);
         let cause = ShutdownCause::StageExit {
-            stage: StageName::unnamed(StageKind::UriDemux),
+            stage: StageName::unnamed(StageKind::BitstreamSource),
         };
         let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
         assert!(matches!(action, ShutdownAction::Ignore));
@@ -1348,7 +1509,7 @@ mod tests {
         let history: [ShutdownCause; 0] = [];
         let mut ctx = ShutdownCtx::fake(&stages, &history);
         let cause = ShutdownCause::StageExit {
-            stage: StageName::unnamed(StageKind::ZmqSource),
+            stage: StageName::unnamed(StageKind::BitstreamSource),
         };
         let action = cars_shutdown_handler(cause, &mut ctx).unwrap();
         assert!(matches!(action, ShutdownAction::Ignore));
@@ -1363,7 +1524,7 @@ mod tests {
         let history: [ShutdownCause; 0] = [];
         let mut ctx = ShutdownCtx::fake(&stages, &history);
         let cause = ShutdownCause::StageExit {
-            stage: StageName::unnamed(StageKind::ZmqSink),
+            stage: StageName::unnamed(StageKind::BitstreamSink),
         };
         let action = ctrlc_only_shutdown_handler(cause, &mut ctx).unwrap();
         assert!(matches!(action, ShutdownAction::Ignore));

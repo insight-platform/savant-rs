@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn source_builder_round_trip() {
-        let name = StageName::unnamed(StageKind::Mp4Demux);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let b: SourceBuilder<TestSource> =
             SourceBuilder::new(name.clone()).factory(|_| Ok(TestSource));
         assert_eq!(b.name(), &name);

@@ -64,6 +64,7 @@ pub mod envelopes;
 pub mod errors;
 pub mod handler;
 pub mod loop_driver;
+pub mod message_ex;
 pub mod messages;
 pub mod operator_sink;
 pub mod registry;
@@ -82,10 +83,12 @@ pub use envelope::{Dispatch, Envelope, ShutdownHint};
 pub use errors::ErrorAction;
 pub use handler::{Flow, Handler};
 pub use loop_driver::run_actor;
+pub use message_ex::MessageExPayload;
 pub use messages::{
     RemoveSourcePayload, ResetStreamPayload, ShutdownPayload, SourceEosPayload,
-    UpdateSourceSpecPayload,
 };
+#[cfg(feature = "deepstream")]
+pub use messages::UpdateSourceSpecPayload;
 pub use operator_sink::OperatorSink;
 pub use registry::Registry;
 pub use router::Router;

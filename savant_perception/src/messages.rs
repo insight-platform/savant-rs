@@ -54,6 +54,7 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
+#[cfg(feature = "deepstream")]
 use picasso::prelude::SourceSpec;
 
 /// Request an NvDCF tracker to reset its per-stream state for
@@ -96,6 +97,10 @@ pub struct RemoveSourcePayload {
 ///
 /// The `spec` is boxed so envelopes carrying this payload stay
 /// cheap to move when it is not populated.
+///
+/// Available only with the `deepstream` Cargo feature; the
+/// embedded [`SourceSpec`] is provided by the `picasso` crate.
+#[cfg(feature = "deepstream")]
 pub struct UpdateSourceSpecPayload {
     /// Source identifier whose spec should be installed / updated.
     pub source_id: String,
@@ -103,6 +108,7 @@ pub struct UpdateSourceSpecPayload {
     pub spec: Box<SourceSpec>,
 }
 
+#[cfg(feature = "deepstream")]
 impl std::fmt::Debug for UpdateSourceSpecPayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UpdateSourceSpecPayload")

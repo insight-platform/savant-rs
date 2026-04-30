@@ -695,7 +695,7 @@ mod tests {
 
     #[test]
     fn builder_requires_config() {
-        let name = StageName::unnamed(StageKind::ZmqSink);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let err = ZmqSink::builder(name, 4)
             .build()
             .err()
@@ -705,7 +705,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_url_shortcut() {
-        let name = StageName::unnamed(StageKind::ZmqSink);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let ab = ZmqSink::builder(name, 4)
             .url("dealer+connect:tcp://127.0.0.1:65199")
             .expect("url config")
@@ -715,7 +715,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_all_hooks() {
-        let name = StageName::unnamed(StageKind::ZmqSink);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let cfg = WriterConfig::new()
             .url("dealer+connect:tcp://127.0.0.1:65199")
             .unwrap()
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_default_hooks() {
-        let name = StageName::unnamed(StageKind::ZmqSink);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let cfg = WriterConfig::new()
             .url("dealer+connect:tcp://127.0.0.1:65199")
             .unwrap()
@@ -788,7 +788,7 @@ mod tests {
         use crate::shared::SharedStore;
         use std::sync::Arc;
 
-        let name = StageName::unnamed(StageKind::ZmqSink);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let cfg = WriterConfig::new()
             .url("dealer+connect:tcp://127.0.0.1:65199")
             .unwrap()

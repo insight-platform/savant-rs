@@ -209,7 +209,7 @@ pub struct PipelineArgs {
     /// Drop Picasso *and* the trailing
     /// [`ZmqSink`](savant_perception::stages::ZmqSink) so the
     /// pipeline terminates at the tracker output: the
-    /// [`Function`](savant_perception::stages::Function) terminus
+    /// [`DeepStreamFunction`](savant_perception::stages::DeepStreamFunction) terminus
     /// counts inference / tracker frames after the tracker stage,
     /// and no GPU transform / encoder / Skia overlay run at all.
     /// This is stricter than `cars-demo --output null` (which keeps

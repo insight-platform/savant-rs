@@ -192,6 +192,27 @@ impl<T> std::fmt::Debug for Sealed<T> {
 /// Used by single-stream decoders (e.g. `FlexibleDecoder`).
 pub type SealedDelivery = Sealed<(VideoFrame, SharedBuffer)>;
 
+impl SealedDelivery {
+    /// Borrow the inner [`VideoFrame`] without unsealing the
+    /// payload.
+    ///
+    /// Intended for inspecting cheap metadata (uuid, source id,
+    /// codec, dimensions) on the producer's callback thread —
+    /// e.g. registering a frame's uuid with a downstream reorder
+    /// buffer before forwarding the sealed delivery itself.  Does
+    /// **not** touch the seal: subsequent
+    /// [`unseal`](Sealed::unseal) / [`try_unseal`](Sealed::try_unseal)
+    /// behaviour is unaffected.
+    ///
+    /// Reading the frame's underlying inner state takes the same
+    /// `parking_lot::RwLock` as any other `VideoFrame::get_*`
+    /// accessor; do not retain the borrow across blocking calls.
+    #[inline]
+    pub fn peek_frame(&self) -> &VideoFrame {
+        &self.payload.0
+    }
+}
+
 /// A batch of `(VideoFrame, SharedBuffer)` pairs sealed until the
 /// associated producer is dropped.
 ///
@@ -210,6 +231,28 @@ impl SealedDeliveries {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.payload.is_empty()
+    }
+
+    /// Iterate the inner [`VideoFrame`]s without unsealing the
+    /// payload — batched analogue of
+    /// [`SealedDelivery::peek_frame`].
+    ///
+    /// Intended for inspecting cheap per-frame metadata (uuid,
+    /// source id, codec, dimensions) on the producer's callback
+    /// thread — e.g. registering a whole batch's uuids with a
+    /// downstream reorder buffer before forwarding the sealed
+    /// batch itself.  Does **not** touch the seal: subsequent
+    /// [`unseal`](Sealed::unseal) / [`try_unseal`](Sealed::try_unseal)
+    /// behaviour is unaffected, and the [`SharedBuffer`]s are
+    /// deliberately not exposed (they must not be touched until
+    /// the seal is released).
+    ///
+    /// Reading each frame's underlying inner state takes the same
+    /// `parking_lot::RwLock` as any other `VideoFrame::get_*`
+    /// accessor; do not retain the borrow across blocking calls.
+    #[inline]
+    pub fn peek_frames(&self) -> impl ExactSizeIterator<Item = &VideoFrame> {
+        self.payload.iter().map(|(frame, _buffer)| frame)
     }
 }
 

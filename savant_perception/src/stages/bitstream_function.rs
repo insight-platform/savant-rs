@@ -1,7 +1,7 @@
 //! [`BitstreamFunction`] — generic user-function actor for the
 //! encoded-bitstream side of the pipeline.
 //!
-//! Structurally parallel to [`Function`](super::function::Function)
+//! Structurally parallel to [`DeepStreamFunction`](super::deepstream_function::DeepStreamFunction)
 //! but consumes [`EncodedMsg`] (the envelope used by
 //! [`Mp4Muxer`](super::mp4_muxer::Mp4Muxer) and
 //! [`Decoder`](super::decoder::Decoder)) instead of
@@ -38,7 +38,7 @@
 //! use savant_perception::stages::BitstreamFunction;
 //!
 //! let builder = BitstreamFunction::builder(
-//!     StageName::unnamed(StageKind::Function),
+//!     StageName::unnamed(StageKind::BitstreamFunction),
 //!     16,
 //! ).build();
 //! ```
@@ -667,7 +667,7 @@ mod tests {
             });
         let addr = sys
             .register_actor(
-                BitstreamFunction::builder(StageName::unnamed(StageKind::Function), 4).build(),
+                BitstreamFunction::builder(StageName::unnamed(StageKind::BitstreamFunction), 4).build(),
             )
             .unwrap();
 
@@ -696,7 +696,7 @@ mod tests {
             .quiescence(Duration::from_millis(0));
         let addr = sys
             .register_actor(
-                BitstreamFunction::builder(StageName::unnamed(StageKind::Function), 4)
+                BitstreamFunction::builder(StageName::unnamed(StageKind::BitstreamFunction), 4)
                     .inbox(
                         BitstreamFunctionInbox::builder()
                             .on_source_eos(move |sid, _router, _ctx| {
@@ -725,8 +725,8 @@ mod tests {
     /// the matching generic bound.
     #[test]
     fn custom_hooks_are_installed() {
-        let _ = BitstreamFunction::builder(StageName::unnamed(StageKind::Function), 2)
-            .downstream(StageName::unnamed(StageKind::Mp4Mux))
+        let _ = BitstreamFunction::builder(StageName::unnamed(StageKind::BitstreamFunction), 2)
+            .downstream(StageName::unnamed(StageKind::BitstreamSink))
             .inbox(
                 BitstreamFunctionInbox::builder()
                     .on_stream_info(|_pl, _router, _ctx| Ok(()))
@@ -749,7 +749,7 @@ mod tests {
     /// into the bundle builders' generic hook bounds as-is.
     #[test]
     fn default_forwarders_compile() {
-        let _ = BitstreamFunction::builder(StageName::unnamed(StageKind::Function), 2)
+        let _ = BitstreamFunction::builder(StageName::unnamed(StageKind::BitstreamFunction), 2)
             .inbox(
                 BitstreamFunctionInbox::builder()
                     .on_stream_info(BitstreamFunction::default_on_stream_info())
@@ -776,7 +776,7 @@ mod tests {
         use crate::context::BuildCtx;
         use crate::registry::Registry;
         use crate::shared::SharedStore;
-        let sb = BitstreamFunction::builder(StageName::unnamed(StageKind::Function), 2).build();
+        let sb = BitstreamFunction::builder(StageName::unnamed(StageKind::BitstreamFunction), 2).build();
         let parts = sb.into_parts();
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());

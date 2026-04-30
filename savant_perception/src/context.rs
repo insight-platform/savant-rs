@@ -56,16 +56,22 @@ pub struct BuildCtx<'a> {
 }
 
 impl<'a> BuildCtx<'a> {
-    /// Internal constructor used by
-    /// [`System::run`](super::system::System::run) to hand a
-    /// borrowed context to each factory.
+    /// Construct a `BuildCtx` borrowing the system's registry,
+    /// shared store, and stop flag.
     ///
-    /// `stop_flag` is the same `Arc<AtomicBool>` the actor loop
-    /// driver (or the source runtime) reads for cooperative
-    /// shutdown; threading it through [`BuildCtx::hook_ctx`]
-    /// lets egress hooks flip it via [`HookCtx::request_stop`].
-    #[allow(dead_code, reason = "called from System::run before each factory")]
-    pub(crate) fn new(
+    /// First-party call site:
+    /// [`System::run`](super::system::System::run) hands one of
+    /// these to every actor / source factory after the registry has
+    /// been fully populated.
+    ///
+    /// Public so that 3rd-party crates can build factory-style
+    /// fixtures in their own unit tests without spinning up a full
+    /// [`System`](super::system::System).  `stop_flag` is the same
+    /// `Arc<AtomicBool>` the actor loop driver (or the source
+    /// runtime) reads for cooperative shutdown; threading it
+    /// through [`BuildCtx::hook_ctx`] lets egress hooks flip it
+    /// via [`HookCtx::request_stop`].
+    pub fn new(
         own_name: &'a StageName,
         registry: &'a Arc<Registry>,
         shared: &'a Arc<SharedStore>,
@@ -356,15 +362,20 @@ pub struct Context<A: Actor> {
 }
 
 impl<A: Actor> Context<A> {
-    /// Internal constructor — the framework threads the shared
-    /// registry, shared store, and stop flag into every per-actor
-    /// context before handing it to
-    /// [`run_actor`](super::loop_driver::run_actor).
-    #[allow(
-        dead_code,
-        reason = "called from System::run before spawning each actor"
-    )]
-    pub(crate) fn new(
+    /// Construct a `Context<A>` for an actor's receive loop.
+    ///
+    /// First-party call site:
+    /// [`System::run`](super::system::System::run) builds one of
+    /// these before spawning each actor's worker thread and hands
+    /// it to [`run_actor`](super::loop_driver::run_actor).
+    ///
+    /// Public so that 3rd-party crates can construct a fake
+    /// `Context` for unit tests of their own [`Handler<V>`] /
+    /// [`Actor`] impls without spinning up a full
+    /// [`System`](super::system::System), or so they can drive
+    /// [`run_actor`](super::loop_driver::run_actor) from a custom
+    /// runtime.
+    pub fn new(
         own_name: StageName,
         registry: Arc<Registry>,
         shared: Arc<SharedStore>,
@@ -553,14 +564,16 @@ pub struct SourceContext {
 }
 
 impl SourceContext {
-    /// Internal constructor — built by
-    /// [`System::run`](super::system::System::run) before
-    /// spawning the source's worker thread.
-    #[allow(
-        dead_code,
-        reason = "called from System::run before spawning each source"
-    )]
-    pub(crate) fn new(
+    /// Construct a `SourceContext` for a source's `run()` body.
+    ///
+    /// First-party call site:
+    /// [`System::run`](super::system::System::run) builds one of
+    /// these before spawning each source's worker thread.
+    ///
+    /// Public so that 3rd-party crates can construct fake
+    /// contexts in their own unit tests for [`Source`] impls, or
+    /// drive a [`Source`] from a custom runtime.
+    pub fn new(
         own_name: StageName,
         registry: Arc<Registry>,
         shared: Arc<SharedStore>,
@@ -732,7 +745,7 @@ mod tests {
         let a: Addr<DummyEnv> = bx.addr(&name).unwrap();
         assert_eq!(a.name(), &name);
         assert!(bx
-            .addr::<DummyEnv>(&StageName::unnamed(StageKind::Picasso))
+            .addr::<DummyEnv>(&StageName::unnamed(StageKind::Render))
             .is_err());
     }
 
@@ -740,7 +753,7 @@ mod tests {
     fn build_ctx_router_resolves_default_and_send_to() {
         let mut reg = Registry::new();
         let default_name = StageName::unnamed(StageKind::Tracker);
-        let explicit_name = StageName::unnamed(StageKind::Picasso);
+        let explicit_name = StageName::unnamed(StageKind::Render);
         let (tx_default, rx_default) = bounded::<DummyEnv>(2);
         let (tx_explicit, rx_explicit) = bounded::<DummyEnv>(2);
         reg.insert::<DummyEnv>(
@@ -772,7 +785,7 @@ mod tests {
     #[test]
     fn source_context_stop_flag_round_trip() {
         let sc = SourceContext::new(
-            StageName::unnamed(StageKind::Mp4Demux),
+            StageName::unnamed(StageKind::BitstreamSource),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
@@ -825,7 +838,7 @@ mod tests {
     #[test]
     fn hook_ctx_from_source_context_shares_stop_flag() {
         let sc = SourceContext::new(
-            StageName::unnamed(StageKind::Mp4Demux),
+            StageName::unnamed(StageKind::BitstreamSource),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
