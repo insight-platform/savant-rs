@@ -613,28 +613,18 @@ pub fn run_pipeline(
     // fall through to the stage's `Decoder::default_on_*`
     // forwarders/loggers, installed automatically by the builder
     // when their setters are omitted.
-    // The decoder is the fan-out origin for the (infer → tracker)
-    // route, so it doubles as the **registrar** that publishes
-    // each frame's intended order with the [`Sorter`] before the
-    // frame can be reordered downstream.  Frame uuids are peeked
-    // from the [`SealedDelivery`] (no unseal — `peek_frame`
-    // borrows the inner `VideoFrame` while the seal stays in
-    // place) and registered through the same channel that carries
-    // the deliveries; the per-source EOS is registered the same
-    // way and **also** forwarded through the default peer because
-    // the decoder doesn't know which downstream stages need to
-    // observe the sentinel directly.
-    // The decoder is the fan-out origin for the (infer → tracker)
-    // route, so it doubles as the **registrar** that publishes
-    // each frame's intended order with the [`Sorter`] before the
-    // frame can be reordered downstream.  Frame uuids are peeked
-    // from the [`SealedDelivery`] (no unseal — `peek_frame`
-    // borrows the inner `VideoFrame` while the seal stays in
-    // place) and registered through the same channel that carries
-    // the deliveries; the per-source EOS is registered the same
-    // way and **also** forwarded through the default peer because
-    // the decoder doesn't know which downstream stages need to
-    // observe the sentinel directly.
+    //
+    // The decoder is also the fan-out origin for the (infer →
+    // tracker) route, so it doubles as the **registrar** that
+    // publishes each frame's intended order with the [`Sorter`]
+    // before the frame can be reordered downstream.  Frame uuids
+    // are peeked from the [`SealedDelivery`] (no unseal —
+    // `peek_frame` borrows the inner `VideoFrame` while the seal
+    // stays in place) and registered through the same channel
+    // that carries the deliveries; the per-source EOS is
+    // registered the same way and **also** forwarded through the
+    // default peer because the decoder doesn't know which
+    // downstream stages need to observe the sentinel directly.
     let decoder = Decoder::builder(decoder_name.clone(), knobs.channel_cap)
         .downstream(infer_name.clone())
         .gpu_id(knobs.gpu)
@@ -1409,7 +1399,7 @@ mod tests {
         match action {
             ShutdownAction::Broadcast { grace, reason } => {
                 assert_eq!(grace, None, "no quiescence pause needed on terminus exit");
-                assert!(reason.contains("mp4_mux"), "unexpected reason: {reason}");
+                assert!(reason.contains("bitstream_sink"), "unexpected reason: {reason}");
             }
             other => panic!("expected Broadcast, got {other:?}"),
         }
