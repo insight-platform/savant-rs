@@ -158,6 +158,7 @@ fn pts_reset_eos_policy_fires_eos_and_reencodes() {
             assert_eq!(*last_pts_ns, 2 * DUR);
             assert_eq!(*new_pts_ns, 0);
         }
+        other => panic!("expected PtsDecreased, got {other:?}"),
     }
     drop(resets);
 
@@ -345,6 +346,7 @@ fn pts_reset_triggered_by_equal_pts() {
             assert_eq!(*last_pts_ns, 1000);
             assert_eq!(*new_pts_ns, 1000);
         }
+        other => panic!("expected PtsDecreased, got {other:?}"),
     }
     drop(resets);
 

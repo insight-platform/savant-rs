@@ -78,6 +78,13 @@ pub enum StreamResetReason {
         /// PTS of the incoming frame that triggered the reset (nanoseconds).
         new_pts_ns: u64,
     },
+    /// [`set_source_spec`](crate::engine::PicassoEngine::set_source_spec)
+    /// provided a new [`SourceSpec`](crate::spec::SourceSpec) whose
+    /// encoder configuration (resolution, codec, input format,
+    /// codec-specific props, …) differs from the running encoder's.
+    /// The running encoder has been torn down; a fresh encoder is
+    /// initialised on the next frame submitted under the new spec.
+    EncoderSpecChanged,
 }
 
 /// Fired when the worker resets its encoder due to a PTS anomaly.

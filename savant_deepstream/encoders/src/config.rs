@@ -37,7 +37,7 @@ pub const DEFAULT_FPS_NUM: i32 = 30;
 pub const DEFAULT_FPS_DEN: i32 = 1;
 
 /// H.264 encoder config (`nvv4l2h264enc`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct H264EncoderConfig {
     pub width: u32,
     pub height: u32,
@@ -97,7 +97,7 @@ impl H264EncoderConfig {
 }
 
 /// HEVC encoder config (`nvv4l2h265enc`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HevcEncoderConfig {
     pub width: u32,
     pub height: u32,
@@ -155,7 +155,7 @@ impl HevcEncoderConfig {
 }
 
 /// AV1 encoder config (`nvv4l2av1enc`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Av1EncoderConfig {
     pub width: u32,
     pub height: u32,
@@ -213,7 +213,7 @@ impl Av1EncoderConfig {
 }
 
 /// JPEG encoder config (`nvjpegenc`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct JpegEncoderConfig {
     pub width: u32,
     pub height: u32,
@@ -261,7 +261,7 @@ impl JpegEncoderConfig {
 }
 
 /// PNG encoder config (`pngenc`, CPU-based).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PngEncoderConfig {
     pub width: u32,
     pub height: u32,
@@ -311,7 +311,7 @@ impl PngEncoderConfig {
 }
 
 /// Raw pseudoencoder config (RGBA / RGB / NV12 GPU→CPU download).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RawEncoderConfig {
     pub width: u32,
     pub height: u32,
@@ -359,7 +359,7 @@ impl RawEncoderConfig {
 ///
 /// One variant per supported codec. Selects the correct pipeline element
 /// chain and the platform-gated property struct at compile time.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum EncoderConfig {
     H264(H264EncoderConfig),
     Hevc(HevcEncoderConfig),
@@ -449,7 +449,7 @@ impl EncoderConfig {
 /// [`NvEncoder`](crate::pipeline::NvEncoder).
 ///
 /// Mirrors [`deepstream_decoders::NvDecoderConfig`](https://docs.rs/deepstream_decoders/).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NvEncoderConfig {
     pub name: String,
     pub gpu_id: u32,

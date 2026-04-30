@@ -448,7 +448,7 @@ impl std::fmt::Display for JetsonPresetLevel {
 // ─── H.264 dGPU ────────────────────────────────────────────────────────
 
 /// H.264 encoder properties for dGPU (`nvv4l2h264enc`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct H264DgpuProps {
     /// Bitrate in bits/sec (default: 4 000 000).
     pub bitrate: Option<u32>,
@@ -585,7 +585,7 @@ impl H264DgpuProps {
 // ─── HEVC dGPU ─────────────────────────────────────────────────────────
 
 /// HEVC encoder properties for dGPU (`nvv4l2h265enc`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct HevcDgpuProps {
     /// Bitrate in bits/sec (default: 4 000 000).
     pub bitrate: Option<u32>,
@@ -720,7 +720,7 @@ impl HevcDgpuProps {
 // ─── H.264 Jetson ──────────────────────────────────────────────────────
 
 /// H.264 encoder properties for Jetson (`nvv4l2h264enc`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct H264JetsonProps {
     /// Bitrate in bits/sec (default: 4 000 000).
     pub bitrate: Option<u32>,
@@ -855,7 +855,7 @@ impl H264JetsonProps {
 // ─── HEVC Jetson ───────────────────────────────────────────────────────
 
 /// HEVC encoder properties for Jetson (`nvv4l2h265enc`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct HevcJetsonProps {
     /// Bitrate in bits/sec (default: 4 000 000).
     pub bitrate: Option<u32>,
@@ -978,7 +978,7 @@ impl HevcJetsonProps {
 // ─── PNG ─────────────────────────────────────────────────────────────────
 
 /// PNG encoder properties (`pngenc`, CPU-based, gst-plugins-good).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PngProps {
     /// PNG compression level (0–9, default: 6). Higher = smaller file, slower.
     pub compression_level: Option<u32>,
@@ -1014,7 +1014,7 @@ impl PngProps {
 // ─── JPEG ──────────────────────────────────────────────────────────────
 
 /// JPEG encoder properties (`nvjpegenc`, both platforms).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct JpegProps {
     /// JPEG quality (0–100, default: 85).
     pub quality: Option<u32>,
@@ -1053,7 +1053,7 @@ impl JpegProps {
 /// Used with [`VideoCodec::RawRgba`], [`VideoCodec::RawRgb`] and [`VideoCodec::RawNv12`]
 /// to download GPU frames
 /// to CPU memory as tightly-packed pixel data.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RawProps;
 
 impl RawProps {
@@ -1076,7 +1076,7 @@ impl RawProps {
 // ─── AV1 dGPU ──────────────────────────────────────────────────────────
 
 /// AV1 encoder properties for dGPU (`nvv4l2av1enc`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Av1DgpuProps {
     /// Bitrate in bits/sec (default: 4 000 000).
     pub bitrate: Option<u32>,
@@ -1184,7 +1184,7 @@ impl Av1DgpuProps {
 // ─── AV1 Jetson ────────────────────────────────────────────────────────
 
 /// AV1 encoder properties for Jetson (`nvv4l2av1enc`).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Av1JetsonProps {
     /// Bitrate in bits/sec (default: 4 000 000).
     pub bitrate: Option<u32>,

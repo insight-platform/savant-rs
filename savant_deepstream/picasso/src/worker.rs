@@ -388,6 +388,12 @@ impl WorkerState {
         if codec_changed {
             self.stop_encoder();
             self.renderer = None;
+            // Surface the encoder rebuild through the same observability
+            // channel we use for PTS-driven resets so callers can react
+            // (e.g. flush muxer init segments, re-emit caps).
+            if let Some(cb) = &self.callbacks.on_stream_reset {
+                cb.call(&self.source_id, StreamResetReason::EncoderSpecChanged);
+            }
         }
         if new_spec.font_family != self.draw_ctx.font_family() {
             self.draw_ctx = DrawContext::new(&new_spec.font_family);
@@ -500,17 +506,135 @@ fn fire_bypass_eos_sentinel(source_id: &str, callbacks: &Arc<Callbacks>) {
     }
 }
 
+/// Returns `true` if the two specs require the encoder to be torn
+/// down and rebuilt.
+///
+/// `Drop` ↔ `Drop` and `Bypass` ↔ `Bypass` are no-ops; cross-mode
+/// transitions always rebuild.  For `Encode` ↔ `Encode` the inner
+/// [`EncoderConfig`] is compared **structurally**: width, height,
+/// codec, input format, framerate, and codec-specific props all
+/// participate.  Any divergence — including a knob like JPEG
+/// `quality` or H.264 `bitrate` that the previous shallow
+/// (width/height/codec-only) comparison would have ignored —
+/// triggers a rebuild so the new spec actually takes effect on the
+/// next submitted frame.
 fn codec_differs(a: &CodecSpec, b: &CodecSpec) -> bool {
     match (a, b) {
         (CodecSpec::Drop, CodecSpec::Drop) => false,
         (CodecSpec::Bypass, CodecSpec::Bypass) => false,
         (CodecSpec::Encode { encoder: ea, .. }, CodecSpec::Encode { encoder: eb, .. }) => {
-            let ea_enc = &ea.encoder;
-            let eb_enc = &eb.encoder;
-            ea_enc.width() != eb_enc.width()
-                || ea_enc.height() != eb_enc.height()
-                || ea_enc.codec() != eb_enc.codec()
+            ea.encoder != eb.encoder
         }
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use deepstream_buffers::TransformConfig;
+
+    fn jpeg_spec(w: u32, h: u32, quality: Option<u32>) -> CodecSpec {
+        CodecSpec::Encode {
+            transform: TransformConfig::default(),
+            encoder: Box::new(NvEncoderConfig::new(
+                0,
+                EncoderConfig::Jpeg(
+                    JpegEncoderConfig::new(w, h)
+                        .format(VideoFormat::RGBA)
+                        .fps(30, 1)
+                        .props(JpegProps { quality }),
+                ),
+            )),
+        }
+    }
+
+    fn h264_spec(w: u32, h: u32) -> CodecSpec {
+        CodecSpec::Encode {
+            transform: TransformConfig::default(),
+            encoder: Box::new(NvEncoderConfig::new(
+                0,
+                EncoderConfig::H264(H264EncoderConfig::new(w, h)),
+            )),
+        }
+    }
+
+    #[test]
+    fn identical_drop_specs_do_not_differ() {
+        assert!(!codec_differs(&CodecSpec::Drop, &CodecSpec::Drop));
+    }
+
+    #[test]
+    fn identical_bypass_specs_do_not_differ() {
+        assert!(!codec_differs(&CodecSpec::Bypass, &CodecSpec::Bypass));
+    }
+
+    #[test]
+    fn cross_mode_transitions_always_differ() {
+        let enc = jpeg_spec(640, 480, Some(80));
+        assert!(codec_differs(&CodecSpec::Drop, &CodecSpec::Bypass));
+        assert!(codec_differs(&CodecSpec::Bypass, &CodecSpec::Drop));
+        assert!(codec_differs(&CodecSpec::Drop, &enc));
+        assert!(codec_differs(&enc, &CodecSpec::Drop));
+        assert!(codec_differs(&CodecSpec::Bypass, &enc));
+        assert!(codec_differs(&enc, &CodecSpec::Bypass));
+    }
+
+    #[test]
+    fn identical_encode_specs_do_not_differ() {
+        let a = jpeg_spec(640, 480, Some(80));
+        let b = jpeg_spec(640, 480, Some(80));
+        assert!(!codec_differs(&a, &b));
+    }
+
+    /// Width / height changes were already covered by the previous
+    /// shallow comparison; preserve coverage here.
+    #[test]
+    fn resolution_change_differs() {
+        let a = jpeg_spec(640, 480, Some(80));
+        let b = jpeg_spec(1280, 720, Some(80));
+        assert!(codec_differs(&a, &b));
+    }
+
+    /// Codec switch (JPEG → H.264) was already covered.
+    #[test]
+    fn codec_switch_differs() {
+        let a = jpeg_spec(640, 480, Some(80));
+        let b = h264_spec(640, 480);
+        assert!(codec_differs(&a, &b));
+    }
+
+    /// **New coverage** — codec-specific props (here: JPEG quality)
+    /// must trigger a rebuild.  The pre-fix shallow comparison would
+    /// return `false` here and silently keep the running encoder.
+    #[test]
+    fn jpeg_quality_change_differs() {
+        let a = jpeg_spec(640, 480, Some(80));
+        let b = jpeg_spec(640, 480, Some(20));
+        assert!(codec_differs(&a, &b));
+    }
+
+    /// Input format change must trigger a rebuild — the encoder's
+    /// appsrc caps and any conversion path are baked into the
+    /// running pipeline.
+    #[test]
+    fn format_change_differs() {
+        let make = |fmt: VideoFormat| {
+            CodecSpec::Encode {
+                transform: TransformConfig::default(),
+                encoder: Box::new(NvEncoderConfig::new(
+                    0,
+                    EncoderConfig::Jpeg(
+                        JpegEncoderConfig::new(640, 480)
+                            .format(fmt)
+                            .fps(30, 1)
+                            .props(JpegProps { quality: Some(80) }),
+                    ),
+                )),
+            }
+        };
+        let a = make(VideoFormat::RGBA);
+        let b = make(VideoFormat::I420);
+        assert!(codec_differs(&a, &b));
     }
 }
