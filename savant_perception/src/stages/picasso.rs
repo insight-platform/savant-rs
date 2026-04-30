@@ -25,7 +25,7 @@
 //!   the unsealed `(VideoFrame, SharedBuffer)` batch by
 //!   **shared slice reference** before frames are fed to the
 //!   engine.  Same signature shape as
-//!   [`FunctionInboxBuilder::on_delivery`](super::function::FunctionInboxBuilder::on_delivery),
+//!   [`DeepStreamFunctionInboxBuilder::on_delivery`](super::deepstream_function::DeepStreamFunctionInboxBuilder::on_delivery),
 //!   so applications can mutate frames, attach overlay objects, or
 //!   update per-source counters before the batch reaches Picasso.
 //! * On [`PipelineMsg::SourceEos`] calls
@@ -116,7 +116,7 @@ pub type SourceSpecFactory =
 ///
 /// Always installed at runtime; the default is a no-op.  Matches
 /// the shape of
-/// [`FunctionInboxBuilder::on_delivery`](super::function::FunctionInboxBuilder::on_delivery)
+/// [`DeepStreamFunctionInboxBuilder::on_delivery`](super::deepstream_function::DeepStreamFunctionInboxBuilder::on_delivery)
 /// so the cross-stage hook vocabulary is uniform.
 pub type DeliveryHook = Box<
     dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn builder_requires_source_spec_and_engine_factory() {
-        let name = StageName::unnamed(StageKind::Picasso);
+        let name = StageName::unnamed(StageKind::Render);
         let err = Picasso::builder(name.clone(), 4).build().err().unwrap();
         assert!(err.to_string().contains("missing source_spec_factory"));
 
@@ -723,7 +723,7 @@ mod tests {
     /// default-peer sends.
     #[test]
     fn builder_without_downstream_is_accepted() {
-        let name = StageName::unnamed(StageKind::Picasso);
+        let name = StageName::unnamed(StageKind::Render);
         let _ = Picasso::builder(name, 4)
             .source_spec_factory(dummy_spec)
             .engine_factory(make_engine_factory())
@@ -752,9 +752,9 @@ mod tests {
 
     #[test]
     fn builder_accepts_full_config() {
-        let name = StageName::unnamed(StageKind::Picasso);
+        let name = StageName::unnamed(StageKind::Render);
         let _ = Picasso::builder(name, 4)
-            .downstream(StageName::unnamed(StageKind::Mp4Mux))
+            .downstream(StageName::unnamed(StageKind::BitstreamSink))
             .engine_factory(make_engine_factory())
             .source_spec_factory(dummy_spec)
             .inbox(
@@ -783,7 +783,7 @@ mod tests {
         use std::sync::atomic::{AtomicBool, Ordering};
         let flag = Arc::new(AtomicBool::new(false));
         let flag_hook = flag.clone();
-        let name = StageName::unnamed(StageKind::Picasso);
+        let name = StageName::unnamed(StageKind::Render);
         let _ = Picasso::builder(name, 4)
             .engine_factory(make_engine_factory())
             .source_spec_factory(dummy_spec)
@@ -810,7 +810,7 @@ mod tests {
         use crate::registry::Registry;
         use crate::shared::SharedStore;
 
-        let name = StageName::unnamed(StageKind::Picasso);
+        let name = StageName::unnamed(StageKind::Render);
         let ab = Picasso::builder(name.clone(), 4)
             .engine_factory(make_engine_factory())
             .source_spec_factory(dummy_spec)

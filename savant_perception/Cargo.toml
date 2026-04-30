@@ -20,20 +20,28 @@ path = "src/lib.rs"
 [[example]]
 name = "cars-demo"
 path = "examples/cars_demo/main.rs"
+required-features = ["deepstream"]
 
 [[example]]
 name = "cars-demo-zmq"
 path = "examples/cars_demo/main_zmq.rs"
+required-features = ["deepstream"]
 
 [dependencies]
-deepstream_inputs = { workspace = true }
-deepstream_decoders = { workspace = true }
-deepstream_nvinfer = { workspace = true }
-deepstream_nvtracker = { workspace = true }
-deepstream_encoders = { workspace = true }
-deepstream_buffers = { workspace = true }
-nvidia_gpu_utils = { workspace = true }
-picasso = { workspace = true }
+# DeepStream-side dependencies — pulled in only when the
+# `deepstream` feature is enabled (default).  Without the feature
+# the framework still builds (Layer A core + non-deepstream
+# stages), but no NVIDIA SDK / CUDA toolchain is needed at compile
+# time.
+deepstream_inputs = { workspace = true, optional = true }
+deepstream_decoders = { workspace = true, optional = true }
+deepstream_nvinfer = { workspace = true, optional = true }
+deepstream_nvtracker = { workspace = true, optional = true }
+deepstream_encoders = { workspace = true, optional = true }
+deepstream_buffers = { workspace = true, optional = true }
+nvidia_gpu_utils = { workspace = true, optional = true }
+picasso = { workspace = true, optional = true }
+
 savant_core = { workspace = true }
 savant_gstreamer = { workspace = true }
 
@@ -44,6 +52,25 @@ ctrlc = { workspace = true }
 gstreamer = { workspace = true }
 hashbrown = { workspace = true }
 parking_lot = { workspace = true }
+
+[features]
+default = ["deepstream"]
+# Activate the DeepStream-dependent stages (Decoder, NvInfer,
+# NvTracker, Picasso, Function) and the matching envelope /
+# message variants (`PipelineMsg`, `SingleDelivery`,
+# `BatchDelivery`, `RemoveSourcePayload`, `UpdateSourceSpecPayload`).
+# Requires the NVIDIA DeepStream SDK and CUDA toolchain at build
+# time.
+deepstream = [
+    "dep:deepstream_inputs",
+    "dep:deepstream_decoders",
+    "dep:deepstream_nvinfer",
+    "dep:deepstream_nvtracker",
+    "dep:deepstream_encoders",
+    "dep:deepstream_buffers",
+    "dep:nvidia_gpu_utils",
+    "dep:picasso",
+]
 
 [dev-dependencies]
 clap = { workspace = true }

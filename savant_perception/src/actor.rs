@@ -123,6 +123,34 @@ pub trait Actor: Sized + Send + 'static {
     fn poll_timeout(&self) -> Duration {
         Duration::from_millis(200)
     }
+
+    /// Handle a [`MessageExPayload`](super::message_ex::MessageExPayload)
+    /// — the type-erased extensibility variant carried by
+    /// [`PipelineMsg`](crate::envelopes::PipelineMsg) and
+    /// [`EncodedMsg`](crate::envelopes::EncodedMsg).  The
+    /// [`Dispatch`](super::envelope::Dispatch) impl for those
+    /// envelopes routes their `MessageEx(_)` variant straight to
+    /// this method, bypassing the per-variant
+    /// [`Handler<V>`](super::handler::Handler) chain.
+    ///
+    /// Default: drop the payload and emit a single `debug!` line
+    /// naming the captured
+    /// [`type_name`](super::message_ex::MessageExPayload::type_name).
+    /// Override on actors that consume `MessageEx` traffic and
+    /// downcast inside the body via
+    /// [`MessageExPayload::downcast`](super::message_ex::MessageExPayload::downcast).
+    fn handle_message_ex(
+        &mut self,
+        msg: super::message_ex::MessageExPayload,
+        ctx: &mut Context<Self>,
+    ) -> anyhow::Result<Flow> {
+        log::debug!(
+            "[{}] MessageEx({}) dropped (no override)",
+            ctx.own_name(),
+            msg.type_name,
+        );
+        Ok(Flow::Cont)
+    }
 }
 
 /// Trait implemented by **no-inbox** producers — stages that own

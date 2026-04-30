@@ -66,15 +66,15 @@ impl<M: Envelope> Router<M> {
     /// for name resolution.  `default` is the optional pre-bound
     /// sink used by [`send`](Router::send).
     ///
-    /// Internal: user code should obtain routers via
+    /// First-party pipeline code should obtain routers via
     /// [`BuildCtx::router`](super::context::BuildCtx::router),
     /// [`Context::router`](super::context::Context::router), or
     /// [`SourceContext::router`](super::context::SourceContext::router).
-    #[allow(
-        dead_code,
-        reason = "called by BuildCtx/Context when handing a router to user code"
-    )]
-    pub(crate) fn new(
+    ///
+    /// Public so that 3rd-party crates can construct routers in
+    /// their own unit tests or in custom runtimes that don't go
+    /// through [`System`](super::system::System).
+    pub fn new(
         owner: StageName,
         registry: Arc<Registry>,
         default: Option<OperatorSink<M>>,
@@ -271,9 +271,9 @@ mod tests {
     #[test]
     fn send_to_resolves_and_caches() {
         let mut reg = Registry::new();
-        let (picasso, rx1) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Picasso), 2);
+        let (picasso, rx1) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Render), 2);
         let (blackhole, rx2) =
-            register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Function), 2);
+            register::<MsgA>(&mut reg, StageName::unnamed(StageKind::DeepStreamFunction), 2);
         let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
 
         assert!(r.send_to(&picasso, MsgA(1)).unwrap());
@@ -301,7 +301,7 @@ mod tests {
         let reg = Registry::new();
         let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
         let err = r
-            .send_to(&StageName::unnamed(StageKind::Picasso), MsgA(1))
+            .send_to(&StageName::unnamed(StageKind::Render), MsgA(1))
             .unwrap_err();
         assert!(err.to_string().contains("no stage"));
     }
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn send_to_wrong_envelope_type_errors() {
         let mut reg = Registry::new();
-        let (name, _rx) = register::<MsgB>(&mut reg, StageName::unnamed(StageKind::Picasso), 1);
+        let (name, _rx) = register::<MsgB>(&mut reg, StageName::unnamed(StageKind::Render), 1);
         let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
         let err = r.send_to(&name, MsgA(1)).unwrap_err();
         assert!(err.to_string().contains("different message type"));
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn clone_shares_resolved_cache() {
         let mut reg = Registry::new();
-        let (picasso, rx) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Picasso), 2);
+        let (picasso, rx) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Render), 2);
         let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
         let r2 = r.clone();
 

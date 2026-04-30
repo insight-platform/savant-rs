@@ -660,7 +660,7 @@ mod tests {
 
     #[test]
     fn builder_requires_config() {
-        let name = StageName::unnamed(StageKind::ZmqSource);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let err = ZmqSource::builder(name)
             .build()
             .err()
@@ -670,7 +670,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_url_shortcut() {
-        let name = StageName::unnamed(StageKind::ZmqSource);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let sb = ZmqSource::builder(name)
             .url("router+bind:ipc:///tmp/savant_zmq_source_test")
             .expect("url accepted")
@@ -680,7 +680,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_all_hooks() {
-        let name = StageName::unnamed(StageKind::ZmqSource);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let cfg = ReaderConfig::new()
             .url("router+bind:ipc:///tmp/savant_zmq_source_hooks")
             .unwrap()
@@ -711,7 +711,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_default_forwarders() {
-        let name = StageName::unnamed(StageKind::ZmqSource);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let cfg = ReaderConfig::new()
             .url("router+bind:ipc:///tmp/savant_zmq_source_defaults")
             .unwrap()
@@ -741,7 +741,7 @@ mod tests {
 
     #[test]
     fn builder_without_downstream_is_accepted() {
-        let name = StageName::unnamed(StageKind::ZmqSource);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let cfg = ReaderConfig::new()
             .url("router+bind:ipc:///tmp/savant_zmq_source_no_downstream")
             .unwrap()
@@ -757,7 +757,7 @@ mod tests {
         use crate::shared::SharedStore;
         use std::sync::Arc;
 
-        let name = StageName::unnamed(StageKind::ZmqSource);
+        let name = StageName::unnamed(StageKind::BitstreamSource);
         let cfg = ReaderConfig::new()
             .url("router+bind:ipc:///tmp/savant_zmq_source_invariant")
             .unwrap()

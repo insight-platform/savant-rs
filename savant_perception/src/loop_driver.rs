@@ -211,7 +211,7 @@ mod tests {
 
     fn ctx() -> Context<Counter> {
         Context::new(
-            StageName::unnamed(StageKind::Function),
+            StageName::unnamed(StageKind::DeepStreamFunction),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),

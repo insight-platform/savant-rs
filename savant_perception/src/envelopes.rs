@@ -56,7 +56,9 @@ use std::borrow::Cow;
 use std::fmt;
 use std::time::Duration;
 
+#[cfg(feature = "deepstream")]
 use deepstream_buffers::{SealedDeliveries, SharedBuffer};
+#[cfg(feature = "deepstream")]
 use deepstream_inputs::prelude::SealedDelivery;
 use savant_core::primitives::frame::VideoFrame;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
@@ -69,6 +71,12 @@ pub use super::{ShutdownPayload, SourceEosPayload};
 /// Decoded-data envelope, used wherever an inter-actor channel
 /// carries decoded frames plus their backing GPU buffers.  See
 /// the module docs for the surrounding rationale.
+///
+/// Available only with the `deepstream` Cargo feature; the
+/// envelope's payload types ([`SealedDelivery`],
+/// [`SealedDeliveries`], [`SharedBuffer`]) come from the
+/// DeepStream-side crates.
+#[cfg(feature = "deepstream")]
 pub enum PipelineMsg {
     /// A **single** `(frame, buffer)` pair.  Typical producer:
     /// a per-frame decoder callback that does not batch.
@@ -101,17 +109,36 @@ pub enum PipelineMsg {
         /// Human-readable reason, logged on receipt.
         reason: Cow<'static, str>,
     },
+    /// Type-erased extensibility variant.  Carries an arbitrary
+    /// receiver-specific payload through the standard envelope
+    /// without forcing the envelope type to be parametric.
+    /// See [`MessageExPayload`](crate::message_ex::MessageExPayload)
+    /// for the full contract; the [`Dispatch`] impl routes this
+    /// variant through
+    /// [`Actor::handle_message_ex`](super::actor::Actor::handle_message_ex)
+    /// rather than the per-variant [`Handler<V>`] chain so existing
+    /// actors compile unchanged.
+    MessageEx(super::message_ex::MessageExPayload),
 }
 
+#[cfg(feature = "deepstream")]
 impl PipelineMsg {
+    /// Sender-side sugar for the [`PipelineMsg::MessageEx`] variant.
+    /// Equivalent to
+    /// `PipelineMsg::MessageEx(MessageExPayload::new(value))`.
+    pub fn message_ex<T: std::any::Any + Send>(value: T) -> Self {
+        PipelineMsg::MessageEx(super::message_ex::MessageExPayload::new(value))
+    }
+
     /// Normalize a delivery-carrying message into a flat
     /// `Vec<(VideoFrame, SharedBuffer)>`.
     ///
     /// * [`PipelineMsg::Delivery`]   → exactly 1 pair.
     /// * [`PipelineMsg::Deliveries`] → the full batch.
-    /// * [`PipelineMsg::SourceEos`] / [`PipelineMsg::Shutdown`] → empty
-    ///   vec (these variants are expected to be filtered out by the
-    ///   caller first; returning empty is a safe no-op).
+    /// * [`PipelineMsg::SourceEos`] / [`PipelineMsg::Shutdown`] /
+    ///   [`PipelineMsg::MessageEx`] → empty vec (these variants
+    ///   are expected to be filtered out by the caller first;
+    ///   returning empty is a safe no-op).
     ///
     /// This is the shared normalisation step that lets any
     /// consumer of [`PipelineMsg`] handle either delivery shape
@@ -121,12 +148,15 @@ impl PipelineMsg {
         match self {
             PipelineMsg::Delivery(d) => vec![d.unseal()],
             PipelineMsg::Deliveries(d) => d.unseal(),
-            PipelineMsg::SourceEos { .. } | PipelineMsg::Shutdown { .. } => Vec::new(),
+            PipelineMsg::SourceEos { .. }
+            | PipelineMsg::Shutdown { .. }
+            | PipelineMsg::MessageEx(_) => Vec::new(),
         }
     }
 
     /// `true` for [`PipelineMsg::Delivery`] and
-    /// [`PipelineMsg::Deliveries`]; `false` for the sentinel variants.
+    /// [`PipelineMsg::Deliveries`]; `false` for the sentinel /
+    /// extensibility variants.
     pub fn is_delivery(&self) -> bool {
         matches!(self, PipelineMsg::Delivery(_) | PipelineMsg::Deliveries(_))
     }
@@ -259,6 +289,25 @@ pub enum EncodedMsg {
         /// Human-readable reason (logged on receipt).
         reason: Cow<'static, str>,
     },
+    /// Type-erased extensibility variant.  Carries an arbitrary
+    /// receiver-specific payload through the standard envelope
+    /// without forcing the envelope type to be parametric.
+    /// See [`MessageExPayload`](crate::message_ex::MessageExPayload)
+    /// for the full contract; the [`Dispatch`] impl routes this
+    /// variant through
+    /// [`Actor::handle_message_ex`](super::actor::Actor::handle_message_ex)
+    /// rather than the per-variant [`Handler<V>`] chain so existing
+    /// actors compile unchanged.
+    MessageEx(super::message_ex::MessageExPayload),
+}
+
+impl EncodedMsg {
+    /// Sender-side sugar for the [`EncodedMsg::MessageEx`] variant.
+    /// Equivalent to
+    /// `EncodedMsg::MessageEx(MessageExPayload::new(value))`.
+    pub fn message_ex<T: std::any::Any + Send>(value: T) -> Self {
+        EncodedMsg::MessageEx(super::message_ex::MessageExPayload::new(value))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -290,8 +339,12 @@ pub enum EncodedMsg {
 
 /// Per-variant payload: a single sealed `(frame, buffer)` pair
 /// (from [`PipelineMsg::Delivery`]).
+///
+/// Available only with the `deepstream` Cargo feature.
+#[cfg(feature = "deepstream")]
 pub struct SingleDelivery(pub SealedDelivery);
 
+#[cfg(feature = "deepstream")]
 impl fmt::Debug for SingleDelivery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("SingleDelivery").field(&self.0).finish()
@@ -300,8 +353,12 @@ impl fmt::Debug for SingleDelivery {
 
 /// Per-variant payload: a batched set of `(frame, buffer)` pairs
 /// (from [`PipelineMsg::Deliveries`]).
+///
+/// Available only with the `deepstream` Cargo feature.
+#[cfg(feature = "deepstream")]
 pub struct BatchDelivery(pub SealedDeliveries);
 
+#[cfg(feature = "deepstream")]
 impl fmt::Debug for BatchDelivery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BatchDelivery")
@@ -356,6 +413,7 @@ impl fmt::Debug for FramePayload {
     }
 }
 
+#[cfg(feature = "deepstream")]
 impl Envelope for PipelineMsg {
     fn as_shutdown(&self) -> Option<ShutdownHint<'_>> {
         match self {
@@ -372,6 +430,7 @@ impl Envelope for PipelineMsg {
     }
 }
 
+#[cfg(feature = "deepstream")]
 impl<A> Dispatch<A> for PipelineMsg
 where
     A: super::Actor<Msg = PipelineMsg>
@@ -396,6 +455,9 @@ where
                 ShutdownPayload { grace, reason },
                 ctx,
             ),
+            PipelineMsg::MessageEx(payload) => {
+                <A as super::Actor>::handle_message_ex(actor, payload, ctx)
+            }
         }
     }
 }
@@ -458,10 +520,14 @@ where
                 ShutdownPayload { grace, reason },
                 ctx,
             ),
+            EncodedMsg::MessageEx(payload) => {
+                <A as super::Actor>::handle_message_ex(actor, payload, ctx)
+            }
         }
     }
 }
 
+#[cfg(feature = "deepstream")]
 impl fmt::Debug for PipelineMsg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -480,6 +546,7 @@ impl fmt::Debug for PipelineMsg {
                 .field("grace", grace)
                 .field("reason", reason)
                 .finish(),
+            PipelineMsg::MessageEx(payload) => f.debug_tuple("MessageEx").field(payload).finish(),
         }
     }
 }
@@ -489,6 +556,7 @@ mod tests {
     use super::*;
     /// [`PipelineMsg::Shutdown`] surfaces a graceful shutdown hint;
     /// every other variant is non-shutdown.
+    #[cfg(feature = "deepstream")]
     #[test]
     fn pipeline_msg_envelope_shutdown_hint() {
         let sd = PipelineMsg::Shutdown {
@@ -531,20 +599,143 @@ mod tests {
         assert!(eos.as_shutdown().is_none());
     }
 
+    /// `EncodedMsg::message_ex(...)` flows through `Dispatch` into
+    /// the actor's `handle_message_ex` override, which can recover
+    /// the concrete payload type via `downcast`.
+    #[test]
+    fn encoded_msg_message_ex_round_trips_through_dispatch() {
+        use crate::message_ex::MessageExPayload;
+        use crate::registry::Registry;
+        use crate::shared::SharedStore;
+        use crate::supervisor::{StageKind, StageName};
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+
+        #[derive(Debug, PartialEq)]
+        struct MyPayload {
+            counter: u32,
+        }
+
+        struct CaptureActor {
+            received: Option<u32>,
+        }
+
+        impl crate::Actor for CaptureActor {
+            type Msg = EncodedMsg;
+            fn handle(
+                &mut self,
+                msg: EncodedMsg,
+                ctx: &mut crate::Context<Self>,
+            ) -> anyhow::Result<crate::Flow> {
+                msg.dispatch(self, ctx)
+            }
+            fn handle_message_ex(
+                &mut self,
+                msg: MessageExPayload,
+                _ctx: &mut crate::Context<Self>,
+            ) -> anyhow::Result<crate::Flow> {
+                let recovered = msg
+                    .downcast::<MyPayload>()
+                    .expect("payload must downcast to MyPayload");
+                self.received = Some(recovered.counter);
+                Ok(crate::Flow::Cont)
+            }
+        }
+        impl Handler<StreamInfoPayload> for CaptureActor {}
+        impl Handler<PacketPayload> for CaptureActor {}
+        impl Handler<FramePayload> for CaptureActor {}
+        impl Handler<SourceEosPayload> for CaptureActor {}
+        impl Handler<ShutdownPayload> for CaptureActor {}
+
+        let mut actor = CaptureActor { received: None };
+        let mut ctx = crate::Context::<CaptureActor>::new(
+            StageName::unnamed(StageKind::DeepStreamFunction),
+            Arc::new(Registry::new()),
+            Arc::new(SharedStore::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let msg = EncodedMsg::message_ex(MyPayload { counter: 7 });
+        msg.dispatch(&mut actor, &mut ctx).unwrap();
+        assert_eq!(actor.received, Some(7));
+    }
+
+    /// PipelineMsg mirror of the EncodedMsg round-trip test.
+    /// Only available under the `deepstream` feature because
+    /// `PipelineMsg` itself is feature-gated.
+    #[cfg(feature = "deepstream")]
+    #[test]
+    fn pipeline_msg_message_ex_round_trips_through_dispatch() {
+        use crate::message_ex::MessageExPayload;
+        use crate::registry::Registry;
+        use crate::shared::SharedStore;
+        use crate::supervisor::{StageKind, StageName};
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+
+        #[derive(Debug, PartialEq)]
+        struct MyPayload {
+            tag: &'static str,
+        }
+
+        struct CaptureActor {
+            received: Option<&'static str>,
+        }
+
+        impl crate::Actor for CaptureActor {
+            type Msg = PipelineMsg;
+            fn handle(
+                &mut self,
+                msg: PipelineMsg,
+                ctx: &mut crate::Context<Self>,
+            ) -> anyhow::Result<crate::Flow> {
+                msg.dispatch(self, ctx)
+            }
+            fn handle_message_ex(
+                &mut self,
+                msg: MessageExPayload,
+                _ctx: &mut crate::Context<Self>,
+            ) -> anyhow::Result<crate::Flow> {
+                let recovered = msg
+                    .downcast::<MyPayload>()
+                    .expect("payload must downcast to MyPayload");
+                self.received = Some(recovered.tag);
+                Ok(crate::Flow::Cont)
+            }
+        }
+        impl Handler<SingleDelivery> for CaptureActor {}
+        impl Handler<BatchDelivery> for CaptureActor {}
+        impl Handler<SourceEosPayload> for CaptureActor {}
+        impl Handler<ShutdownPayload> for CaptureActor {}
+
+        let mut actor = CaptureActor { received: None };
+        let mut ctx = crate::Context::<CaptureActor>::new(
+            StageName::unnamed(StageKind::DeepStreamFunction),
+            Arc::new(Registry::new()),
+            Arc::new(SharedStore::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let msg = PipelineMsg::message_ex(MyPayload { tag: "via-dispatch" });
+        msg.dispatch(&mut actor, &mut ctx).unwrap();
+        assert_eq!(actor.received, Some("via-dispatch"));
+    }
+
     /// `Envelope::build_shutdown` round-trips into a shutdown
     /// variant that `as_shutdown` classifies as graceful.
     #[test]
     fn envelope_build_shutdown_round_trips() {
-        let m = <PipelineMsg as Envelope>::build_shutdown(
-            Some(Duration::from_millis(7)),
-            Cow::Borrowed("r1"),
-        )
-        .expect("must construct");
-        let hint = m.as_shutdown().expect("must be shutdown");
-        assert!(matches!(
-            hint,
-            ShutdownHint::Graceful { grace: Some(_), .. }
-        ));
+        #[cfg(feature = "deepstream")]
+        {
+            let m = <PipelineMsg as Envelope>::build_shutdown(
+                Some(Duration::from_millis(7)),
+                Cow::Borrowed("r1"),
+            )
+            .expect("must construct");
+            let hint = m.as_shutdown().expect("must be shutdown");
+            assert!(matches!(
+                hint,
+                ShutdownHint::Graceful { grace: Some(_), .. }
+            ));
+        }
 
         let m = <EncodedMsg as Envelope>::build_shutdown(None, Cow::Borrowed("r2"))
             .expect("must construct");

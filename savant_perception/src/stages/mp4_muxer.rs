@@ -542,7 +542,7 @@ mod tests {
 
     #[test]
     fn builder_requires_output() {
-        let name = StageName::unnamed(StageKind::Mp4Mux);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let err = Mp4Muxer::builder(name, 4)
             .build()
             .err()
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_all_hooks() {
-        let name = StageName::unnamed(StageKind::Mp4Mux);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let _ = Mp4Muxer::builder(name, 4)
             .output("/tmp/out.mp4")
             .codec(VideoCodec::Hevc)
@@ -583,7 +583,7 @@ mod tests {
         use std::sync::Arc;
         let flag = Arc::new(AtomicBool::new(false));
         let flag_hook = flag.clone();
-        let name = StageName::unnamed(StageKind::Mp4Mux);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let _ = Mp4Muxer::builder(name, 4)
             .output("/tmp/out.mp4")
             .common(
@@ -609,7 +609,7 @@ mod tests {
         use crate::shared::SharedStore;
         use std::sync::Arc;
 
-        let name = StageName::unnamed(StageKind::Mp4Mux);
+        let name = StageName::unnamed(StageKind::BitstreamSink);
         let ab = Mp4Muxer::builder(name.clone(), 4)
             .output("/tmp/out.mp4")
             .build()

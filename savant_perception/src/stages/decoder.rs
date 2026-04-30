@@ -128,10 +128,7 @@ use deepstream_inputs::prelude::{
     FlexibleDecoderPoolConfig, SealedDelivery, SkipReason,
 };
 use gstreamer as gst;
-use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrame, VideoFrameTranscodingMethod,
-};
-use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
+use savant_core::primitives::frame::VideoFrame;
 
 pub use deepstream_decoders::DecoderError;
 pub use deepstream_inputs::flexible_decoder::DecodedFrame;
@@ -154,14 +151,12 @@ pub const DEFAULT_EVICTION_TTL: Duration = Duration::from_secs(3600);
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Default detect-buffer limit for decoder-side buffering.
 pub const DEFAULT_DETECT_BUFFER_LIMIT: usize = 60;
-/// Fallback framerate used when the container does not advertise
-/// one (per [`VideoInfo`] contract: `framerate_num == 0`).
-pub const FALLBACK_FPS_NUM: i64 = 30;
-/// Denominator counterpart to [`FALLBACK_FPS_NUM`].
-pub const FALLBACK_FPS_DEN: i64 = 1;
 /// Default inbox receive-poll cadence — idle periods at this
 /// cadence cause [`FlexibleDecoderPool::flush_idle`] to run.
 pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[doc(inline)]
+pub use super::demuxers::decode_frame::{make_decode_frame, FALLBACK_FPS_DEN, FALLBACK_FPS_NUM};
 
 /// Observer hook fired on every
 /// [`EncodedMsg::StreamInfo`]
@@ -1281,35 +1276,6 @@ fn build_pool(
     }
 }
 
-/// Build the per-packet [`VideoFrame`] the decoder pool
-/// consumes.  Kept `pub` so unit tests and downstream users can
-/// verify the [`VideoInfo::codec`] round-trip.
-pub fn make_decode_frame(
-    source_id: &str,
-    pkt: &DemuxedPacket,
-    info: &VideoInfo,
-) -> VideoFrame {
-    let (fps_num, fps_den) = if info.framerate_num == 0 {
-        (FALLBACK_FPS_NUM, FALLBACK_FPS_DEN)
-    } else {
-        (info.framerate_num as i64, info.framerate_den.max(1) as i64)
-    };
-    VideoFrame::new(
-        source_id,
-        (fps_num, fps_den),
-        info.width as i64,
-        info.height as i64,
-        VideoFrameContent::None,
-        VideoFrameTranscodingMethod::Copy,
-        Some(info.codec),
-        Some(pkt.is_keyframe),
-        (1, 1_000_000_000),
-        pkt.pts_ns as i64,
-        pkt.dts_ns.map(|v| v as i64),
-        pkt.duration_ns.map(|v| v as i64),
-    )
-    .expect("VideoFrame::new (decode)")
-}
 
 #[cfg(test)]
 mod tests {
@@ -1320,6 +1286,7 @@ mod tests {
     use crate::supervisor::{StageKind, StageName};
     use crossbeam::channel::{bounded, Receiver};
     use savant_core::primitives::video_codec::VideoCodec;
+    use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
     /// Build a `Router<PipelineMsg>` whose default peer is a freshly
     /// registered `PipelineMsg` inbox.  Returns the router and the

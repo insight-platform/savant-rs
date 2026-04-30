@@ -156,10 +156,11 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
     let writer_cfg = writer_config_from_url(&args.zmq_out)?;
 
     let head_name = match &input {
-        InputSource::Path(_) => StageName::unnamed(StageKind::Mp4Demux),
-        InputSource::Uri(_) => StageName::unnamed(StageKind::UriDemux),
+        InputSource::Path(_) | InputSource::Uri(_) => {
+            StageName::unnamed(StageKind::BitstreamSource)
+        }
     };
-    let sink_name = StageName::unnamed(StageKind::ZmqSink);
+    let sink_name = StageName::unnamed(StageKind::BitstreamSink);
 
     // `--no-eos` rewires both the head (demuxer) and the supervisor:
     //
@@ -335,8 +336,8 @@ fn run_consumer(args: ConsumerArgs) -> Result<()> {
 
     let reader_cfg = reader_config_from_url(&args.zmq_in)?;
 
-    let source_name = StageName::unnamed(StageKind::ZmqSource);
-    let mux_name = StageName::unnamed(StageKind::Mp4Mux);
+    let source_name = StageName::unnamed(StageKind::BitstreamSource);
+    let mux_name = StageName::unnamed(StageKind::BitstreamSink);
 
     let mut sys = System::new().on_shutdown(producer_consumer_shutdown_handler);
 
@@ -460,7 +461,7 @@ fn producer_consumer_shutdown_handler(
         ShutdownCause::StageExit { stage }
             if matches!(
                 stage.kind,
-                StageKind::Mp4Demux | StageKind::UriDemux | StageKind::ZmqSource
+                StageKind::BitstreamSource
             ) =>
         {
             log::info!(
@@ -501,7 +502,7 @@ fn producer_no_eos_shutdown_handler(
 ) -> Result<ShutdownAction> {
     match cause {
         ShutdownCause::StageExit { stage }
-            if matches!(stage.kind, StageKind::Mp4Demux | StageKind::UriDemux) =>
+            if matches!(stage.kind, StageKind::BitstreamSource) =>
         {
             log::info!(
                 "[supervisor] {stage} exited (--no-eos); broadcasting Shutdown without wire EOS"

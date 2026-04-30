@@ -315,7 +315,7 @@ mod tests {
         let stages: [StageName; 1] = [StageName::unnamed(StageKind::Infer)];
         let history = [
             ShutdownCause::StageExit {
-                stage: StageName::unnamed(StageKind::Mp4Demux),
+                stage: StageName::unnamed(StageKind::BitstreamSource),
             },
             ShutdownCause::CtrlC,
             ShutdownCause::CtrlC,

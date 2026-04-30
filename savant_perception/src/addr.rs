@@ -33,14 +33,23 @@ pub struct Addr<M: Envelope> {
 }
 
 impl<M: Envelope> Addr<M> {
-    /// Internal constructor — the framework builds these inside
+    /// Construct an `Addr<M>` from the peer's [`StageName`] and a
+    /// typed [`Sender`] handle to that peer's inbox.
+    ///
+    /// First-party call site:
     /// [`System::register_actor`](super::system::System::register_actor)
-    /// when the actor's inbox channel is allocated.  User code
-    /// should always obtain `Addr`s via
-    /// [`BuildCtx::addr`](super::context::BuildCtx::addr) or
-    /// [`Context::resolve`](super::context::Context::resolve).
-    #[allow(dead_code, reason = "constructed by System on actor registration")]
-    pub(crate) fn new(name: StageName, tx: Sender<M>) -> Self {
+    /// builds one of these per registered actor when it allocates
+    /// the inbox channel.  In normal pipeline code, peers obtain
+    /// `Addr`s via
+    /// [`BuildCtx::addr`](super::context::BuildCtx::addr) /
+    /// [`Context::resolve`](super::context::Context::resolve) /
+    /// [`Registry::get`](super::registry::Registry::get) instead of
+    /// constructing them directly.
+    ///
+    /// Public so that 3rd-party crates building custom runtimes,
+    /// custom registries, or unit-test scaffolding can construct an
+    /// `Addr<M>` paired with a hand-built channel.
+    pub fn new(name: StageName, tx: Sender<M>) -> Self {
         Self { name, tx }
     }
 
