@@ -52,7 +52,7 @@ pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 /// [`OnSourceEosHook`]; non-frame, non-EOS kinds flow through
 /// [`OnServiceMessageHook`].
 pub type OnMessageHook = Box<
-    dyn FnMut(String, Box<Message>, Vec<Vec<u8>>, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    dyn FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
         + Send
         + 'static,
 >;
@@ -66,22 +66,22 @@ pub type OnMessageHook = Box<
 /// without sending to drop.  The default implementation logs at
 /// `debug` and drops the message.
 pub type OnServiceMessageHook = Box<
-    dyn FnMut(String, Box<Message>, Vec<Vec<u8>>, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    dyn FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
         + Send
         + 'static,
 >;
 
 /// Protocol-level reader-result classifier for non-message variants.
 pub type OnProtocolErrorHook =
-    Box<dyn FnMut(&ReaderResult, &HookCtx) -> ErrorAction + Send + 'static>;
+    Box<dyn FnMut(&HookCtx, &ReaderResult) -> ErrorAction + Send + 'static>;
 
 /// Reader receive-error classifier.
 pub type OnReceiveErrorHook =
-    Box<dyn FnMut(&anyhow::Error, &HookCtx) -> ErrorAction + Send + 'static>;
+    Box<dyn FnMut(&HookCtx, &anyhow::Error) -> ErrorAction + Send + 'static>;
 
 /// Wire-EOS hook with stop/continue control.
 pub type OnSourceEosHook =
-    Box<dyn FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static>;
+    Box<dyn FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static>;
 
 /// User stopping hook fired after reader shutdown.
 pub type OnStoppingHook = Box<dyn FnMut(&SourceContext) + Send + 'static>;
@@ -97,7 +97,7 @@ pub struct ZmqSource {
     on_receive_error: OnReceiveErrorHook,
     on_source_eos: OnSourceEosHook,
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl ZmqSource {
@@ -114,10 +114,10 @@ impl ZmqSource {
     /// [`Message::is_video_frame`] is `true`.
     #[allow(clippy::type_complexity)]
     pub fn default_on_message(
-    ) -> impl FnMut(String, Box<Message>, Vec<Vec<u8>>, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
            + Send
            + 'static {
-        |_topic, message, data, router, _ctx| {
+        |_ctx, router, _topic, message, data| {
             let mut frame = message
                 .as_video_frame()
                 .ok_or_else(|| anyhow!("ZmqSource::default_on_message: not a video_frame"))?;
@@ -145,10 +145,10 @@ impl ZmqSource {
     /// framework as custom envelopes.
     #[allow(clippy::type_complexity)]
     pub fn default_on_service_message(
-    ) -> impl FnMut(String, Box<Message>, Vec<Vec<u8>>, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+    ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
            + Send
            + 'static {
-        |topic, _message, _data, _router, _ctx| {
+        |_ctx, _router, topic, _message, _data| {
             log::debug!("ignoring non-frame/non-EOS message kind, topic={topic}");
             Ok(())
         }
@@ -156,14 +156,14 @@ impl ZmqSource {
 
     /// Default protocol-error classifier: warn-and-continue.
     pub fn default_on_protocol_error(
-    ) -> impl FnMut(&ReaderResult, &HookCtx) -> ErrorAction + Send + 'static {
-        |_result, _ctx| ErrorAction::LogAndContinue
+    ) -> impl FnMut(&HookCtx, &ReaderResult) -> ErrorAction + Send + 'static {
+        |_ctx, _result| ErrorAction::LogAndContinue
     }
 
     /// Default receive-error classifier: fatal.
     pub fn default_on_receive_error(
-    ) -> impl FnMut(&anyhow::Error, &HookCtx) -> ErrorAction + Send + 'static {
-        |_error, _ctx| ErrorAction::Fatal
+    ) -> impl FnMut(&HookCtx, &anyhow::Error) -> ErrorAction + Send + 'static {
+        |_ctx, _error| ErrorAction::Fatal
     }
 
     /// Default source-EOS forwarder:
@@ -196,8 +196,8 @@ impl ZmqSource {
     /// never observe a per-source EOS for `source_id` (only the
     /// system-level shutdown sentinel, if any).
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static {
-        |source_id, router, _ctx| {
+    ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static {
+        |_ctx, router, source_id| {
             router.send(EncodedMsg::SourceEos {
                 source_id: source_id.to_string(),
             });
@@ -206,7 +206,7 @@ impl ZmqSource {
     }
 
     /// Default user stopping hook: no-op.
-    pub fn default_stopping() -> impl FnMut(&SourceContext) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&SourceContext) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -223,7 +223,7 @@ impl Source for ZmqSource {
             on_receive_error,
             on_source_eos,
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
 
         let mut on_message = on_message;
@@ -231,7 +231,7 @@ impl Source for ZmqSource {
         let mut on_protocol_error = on_protocol_error;
         let mut on_receive_error = on_receive_error;
         let mut on_source_eos = on_source_eos;
-        let mut stopping = stopping;
+        let mut on_stopping = on_stopping;
 
         let own_name = ctx.own_name().clone();
         let hook_ctx = ctx.hook_ctx();
@@ -264,7 +264,7 @@ impl Source for ZmqSource {
                 }
                 Some(Err(e)) => {
                     log::error!("[{own_name}] reader.receive: {e}");
-                    let action = on_receive_error(&e, &hook_ctx);
+                    let action = on_receive_error(&hook_ctx, &e);
                     match action {
                         ErrorAction::Fatal => {
                             latched.get_or_insert_with(|| e.to_string());
@@ -288,7 +288,7 @@ impl Source for ZmqSource {
 
                     if msg.is_video_frame() {
                         let boxed = Box::new(msg);
-                        if let Err(e) = on_message(topic_str, boxed, data, &router, &hook_ctx) {
+                        if let Err(e) = on_message(&hook_ctx, &router, topic_str, boxed, data) {
                             log::error!("[{own_name}] on_message: {e}");
                             latched.get_or_insert_with(|| format!("on_message: {e}"));
                             break 'outer;
@@ -298,7 +298,7 @@ impl Source for ZmqSource {
                             .as_end_of_stream()
                             .map(|eos| eos.source_id.clone())
                             .unwrap_or(topic_str);
-                        match on_source_eos(&source_id, &router, &hook_ctx) {
+                        match on_source_eos(&hook_ctx, &router, &source_id) {
                             Ok(Flow::Cont) => {}
                             Ok(Flow::Stop) => {
                                 log::info!(
@@ -315,7 +315,7 @@ impl Source for ZmqSource {
                     } else {
                         let boxed = Box::new(msg);
                         if let Err(e) =
-                            on_service_message(topic_str, boxed, data, &router, &hook_ctx)
+                            on_service_message(&hook_ctx, &router, topic_str, boxed, data)
                         {
                             log::error!("[{own_name}] on_service_message: {e}");
                             latched.get_or_insert_with(|| format!("on_service_message: {e}"));
@@ -325,7 +325,7 @@ impl Source for ZmqSource {
                 }
                 Some(Ok(other)) => {
                     log::warn!("[{own_name}] protocol error: {other:?}");
-                    let action = on_protocol_error(&other, &hook_ctx);
+                    let action = on_protocol_error(&hook_ctx, &other);
                     match action {
                         ErrorAction::Fatal => {
                             latched.get_or_insert_with(|| format!("protocol error: {other:?}"));
@@ -345,7 +345,7 @@ impl Source for ZmqSource {
         }
         drop(reader);
 
-        stopping(&ctx);
+        on_stopping(&ctx);
 
         if let Some(err) = latched {
             bail!("[{own_name}] zmq source error: {err}");
@@ -404,7 +404,7 @@ impl ZmqSourceResultsBuilder {
     /// return without sending to drop.
     pub fn on_message<F>(mut self, f: F) -> Self
     where
-        F: FnMut(String, Box<Message>, Vec<Vec<u8>>, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+        F: FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
             + Send
             + 'static,
     {
@@ -416,7 +416,7 @@ impl ZmqSourceResultsBuilder {
     /// kinds).
     pub fn on_service_message<F>(mut self, f: F) -> Self
     where
-        F: FnMut(String, Box<Message>, Vec<Vec<u8>>, &Router<EncodedMsg>, &HookCtx) -> Result<()>
+        F: FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
             + Send
             + 'static,
     {
@@ -427,7 +427,7 @@ impl ZmqSourceResultsBuilder {
     /// Override protocol-error classifier.
     pub fn on_protocol_error<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&ReaderResult, &HookCtx) -> ErrorAction + Send + 'static,
+        F: FnMut(&HookCtx, &ReaderResult) -> ErrorAction + Send + 'static,
     {
         self.on_protocol_error = Some(Box::new(f));
         self
@@ -436,7 +436,7 @@ impl ZmqSourceResultsBuilder {
     /// Override receive-error classifier.
     pub fn on_receive_error<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&anyhow::Error, &HookCtx) -> ErrorAction + Send + 'static,
+        F: FnMut(&HookCtx, &anyhow::Error) -> ErrorAction + Send + 'static,
     {
         self.on_receive_error = Some(Box::new(f));
         self
@@ -445,7 +445,7 @@ impl ZmqSourceResultsBuilder {
     /// Override source-EOS hook.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static,
+        F: FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static,
     {
         self.on_source_eos = Some(Box::new(f));
         self
@@ -483,7 +483,7 @@ impl Default for ZmqSourceResultsBuilder {
 /// Common loop knobs for [`ZmqSource`].
 pub struct ZmqSourceCommon {
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl ZmqSourceCommon {
@@ -502,7 +502,7 @@ impl Default for ZmqSourceCommon {
 /// Fluent builder for [`ZmqSourceCommon`].
 pub struct ZmqSourceCommonBuilder {
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl ZmqSourceCommonBuilder {
@@ -510,7 +510,7 @@ impl ZmqSourceCommonBuilder {
     pub fn new() -> Self {
         Self {
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -521,11 +521,11 @@ impl ZmqSourceCommonBuilder {
     }
 
     /// Override user stopping hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&SourceContext) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -533,11 +533,11 @@ impl ZmqSourceCommonBuilder {
     pub fn build(self) -> ZmqSourceCommon {
         let ZmqSourceCommonBuilder {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         ZmqSourceCommon {
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(ZmqSource::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(ZmqSource::default_on_stopping())),
         }
     }
 }
@@ -633,7 +633,7 @@ impl ZmqSourceBuilder {
         } = results.unwrap_or_default();
         let ZmqSourceCommon {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
 
         Ok(SourceBuilder::new(name).factory(move |_bx| {
@@ -647,7 +647,7 @@ impl ZmqSourceBuilder {
                 on_receive_error,
                 on_source_eos,
                 poll_timeout,
-                stopping,
+                on_stopping,
             })
         }))
     }
@@ -702,7 +702,7 @@ mod tests {
             .common(
                 ZmqSourceCommon::builder()
                     .poll_timeout(Duration::from_millis(25))
-                    .stopping(ZmqSource::default_stopping())
+                    .on_stopping(ZmqSource::default_on_stopping())
                     .build(),
             )
             .build()
@@ -732,7 +732,7 @@ mod tests {
             .common(
                 ZmqSourceCommon::builder()
                     .poll_timeout(DEFAULT_POLL_TIMEOUT)
-                    .stopping(ZmqSource::default_stopping())
+                    .on_stopping(ZmqSource::default_on_stopping())
                     .build(),
             )
             .build()
@@ -784,7 +784,7 @@ mod tests {
             on_receive_error: _,
             on_source_eos: _,
             poll_timeout: _,
-            stopping: _,
+            on_stopping: _,
         } = src;
     }
 }

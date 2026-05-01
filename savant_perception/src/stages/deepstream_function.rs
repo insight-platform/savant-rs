@@ -9,11 +9,19 @@
 //! [`SharedBuffer`]) back to the
 //! pipeline.  The name **`DeepStreamFunction`** reflects the actor's real
 //! purpose: it hosts an arbitrary user-supplied callback
-//! (`on_delivery`) that receives every
-//! `(VideoFrame, SharedBuffer)` batch by **shared
-//! reference**, and is therefore well-suited for pipeline
-//! termini *and* for inline analytics / custom processing
-//! stages.
+//! (`on_delivery`) that is invoked **once per
+//! `(VideoFrame, SharedBuffer)` pair** — when a batched
+//! [`SealedDeliveries`](crate::envelopes::SealedDeliveries)
+//! arrives the stage unseals it and calls the hook in a tight loop,
+//! so user code never observes the batching.  This makes
+//! `DeepStreamFunction` well-suited for pipeline termini *and* for
+//! inline analytics / custom processing stages.
+//!
+//! The stage carries a [`Router<PipelineMsg>`](Router) built at
+//! factory time with an optional default peer installed via
+//! [`DeepStreamFunctionBuilder::downstream`].  Hooks receive the
+//! router by shared reference so user code is the single send site
+//! — the stage itself never calls `router.send`.
 //!
 //! # Grouped builder API
 //!
@@ -45,15 +53,15 @@
 //!
 //! Override per-hook for domain behaviour via the bundles:
 //!
-//! * [`DeepStreamFunctionInboxBuilder::on_delivery`] — called with every
-//!   unsealed `(VideoFrame, SharedBuffer)` batch (both the
-//!   single-delivery and batched-delivery variants funnel through
-//!   here after unsealing).  The batch is passed by **shared
-//!   slice reference** so the hook body can route it into nested
-//!   handlers (e.g. inference / tracking helpers) without
-//!   consuming it.  The stage drops the owned `Vec` as soon as
-//!   the hook returns; clone the frames / buffers inside the hook
-//!   if they need to outlive the call.  Default: drop (no-op).
+//! * [`DeepStreamFunctionInboxBuilder::on_delivery`] — invoked
+//!   **once per `(VideoFrame, SharedBuffer)` pair**.  Both the
+//!   single-delivery and batched-delivery inbox variants funnel
+//!   through this loop after unsealing — user code never sees the
+//!   batch directly.  Each pair is passed by **shared reference**
+//!   so the hook body can route it into nested handlers (e.g.
+//!   inference / tracking helpers) without consuming it; clone the
+//!   frame or buffer inside the hook if it needs to outlive the
+//!   call.  Default: drop (no-op).
 //! * [`DeepStreamFunctionInboxBuilder::on_source_eos`] — called on every
 //!   [`PipelineMsg::SourceEos`].
 //!   Returns [`Flow`] so the function can self-terminate on the
@@ -80,6 +88,7 @@ use std::time::Duration;
 use anyhow::Result;
 
 use crate::envelopes::{BatchDelivery, PipelineMsg, SingleDelivery};
+use crate::router::Router;
 use crate::supervisor::StageName;
 use crate::{
     Actor, ActorBuilder, Context, Dispatch, Flow, Handler, ShutdownPayload, SourceEosPayload,
@@ -87,17 +96,22 @@ use crate::{
 use deepstream_buffers::SharedBuffer;
 use savant_core::primitives::frame::VideoFrame;
 
-/// Closure type for `on_delivery`: observes a batch of
-/// `(frame, buffer)` pairs by **shared reference**.  The owned
-/// `Vec` is held on the actor thread and dropped automatically as
-/// soon as the hook returns; hooks that need to retain individual
-/// frames or buffers must clone them explicitly.  Dropping the
-/// argument (i.e. doing nothing) is a no-op terminus;
-/// clone-and-forward is a tee pattern; dispatching to nested
-/// helpers (e.g. inference / tracking / encoding) without
-/// consuming is now the natural shape.
-pub type DeliveryHook = Box<
-    dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<DeepStreamFunction>) -> Result<()>
+/// Closure type for `on_delivery`: invoked **once per
+/// `(frame, buffer)` pair**.  When the underlying inbox message is
+/// a batched [`SealedDeliveries`](crate::envelopes::SealedDeliveries),
+/// the stage unseals it on the actor thread and calls this hook in
+/// a tight loop — one invocation per pair — so user code never
+/// observes the batching.  Both arguments are passed by **shared
+/// reference**; hooks that need to retain a frame or buffer must
+/// clone explicitly.  Dropping the arguments (i.e. doing nothing)
+/// is a no-op terminus; clone-and-forward is a tee pattern.
+pub type OnDeliveryHook = Box<
+    dyn FnMut(
+            &mut Context<DeepStreamFunction>,
+            &Router<PipelineMsg>,
+            &VideoFrame,
+            &SharedBuffer,
+        ) -> Result<()>
         + Send
         + 'static,
 >;
@@ -105,7 +119,11 @@ pub type DeliveryHook = Box<
 /// Closure type for `on_source_eos`.  Returning [`Flow::Stop`] exits
 /// the receive loop on that EOS; [`Flow::Cont`] keeps the function
 /// alive.
-pub type EosHook = Box<dyn FnMut(&str, &mut Context<DeepStreamFunction>) -> Result<Flow> + Send + 'static>;
+pub type OnSourceEosHook = Box<
+    dyn FnMut(&mut Context<DeepStreamFunction>, &Router<PipelineMsg>, &str) -> Result<Flow>
+        + Send
+        + 'static,
+>;
 
 /// Closure type for `on_started` — runs once when the actor's
 /// receive loop starts.  Always populated at runtime (the default
@@ -127,10 +145,11 @@ pub type OnStoppingHook = Box<dyn FnMut(&mut Context<DeepStreamFunction>) + Send
 /// bundles auto-install the matching default when the user omits
 /// a setter.
 pub struct DeepStreamFunction {
-    delivery: DeliveryHook,
-    source_eos: EosHook,
-    started: OnStartedHook,
-    stopping: OnStoppingHook,
+    router: Router<PipelineMsg>,
+    delivery: OnDeliveryHook,
+    source_eos: OnSourceEosHook,
+    on_started: OnStartedHook,
+    on_stopping: OnStoppingHook,
     poll_timeout: Duration,
 }
 
@@ -141,20 +160,26 @@ impl DeepStreamFunction {
         DeepStreamFunctionBuilder::new(name, capacity)
     }
 
-    /// Default `on_delivery` hook — drops every unsealed batch.
-    pub fn default_on_delivery(
-    ) -> impl FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<DeepStreamFunction>) -> Result<()>
+    /// Default `on_delivery` hook — drops every unsealed pair.
+    pub fn default_on_delivery() -> impl FnMut(
+        &mut Context<DeepStreamFunction>,
+        &Router<PipelineMsg>,
+        &VideoFrame,
+        &SharedBuffer,
+    ) -> Result<()>
            + Send
            + 'static {
-        |_pairs, _ctx| Ok(())
+        |_ctx, _router, _frame, _buffer| Ok(())
     }
 
     /// Default `on_source_eos` hook — logs at `info` level and
     /// returns `Ok(Flow::Cont)` so the function stays alive through
     /// an arbitrary number of per-source drainages.
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &mut Context<DeepStreamFunction>) -> Result<Flow> + Send + 'static {
-        |source_id, ctx| {
+    ) -> impl FnMut(&mut Context<DeepStreamFunction>, &Router<PipelineMsg>, &str) -> Result<Flow>
+           + Send
+           + 'static {
+        |ctx, _router, source_id| {
             log::info!("[{}] SourceEos {source_id}: continuing", ctx.own_name());
             Ok(Flow::Cont)
         }
@@ -171,7 +196,7 @@ impl DeepStreamFunction {
     /// Default user shutdown hook — emits one info-level log line.
     /// The stage has no load-bearing built-in cleanup, so this
     /// hook body is the only work done on stop.
-    pub fn default_stopping() -> impl FnMut(&mut Context<DeepStreamFunction>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<DeepStreamFunction>) + Send + 'static {
         |ctx| {
             log::info!("[{}] function stopping", ctx.own_name());
         }
@@ -190,19 +215,21 @@ impl Actor for DeepStreamFunction {
     }
 
     fn started(&mut self, ctx: &mut Context<Self>) -> Result<()> {
-        (self.started)(ctx);
+        (self.on_started)(ctx);
         Ok(())
     }
 
     fn stopping(&mut self, ctx: &mut Context<Self>) {
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
 impl Handler<SingleDelivery> for DeepStreamFunction {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
         let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
-        (self.delivery)(&pairs, ctx)?;
+        for (frame, buffer) in &pairs {
+            (self.delivery)(ctx, &self.router, frame, buffer)?;
+        }
         Ok(Flow::Cont)
     }
 }
@@ -210,14 +237,16 @@ impl Handler<SingleDelivery> for DeepStreamFunction {
 impl Handler<BatchDelivery> for DeepStreamFunction {
     fn handle(&mut self, msg: BatchDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
         let pairs = msg.0.unseal();
-        (self.delivery)(&pairs, ctx)?;
+        for (frame, buffer) in &pairs {
+            (self.delivery)(ctx, &self.router, frame, buffer)?;
+        }
         Ok(Flow::Cont)
     }
 }
 
 impl Handler<SourceEosPayload> for DeepStreamFunction {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.source_eos)(&msg.source_id, ctx)
+        (self.source_eos)(ctx, &self.router, &msg.source_id)
     }
 }
 
@@ -233,8 +262,8 @@ impl Handler<ShutdownPayload> for DeepStreamFunction {}
 /// auto-install the matching `DeepStreamFunction::default_on_*` at build
 /// time.
 pub struct DeepStreamFunctionInbox {
-    delivery: DeliveryHook,
-    source_eos: EosHook,
+    delivery: OnDeliveryHook,
+    source_eos: OnSourceEosHook,
 }
 
 impl DeepStreamFunctionInbox {
@@ -253,8 +282,8 @@ impl Default for DeepStreamFunctionInbox {
 
 /// Fluent builder for [`DeepStreamFunctionInbox`].
 pub struct DeepStreamFunctionInboxBuilder {
-    delivery: Option<DeliveryHook>,
-    source_eos: Option<EosHook>,
+    delivery: Option<OnDeliveryHook>,
+    source_eos: Option<OnSourceEosHook>,
 }
 
 impl DeepStreamFunctionInboxBuilder {
@@ -267,20 +296,26 @@ impl DeepStreamFunctionInboxBuilder {
         }
     }
 
-    /// Install a custom delivery hook.  The hook receives the
-    /// unsealed batch of `(VideoFrame, SharedBuffer)` pairs by
-    /// **shared slice reference**, which lets the body forward the
-    /// batch to nested helpers (inference / tracking / encoding)
-    /// without consuming it.  Returning `Err` aborts the loop and
-    /// signals the supervisor via the
-    /// [`StageExitGuard`](super::super::StageExitGuard).
-    /// Doing nothing with the argument is pure-terminus behaviour
-    /// (the default); cloning individual frames or buffers out is
-    /// a tee pattern; the stage drops the owned `Vec`
-    /// automatically as soon as this hook returns.
+    /// Install a custom delivery hook.  The hook is invoked **once
+    /// per `(VideoFrame, SharedBuffer)` pair** — when a batched
+    /// [`SealedDeliveries`](crate::envelopes::SealedDeliveries)
+    /// arrives the stage unseals it on the actor thread and calls
+    /// this hook in a tight loop, so user code never observes the
+    /// batching.  Both arguments are passed by **shared
+    /// reference**, which lets the body forward into nested helpers
+    /// (inference / tracking / encoding) without consuming.
+    /// Returning `Err` aborts the loop and signals the supervisor
+    /// via the [`StageExitGuard`](super::super::StageExitGuard).
+    /// Doing nothing is pure-terminus behaviour (the default);
+    /// cloning the frame or buffer out is a tee pattern.
     pub fn on_delivery<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<DeepStreamFunction>) -> Result<()>
+        F: FnMut(
+                &mut Context<DeepStreamFunction>,
+                &Router<PipelineMsg>,
+                &VideoFrame,
+                &SharedBuffer,
+            ) -> Result<()>
             + Send
             + 'static,
     {
@@ -295,7 +330,9 @@ impl DeepStreamFunctionInboxBuilder {
     /// pipelines).
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &mut Context<DeepStreamFunction>) -> Result<Flow> + Send + 'static,
+        F: FnMut(&mut Context<DeepStreamFunction>, &Router<PipelineMsg>, &str) -> Result<Flow>
+            + Send
+            + 'static,
     {
         self.source_eos = Some(Box::new(f));
         self
@@ -325,8 +362,8 @@ impl Default for DeepStreamFunctionInboxBuilder {
 /// through [`DeepStreamFunctionCommon::builder`] and handed to
 /// [`DeepStreamFunctionBuilder::common`].
 pub struct DeepStreamFunctionCommon {
-    started: OnStartedHook,
-    stopping: OnStoppingHook,
+    on_started: OnStartedHook,
+    on_stopping: OnStoppingHook,
     poll_timeout: Duration,
 }
 
@@ -345,8 +382,8 @@ impl Default for DeepStreamFunctionCommon {
 
 /// Fluent builder for [`DeepStreamFunctionCommon`].
 pub struct DeepStreamFunctionCommonBuilder {
-    started: Option<OnStartedHook>,
-    stopping: Option<OnStoppingHook>,
+    on_started: Option<OnStartedHook>,
+    on_stopping: Option<OnStoppingHook>,
     poll_timeout: Option<Duration>,
 }
 
@@ -361,8 +398,8 @@ impl DeepStreamFunctionCommonBuilder {
     /// [`Self::DEFAULT_POLL`].
     pub fn new() -> Self {
         Self {
-            started: None,
-            stopping: None,
+            on_started: None,
+            on_stopping: None,
             poll_timeout: None,
         }
     }
@@ -373,20 +410,20 @@ impl DeepStreamFunctionCommonBuilder {
     where
         F: FnMut(&mut Context<DeepStreamFunction>) + Send + 'static,
     {
-        self.started = Some(Box::new(f));
+        self.on_started = Some(Box::new(f));
         self
     }
 
     /// Install a custom `stopping` hook; the default
-    /// ([`DeepStreamFunction::default_stopping`]) logs
+    /// ([`DeepStreamFunction::default_on_stopping`]) logs
     /// `[{stage}] function stopping`.  The stage has no
     /// load-bearing built-in cleanup on [`Actor::stopping`], so
     /// this hook's body is the **only** work done on stop.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<DeepStreamFunction>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -400,13 +437,13 @@ impl DeepStreamFunctionCommonBuilder {
     /// setter.
     pub fn build(self) -> DeepStreamFunctionCommon {
         let DeepStreamFunctionCommonBuilder {
-            started,
-            stopping,
+            on_started,
+            on_stopping,
             poll_timeout,
         } = self;
         DeepStreamFunctionCommon {
-            started: started.unwrap_or_else(|| Box::new(DeepStreamFunction::default_on_started())),
-            stopping: stopping.unwrap_or_else(|| Box::new(DeepStreamFunction::default_stopping())),
+            on_started: on_started.unwrap_or_else(|| Box::new(DeepStreamFunction::default_on_started())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(DeepStreamFunction::default_on_stopping())),
             poll_timeout: poll_timeout.unwrap_or(Self::DEFAULT_POLL),
         }
     }
@@ -430,6 +467,7 @@ impl Default for DeepStreamFunctionCommonBuilder {
 pub struct DeepStreamFunctionBuilder {
     name: StageName,
     capacity: usize,
+    downstream: Option<StageName>,
     inbox: Option<DeepStreamFunctionInbox>,
     common: Option<DeepStreamFunctionCommon>,
 }
@@ -442,9 +480,21 @@ impl DeepStreamFunctionBuilder {
         Self {
             name,
             capacity,
+            downstream: None,
             inbox: None,
             common: None,
         }
+    }
+
+    /// Optional default peer installed on the
+    /// [`Router<PipelineMsg>`] handed to every variant hook.  When
+    /// set, user hooks can use `router.send(msg)` to forward; when
+    /// unset, `router.send(...)` returns `false` and
+    /// `router.send_to(&peer, ...)` must be used instead for
+    /// explicit per-call routing.
+    pub fn downstream(mut self, peer: StageName) -> Self {
+        self.downstream = Some(peer);
+        self
     }
 
     /// Install a [`DeepStreamFunctionInbox`] bundle — inbox hook slots
@@ -472,6 +522,7 @@ impl DeepStreamFunctionBuilder {
         let Self {
             name,
             capacity,
+            downstream,
             inbox,
             common,
         } = self;
@@ -480,18 +531,28 @@ impl DeepStreamFunctionBuilder {
             source_eos,
         } = inbox.unwrap_or_default();
         let DeepStreamFunctionCommon {
-            started,
-            stopping,
+            on_started,
+            on_stopping,
             poll_timeout,
         } = common.unwrap_or_default();
+        // Hooks are owned by the actor and must be moved into the
+        // factory closure.  Wrap into an Option so the take-once
+        // move is obvious to the borrow checker (the factory is
+        // called once per registration).
+        let mut slots = Some((delivery, source_eos, on_started, on_stopping));
         ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
-            .factory(move |_bx| {
+            .factory(move |bx| {
+                let router: Router<PipelineMsg> = bx.router(downstream.as_ref())?;
+                let (delivery, source_eos, on_started, on_stopping) = slots
+                    .take()
+                    .expect("DeepStreamFunction factory invoked more than once");
                 Ok(DeepStreamFunction {
+                    router,
                     delivery,
                     source_eos,
-                    started,
-                    stopping,
+                    on_started,
+                    on_stopping,
                     poll_timeout,
                 })
             })
@@ -552,7 +613,7 @@ mod tests {
                 DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 4)
                     .inbox(
                         DeepStreamFunctionInbox::builder()
-                            .on_source_eos(move |sid, _ctx| {
+                            .on_source_eos(move |_ctx, _router, sid| {
                                 counter_clone.fetch_add(1, Ordering::Relaxed);
                                 let _ = sid;
                                 Ok(Flow::Stop)
@@ -573,26 +634,22 @@ mod tests {
         assert!(report.stage_results[0].1.is_ok());
     }
 
-    /// Custom `on_delivery` can observe unsealed payloads by
-    /// shared reference.  We cannot easily synthesise a real
-    /// `SealedDelivery` inside a unit test, so this checks that
-    /// the configured hook survives the builder path (compile +
-    /// acceptance by the framework).
+    /// Custom `on_delivery` is invoked per pair.  We cannot easily
+    /// synthesise a real `SealedDelivery` inside a unit test, so
+    /// this checks that the configured hook survives the builder
+    /// path (compile + acceptance by the framework).
     #[test]
     fn custom_on_delivery_is_installed() {
         let _ = DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 2)
             .inbox(
                 DeepStreamFunctionInbox::builder()
-                    .on_delivery(|pairs, _ctx| {
-                        let _n = pairs.len();
-                        Ok(())
-                    })
+                    .on_delivery(|_ctx, _router, _frame, _buffer| Ok(()))
                     .build(),
             )
             .common(
                 DeepStreamFunctionCommon::builder()
                     .on_started(|ctx| log::debug!("started {}", ctx.own_name()))
-                    .stopping(|ctx| log::debug!("stopping {}", ctx.own_name()))
+                    .on_stopping(|ctx| log::debug!("stopping {}", ctx.own_name()))
                     .poll_timeout(Duration::from_millis(50))
                     .build(),
             )
@@ -618,10 +675,11 @@ mod tests {
         let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
         let func = (parts.factory)(&bx).expect("factory resolves");
         let DeepStreamFunction {
+            router: _,
             delivery: _,
             source_eos: _,
-            started: _,
-            stopping: _,
+            on_started: _,
+            on_stopping: _,
             poll_timeout: _,
         } = func;
     }

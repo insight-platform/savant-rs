@@ -75,13 +75,13 @@ pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Closure type for `on_source_eos`: decide whether an EOS should
 /// terminate the muxer.  Default: [`Flow::Stop`] on the first EOS.
-pub type EosHook = Box<dyn FnMut(&str, &mut Context<Mp4Muxer>) -> Result<Flow> + Send + 'static>;
+pub type OnSourceEosHook = Box<dyn FnMut(&mut Context<Mp4Muxer>, &str) -> Result<Flow> + Send + 'static>;
 
 /// Closure type for `on_frame` observer — runs before the frame is
 /// pushed to the muxer.  Returning `Err` aborts the loop.  Always
 /// installed at runtime; the default is a no-op.
-pub type FrameObserver =
-    Box<dyn FnMut(&FramePayload, &mut Context<Mp4Muxer>) -> Result<()> + Send + 'static>;
+pub type OnFrameHook =
+    Box<dyn FnMut(&mut Context<Mp4Muxer>, &FramePayload) -> Result<()> + Send + 'static>;
 
 /// User shutdown hook invoked from [`Actor::stopping`] *after* the
 /// stage's built-in cleanup (guarded [`GstMp4Muxer::finish`] on
@@ -107,9 +107,9 @@ pub struct Mp4Muxer {
     fps_den: i32,
     muxer: Option<GstMp4Muxer>,
     poll_timeout: Duration,
-    on_source_eos: EosHook,
-    on_frame: FrameObserver,
-    stopping: OnStoppingHook,
+    on_source_eos: OnSourceEosHook,
+    on_frame: OnFrameHook,
+    on_stopping: OnStoppingHook,
     finalised: bool,
 }
 
@@ -124,8 +124,8 @@ impl Mp4Muxer {
     /// returns `Ok(Flow::Stop)`, finalising the file on the first
     /// EOS.  Override for multi-source muxing policies.
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &mut Context<Mp4Muxer>) -> Result<Flow> + Send + 'static {
-        |source_id, ctx| {
+    ) -> impl FnMut(&mut Context<Mp4Muxer>, &str) -> Result<Flow> + Send + 'static {
+        |ctx, source_id| {
             log::info!("[{}] SourceEos {source_id}: finalising", ctx.own_name());
             Ok(Flow::Stop)
         }
@@ -135,8 +135,8 @@ impl Mp4Muxer {
     /// automatically when the user omits the bundle setter so the
     /// runtime struct never needs to inspect an `Option`.
     pub fn default_on_frame(
-    ) -> impl FnMut(&FramePayload, &mut Context<Mp4Muxer>) -> Result<()> + Send + 'static {
-        |_payload, _ctx| Ok(())
+    ) -> impl FnMut(&mut Context<Mp4Muxer>, &FramePayload) -> Result<()> + Send + 'static {
+        |_ctx, _payload| Ok(())
     }
 
     /// Default user shutdown hook — a no-op.  The stage's own
@@ -144,7 +144,7 @@ impl Mp4Muxer {
     /// [`GstMp4Muxer::finish`] before this hook fires, so omitting
     /// the bundle setter simply means "don't add any extra cleanup
     /// on top of the built-in finalisation".
-    pub fn default_stopping() -> impl FnMut(&mut Context<Mp4Muxer>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<Mp4Muxer>) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -185,13 +185,13 @@ impl Actor for Mp4Muxer {
             }
             self.finalised = true;
         }
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
 impl Handler<FramePayload> for Mp4Muxer {
     fn handle(&mut self, msg: FramePayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.on_frame)(&msg, ctx)?;
+        (self.on_frame)(ctx, &msg)?;
         let FramePayload { frame, payload } = msg;
         let Some(muxer) = self.muxer.as_mut() else {
             return Err(anyhow!(
@@ -227,7 +227,7 @@ impl Handler<FramePayload> for Mp4Muxer {
 
 impl Handler<SourceEosPayload> for Mp4Muxer {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.on_source_eos)(&msg.source_id, ctx)
+        (self.on_source_eos)(ctx, &msg.source_id)
     }
 }
 
@@ -267,8 +267,8 @@ impl Handler<ShutdownPayload> for Mp4Muxer {}
 /// to [`Mp4MuxerBuilder::inbox`].  Omitted branches auto-install
 /// the matching `Mp4Muxer::default_on_*` at build time.
 pub struct Mp4MuxerInbox {
-    on_source_eos: EosHook,
-    on_frame: FrameObserver,
+    on_source_eos: OnSourceEosHook,
+    on_frame: OnFrameHook,
 }
 
 impl Mp4MuxerInbox {
@@ -287,8 +287,8 @@ impl Default for Mp4MuxerInbox {
 
 /// Fluent builder for [`Mp4MuxerInbox`].
 pub struct Mp4MuxerInboxBuilder {
-    on_source_eos: Option<EosHook>,
-    on_frame: Option<FrameObserver>,
+    on_source_eos: Option<OnSourceEosHook>,
+    on_frame: Option<OnFrameHook>,
 }
 
 impl Mp4MuxerInboxBuilder {
@@ -307,7 +307,7 @@ impl Mp4MuxerInboxBuilder {
     /// (multi-source mux).
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &mut Context<Mp4Muxer>) -> Result<Flow> + Send + 'static,
+        F: FnMut(&mut Context<Mp4Muxer>, &str) -> Result<Flow> + Send + 'static,
     {
         self.on_source_eos = Some(Box::new(f));
         self
@@ -318,7 +318,7 @@ impl Mp4MuxerInboxBuilder {
     /// tee patterns.  Returning `Err` aborts the loop.
     pub fn on_frame<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&FramePayload, &mut Context<Mp4Muxer>) -> Result<()> + Send + 'static,
+        F: FnMut(&mut Context<Mp4Muxer>, &FramePayload) -> Result<()> + Send + 'static,
     {
         self.on_frame = Some(Box::new(f));
         self
@@ -350,7 +350,7 @@ impl Default for Mp4MuxerInboxBuilder {
 /// [`Mp4MuxerBuilder::common`].
 pub struct Mp4MuxerCommon {
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl Mp4MuxerCommon {
@@ -370,7 +370,7 @@ impl Default for Mp4MuxerCommon {
 /// Fluent builder for [`Mp4MuxerCommon`].
 pub struct Mp4MuxerCommonBuilder {
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl Mp4MuxerCommonBuilder {
@@ -379,7 +379,7 @@ impl Mp4MuxerCommonBuilder {
     pub fn new() -> Self {
         Self {
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -395,11 +395,11 @@ impl Mp4MuxerCommonBuilder {
     /// The built-in `finish` step is **load-bearing** (without it
     /// the MP4 moov atom is never written) and always runs first;
     /// it cannot be skipped through this hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<Mp4Muxer>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -408,11 +408,11 @@ impl Mp4MuxerCommonBuilder {
     pub fn build(self) -> Mp4MuxerCommon {
         let Mp4MuxerCommonBuilder {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         Mp4MuxerCommon {
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(Mp4Muxer::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(Mp4Muxer::default_on_stopping())),
         }
     }
 }
@@ -514,7 +514,7 @@ impl Mp4MuxerBuilder {
         } = inbox.unwrap_or_default();
         let Mp4MuxerCommon {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
         Ok(ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
@@ -528,7 +528,7 @@ impl Mp4MuxerBuilder {
                     poll_timeout,
                     on_source_eos,
                     on_frame,
-                    stopping,
+                    on_stopping,
                     finalised: false,
                 })
             }))
@@ -559,14 +559,14 @@ mod tests {
             .framerate(25, 1)
             .inbox(
                 Mp4MuxerInbox::builder()
-                    .on_source_eos(|_sid, _ctx| Ok(Flow::Stop))
+                    .on_source_eos(|_ctx, _sid| Ok(Flow::Stop))
                     .on_frame(|_pl, _ctx| Ok(()))
                     .build(),
             )
             .common(
                 Mp4MuxerCommon::builder()
                     .poll_timeout(Duration::from_millis(50))
-                    .stopping(Mp4Muxer::default_stopping())
+                    .on_stopping(Mp4Muxer::default_on_stopping())
                     .build(),
             )
             .build()
@@ -588,7 +588,7 @@ mod tests {
             .output("/tmp/out.mp4")
             .common(
                 Mp4MuxerCommon::builder()
-                    .stopping(move |_ctx| {
+                    .on_stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
                     .build(),
@@ -599,7 +599,7 @@ mod tests {
     }
 
     /// Runtime invariant: the `on_frame` slot is no longer
-    /// `Option<FrameObserver>`.  A minimal builder without any
+    /// `Option<OnFrameHook>`.  A minimal builder without any
     /// `.inbox(...)` call still produces a runtime [`Mp4Muxer`]
     /// whose `on_frame` is populated with the no-op default.
     #[test]
@@ -623,7 +623,7 @@ mod tests {
         let Mp4Muxer {
             on_frame: _,
             on_source_eos: _,
-            stopping: _,
+            on_stopping: _,
             ..
         } = mx;
     }

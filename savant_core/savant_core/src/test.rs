@@ -7,17 +7,39 @@ use crate::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
 };
 use crate::primitives::{RBBox, WithAttributes};
-use crate::utils::uuid_v7::incremental_uuid_v7;
+use crate::utils::video_id;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn now_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+}
+
+/// Per-process counter that gives every test frame a unique PTS so
+/// `video_id::mint` produces a unique id per call. The deterministic
+/// `(source_id, pts) -> id` mapping otherwise makes back-to-back
+/// `gen_frame()` calls collide (UUIDv7 randomness used to hide this).
+static TEST_PTS_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+fn next_test_pts(base: i64) -> i64 {
+    base + TEST_PTS_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 pub fn gen_empty_frame() -> VideoFrame {
+    let source_id = "test";
+    let pts = next_test_pts(0);
+    let uuid = video_id::mint(source_id, pts, false, now_ns()).as_u128();
     VideoFrame::from_inner(
         VideoFrameInnerBuilder::default()
-            .source_id("test".to_string())
-            .pts(0)
+            .source_id(source_id.to_string())
+            .pts(pts)
             .fps((30, 1))
             .width(0)
-            .uuid(incremental_uuid_v7().as_u128())
+            .uuid(uuid)
             .height(0)
             .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)
@@ -29,13 +51,16 @@ pub fn gen_empty_frame() -> VideoFrame {
 }
 
 pub fn gen_frame() -> VideoFrame {
+    let source_id = "test";
+    let pts = next_test_pts(1_000_000);
+    let uuid = video_id::mint(source_id, pts, false, now_ns()).as_u128();
     let mut f = VideoFrame::from_inner(
         VideoFrameInnerBuilder::default()
-            .source_id("test".to_string())
-            .pts(1000000)
+            .source_id(source_id.to_string())
+            .pts(pts)
             .fps((30, 1))
             .width(1280)
-            .uuid(incremental_uuid_v7().as_u128())
+            .uuid(uuid)
             .height(720)
             .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)

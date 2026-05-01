@@ -159,18 +159,26 @@ mod tests {
     use super::JobStopCondition;
     use crate::store::gen_properly_filled_frame;
     use anyhow::Result;
-    use savant_core::utils::uuid_v7::incremental_uuid_v7;
+    use savant_core::utils::video_id::VideoId;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_last_frame_stop_condition() -> Result<()> {
         let frame_before = gen_properly_filled_frame(true)?;
-        thread::sleep(Duration::from_millis(1));
-        let mut stop_condition = JobStopCondition::last_frame(incremental_uuid_v7().as_u128());
+        thread::sleep(Duration::from_millis(2));
+        // Stop at "now": a synthetic video_id at the current ts_ns.
+        // Frames minted before this sort below it; those minted after
+        // sort at or above it. Source identity is scoped by the
+        // surrounding job, not by the boundary id.
+        let now_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_nanos() as u64;
+        let stop_id = VideoId::lower_bound(now_ns);
+        let mut stop_condition = JobStopCondition::last_frame(stop_id.as_u128());
         stop_condition.setup()?;
         assert!(!stop_condition.check(&frame_before.to_message())?);
-        thread::sleep(Duration::from_millis(1));
+        thread::sleep(Duration::from_millis(2));
         let frame_after = gen_properly_filled_frame(true)?;
         assert!(stop_condition.check(&frame_after.to_message())?);
         Ok(())

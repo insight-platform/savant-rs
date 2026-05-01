@@ -26,6 +26,36 @@ use std::time::Duration;
 
 use crate::HookCtx;
 
+/// Type-tagged wrapper around the demuxer-level input string (path /
+/// URI of the run currently in progress).
+///
+/// The on-packet hook needs to surface both this and a `source_id`
+/// `&str`; wrapping the input in `DemuxInput` makes them
+/// type-distinct so callers can't swap them by accident.  Both
+/// `Deref` and `AsRef<str>` are implemented so the inner string is
+/// usable in the closure body without explicit unwrapping.
+#[derive(Debug, Clone, Copy)]
+pub struct DemuxInput<'a>(pub &'a str);
+
+impl<'a> std::ops::Deref for DemuxInput<'a> {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.0
+    }
+}
+
+impl<'a> AsRef<str> for DemuxInput<'a> {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl<'a> std::fmt::Display for DemuxInput<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
 /// What the framework should do next on a looping demuxer source.
 ///
 /// Returned by an [`InputRequester`] each time the source asks for

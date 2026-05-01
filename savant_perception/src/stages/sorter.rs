@@ -221,7 +221,7 @@ pub enum SorterRegistration {
 /// re-seal (e.g. accumulate into a custom batch envelope or
 /// emit through a different channel).
 pub type OnMessageHook = Box<
-    dyn FnMut(VideoFrame, SharedBuffer, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<Flow>
+    dyn FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, VideoFrame, SharedBuffer) -> Result<Flow>
         + Send
         + 'static,
 >;
@@ -235,7 +235,7 @@ pub type OnMessageHook = Box<
 /// `router.send(msg)` and return [`Flow::Cont`] so the sorter
 /// stays alive across an arbitrary number of per-source drains.
 pub type OnSourceEosHook = Box<
-    dyn FnMut(&str, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<Flow> + Send + 'static,
+    dyn FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + 'static,
 >;
 
 /// Ingress hook fired when a frame whose uuid is **not** in
@@ -248,8 +248,8 @@ pub type OnSourceEosHook = Box<
 /// **before** the corresponding frame can be in flight; an
 /// unregistered arrival is therefore a bug or noise from an
 /// unrelated sender.
-pub type UnregisteredHook = Box<
-    dyn FnMut(VideoFrame, SharedBuffer, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<()>
+pub type OnUnregisteredHook = Box<
+    dyn FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, VideoFrame, SharedBuffer) -> Result<()>
         + Send
         + 'static,
 >;
@@ -309,8 +309,8 @@ pub struct Sorter {
     router: Router<PipelineMsg>,
     on_message: OnMessageHook,
     on_source_eos: OnSourceEosHook,
-    unregistered: UnregisteredHook,
-    stopping: OnStoppingHook,
+    on_unregistered: OnUnregisteredHook,
+    on_stopping: OnStoppingHook,
     poll_timeout: Duration,
     per_source: HashMap<String, PerSource>,
 }
@@ -358,10 +358,10 @@ impl Sorter {
     /// [`ReleaseSeal`] is released immediately) and forward via
     /// `router.send(msg)`.
     pub fn default_on_message(
-    ) -> impl FnMut(VideoFrame, SharedBuffer, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<Flow>
+    ) -> impl FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, VideoFrame, SharedBuffer) -> Result<Flow>
            + Send
            + 'static {
-        |frame, buffer, router, ctx| {
+        |ctx, router, frame, buffer| {
             let seal = Arc::new(ReleaseSeal::new());
             let sealed = Sealed::new((frame, buffer), Arc::clone(&seal));
             seal.release();
@@ -379,9 +379,9 @@ impl Sorter {
     /// [`PipelineMsg::SourceEos`] via `router.send(msg)` and
     /// return [`Flow::Cont`].
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<Flow> + Send + 'static
+    ) -> impl FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + 'static
     {
-        |source_id, router, ctx| {
+        |ctx, router, source_id| {
             log::info!(
                 "[{}] SourceEos {source_id}: forwarding (registered)",
                 ctx.own_name()
@@ -401,11 +401,11 @@ impl Sorter {
     /// Default `unregistered` hook — log a single `warn!` line and
     /// drop the pair.  The pair's `SharedBuffer` is released via
     /// the normal `Arc` decrement when the closure body returns.
-    pub fn default_unregistered(
-    ) -> impl FnMut(VideoFrame, SharedBuffer, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<()>
+    pub fn default_on_unregistered(
+    ) -> impl FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, VideoFrame, SharedBuffer) -> Result<()>
            + Send
            + 'static {
-        |frame, _buffer, _router, ctx| {
+        |ctx, _router, frame, _buffer| {
             log::warn!(
                 "[{}] dropped unregistered frame source_id={} uuid={}",
                 ctx.own_name(),
@@ -419,7 +419,7 @@ impl Sorter {
     /// Default user shutdown hook — no-op.  The stage emits a
     /// single `info!` log line of its own before invoking this
     /// hook.
-    pub fn default_stopping() -> impl FnMut(&mut Context<Sorter>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<Sorter>) + Send + 'static {
         |_ctx| {}
     }
 
@@ -492,9 +492,9 @@ impl Sorter {
             };
             let flow = match ready {
                 Ready::Frame(frame, buffer) => {
-                    (self.on_message)(frame, buffer, &self.router, ctx)?
+                    (self.on_message)(ctx, &self.router, frame, buffer)?
                 }
-                Ready::Eos => (self.on_source_eos)(source_id, &self.router, ctx)?,
+                Ready::Eos => (self.on_source_eos)(ctx, &self.router, source_id)?,
             };
             if matches!(flow, Flow::Stop) {
                 return Ok(Flow::Stop);
@@ -519,7 +519,7 @@ impl Sorter {
             .map(|e| e.expected_uuids.contains(&uuid))
             .unwrap_or(false);
         if !registered {
-            (self.unregistered)(frame, buffer, &self.router, ctx)?;
+            (self.on_unregistered)(ctx, &self.router, frame, buffer)?;
             return Ok(Flow::Cont);
         }
         let entry = self.entry_mut(&source_id);
@@ -546,7 +546,7 @@ impl Actor for Sorter {
 
     fn stopping(&mut self, ctx: &mut Context<Self>) {
         log::info!("[{}] sorter stopping", ctx.own_name());
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 
     fn handle_message_ex(
@@ -633,7 +633,7 @@ impl Handler<ShutdownPayload> for Sorter {}
 
 /// Ingress hook bundle for [`Sorter`].
 pub struct SorterInbox {
-    unregistered: UnregisteredHook,
+    on_unregistered: OnUnregisteredHook,
 }
 
 impl SorterInbox {
@@ -652,38 +652,41 @@ impl Default for SorterInbox {
 
 /// Fluent builder for [`SorterInbox`].
 pub struct SorterInboxBuilder {
-    unregistered: Option<UnregisteredHook>,
+    on_unregistered: Option<OnUnregisteredHook>,
 }
 
 impl SorterInboxBuilder {
     /// Empty bundle — every hook defaults to the matching
     /// `Sorter::default_*` at [`build`](Self::build) time.
     pub fn new() -> Self {
-        Self { unregistered: None }
+        Self {
+            on_unregistered: None,
+        }
     }
 
     /// Override the `unregistered` hook.  Default: warn-log + drop.
-    pub fn unregistered<F>(mut self, f: F) -> Self
+    pub fn on_unregistered<F>(mut self, f: F) -> Self
     where
         F: FnMut(
+                &mut Context<Sorter>,
+                &Router<PipelineMsg>,
                 VideoFrame,
                 SharedBuffer,
-                &Router<PipelineMsg>,
-                &mut Context<Sorter>,
             ) -> Result<()>
             + Send
             + 'static,
     {
-        self.unregistered = Some(Box::new(f));
+        self.on_unregistered = Some(Box::new(f));
         self
     }
 
     /// Finalise the bundle, substituting defaults for every
     /// omitted setter.
     pub fn build(self) -> SorterInbox {
-        let SorterInboxBuilder { unregistered } = self;
+        let SorterInboxBuilder { on_unregistered } = self;
         SorterInbox {
-            unregistered: unregistered.unwrap_or_else(|| Box::new(Sorter::default_unregistered())),
+            on_unregistered: on_unregistered
+                .unwrap_or_else(|| Box::new(Sorter::default_on_unregistered())),
         }
     }
 }
@@ -736,10 +739,10 @@ impl SorterResultsBuilder {
     pub fn on_message<F>(mut self, f: F) -> Self
     where
         F: FnMut(
+                &mut Context<Sorter>,
+                &Router<PipelineMsg>,
                 VideoFrame,
                 SharedBuffer,
-                &Router<PipelineMsg>,
-                &mut Context<Sorter>,
             ) -> Result<Flow>
             + Send
             + 'static,
@@ -753,7 +756,7 @@ impl SorterResultsBuilder {
     /// return [`Flow::Cont`].
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &Router<PipelineMsg>, &mut Context<Sorter>) -> Result<Flow>
+        F: FnMut(&mut Context<Sorter>, &Router<PipelineMsg>, &str) -> Result<Flow>
             + Send
             + 'static,
     {
@@ -785,7 +788,7 @@ impl Default for SorterResultsBuilder {
 /// Lifecycle + loop knob bundle for [`Sorter`].
 pub struct SorterCommon {
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl SorterCommon {
@@ -805,7 +808,7 @@ impl Default for SorterCommon {
 /// Fluent builder for [`SorterCommon`].
 pub struct SorterCommonBuilder {
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl SorterCommonBuilder {
@@ -814,7 +817,7 @@ impl SorterCommonBuilder {
     pub fn new() -> Self {
         Self {
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -827,11 +830,11 @@ impl SorterCommonBuilder {
 
     /// Override the user shutdown hook — runs on the actor thread
     /// after the stage's own `info!` log line.  Default: no-op.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<Sorter>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -840,11 +843,11 @@ impl SorterCommonBuilder {
     pub fn build(self) -> SorterCommon {
         let SorterCommonBuilder {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         SorterCommon {
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(Sorter::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(Sorter::default_on_stopping())),
         }
     }
 }
@@ -921,14 +924,14 @@ impl SorterBuilder {
             results,
             common,
         } = self;
-        let SorterInbox { unregistered } = inbox.unwrap_or_default();
+        let SorterInbox { on_unregistered } = inbox.unwrap_or_default();
         let SorterResults {
             on_message,
             on_source_eos,
         } = results.unwrap_or_default();
         let SorterCommon {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
         ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
@@ -938,8 +941,8 @@ impl SorterBuilder {
                     router,
                     on_message,
                     on_source_eos,
-                    unregistered,
-                    stopping,
+                    on_unregistered,
+                    on_stopping,
                     poll_timeout,
                     per_source: HashMap::new(),
                 })
@@ -1061,8 +1064,8 @@ mod tests {
         let Sorter {
             on_message: _,
             on_source_eos: _,
-            unregistered: _,
-            stopping: _,
+            on_unregistered: _,
+            on_stopping: _,
             per_source: _,
             ..
         } = sorter;

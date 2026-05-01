@@ -63,19 +63,19 @@ pub enum PayloadCarrier {
 
 /// Source-EOS hook: return [`Flow::Stop`] to terminate, or
 /// [`Flow::Cont`] to keep processing further sources.
-pub type EosHook = Box<dyn FnMut(&str, &mut Context<ZmqSink>) -> Result<Flow> + Send + 'static>;
+pub type OnSourceEosHook = Box<dyn FnMut(&mut Context<ZmqSink>, &str) -> Result<Flow> + Send + 'static>;
 
 /// Frame observer hook called before message adaptation/sending.
-pub type FrameObserver =
-    Box<dyn FnMut(&FramePayload, &mut Context<ZmqSink>) -> Result<()> + Send + 'static>;
+pub type OnFrameHook =
+    Box<dyn FnMut(&mut Context<ZmqSink>, &FramePayload) -> Result<()> + Send + 'static>;
 
 /// Writer-result classifier hook.
 pub type OnWriterResultHook =
-    Box<dyn FnMut(&WriterResult, &mut Context<ZmqSink>) -> ErrorAction + Send + 'static>;
+    Box<dyn FnMut(&mut Context<ZmqSink>, &WriterResult) -> ErrorAction + Send + 'static>;
 
 /// Send-error classifier hook.
 pub type OnSendErrorHook =
-    Box<dyn FnMut(&anyhow::Error, &mut Context<ZmqSink>) -> ErrorAction + Send + 'static>;
+    Box<dyn FnMut(&mut Context<ZmqSink>, &anyhow::Error) -> ErrorAction + Send + 'static>;
 
 /// User shutdown hook fired from [`Actor::stopping`] after built-in
 /// writer cleanup completes.
@@ -91,12 +91,12 @@ pub struct ZmqSink {
     payload_carrier: PayloadCarrier,
     writer: Option<NonBlockingWriter>,
     poll_timeout: Duration,
-    on_source_eos: EosHook,
-    on_frame: FrameObserver,
+    on_source_eos: OnSourceEosHook,
+    on_frame: OnFrameHook,
     on_writer_result: OnWriterResultHook,
     on_send_error: OnSendErrorHook,
     topic_strategy: TopicStrategy,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
     finalised: bool,
 }
 
@@ -114,8 +114,8 @@ impl ZmqSink {
     /// keeps running.  Applications that want single-stream
     /// termination can return [`Flow::Stop`] from an override.
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &mut Context<ZmqSink>) -> Result<Flow> + Send + 'static {
-        |source_id, ctx| {
+    ) -> impl FnMut(&mut Context<ZmqSink>, &str) -> Result<Flow> + Send + 'static {
+        |ctx, source_id| {
             log::info!(
                 "[{}] SourceEos {source_id}: continuing (multi-stream)",
                 ctx.own_name()
@@ -126,8 +126,8 @@ impl ZmqSink {
 
     /// Default frame observer — no-op.
     pub fn default_on_frame(
-    ) -> impl FnMut(&FramePayload, &mut Context<ZmqSink>) -> Result<()> + Send + 'static {
-        |_payload, _ctx| Ok(())
+    ) -> impl FnMut(&mut Context<ZmqSink>, &FramePayload) -> Result<()> + Send + 'static {
+        |_ctx, _payload| Ok(())
     }
 
     /// Default writer-result classifier.
@@ -136,8 +136,8 @@ impl ZmqSink {
     /// Timeout variants are treated as recoverable
     /// (`LogAndContinue`).
     pub fn default_on_writer_result(
-    ) -> impl FnMut(&WriterResult, &mut Context<ZmqSink>) -> ErrorAction + Send + 'static {
-        |result, _ctx| match result {
+    ) -> impl FnMut(&mut Context<ZmqSink>, &WriterResult) -> ErrorAction + Send + 'static {
+        |_ctx, result| match result {
             WriterResult::Ack { .. } | WriterResult::Success { .. } => ErrorAction::Swallow,
             WriterResult::SendTimeout | WriterResult::AckTimeout(_) => ErrorAction::LogAndContinue,
         }
@@ -145,12 +145,12 @@ impl ZmqSink {
 
     /// Default send-error classifier — fatal.
     pub fn default_on_send_error(
-    ) -> impl FnMut(&anyhow::Error, &mut Context<ZmqSink>) -> ErrorAction + Send + 'static {
-        |_error, _ctx| ErrorAction::Fatal
+    ) -> impl FnMut(&mut Context<ZmqSink>, &anyhow::Error) -> ErrorAction + Send + 'static {
+        |_ctx, _error| ErrorAction::Fatal
     }
 
     /// Default stopping hook — no-op.
-    pub fn default_stopping() -> impl FnMut(&mut Context<ZmqSink>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<ZmqSink>) + Send + 'static {
         |_ctx| {}
     }
 
@@ -160,7 +160,7 @@ impl ZmqSink {
     }
 
     fn classify_send_error(&mut self, err: anyhow::Error, ctx: &mut Context<Self>) -> Result<Flow> {
-        match (self.on_send_error)(&err, ctx) {
+        match (self.on_send_error)(ctx, &err) {
             ErrorAction::Fatal => Err(anyhow!("fatal send error: {err}")),
             ErrorAction::LogAndContinue => {
                 log::warn!("[{}] send error: {err}", ctx.own_name());
@@ -175,7 +175,7 @@ impl ZmqSink {
         wr: WriterResult,
         ctx: &mut Context<Self>,
     ) -> Result<Flow> {
-        match (self.on_writer_result)(&wr, ctx) {
+        match (self.on_writer_result)(ctx, &wr) {
             ErrorAction::Fatal => Err(anyhow!("fatal writer result: {wr:?}")),
             ErrorAction::LogAndContinue => {
                 log::warn!(
@@ -226,13 +226,13 @@ impl Actor for ZmqSink {
             }
             self.finalised = true;
         }
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
 impl Handler<FramePayload> for ZmqSink {
     fn handle(&mut self, msg: FramePayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.on_frame)(&msg, ctx)?;
+        (self.on_frame)(ctx, &msg)?;
 
         let topic = (self.topic_strategy)(&msg);
 
@@ -289,7 +289,7 @@ impl Handler<FramePayload> for ZmqSink {
 
 impl Handler<SourceEosPayload> for ZmqSink {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        let flow = (self.on_source_eos)(&msg.source_id, ctx)?;
+        let flow = (self.on_source_eos)(ctx, &msg.source_id)?;
         if let Some(writer) = self.writer.as_ref() {
             let op = match writer.send_eos(&msg.source_id) {
                 Ok(op) => op,
@@ -337,8 +337,8 @@ impl Handler<ShutdownPayload> for ZmqSink {}
 
 /// Inbox hook bundle for [`ZmqSink`].
 pub struct ZmqSinkInbox {
-    on_source_eos: EosHook,
-    on_frame: FrameObserver,
+    on_source_eos: OnSourceEosHook,
+    on_frame: OnFrameHook,
 }
 
 impl ZmqSinkInbox {
@@ -356,8 +356,8 @@ impl Default for ZmqSinkInbox {
 
 /// Fluent builder for [`ZmqSinkInbox`].
 pub struct ZmqSinkInboxBuilder {
-    on_source_eos: Option<EosHook>,
-    on_frame: Option<FrameObserver>,
+    on_source_eos: Option<OnSourceEosHook>,
+    on_frame: Option<OnFrameHook>,
 }
 
 impl ZmqSinkInboxBuilder {
@@ -372,7 +372,7 @@ impl ZmqSinkInboxBuilder {
     /// Install a custom source-EOS hook.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &mut Context<ZmqSink>) -> Result<Flow> + Send + 'static,
+        F: FnMut(&mut Context<ZmqSink>, &str) -> Result<Flow> + Send + 'static,
     {
         self.on_source_eos = Some(Box::new(f));
         self
@@ -381,7 +381,7 @@ impl ZmqSinkInboxBuilder {
     /// Install a custom frame observer hook.
     pub fn on_frame<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&FramePayload, &mut Context<ZmqSink>) -> Result<()> + Send + 'static,
+        F: FnMut(&mut Context<ZmqSink>, &FramePayload) -> Result<()> + Send + 'static,
     {
         self.on_frame = Some(Box::new(f));
         self
@@ -444,7 +444,7 @@ impl ZmqSinkErrorsBuilder {
     /// Install a custom writer-result classifier.
     pub fn on_writer_result<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&WriterResult, &mut Context<ZmqSink>) -> ErrorAction + Send + 'static,
+        F: FnMut(&mut Context<ZmqSink>, &WriterResult) -> ErrorAction + Send + 'static,
     {
         self.on_writer_result = Some(Box::new(f));
         self
@@ -453,7 +453,7 @@ impl ZmqSinkErrorsBuilder {
     /// Install a custom send-error classifier.
     pub fn on_send_error<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&anyhow::Error, &mut Context<ZmqSink>) -> ErrorAction + Send + 'static,
+        F: FnMut(&mut Context<ZmqSink>, &anyhow::Error) -> ErrorAction + Send + 'static,
     {
         self.on_send_error = Some(Box::new(f));
         self
@@ -483,7 +483,7 @@ impl Default for ZmqSinkErrorsBuilder {
 /// Loop-level common knobs and shaping hooks for [`ZmqSink`].
 pub struct ZmqSinkCommon {
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
     topic_strategy: TopicStrategy,
 }
 
@@ -503,7 +503,7 @@ impl Default for ZmqSinkCommon {
 /// Fluent builder for [`ZmqSinkCommon`].
 pub struct ZmqSinkCommonBuilder {
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
     topic_strategy: Option<TopicStrategy>,
 }
 
@@ -512,7 +512,7 @@ impl ZmqSinkCommonBuilder {
     pub fn new() -> Self {
         Self {
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
             topic_strategy: None,
         }
     }
@@ -524,11 +524,11 @@ impl ZmqSinkCommonBuilder {
     }
 
     /// Override stopping hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<ZmqSink>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -545,12 +545,12 @@ impl ZmqSinkCommonBuilder {
     pub fn build(self) -> ZmqSinkCommon {
         let ZmqSinkCommonBuilder {
             poll_timeout,
-            stopping,
+            on_stopping,
             topic_strategy,
         } = self;
         ZmqSinkCommon {
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(ZmqSink::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(ZmqSink::default_on_stopping())),
             topic_strategy: topic_strategy
                 .unwrap_or_else(|| Box::new(ZmqSink::default_topic_strategy())),
         }
@@ -663,7 +663,7 @@ impl ZmqSinkBuilder {
         } = errors.unwrap_or_default();
         let ZmqSinkCommon {
             poll_timeout,
-            stopping,
+            on_stopping,
             topic_strategy,
         } = common.unwrap_or_default();
 
@@ -681,7 +681,7 @@ impl ZmqSinkBuilder {
                     on_writer_result,
                     on_send_error,
                     topic_strategy,
-                    stopping,
+                    on_stopping,
                     finalised: false,
                 })
             }))
@@ -727,20 +727,20 @@ mod tests {
             .payload_carrier(PayloadCarrier::Internal)
             .inbox(
                 ZmqSinkInbox::builder()
-                    .on_source_eos(|_sid, _ctx| Ok(Flow::Cont))
-                    .on_frame(|_payload, _ctx| Ok(()))
+                    .on_source_eos(|_ctx, _sid| Ok(Flow::Cont))
+                    .on_frame(|_ctx, _payload| Ok(()))
                     .build(),
             )
             .errors(
                 ZmqSinkErrors::builder()
-                    .on_writer_result(|_wr, _ctx| ErrorAction::LogAndContinue)
-                    .on_send_error(|_err, _ctx| ErrorAction::Swallow)
+                    .on_writer_result(|_ctx, _wr| ErrorAction::LogAndContinue)
+                    .on_send_error(|_ctx, _err| ErrorAction::Swallow)
                     .build(),
             )
             .common(
                 ZmqSinkCommon::builder()
                     .poll_timeout(Duration::from_millis(25))
-                    .stopping(ZmqSink::default_stopping())
+                    .on_stopping(ZmqSink::default_on_stopping())
                     .topic_strategy(ZmqSink::default_topic_strategy())
                     .build(),
             )
@@ -773,7 +773,7 @@ mod tests {
             .common(
                 ZmqSinkCommon::builder()
                     .poll_timeout(DEFAULT_POLL_TIMEOUT)
-                    .stopping(ZmqSink::default_stopping())
+                    .on_stopping(ZmqSink::default_on_stopping())
                     .topic_strategy(ZmqSink::default_topic_strategy())
                     .build(),
             )
@@ -810,7 +810,7 @@ mod tests {
             on_writer_result: _,
             on_send_error: _,
             topic_strategy: _,
-            stopping: _,
+            on_stopping: _,
             ..
         } = sink;
     }
