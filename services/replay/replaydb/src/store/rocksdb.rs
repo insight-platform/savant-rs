@@ -13,9 +13,9 @@ use rocksdb::{ColumnFamilyDescriptor, Direction, Options, ReadOptions, SliceTran
 use savant_core::message::{load_message, save_message, Message};
 use uuid::Uuid;
 
-use crate::get_keyframe_boundary;
 use crate::service::configuration::Storage;
 use crate::store::{JobOffset, KeyframeRecord};
+use crate::{keyframe_lower_bound, keyframe_upper_bound};
 
 const CF_MESSAGE_DB: &str = "message_db";
 const CF_KEYFRAME_DB: &str = "keyframes_db";
@@ -389,14 +389,15 @@ impl super::Store for RocksDbStore {
         to: Option<u64>,
         limit: usize,
     ) -> Result<Vec<Uuid>> {
-        let from_uuid = get_keyframe_boundary(from.map(|f| f.saturating_sub(1)), 0).as_u128();
-        let to_uuid = get_keyframe_boundary(to.map(|t| t.saturating_add(1)), {
+        let from_secs = from.map(|f| f.saturating_sub(1)).unwrap_or(0);
+        let to_secs = to.map(|t| t.saturating_add(1)).unwrap_or_else(|| {
             SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)?
-                .as_secs()
-                + 1
-        })
-        .as_u128();
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs() + 1)
+                .unwrap_or(u64::MAX / 1000)
+        });
+        let from_uuid = keyframe_lower_bound(from_secs);
+        let to_uuid = keyframe_upper_bound(to_secs);
         let source_hash = self.get_source_hash(source_id)?;
 
         let cf = self
@@ -475,7 +476,7 @@ impl super::Store for RocksDbStore {
 #[cfg(test)]
 mod tests {
     use savant_core::test::gen_frame;
-    use savant_core::utils::uuid_v7::incremental_uuid_v7;
+    use savant_core::utils::video_id::VideoId;
     use std::ops::Div;
     use tokio_timerfd::sleep;
 
@@ -677,7 +678,9 @@ mod tests {
         db.add_message(&frame.to_message(), b"topic", &[vec![0u8; 2]])
             .await?;
 
-        let missing_uuid = incremental_uuid_v7();
+        // Synthetic "definitely-not-stored" uuid: a far-future ts_ns. The
+        // source is scoped by the lookup, not encoded in the id.
+        let missing_uuid = VideoId::lower_bound(u64::MAX / 2).as_uuid();
         let result = db
             .get_keyframe_by_uuid(&frame.get_source_id(), missing_uuid)
             .await?;
@@ -761,19 +764,20 @@ mod tests {
                 sleep(Duration::from_secs(2)).await?;
             }
         }
-        let first = keyframes[1].get_timestamp().unwrap().to_unix().0;
-        let last = keyframes[N - 2].get_timestamp().unwrap().to_unix().0;
+        let kf_secs = |u: Uuid| VideoId::from_uuid(u).ts_ns() / 1_000_000_000;
+        let first = kf_secs(keyframes[1]);
+        let last = kf_secs(keyframes[N - 2]);
         let res_keyframes = db
             .find_keyframes(&source, Some(first), Some(last), N)
             .await?;
         assert_eq!(res_keyframes.len(), N);
 
-        let first = keyframes[N.div(2) + 1].get_timestamp().unwrap().to_unix().0;
+        let first = kf_secs(keyframes[N.div(2) + 1]);
 
         let res_keyframes = db.find_keyframes(&source, Some(first), None, N).await?;
         assert_eq!(res_keyframes.len(), N.div_ceil(2));
 
-        let last = keyframes[N.div(2) - 1].get_timestamp().unwrap().to_unix().0;
+        let last = kf_secs(keyframes[N.div(2) - 1]);
 
         let res_keyframes = db.find_keyframes(&source, None, Some(last), N).await?;
         assert_eq!(res_keyframes.len(), N.div_ceil(2));

@@ -68,8 +68,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
-use ::picasso::prelude::OnEncodedFrame;
-use ::picasso::{Callbacks, GeneralSpec, OutputMessage, PicassoEngine};
+use ::picasso::GeneralSpec;
 use anyhow::{anyhow, bail, Context, Result};
 use deepstream_buffers::cuda_init;
 use deepstream_buffers::sealed::Sealed;
@@ -101,11 +100,11 @@ use savant_perception::stages::decoder::make_decode_frame;
 use savant_perception::stages::{
     BitstreamFunction, BitstreamFunctionInbox, Decoder, DecoderResults, DeepStreamFunction,
     DeepStreamFunctionInbox, Mp4DemuxerResults, Mp4DemuxerSource, Mp4Muxer, NvInfer,
-    NvInferResults, NvTracker, NvTrackerResults, PayloadCarrier, Picasso, PicassoInbox, Sorter,
-    SorterResults, UriDemuxerResults, UriDemuxerSource, ZmqSink, ZmqSource,
+    NvInferResults, NvTracker, NvTrackerResults, PayloadCarrier, Picasso, PicassoInbox,
+    PicassoResults, Sorter, SorterResults, UriDemuxerResults, UriDemuxerSource, ZmqSink, ZmqSource,
 };
 use savant_perception::supervisor::{StageKind, StageName};
-use savant_perception::{Flow, HookCtx, System};
+use savant_perception::{Flow, System};
 
 /// Default source identifier used throughout the pipeline.  Every
 /// stage uses the same id because the sample processes exactly one
@@ -545,7 +544,7 @@ pub fn run_pipeline(
                 .downstream(decoder_name.clone())
                 .results(
                     Mp4DemuxerResults::builder()
-                        .on_packet(|_input, source_id, info, pkt, router, ctx| {
+                        .on_packet(|ctx, router, _input, source_id, info, pkt| {
                             if let Some(stats) = ctx.shared::<PipelineStats>() {
                                 stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                             }
@@ -572,7 +571,7 @@ pub fn run_pipeline(
                 .downstream(decoder_name.clone())
                 .results(
                     UriDemuxerResults::builder()
-                        .on_packet(|_uri, source_id, info, pkt, router, ctx| {
+                        .on_packet(|ctx, router, _uri, source_id, info, pkt| {
                             if let Some(stats) = ctx.shared::<PipelineStats>() {
                                 stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                             }
@@ -632,7 +631,7 @@ pub fn run_pipeline(
             DecoderResults::builder()
                 .on_frame({
                     let sorter_peer = sorter_name.clone();
-                    move |sealed, router, ctx| {
+                    move |ctx, router, sealed| {
                         // Peek the uuid + source id without
                         // unsealing so the registration arrives at
                         // the sorter ahead of the delivery payload
@@ -657,7 +656,7 @@ pub fn run_pipeline(
                 })
                 .on_source_eos({
                     let sorter_peer = sorter_name.clone();
-                    move |source_id, router, ctx| {
+                    move |ctx, router, source_id| {
                         // Register the EOS sentinel with the
                         // sorter's per-source queue — the sorter
                         // fires its `on_source_eos` once every
@@ -715,7 +714,7 @@ pub fn run_pipeline(
             NvInferResults::builder()
                 .on_inference({
                     let converter = converter.clone();
-                    move |inf, router: &Router<PipelineMsg>, ctx| {
+                    move |ctx, router: &Router<PipelineMsg>, inf| {
                         let frame_count = inf.frames().len() as u64;
                         let infer_stats = ctx.shared::<InferStats>();
                         let det_before = infer_stats.as_ref().map(|s| s.detections()).unwrap_or(0);
@@ -803,7 +802,7 @@ pub fn run_pipeline(
             NvTrackerResults::builder()
                 .on_tracking({
                     let sorter_peer = sorter_name.clone();
-                    move |tracking, router: &Router<PipelineMsg>, ctx| {
+                    move |ctx, router: &Router<PipelineMsg>, tracking| {
                         let frame_count = tracking.frames().len() as u64;
                         let tracker_stats = ctx.shared::<TrackerStats>();
                         // Pure transform: reconcile tracker updates
@@ -835,7 +834,7 @@ pub fn run_pipeline(
                 })
                 .on_source_eos({
                     let sorter_peer = sorter_name.clone();
-                    move |source_id, router: &Router<PipelineMsg>, ctx| {
+                    move |ctx, router: &Router<PipelineMsg>, source_id| {
                         log::info!(
                             "TrackerOperatorOutput::Eos for source_id={source_id}; forwarding to sorter"
                         );
@@ -896,7 +895,7 @@ pub fn run_pipeline(
         .downstream(tail_actor_name.clone())
         .results(
             SorterResults::builder()
-                .on_message(|frame, buffer, router, ctx| {
+                .on_message(|ctx, router, frame, buffer| {
                     let seal = Arc::new(ReleaseSeal::new());
                     let sealed = Sealed::new((frame, buffer), Arc::clone(&seal));
                     seal.release();
@@ -928,22 +927,12 @@ pub fn run_pipeline(
         let draw_enabled = knobs.draw_enabled;
         let picasso = Picasso::builder(picasso_name.clone(), knobs.channel_cap)
             .downstream(tail_name.clone())
-            .engine_factory(move |bx, router| {
-                // Engine-factory snapshot: captures the full hook
-                // context so the `OnEncodedFrame` sink can pull
-                // per-frame counters out of the shared store on
-                // every emit.  No per-closure `Arc` bookkeeping.
-                let on_encoded = StatsEncodedSink {
-                    router,
-                    hook_ctx: bx.hook_ctx(),
-                };
-                let callbacks = Callbacks::builder().on_encoded_frame(on_encoded).build();
-                let general = GeneralSpec::builder()
+            .engine_factory(move |_bx| {
+                Ok(GeneralSpec::builder()
                     .name("cars-demo")
                     .idle_timeout_secs(600)
                     .inflight_queue_size(8)
-                    .build();
-                Ok(Arc::new(PicassoEngine::new(general, callbacks)))
+                    .build())
             })
             .source_spec_factory(move |_sid, w, h, fn_, fd| {
                 build_source_spec(w, h, fn_, fd, draw_enabled)
@@ -957,13 +946,11 @@ pub fn run_pipeline(
                         // as a stable monotonically-increasing
                         // value across closure reinvocations.
                         let frame_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
-                        move |pairs, ctx| {
+                        move |ctx, frame, _buffer| {
                             if draw_enabled {
-                                for (frame, _buf) in pairs {
-                                    let cnt = frame_counter.fetch_add(1, Ordering::Relaxed);
-                                    if let Err(e) = attach_frame_id_overlay(frame, cnt) {
-                                        log::warn!("attach_frame_id_overlay failed: {e}");
-                                    }
+                                let cnt = frame_counter.fetch_add(1, Ordering::Relaxed);
+                                if let Err(e) = attach_frame_id_overlay(frame, cnt) {
+                                    log::warn!("attach_frame_id_overlay failed: {e}");
                                 }
                             }
                             // Per-stage 📊 counter — bump once per frame
@@ -971,16 +958,62 @@ pub fn run_pipeline(
                             // matching how decoder/infer/track tick on
                             // their own egress hooks.  The tail stage's
                             // tick happens later inside
-                            // `StatsEncodedSink::call`, so picasso ≠
-                            // tail in the stats lines (frames in =
-                            // picasso, frames out = tail).
-                            if !pairs.is_empty() {
-                                if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_PICASSO) {
-                                    tick_stage(&stage, pairs.len(), 0);
-                                }
+                            // `on_encoded_frame`, so picasso ≠ tail
+                            // in the stats lines (frames in = picasso,
+                            // frames out = tail).
+                            if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_PICASSO) {
+                                tick_stage(&stage, 1, 0);
                             }
                             Ok(())
                         }
+                    })
+                    .build(),
+            )
+            .results(
+                PicassoResults::builder()
+                    .on_encoded_frame(|ctx, router, frame| {
+                        let bytes = match frame.get_content().as_ref() {
+                            VideoFrameContent::Internal(d) => d.len(),
+                            other => {
+                                log::error!(
+                                    "[{}/encode-cb] unexpected content variant: {:?}",
+                                    ctx.own_name(),
+                                    std::mem::discriminant(other)
+                                );
+                                return;
+                            }
+                        };
+                        if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_TAIL) {
+                            tick_stage(&stage, 1, 0);
+                        }
+                        if let Some(core) = ctx.shared::<Stats>() {
+                            core.register_frame(0);
+                        }
+                        if let Some(stats) = ctx.shared::<PipelineStats>() {
+                            stats
+                                .encoded_bytes
+                                .fetch_add(bytes as u64, Ordering::Relaxed);
+                        }
+                        log::debug!(
+                            "[{}/encode-cb] frame source_id={} pts={} bytes={bytes}",
+                            ctx.own_name(),
+                            frame.get_source_id(),
+                            frame.get_pts(),
+                        );
+                        let _ = router.send(EncodedMsg::Frame {
+                            frame,
+                            payload: None,
+                        });
+                    })
+                    .on_encoded_source_eos(|ctx, router, eos| {
+                        log::info!(
+                            "[{}/encode-cb] EndOfStream source_id={}",
+                            ctx.own_name(),
+                            eos.source_id
+                        );
+                        let _ = router.send(EncodedMsg::SourceEos {
+                            source_id: eos.source_id,
+                        });
                     })
                     .build(),
             )
@@ -1042,7 +1075,7 @@ pub fn run_pipeline(
                     BitstreamFunction::builder(tail_name.clone(), knobs.channel_cap)
                         .inbox(
                             BitstreamFunctionInbox::builder()
-                                .on_source_eos(move |source_id, _router, ctx| {
+                                .on_source_eos(move |ctx, _router, source_id| {
                                     if exit_on_eos {
                                         log::info!(
                                             "[{}] SourceEos {source_id}: bitstream terminus exiting",
@@ -1106,20 +1139,18 @@ pub fn run_pipeline(
         let function = DeepStreamFunction::builder(function_name.clone(), knobs.channel_cap)
             .inbox(
                 DeepStreamFunctionInbox::builder()
-                    .on_delivery(|pairs, ctx| {
+                    .on_delivery(|ctx, _router, _frame, _buffer| {
                         let tail = ctx.shared_as::<StageStats>(ROLE_TAIL);
                         let core = ctx.shared::<Stats>();
-                        for _ in 0..pairs.len() {
-                            if let Some(stage) = tail.as_deref() {
-                                tick_stage(stage, 1, 0);
-                            }
-                            if let Some(core) = core.as_deref() {
-                                core.register_frame(0);
-                            }
+                        if let Some(stage) = tail.as_deref() {
+                            tick_stage(stage, 1, 0);
+                        }
+                        if let Some(core) = core.as_deref() {
+                            core.register_frame(0);
                         }
                         Ok(())
                     })
-                    .on_source_eos(move |source_id, ctx| {
+                    .on_source_eos(move |ctx, _router, source_id| {
                         if exit_on_eos {
                             log::info!(
                                 "[{}] SourceEos {source_id}: terminus exiting",
@@ -1293,75 +1324,6 @@ fn tail_label(tail: &PipelineTail) -> String {
             payload_carrier,
         } => {
             format!("zmq://{} carrier={payload_carrier:?}", config.endpoint())
-        }
-    }
-}
-
-/// `OnEncodedFrame` implementation used when Picasso is active.
-/// Wraps a [`Router<EncodedMsg>`] and a [`HookCtx`]; every
-/// per-frame counter (tail [`StageStats`], core [`Stats`],
-/// encoded-byte tally) is pulled from the framework's
-/// [`SharedStore`] on the fly — the sink holds no bespoke
-/// counter references.
-///
-/// Mirrors the legacy [`picasso::EncodedSink`] but uses the framework
-/// [`Router`](savant_perception::router::Router) for forwarding so the
-/// default-peer + cached-name-routing contract is enforced in one
-/// place, and the [`HookCtx`](savant_perception::HookCtx) for shared
-/// state so the sample's hook bodies demonstrate the intended
-/// pull-from-store pattern end-to-end.
-struct StatsEncodedSink {
-    router: Router<EncodedMsg>,
-    hook_ctx: HookCtx,
-}
-
-impl OnEncodedFrame for StatsEncodedSink {
-    fn call(&self, output: OutputMessage) {
-        match output {
-            OutputMessage::VideoFrame(frame) => {
-                let bytes = match frame.get_content().as_ref() {
-                    VideoFrameContent::Internal(d) => d.len(),
-                    other => {
-                        log::error!(
-                            "[{}/encode-cb] unexpected content variant: {:?}",
-                            self.hook_ctx.own_name(),
-                            std::mem::discriminant(other)
-                        );
-                        return;
-                    }
-                };
-                if let Some(stage) = self.hook_ctx.shared_as::<StageStats>(ROLE_TAIL) {
-                    tick_stage(&stage, 1, 0);
-                }
-                if let Some(core) = self.hook_ctx.shared::<Stats>() {
-                    core.register_frame(0);
-                }
-                if let Some(stats) = self.hook_ctx.shared::<PipelineStats>() {
-                    stats
-                        .encoded_bytes
-                        .fetch_add(bytes as u64, Ordering::Relaxed);
-                }
-                log::debug!(
-                    "[{}/encode-cb] frame source_id={} pts={} bytes={bytes}",
-                    self.hook_ctx.own_name(),
-                    frame.get_source_id(),
-                    frame.get_pts(),
-                );
-                let _ = self.router.send(EncodedMsg::Frame {
-                    frame,
-                    payload: None,
-                });
-            }
-            OutputMessage::EndOfStream(eos) => {
-                log::info!(
-                    "[{}/encode-cb] EndOfStream source_id={}",
-                    self.hook_ctx.own_name(),
-                    eos.source_id
-                );
-                let _ = self.router.send(EncodedMsg::SourceEos {
-                    source_id: eos.source_id,
-                });
-            }
         }
     }
 }

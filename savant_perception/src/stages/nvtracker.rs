@@ -65,7 +65,7 @@
 //! * [`NvTracker::default_on_error`] — returns
 //!   [`ErrorAction::LogAndContinue`]; the stage emits the
 //!   `error!` log line itself *before* invoking the hook.
-//! * [`NvTracker::default_stopping`] — a no-op user shutdown hook.
+//! * [`NvTracker::default_on_stopping`] — a no-op user shutdown hook.
 //!   See [`NvTrackerCommonBuilder::stopping`] for the composition
 //!   contract (built-in `graceful_shutdown` + drain-dispatch always
 //!   run first; the user hook runs after).
@@ -243,7 +243,7 @@ pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 /// See [`NvTracker::default_on_tracking`] for the ready-made
 /// "apply tracking + forward" default.
 pub type OnTrackingHook = Arc<
-    dyn Fn(TrackerOperatorTrackingOutput, &Router<PipelineMsg>, &NvTrackerHookCtx)
+    dyn Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, TrackerOperatorTrackingOutput)
         + Send
         + Sync
         + 'static,
@@ -267,7 +267,7 @@ pub type OnTrackingHook = Arc<
 ///   equivalent to `Ok(Flow::Stop)` modulo the `error!` log line
 ///   emitted by the stage.
 pub type OnSourceEosHook = Arc<
-    dyn Fn(&str, &Router<PipelineMsg>, &NvTrackerHookCtx) -> Result<Flow> + Send + Sync + 'static,
+    dyn Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static,
 >;
 
 /// Hook fired for every
@@ -289,7 +289,7 @@ pub type OnSourceEosHook = Arc<
 /// The stage always emits an `error!` log line (stage-prefixed)
 /// *before* invoking the hook.
 pub type OnErrorHook = Arc<
-    dyn Fn(&NvTrackerError, &Router<PipelineMsg>, &NvTrackerHookCtx) -> ErrorAction
+    dyn Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, &NvTrackerError) -> ErrorAction
         + Send
         + Sync
         + 'static,
@@ -326,7 +326,7 @@ pub struct NvTracker {
     on_tracking: OnTrackingHook,
     on_source_eos: OnSourceEosHook,
     on_error: OnErrorHook,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
     drain_timeout: Duration,
     poll_timeout: Duration,
     drain_done: bool,
@@ -353,11 +353,11 @@ impl NvTracker {
     /// [`NvInfer::default_on_inference`](super::nvinfer::NvInfer::default_on_inference)
     /// does not apply here.
     pub fn default_on_tracking(
-    ) -> impl Fn(TrackerOperatorTrackingOutput, &Router<PipelineMsg>, &NvTrackerHookCtx)
+    ) -> impl Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, TrackerOperatorTrackingOutput)
            + Send
            + Sync
            + 'static {
-        |mut tracking, router, ctx| {
+        |ctx, router, mut tracking| {
             let ns = ctx.own_name();
             for frame_output in tracking.frames() {
                 match frame_output.apply_to_frame() {
@@ -389,9 +389,9 @@ impl NvTracker {
     /// [`TrackerOperatorOutput::Tracking`]
     /// for the same `source_id`.
     pub fn default_on_source_eos(
-    ) -> impl Fn(&str, &Router<PipelineMsg>, &NvTrackerHookCtx) -> Result<Flow> + Send + Sync + 'static
+    ) -> impl Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static
     {
-        |source_id, router, _ctx| {
+        |_ctx, router, source_id| {
             log::info!("TrackerOperatorOutput::Eos for source_id={source_id}; propagating");
             if !router.send(PipelineMsg::SourceEos {
                 source_id: source_id.to_string(),
@@ -409,11 +409,11 @@ impl NvTracker {
     /// stage name *before* the hook fires, so this classifier
     /// has no I/O of its own.
     pub fn default_on_error(
-    ) -> impl Fn(&NvTrackerError, &Router<PipelineMsg>, &NvTrackerHookCtx) -> ErrorAction
+    ) -> impl Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, &NvTrackerError) -> ErrorAction
            + Send
            + Sync
            + 'static {
-        |_err, _router, _ctx| ErrorAction::LogAndContinue
+        |_ctx, _router, _err| ErrorAction::LogAndContinue
     }
 
     /// Default user shutdown hook — a no-op.  The stage's own
@@ -423,7 +423,7 @@ impl NvTracker {
     /// before this hook fires, so omitting `.stopping(...)` simply
     /// means "don't add any extra cleanup on top of the built-in
     /// drain".
-    pub fn default_stopping() -> impl FnMut(&mut Context<NvTracker>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<NvTracker>) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -480,7 +480,7 @@ impl Actor for NvTracker {
         }
         self.drain_done = true;
         log::info!("[{}] nvtracker stopping", ctx.own_name());
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
@@ -584,8 +584,8 @@ fn dispatch_output(
     ctx: &NvTrackerHookCtx,
 ) {
     match out {
-        TrackerOperatorOutput::Tracking(tracking) => on_tracking(tracking, router, ctx),
-        TrackerOperatorOutput::Eos { source_id } => match on_source_eos(&source_id, router, ctx) {
+        TrackerOperatorOutput::Tracking(tracking) => on_tracking(ctx, router, tracking),
+        TrackerOperatorOutput::Eos { source_id } => match on_source_eos(ctx, router, &source_id) {
             Ok(Flow::Cont) => {}
             Ok(Flow::Stop) => {
                 log::info!(
@@ -604,7 +604,7 @@ fn dispatch_output(
         },
         TrackerOperatorOutput::Error(err) => {
             log::error!("[{}] operator error: {err}", ctx.own_name());
-            match on_error(&err, router, ctx) {
+            match on_error(ctx, router, &err) {
                 ErrorAction::LogAndContinue | ErrorAction::Swallow => {}
                 ErrorAction::Fatal => {
                     log::error!(
@@ -681,7 +681,7 @@ impl NvTrackerResultsBuilder {
     /// via `router.send(..)`.
     pub fn on_tracking<F>(mut self, f: F) -> Self
     where
-        F: Fn(TrackerOperatorTrackingOutput, &Router<PipelineMsg>, &NvTrackerHookCtx)
+        F: Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, TrackerOperatorTrackingOutput)
             + Send
             + Sync
             + 'static,
@@ -703,7 +703,7 @@ impl NvTrackerResultsBuilder {
     /// to clear per-source state without a separate handle.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: Fn(&str, &Router<PipelineMsg>, &NvTrackerHookCtx) -> Result<Flow>
+        F: Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, &str) -> Result<Flow>
             + Send
             + Sync
             + 'static,
@@ -723,7 +723,7 @@ impl NvTrackerResultsBuilder {
     /// default sink and request cooperative shutdown.
     pub fn on_error<F>(mut self, f: F) -> Self
     where
-        F: Fn(&NvTrackerError, &Router<PipelineMsg>, &NvTrackerHookCtx) -> ErrorAction
+        F: Fn(&NvTrackerHookCtx, &Router<PipelineMsg>, &NvTrackerError) -> ErrorAction
             + Send
             + Sync
             + 'static,
@@ -762,7 +762,7 @@ impl Default for NvTrackerResultsBuilder {
 pub struct NvTrackerCommon {
     drain_timeout: Duration,
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl NvTrackerCommon {
@@ -786,7 +786,7 @@ impl Default for NvTrackerCommon {
 pub struct NvTrackerCommonBuilder {
     drain_timeout: Option<Duration>,
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl NvTrackerCommonBuilder {
@@ -797,7 +797,7 @@ impl NvTrackerCommonBuilder {
         Self {
             drain_timeout: None,
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -826,11 +826,11 @@ impl NvTrackerCommonBuilder {
     /// operator state.  The built-in cleanup is **load-bearing**
     /// and always runs first; it cannot be skipped through this
     /// hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<NvTracker>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -840,12 +840,12 @@ impl NvTrackerCommonBuilder {
         let NvTrackerCommonBuilder {
             drain_timeout,
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         NvTrackerCommon {
             drain_timeout: drain_timeout.unwrap_or(DEFAULT_DRAIN_TIMEOUT),
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(NvTracker::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(NvTracker::default_on_stopping())),
         }
     }
 }
@@ -965,7 +965,7 @@ impl NvTrackerBuilder {
         let NvTrackerCommon {
             drain_timeout,
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
         Ok(ActorBuilder::new(name.clone(), capacity)
             .poll_timeout(poll_timeout)
@@ -1011,7 +1011,7 @@ impl NvTrackerBuilder {
                     on_tracking,
                     on_source_eos,
                     on_error,
-                    stopping,
+                    on_stopping,
                     drain_timeout,
                     poll_timeout,
                     drain_done: false,
@@ -1030,18 +1030,18 @@ mod tests {
     use crossbeam::channel::{bounded, Receiver};
 
     fn noop_on_tracking(
-        _: TrackerOperatorTrackingOutput,
-        _: &Router<PipelineMsg>,
         _: &NvTrackerHookCtx,
+        _: &Router<PipelineMsg>,
+        _: TrackerOperatorTrackingOutput,
     ) {
     }
-    fn noop_on_source_eos(_: &str, _: &Router<PipelineMsg>, _: &NvTrackerHookCtx) -> Result<Flow> {
+    fn noop_on_source_eos(_: &NvTrackerHookCtx, _: &Router<PipelineMsg>, _: &str) -> Result<Flow> {
         Ok(Flow::Cont)
     }
     fn noop_on_error(
-        _: &NvTrackerError,
-        _: &Router<PipelineMsg>,
         _: &NvTrackerHookCtx,
+        _: &Router<PipelineMsg>,
+        _: &NvTrackerError,
     ) -> ErrorAction {
         ErrorAction::LogAndContinue
     }
@@ -1165,7 +1165,7 @@ mod tests {
             )
             .common(
                 NvTrackerCommon::builder()
-                    .stopping(NvTracker::default_stopping())
+                    .on_stopping(NvTracker::default_on_stopping())
                     .build(),
             )
             .build()
@@ -1186,7 +1186,7 @@ mod tests {
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .common(
                 NvTrackerCommon::builder()
-                    .stopping(move |_ctx| {
+                    .on_stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
                     .build(),
@@ -1204,7 +1204,7 @@ mod tests {
         let hook = NvTracker::default_on_source_eos();
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
-        let flow = hook("cam-1", &router, &ctx).expect("default hook is infallible");
+        let flow = hook(&ctx, &router, "cam-1").expect("default hook is infallible");
         assert!(matches!(flow, Flow::Cont));
         match rx.try_recv().expect("SourceEos should be forwarded") {
             PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
@@ -1222,7 +1222,7 @@ mod tests {
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
         let err = NvTrackerError::PipelineError("synthetic".to_string());
-        let action = hook(&err, &router, &ctx);
+        let action = hook(&ctx, &router, &err);
         assert!(matches!(action, ErrorAction::LogAndContinue));
         assert!(rx.try_recv().is_err(), "errors must not be routed");
     }
@@ -1328,7 +1328,7 @@ mod tests {
         let on_tracking: OnTrackingHook = Arc::new(noop_on_tracking);
         let on_source_eos: OnSourceEosHook = Arc::new(noop_on_source_eos);
         let on_error: OnErrorHook = Arc::new(
-            |_err: &NvTrackerError, _r: &Router<PipelineMsg>, _c: &NvTrackerHookCtx| {
+            |_c: &NvTrackerHookCtx, _r: &Router<PipelineMsg>, _err: &NvTrackerError| {
                 ErrorAction::Fatal
             },
         );
@@ -1362,7 +1362,7 @@ mod tests {
         let (router, _rx) = router_with_default_peer();
         let on_tracking: OnTrackingHook = Arc::new(noop_on_tracking);
         let on_source_eos: OnSourceEosHook =
-            Arc::new(|_sid: &str, _r: &Router<PipelineMsg>, _c: &NvTrackerHookCtx| Ok(Flow::Stop));
+            Arc::new(|_c: &NvTrackerHookCtx, _r: &Router<PipelineMsg>, _sid: &str| Ok(Flow::Stop));
         let on_error: OnErrorHook = Arc::new(noop_on_error);
         dispatch_output(
             TrackerOperatorOutput::Eos {

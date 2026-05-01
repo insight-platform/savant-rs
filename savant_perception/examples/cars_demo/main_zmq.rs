@@ -199,7 +199,7 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
     match input {
         InputSource::Path(path) => {
             let mut results = Mp4DemuxerResults::builder().on_packet(
-                |_input, source_id, info, pkt, router, ctx| {
+                |ctx, router, _input, source_id, info, pkt| {
                     if let Some(stats) = ctx.shared::<PipelineStats>() {
                         stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                     }
@@ -212,7 +212,7 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
                 },
             );
             if no_eos {
-                results = results.on_source_eos(|source_id, _router, ctx| {
+                results = results.on_source_eos(|ctx, _router, source_id| {
                     log::info!(
                         "[{}] SourceEos {source_id}: --no-eos set, suppressing downstream forward",
                         ctx.own_name()
@@ -235,7 +235,7 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
         }
         InputSource::Uri(uri) => {
             let mut results = UriDemuxerResults::builder().on_packet(
-                |_uri, source_id, info, pkt, router, ctx| {
+                |ctx, router, _uri, source_id, info, pkt| {
                     if let Some(stats) = ctx.shared::<PipelineStats>() {
                         stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                     }
@@ -248,7 +248,7 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
                 },
             );
             if no_eos {
-                results = results.on_source_eos(|source_id, _router, ctx| {
+                results = results.on_source_eos(|ctx, _router, source_id| {
                     log::info!(
                         "[{}] SourceEos {source_id}: --no-eos set, suppressing downstream forward",
                         ctx.own_name()
@@ -296,7 +296,7 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
     // Default carrier = Multipart (matches savant adapters).
     let mut zmq_sink_inbox = ZmqSinkInbox::builder();
     if !loop_input {
-        zmq_sink_inbox = zmq_sink_inbox.on_source_eos(|source_id, ctx| {
+        zmq_sink_inbox = zmq_sink_inbox.on_source_eos(|ctx, source_id| {
             log::info!(
                 "[{}] SourceEos {source_id}: producer exiting after wire EOS",
                 ctx.own_name()
@@ -354,7 +354,7 @@ fn run_consumer(args: ConsumerArgs) -> Result<()> {
         .downstream(mux_name.clone())
         .results(
             ZmqSourceResults::builder()
-                .on_source_eos(|source_id, router, _ctx| {
+                .on_source_eos(|_ctx, router, source_id| {
                     log::info!("[zmq_source] EOS source_id={source_id}; consumer stopping");
                     router.send(EncodedMsg::SourceEos {
                         source_id: source_id.to_string(),

@@ -21,13 +21,13 @@
 //!   `(width, height, fps)` tuple into a
 //!   [`SourceSpec`] the first time a
 //!   given `source_id` appears.
-//! * Optional batch-level delivery hook (`on_delivery`) — receives
-//!   the unsealed `(VideoFrame, SharedBuffer)` batch by
-//!   **shared slice reference** before frames are fed to the
-//!   engine.  Same signature shape as
+//! * Optional per-pair delivery hook (`on_delivery`) — invoked
+//!   **once per unsealed `(VideoFrame, SharedBuffer)` pair**
+//!   before that pair is fed to the engine.  Same signature shape
+//!   as
 //!   [`DeepStreamFunctionInboxBuilder::on_delivery`](super::deepstream_function::DeepStreamFunctionInboxBuilder::on_delivery),
 //!   so applications can mutate frames, attach overlay objects, or
-//!   update per-source counters before the batch reaches Picasso.
+//!   update per-source counters before each pair reaches Picasso.
 //! * On [`PipelineMsg::SourceEos`] calls
 //!   [`PicassoEngine::send_eos`](picasso::prelude::PicassoEngine::send_eos)
 //!   — the downstream
@@ -40,22 +40,45 @@
 //!
 //! # Grouped builder API
 //!
-//! Hooks are grouped into two bundles following the cross-stage
+//! Hooks are grouped into three bundles following the cross-stage
 //! pattern:
 //!
 //! * [`PicassoInbox`] — batch-level / per-frame hooks
-//!   (`on_delivery`, `src_rect_for`).
+//!   (`on_delivery`, `on_crop_select`).
+//! * [`PicassoResults`] — inbox-forward tee
+//!   (`forward_inbox_delivery`, `forward_inbox_source_eos`); both
+//!   hooks receive a `Router<PipelineMsg>` wired from
+//!   [`PicassoBuilder::forward_inbox_downstream`] so the body owns
+//!   the drop/send decision.  Defaults are debug-log + drop —
+//!   picasso is a sink for `(VideoFrame, SharedBuffer)` traffic
+//!   unless configured otherwise.
 //! * [`PicassoCommon`] — loop-level knobs (`poll_timeout`) plus
 //!   the user `stopping` hook.
 //!
 //! ```ignore
 //! Picasso::builder(name, 16)
 //!     .downstream(peer)
+//!     .forward_inbox_downstream(inbox_tee_peer)
 //!     .engine_factory(make_engine)
 //!     .source_spec_factory(make_spec)
 //!     .inbox(
 //!         PicassoInbox::builder()
-//!             .on_delivery(|pairs, ctx| { /* ... */ Ok(()) })
+//!             .on_delivery(|ctx, frame, buffer| { /* ... */ Ok(()) })
+//!             .on_crop_select(|ctx, frame| None)
+//!             .build(),
+//!     )
+//!     .results(
+//!         PicassoResults::builder()
+//!             .forward_inbox_delivery(|ctx, router, pairs| {
+//!                 // clone + reseal + router.send(...)
+//!                 Ok(())
+//!             })
+//!             .forward_inbox_source_eos(|ctx, router, sid| {
+//!                 let _ = router.send(PipelineMsg::SourceEos {
+//!                     source_id: sid.to_string(),
+//!                 });
+//!                 Ok(())
+//!             })
 //!             .build(),
 //!     )
 //!     .common(PicassoCommon::builder().build())
@@ -74,22 +97,80 @@
 //! code needs a stable per-frame index it should maintain its
 //! own (e.g. via an `Arc<AtomicU64>`).
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use deepstream_buffers::{Rect, SharedBuffer, SurfaceView};
+use deepstream_buffers::{Rect, SharedBuffer, SkiaRenderer, SurfaceView};
 use hashbrown::HashSet;
-use picasso::prelude::{PicassoEngine, SourceSpec};
+use picasso::prelude::{
+    Callbacks, EvictionDecision, GeneralSpec, OnEncodedFrame, OnEviction, OnGpuMat,
+    OnObjectDrawSpec, OnRender, OnStreamReset, OutputMessage, PicassoEngine, SourceSpec,
+    StreamResetReason,
+};
+use picasso::EndOfStream;
+use savant_core::draw::ObjectDraw;
 use savant_core::primitives::frame::VideoFrame;
+use savant_core::primitives::object::BorrowedVideoObject;
 
 use crate::envelopes::{BatchDelivery, EncodedMsg, PipelineMsg, SingleDelivery};
 use crate::router::Router;
 use crate::supervisor::StageName;
 use crate::{
-    Actor, ActorBuilder, BuildCtx, Context, Dispatch, Flow, Handler, RemoveSourcePayload,
-    ShutdownPayload, SourceEosPayload, UpdateSourceSpecPayload,
+    Actor, ActorBuilder, BuildCtx, Context, Dispatch, Flow, Handler, HookCtx,
+    RemoveSourcePayload, ShutdownPayload, SourceEosPayload, UpdateSourceSpecPayload,
 };
+
+/// Cheap, cloneable, deferred handle to the [`PicassoEngine`] built
+/// by a [`Picasso`] stage.
+///
+/// Construct one with [`PicassoEngineHandle::new`], hand a clone to
+/// [`PicassoBuilder::engine_handle`], and capture additional clones
+/// in any user closure (inbox / results / engine-level) that needs
+/// to call engine methods.  The stage binds the underlying `Arc`
+/// when its actor factory builds the engine; before that point
+/// [`Self::try_get`] returns `None`.
+///
+/// The handle is `Send + Sync + Clone` and uses [`OnceLock`] under
+/// the hood — once bound, `try_get` is lock-free.
+#[derive(Clone, Default)]
+pub struct PicassoEngineHandle {
+    inner: Arc<OnceLock<Arc<PicassoEngine>>>,
+}
+
+impl std::fmt::Debug for PicassoEngineHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PicassoEngineHandle")
+            .field("bound", &self.inner.get().is_some())
+            .finish()
+    }
+}
+
+impl PicassoEngineHandle {
+    /// Create an unbound handle.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return the bound engine, or `None` if the actor's factory
+    /// hasn't run yet.
+    pub fn try_get(&self) -> Option<Arc<PicassoEngine>> {
+        self.inner.get().cloned()
+    }
+
+    /// Stage-internal: bind the engine.  Calling [`OnceLock::set`]
+    /// twice would silently fail — we log the second attempt so a
+    /// configuration error (same handle reused across two stages)
+    /// is observable rather than silent.
+    pub(crate) fn bind(&self, engine: Arc<PicassoEngine>) {
+        if self.inner.set(engine).is_err() {
+            log::warn!(
+                "PicassoEngineHandle: bind called twice; \
+                 the second engine will not be reachable through this handle"
+            );
+        }
+    }
+}
 
 /// Default inbox receive-poll cadence.
 pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
@@ -102,71 +183,231 @@ pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 pub type SourceSpecFactory =
     Box<dyn FnMut(&str, u32, u32, i32, i32) -> Result<SourceSpec> + Send + 'static>;
 
-/// Batch-level delivery hook — called once per incoming
-/// `(VideoFrame, SharedBuffer)` batch **before** the frames
-/// are fed to
+/// Per-pair delivery hook — invoked **once per
+/// `(VideoFrame, SharedBuffer)` pair** **before** the pair is fed
+/// to
 /// [`PicassoEngine::send_frame`](picasso::prelude::PicassoEngine::send_frame).
 ///
-/// The batch is passed by **shared slice reference** so the hook
-/// body can iterate, inspect, and forward frames to nested
-/// helpers (overlays, analytics, inference taps, …) without
-/// consuming the batch — the stage still owns the underlying
-/// `Vec` and drives the per-frame send loop after this hook
-/// returns.
+/// Both single-delivery and batched-delivery inbox variants funnel
+/// through this loop: the stage unseals the batch on the actor
+/// thread and calls the hook in a tight loop, so user code never
+/// observes the batching.  The frame and buffer are passed by
+/// **shared reference** — the hook body can inspect, clone, or
+/// forward them to nested helpers (overlays, analytics, inference
+/// taps, …) without consuming, and the stage drives the per-pair
+/// engine send after this hook returns.
 ///
 /// Always installed at runtime; the default is a no-op.  Matches
 /// the shape of
 /// [`DeepStreamFunctionInboxBuilder::on_delivery`](super::deepstream_function::DeepStreamFunctionInboxBuilder::on_delivery)
 /// so the cross-stage hook vocabulary is uniform.
-pub type DeliveryHook = Box<
-    dyn FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
+pub type OnDeliveryHook = Box<
+    dyn FnMut(&mut Context<Picasso>, &VideoFrame, &SharedBuffer) -> Result<()>
         + Send
         + 'static,
 >;
 
-/// Engine factory — invoked once when
-/// [`System::run`](super::super::system::System::run) builds the
-/// [`Picasso`] actor.  Receives the already-wired
-/// [`Router<EncodedMsg>`] so the user can construct whatever
-/// [`OnEncodedFrame`](picasso::prelude::OnEncodedFrame) impl
-/// they want (typically one that calls `router.send(...)` for
-/// `OutputMessage::VideoFrame` and `OutputMessage::EndOfStream`).
+/// Inbox-forward hook for delivery batches — fires once per
+/// incoming batch *after* [`PicassoInbox::on_delivery`] has run and
+/// **before** the per-frame engine feed loop, with a
+/// [`Router<PipelineMsg>`] supplied by the stage.  The hook body
+/// decides whether to relay the batch (typically by re-sealing the
+/// pairs and sending [`PipelineMsg::Deliveries`] / [`PipelineMsg::Delivery`]
+/// down the inbox-forward router) or drop it.
+///
+/// The default — installed automatically when the user omits the
+/// setter — emits a single `debug` log line and drops the batch,
+/// matching the assumption that picasso is normally a sink for
+/// `(VideoFrame, SharedBuffer)` traffic.
+pub type OnForwardInboxDeliveryHook = Box<
+    dyn FnMut(
+            &mut Context<Picasso>,
+            &Router<PipelineMsg>,
+            &[(VideoFrame, SharedBuffer)],
+        ) -> Result<()>
+        + Send
+        + 'static,
+>;
+
+/// Inbox-forward hook for source-EOS sentinels — fires for every
+/// [`PipelineMsg::SourceEos`] *after* picasso has flushed the
+/// matching engine source via
+/// [`PicassoEngine::send_eos`](picasso::prelude::PicassoEngine::send_eos),
+/// with a [`Router<PipelineMsg>`] supplied by the stage.
+///
+/// The default — installed automatically when the user omits the
+/// setter — emits a single `debug` log line and drops the EOS,
+/// again matching the sink-by-default contract.
+pub type OnForwardInboxSourceEosHook = Box<
+    dyn FnMut(&mut Context<Picasso>, &Router<PipelineMsg>, &str) -> Result<()>
+        + Send
+        + 'static,
+>;
+
+/// Engine spec factory — invoked once when the [`Picasso`] actor's
+/// factory runs.  Returns just the [`GeneralSpec`]; the stage owns
+/// `Callbacks` lifecycle and assembles them from the encoded
+/// closures in [`PicassoResults`] plus the engine-level closures
+/// installed via the top-level builder
+/// (`on_render`, `on_gpu_mat`, …).
+///
 /// Typical implementation:
 ///
 /// ```ignore
-/// struct MySink { router: Router<EncodedMsg> }
-/// impl OnEncodedFrame for MySink {
-///     fn call(&self, output: OutputMessage) {
-///         match output {
-///             OutputMessage::VideoFrame(frame) => {
-///                 let _ = self.router.send(EncodedMsg::Frame { frame, payload: None });
-///             }
-///             OutputMessage::EndOfStream(eos) => {
-///                 let _ = self.router.send(EncodedMsg::SourceEos { source_id: eos.source_id });
-///             }
-///         }
-///     }
-/// }
-///
-/// .engine_factory(|_bx, router| {
-///     let callbacks = Callbacks::builder()
-///         .on_encoded_frame(MySink { router })
-///         .build();
-///     let general = GeneralSpec::builder().name("demo").build();
-///     Ok(Arc::new(PicassoEngine::new(general, callbacks)))
-/// })
+/// .engine_factory(|_bx| Ok(GeneralSpec::builder().name("demo").build()))
 /// ```
 pub type PicassoEngineFactory =
-    Box<dyn FnOnce(&BuildCtx, Router<EncodedMsg>) -> Result<Arc<PicassoEngine>> + Send>;
+    Box<dyn FnOnce(&BuildCtx) -> Result<GeneralSpec> + Send>;
 
-/// Per-frame `src_rect` provider.  Returning `Some(rect)` forwards
-/// the rectangle to
+/// Encoded-frame result hook — fires from the engine worker
+/// thread when [`PicassoEngine`] produces an encoded
+/// [`OutputMessage::VideoFrame`].  Receives the encoded frame and
+/// the [`Router<EncodedMsg>`] wired from
+/// [`PicassoBuilder::downstream`] so the body owns the drop / send
+/// decision.
+///
+/// Runs **off the actor thread** — no `Context` argument; closures
+/// must be `Fn + Send + Sync`.  Capture an [`Arc<AtomicU64>`] (or a
+/// [`PicassoEngineHandle`] if engine access is needed) for shared
+/// state.
+///
+/// Default: forward as `EncodedMsg::Frame { frame, payload: None }`,
+/// matching the impl every existing user wrote by hand.
+pub type OnEncodedFrameHook =
+    Arc<dyn Fn(&HookCtx, &Router<EncodedMsg>, VideoFrame) + Send + Sync + 'static>;
+
+/// Encoded-EOS result hook — fires from the engine worker thread
+/// when [`PicassoEngine`] emits an [`OutputMessage::EndOfStream`].
+///
+/// Default: forward as `EncodedMsg::SourceEos { source_id }`.
+pub type OnEncodedSourceEosHook =
+    Arc<dyn Fn(&HookCtx, &Router<EncodedMsg>, EndOfStream) + Send + Sync + 'static>;
+
+/// Pre-flush canvas hook — closure form of
+/// [`OnRender`](picasso::prelude::OnRender).  Optional; no default.
+pub type OnRenderHook =
+    Arc<dyn Fn(&HookCtx, &str, &mut SkiaRenderer, &VideoFrame) + Send + Sync + 'static>;
+
+/// GPU-mat-ready hook — closure form of
+/// [`OnGpuMat`](picasso::prelude::OnGpuMat).  Optional; no default.
+pub type OnGpuMatHook =
+    Arc<dyn Fn(&HookCtx, &str, &VideoFrame, &SurfaceView) + Send + Sync + 'static>;
+
+/// Per-object draw-spec override — closure form of
+/// [`OnObjectDrawSpec`](picasso::prelude::OnObjectDrawSpec).  Optional;
+/// no default.
+pub type OnObjectDrawSpecHook = Arc<
+    dyn Fn(&HookCtx, &str, &BorrowedVideoObject, Option<&ObjectDraw>) -> Option<ObjectDraw>
+        + Send
+        + Sync
+        + 'static,
+>;
+
+/// Source eviction decision — closure form of
+/// [`OnEviction`](picasso::prelude::OnEviction).  Optional; no default.
+pub type OnEvictionHook =
+    Arc<dyn Fn(&HookCtx, &str) -> EvictionDecision + Send + Sync + 'static>;
+
+/// Stream-reset notification — closure form of
+/// [`OnStreamReset`](picasso::prelude::OnStreamReset).  Optional; no
+/// default.
+pub type OnStreamResetHook =
+    Arc<dyn Fn(&HookCtx, &str, StreamResetReason) + Send + Sync + 'static>;
+
+// ── Closure → trait adapters ────────────────────────────────────────
+//
+// `Callbacks::builder().on_*` accepts `impl OnX` (a trait object), so
+// closures need a thin adapter that forwards `call` to the closure.
+// All adapters are crate-private — the public surface is the closure
+// API on `PicassoBuilder` / `PicassoResults`.
+
+struct ClosureOnEncodedFrame {
+    on_frame: OnEncodedFrameHook,
+    on_eos: OnEncodedSourceEosHook,
+    router: Router<EncodedMsg>,
+    ctx: HookCtx,
+}
+
+impl OnEncodedFrame for ClosureOnEncodedFrame {
+    fn call(&self, output: OutputMessage) {
+        match output {
+            OutputMessage::VideoFrame(frame) => {
+                (self.on_frame)(&self.ctx, &self.router, frame)
+            }
+            OutputMessage::EndOfStream(eos) => (self.on_eos)(&self.ctx, &self.router, eos),
+        }
+    }
+}
+
+struct ClosureOnRender {
+    hook: OnRenderHook,
+    ctx: HookCtx,
+}
+impl OnRender for ClosureOnRender {
+    fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrame) {
+        (self.hook)(&self.ctx, source_id, renderer, frame)
+    }
+}
+
+struct ClosureOnGpuMat {
+    hook: OnGpuMatHook,
+    ctx: HookCtx,
+}
+impl OnGpuMat for ClosureOnGpuMat {
+    fn call(&self, source_id: &str, frame: &VideoFrame, view: &SurfaceView) {
+        (self.hook)(&self.ctx, source_id, frame, view)
+    }
+}
+
+struct ClosureOnObjectDrawSpec {
+    hook: OnObjectDrawSpecHook,
+    ctx: HookCtx,
+}
+impl OnObjectDrawSpec for ClosureOnObjectDrawSpec {
+    fn call(
+        &self,
+        source_id: &str,
+        object: &BorrowedVideoObject,
+        current_spec: Option<&ObjectDraw>,
+    ) -> Option<ObjectDraw> {
+        (self.hook)(&self.ctx, source_id, object, current_spec)
+    }
+}
+
+struct ClosureOnEviction {
+    hook: OnEvictionHook,
+    ctx: HookCtx,
+}
+impl OnEviction for ClosureOnEviction {
+    fn call(&self, source_id: &str) -> EvictionDecision {
+        (self.hook)(&self.ctx, source_id)
+    }
+}
+
+struct ClosureOnStreamReset {
+    hook: OnStreamResetHook,
+    ctx: HookCtx,
+}
+impl OnStreamReset for ClosureOnStreamReset {
+    fn call(&self, source_id: &str, reason: StreamResetReason) {
+        (self.hook)(&self.ctx, source_id, reason)
+    }
+}
+
+/// Per-frame crop-rectangle selector.  Returning `Some(rect)`
+/// forwards the rectangle to
 /// [`PicassoEngine::send_frame`](picasso::prelude::PicassoEngine::send_frame);
-/// returning `None` leaves the existing `None` default in place
-/// (use the whole source surface).  Always installed at runtime;
-/// the default returns `None` for every frame.
-pub type SrcRectProvider =
-    Arc<dyn Fn(&str, &VideoFrame) -> Option<Rect> + Send + Sync + 'static>;
+/// returning `None` leaves the engine's default in place (use the
+/// whole source surface).  Always installed at runtime; the default
+/// returns `None` for every frame.
+///
+/// Runs on the actor receive loop, between
+/// [`PicassoInbox::on_delivery`] and the per-frame engine feed.
+/// Argument order is `(ctx, frame)` — the frame's `source_id` is
+/// available via [`VideoFrame::get_source_id`] when needed.
+pub type OnCropSelectHook = Box<
+    dyn FnMut(&mut Context<Picasso>, &VideoFrame) -> Option<Rect> + Send + 'static,
+>;
 
 /// User shutdown hook invoked from [`Actor::stopping`] *after* the
 /// stage's built-in cleanup (guarded
@@ -188,11 +429,14 @@ pub type OnStoppingHook = Box<dyn FnMut(&mut Context<Picasso>) + Send + 'static>
 pub struct Picasso {
     engine: Arc<PicassoEngine>,
     source_spec: SourceSpecFactory,
-    on_delivery: DeliveryHook,
-    src_rect: SrcRectProvider,
+    on_delivery: OnDeliveryHook,
+    on_crop_select: OnCropSelectHook,
+    forward_inbox: Router<PipelineMsg>,
+    forward_inbox_delivery: OnForwardInboxDeliveryHook,
+    forward_inbox_source_eos: OnForwardInboxSourceEosHook,
     registered: HashSet<String>,
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
     shutdown_done: bool,
 }
 
@@ -203,21 +447,86 @@ impl Picasso {
         PicassoBuilder::new(name, capacity)
     }
 
-    /// Default batch-level delivery hook — a no-op.  Always
-    /// installed when the user omits the inbox setter so the
-    /// runtime struct never needs to inspect an `Option`.
+    /// Default per-pair delivery hook — a no-op.  Always installed
+    /// when the user omits the inbox setter so the runtime struct
+    /// never needs to inspect an `Option`.
     pub fn default_on_delivery(
-    ) -> impl FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
+    ) -> impl FnMut(&mut Context<Picasso>, &VideoFrame, &SharedBuffer) -> Result<()>
            + Send
            + 'static {
-        |_pairs, _ctx| Ok(())
+        |_ctx, _frame, _buffer| Ok(())
     }
 
-    /// Default `src_rect` provider — returns `None` for every
+    /// Default `on_crop_select` hook — returns `None` for every
     /// frame, so Picasso uses the whole source surface.  Always
     /// installed when the user omits the inbox setter.
-    pub fn default_src_rect_for() -> SrcRectProvider {
-        Arc::new(|_sid: &str, _frame: &VideoFrame| None)
+    pub fn default_on_crop_select(
+    ) -> impl FnMut(&mut Context<Picasso>, &VideoFrame) -> Option<Rect> + Send + 'static
+    {
+        |_ctx, _frame| None
+    }
+
+    /// Default `forward_inbox_delivery` hook — emits a single
+    /// `debug` log line and drops the batch.  Picasso is a sink
+    /// for `(VideoFrame, SharedBuffer)` traffic by default; users
+    /// who need to tee deliveries downstream override this hook.
+    pub fn default_forward_inbox_delivery() -> impl FnMut(
+        &mut Context<Picasso>,
+        &Router<PipelineMsg>,
+        &[(VideoFrame, SharedBuffer)],
+    ) -> Result<()>
+           + Send
+           + 'static {
+        |ctx, _router, pairs| {
+            log::debug!(
+                "[{}] forward_inbox_delivery: dropping {} pair(s)",
+                ctx.own_name(),
+                pairs.len()
+            );
+            Ok(())
+        }
+    }
+
+    /// Default `on_encoded_frame` hook — forwards as
+    /// `EncodedMsg::Frame { frame, payload: None }`.  Matches the
+    /// `OnEncodedFrame` impl every existing user wrote by hand;
+    /// switching to defaults removes the boilerplate.
+    pub fn default_on_encoded_frame(
+    ) -> impl Fn(&HookCtx, &Router<EncodedMsg>, VideoFrame) + Send + Sync + 'static {
+        |_ctx, router, frame| {
+            let _ = router.send(EncodedMsg::Frame {
+                frame,
+                payload: None,
+            });
+        }
+    }
+
+    /// Default `on_encoded_source_eos` hook — forwards as
+    /// `EncodedMsg::SourceEos { source_id }`.
+    pub fn default_on_encoded_source_eos(
+    ) -> impl Fn(&HookCtx, &Router<EncodedMsg>, EndOfStream) + Send + Sync + 'static {
+        |_ctx, router, eos| {
+            let _ = router.send(EncodedMsg::SourceEos {
+                source_id: eos.source_id,
+            });
+        }
+    }
+
+    /// Default `forward_inbox_source_eos` hook — emits a single
+    /// `debug` log line and drops the EOS.  Override to forward
+    /// the sentinel to a downstream stage that also tracks the
+    /// per-source drain.
+    pub fn default_forward_inbox_source_eos(
+    ) -> impl FnMut(&mut Context<Picasso>, &Router<PipelineMsg>, &str) -> Result<()>
+           + Send
+           + 'static {
+        |ctx, _router, source_id| {
+            log::debug!(
+                "[{}] forward_inbox_source_eos: dropping eos for {source_id}",
+                ctx.own_name()
+            );
+            Ok(())
+        }
     }
 
     /// Default user shutdown hook — a no-op.  The stage's own
@@ -226,7 +535,7 @@ impl Picasso {
     /// before this hook fires, so omitting the bundle setter
     /// simply means "don't add any extra cleanup on top of the
     /// built-in engine shutdown".
-    pub fn default_stopping() -> impl FnMut(&mut Context<Picasso>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<Picasso>) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -253,7 +562,7 @@ impl Actor for Picasso {
             self.shutdown_done = true;
         }
         log::info!("[{}] picasso stopping", ctx.own_name());
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
@@ -280,6 +589,15 @@ impl Handler<SourceEosPayload> for Picasso {
         );
         if let Err(e) = self.engine.send_eos(&msg.source_id) {
             log::warn!("[{}] send_eos({}): {e}", ctx.own_name(), msg.source_id);
+        }
+        if let Err(e) =
+            (self.forward_inbox_source_eos)(ctx, &self.forward_inbox, &msg.source_id)
+        {
+            log::warn!(
+                "[{}] forward_inbox_source_eos({}) failed: {e}",
+                ctx.own_name(),
+                msg.source_id
+            );
         }
         Ok(Flow::Cont)
     }
@@ -349,19 +667,26 @@ impl Picasso {
             }
         }
 
-        // User batch-level hook — observes/forwards the batch by
-        // shared reference.  Errors are logged but non-fatal so a
-        // failed observer does not drop the frame by default.
-        if let Err(e) = (self.on_delivery)(&pairs, ctx) {
-            log::warn!("[{}] on_delivery failed: {e}", ctx.own_name());
+        // Inbox-forward tee — fires before the engine feed loop so
+        // a downstream stage that also wants the batch is not held
+        // behind picasso's rendering.  Errors are logged but
+        // non-fatal: a failed forward must not drop the frame.
+        if let Err(e) = (self.forward_inbox_delivery)(ctx, &self.forward_inbox, &pairs) {
+            log::warn!("[{}] forward_inbox_delivery failed: {e}", ctx.own_name());
         }
 
         for (frame, buffer) in pairs {
+            // User per-pair hook — fires before the engine feed.
+            // Errors are logged but non-fatal so a failed observer
+            // does not drop the frame by default.
+            if let Err(e) = (self.on_delivery)(ctx, &frame, &buffer) {
+                log::warn!("[{}] on_delivery failed: {e}", ctx.own_name());
+            }
             let sid = frame.get_source_id();
             let view = SurfaceView::from_buffer(&buffer, 0)
                 .map_err(|e| anyhow!("SurfaceView::from_buffer: {e}"))?;
-            let src_rect = (self.src_rect)(&sid, &frame);
-            if let Err(e) = self.engine.send_frame(&sid, frame, view, src_rect) {
+            let crop = (self.on_crop_select)(ctx, &frame);
+            if let Err(e) = self.engine.send_frame(&sid, frame, view, crop) {
                 log::error!("[{}] send_frame failed: {e}", ctx.own_name());
                 return Err(anyhow!("picasso send_frame: {e}"));
             }
@@ -375,8 +700,8 @@ impl Picasso {
 /// Omitted branches auto-install the matching `Picasso::default_*`
 /// at build time.
 pub struct PicassoInbox {
-    on_delivery: DeliveryHook,
-    src_rect: SrcRectProvider,
+    on_delivery: OnDeliveryHook,
+    on_crop_select: OnCropSelectHook,
 }
 
 impl PicassoInbox {
@@ -395,8 +720,8 @@ impl Default for PicassoInbox {
 
 /// Fluent builder for [`PicassoInbox`].
 pub struct PicassoInboxBuilder {
-    on_delivery: Option<DeliveryHook>,
-    src_rect: Option<SrcRectProvider>,
+    on_delivery: Option<OnDeliveryHook>,
+    on_crop_select: Option<OnCropSelectHook>,
 }
 
 impl PicassoInboxBuilder {
@@ -405,20 +730,21 @@ impl PicassoInboxBuilder {
     pub fn new() -> Self {
         Self {
             on_delivery: None,
-            src_rect: None,
+            on_crop_select: None,
         }
     }
 
-    /// Install a batch-level delivery hook.  The hook receives the
-    /// unsealed `(VideoFrame, SharedBuffer)` batch by
-    /// **shared slice reference** before frames are fed to the
-    /// engine, so the body can iterate and route frames into
-    /// nested helpers (overlays, analytics, …) without consuming
-    /// the batch.  Returning `Err` is logged but does not abort
+    /// Install a per-pair delivery hook.  The hook receives a
+    /// single unsealed `(VideoFrame, SharedBuffer)` pair by
+    /// **shared reference** before that pair is fed to the engine
+    /// — when a batched delivery arrives, this hook is called once
+    /// per pair in the batch.  The body can clone or route the
+    /// pair into nested helpers (overlays, analytics, …) without
+    /// consuming.  Returning `Err` is logged but does not abort
     /// the loop; see [`Picasso::send_pairs`](Picasso).
     pub fn on_delivery<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&[(VideoFrame, SharedBuffer)], &mut Context<Picasso>) -> Result<()>
+        F: FnMut(&mut Context<Picasso>, &VideoFrame, &SharedBuffer) -> Result<()>
             + Send
             + 'static,
     {
@@ -426,15 +752,17 @@ impl PicassoInboxBuilder {
         self
     }
 
-    /// Install a per-frame `src_rect` provider.  Returning
+    /// Install a per-frame crop-rectangle selector.  Returning
     /// `Some(rect)` feeds the rectangle to
     /// [`PicassoEngine::send_frame`]; returning `None` leaves the
-    /// default `None` behaviour (use the whole source surface).
-    pub fn src_rect_for<F>(mut self, f: F) -> Self
+    /// engine's default behaviour (use the whole source surface).
+    /// The frame's `source_id` is available via
+    /// [`VideoFrame::get_source_id`] when needed.
+    pub fn on_crop_select<F>(mut self, f: F) -> Self
     where
-        F: Fn(&str, &VideoFrame) -> Option<Rect> + Send + Sync + 'static,
+        F: FnMut(&mut Context<Picasso>, &VideoFrame) -> Option<Rect> + Send + 'static,
     {
-        self.src_rect = Some(Arc::new(f));
+        self.on_crop_select = Some(Box::new(f));
         self
     }
 
@@ -443,11 +771,12 @@ impl PicassoInboxBuilder {
     pub fn build(self) -> PicassoInbox {
         let PicassoInboxBuilder {
             on_delivery,
-            src_rect,
+            on_crop_select,
         } = self;
         PicassoInbox {
             on_delivery: on_delivery.unwrap_or_else(|| Box::new(Picasso::default_on_delivery())),
-            src_rect: src_rect.unwrap_or_else(Picasso::default_src_rect_for),
+            on_crop_select: on_crop_select
+                .unwrap_or_else(|| Box::new(Picasso::default_on_crop_select())),
         }
     }
 }
@@ -458,12 +787,155 @@ impl Default for PicassoInboxBuilder {
     }
 }
 
+/// Result-path hook bundle for [`Picasso`] — the four routed
+/// callbacks the stage owns.  Built through
+/// [`PicassoResults::builder`] and handed to
+/// [`PicassoBuilder::results`].  Each hook receives the matching
+/// [`Router<_>`] so its body owns the drop/send decision; defaults
+/// substitute the typical-case behaviour at build time.
+///
+/// Encoded callbacks (`on_encoded_frame`, `on_encoded_source_eos`)
+/// fire from the engine worker thread and are `Fn + Send + Sync`
+/// (no `Context`).  Inbox-forward callbacks
+/// (`forward_inbox_delivery`, `forward_inbox_source_eos`) fire from
+/// the actor receive loop and take `&mut Context<Picasso>`.
+pub struct PicassoResults {
+    on_encoded_frame: OnEncodedFrameHook,
+    on_encoded_source_eos: OnEncodedSourceEosHook,
+    forward_inbox_delivery: OnForwardInboxDeliveryHook,
+    forward_inbox_source_eos: OnForwardInboxSourceEosHook,
+}
+
+impl PicassoResults {
+    /// Start a builder that auto-installs every default on
+    /// [`PicassoResultsBuilder::build`].
+    pub fn builder() -> PicassoResultsBuilder {
+        PicassoResultsBuilder::new()
+    }
+}
+
+impl Default for PicassoResults {
+    fn default() -> Self {
+        PicassoResultsBuilder::new().build()
+    }
+}
+
+/// Fluent builder for [`PicassoResults`].
+pub struct PicassoResultsBuilder {
+    on_encoded_frame: Option<OnEncodedFrameHook>,
+    on_encoded_source_eos: Option<OnEncodedSourceEosHook>,
+    forward_inbox_delivery: Option<OnForwardInboxDeliveryHook>,
+    forward_inbox_source_eos: Option<OnForwardInboxSourceEosHook>,
+}
+
+impl PicassoResultsBuilder {
+    /// Empty bundle — every hook defaults to its matching
+    /// `Picasso::default_*` at [`build`](Self::build) time.
+    pub fn new() -> Self {
+        Self {
+            on_encoded_frame: None,
+            on_encoded_source_eos: None,
+            forward_inbox_delivery: None,
+            forward_inbox_source_eos: None,
+        }
+    }
+
+    /// Install an encoded-frame result hook.  Receives the
+    /// [`Router<EncodedMsg>`] (wired from [`PicassoBuilder::downstream`])
+    /// and the encoded [`VideoFrame`] from the engine worker thread.
+    /// Default: forward as `EncodedMsg::Frame { frame, payload: None }`.
+    pub fn on_encoded_frame<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &Router<EncodedMsg>, VideoFrame) + Send + Sync + 'static,
+    {
+        self.on_encoded_frame = Some(Arc::new(f));
+        self
+    }
+
+    /// Install an encoded source-EOS result hook.  Default: forward
+    /// as `EncodedMsg::SourceEos { source_id }`.
+    pub fn on_encoded_source_eos<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &Router<EncodedMsg>, EndOfStream) + Send + Sync + 'static,
+    {
+        self.on_encoded_source_eos = Some(Arc::new(f));
+        self
+    }
+
+    /// Install a delivery-batch inbox-forward hook.  Fires once per
+    /// incoming batch (after [`PicassoInbox::on_delivery`] and before
+    /// the engine feed loop) with a [`Router<PipelineMsg>`] supplied
+    /// by the stage; typical bodies clone the unsealed pairs, mint a
+    /// fresh already-released
+    /// [`ReleaseSeal`](savant_core::utils::release_seal::ReleaseSeal),
+    /// wrap them in
+    /// [`SealedDeliveries`](deepstream_buffers::SealedDeliveries),
+    /// and call `router.send(PipelineMsg::Deliveries(sealed))`.
+    /// Default: debug-log + drop.
+    pub fn forward_inbox_delivery<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(
+                &mut Context<Picasso>,
+                &Router<PipelineMsg>,
+                &[(VideoFrame, SharedBuffer)],
+            ) -> Result<()>
+            + Send
+            + 'static,
+    {
+        self.forward_inbox_delivery = Some(Box::new(f));
+        self
+    }
+
+    /// Install a source-EOS inbox-forward hook.  Fires for every
+    /// [`PipelineMsg::SourceEos`] *after* picasso has flushed the
+    /// matching engine source, with a [`Router<PipelineMsg>`]
+    /// supplied by the stage so the body can
+    /// `router.send(PipelineMsg::SourceEos { source_id })` to relay
+    /// the sentinel.  Default: debug-log + drop.
+    pub fn forward_inbox_source_eos<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(&mut Context<Picasso>, &Router<PipelineMsg>, &str) -> Result<()>
+            + Send
+            + 'static,
+    {
+        self.forward_inbox_source_eos = Some(Box::new(f));
+        self
+    }
+
+    /// Finalise the bundle, substituting defaults for every omitted
+    /// setter.
+    pub fn build(self) -> PicassoResults {
+        let PicassoResultsBuilder {
+            on_encoded_frame,
+            on_encoded_source_eos,
+            forward_inbox_delivery,
+            forward_inbox_source_eos,
+        } = self;
+        PicassoResults {
+            on_encoded_frame: on_encoded_frame
+                .unwrap_or_else(|| Arc::new(Picasso::default_on_encoded_frame())),
+            on_encoded_source_eos: on_encoded_source_eos
+                .unwrap_or_else(|| Arc::new(Picasso::default_on_encoded_source_eos())),
+            forward_inbox_delivery: forward_inbox_delivery
+                .unwrap_or_else(|| Box::new(Picasso::default_forward_inbox_delivery())),
+            forward_inbox_source_eos: forward_inbox_source_eos
+                .unwrap_or_else(|| Box::new(Picasso::default_forward_inbox_source_eos())),
+        }
+    }
+}
+
+impl Default for PicassoResultsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Loop-level common knobs + user shutdown hook for [`Picasso`].
 /// Built through [`PicassoCommon::builder`] and handed to
 /// [`PicassoBuilder::common`].
 pub struct PicassoCommon {
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl PicassoCommon {
@@ -483,7 +955,7 @@ impl Default for PicassoCommon {
 /// Fluent builder for [`PicassoCommon`].
 pub struct PicassoCommonBuilder {
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl PicassoCommonBuilder {
@@ -492,7 +964,7 @@ impl PicassoCommonBuilder {
     pub fn new() -> Self {
         Self {
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -508,11 +980,11 @@ impl PicassoCommonBuilder {
     /// [`PicassoEngine::shutdown`](picasso::prelude::PicassoEngine::shutdown))
     /// has completed.  The built-in cleanup is **load-bearing** and
     /// always runs first; it cannot be skipped through this hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<Picasso>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -521,11 +993,12 @@ impl PicassoCommonBuilder {
     pub fn build(self) -> PicassoCommon {
         let PicassoCommonBuilder {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         PicassoCommon {
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(Picasso::default_stopping())),
+            on_stopping: on_stopping
+                .unwrap_or_else(|| Box::new(Picasso::default_on_stopping())),
         }
     }
 }
@@ -547,9 +1020,17 @@ pub struct PicassoBuilder {
     name: StageName,
     capacity: usize,
     downstream: Option<StageName>,
+    forward_inbox_downstream: Option<StageName>,
     engine_factory: Option<PicassoEngineFactory>,
     source_spec: Option<SourceSpecFactory>,
+    engine_handle: Option<PicassoEngineHandle>,
+    on_render: Option<OnRenderHook>,
+    on_gpu_mat: Option<OnGpuMatHook>,
+    on_object_draw_spec: Option<OnObjectDrawSpecHook>,
+    on_eviction: Option<OnEvictionHook>,
+    on_stream_reset: Option<OnStreamResetHook>,
     inbox: Option<PicassoInbox>,
+    results: Option<PicassoResults>,
     common: Option<PicassoCommon>,
 }
 
@@ -560,9 +1041,17 @@ impl PicassoBuilder {
             name,
             capacity,
             downstream: None,
+            forward_inbox_downstream: None,
             engine_factory: None,
             source_spec: None,
+            engine_handle: None,
+            on_render: None,
+            on_gpu_mat: None,
+            on_object_draw_spec: None,
+            on_eviction: None,
+            on_stream_reset: None,
             inbox: None,
+            results: None,
             common: None,
         }
     }
@@ -577,10 +1066,26 @@ impl PicassoBuilder {
         self
     }
 
-    /// Required: engine factory.  See [`PicassoEngineFactory`].
+    /// Optional default peer installed on the
+    /// [`Router<PipelineMsg>`] handed to the inbox-forward hooks
+    /// ([`PicassoInboxBuilder::forward_inbox_delivery`] and
+    /// [`PicassoInboxBuilder::forward_inbox_source_eos`]).  Omit when
+    /// picasso is the terminal sink for `(VideoFrame, SharedBuffer)`
+    /// traffic — the default hooks log-and-drop and never touch the
+    /// router.
+    pub fn forward_inbox_downstream(mut self, peer: StageName) -> Self {
+        self.forward_inbox_downstream = Some(peer);
+        self
+    }
+
+    /// Required: engine spec factory.  See [`PicassoEngineFactory`].
+    /// Returns just the [`GeneralSpec`]; the stage owns `Callbacks`
+    /// lifecycle and assembles them from the encoded closures in
+    /// [`PicassoResults`] plus any engine-level closures installed
+    /// on the top-level builder.
     pub fn engine_factory<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(&BuildCtx, Router<EncodedMsg>) -> Result<Arc<PicassoEngine>> + Send + 'static,
+        F: FnOnce(&BuildCtx) -> Result<GeneralSpec> + Send + 'static,
     {
         self.engine_factory = Some(Box::new(f));
         self
@@ -595,11 +1100,93 @@ impl PicassoBuilder {
         self
     }
 
+    /// Hand a [`PicassoEngineHandle`] for the stage to bind once
+    /// the engine is built.  Cheap to clone — pass clones into
+    /// closures that need to call engine methods (`set_source_spec`,
+    /// `send_eos`, `shutdown`, …).  Omit when no out-of-band engine
+    /// access is required.
+    pub fn engine_handle(mut self, handle: PicassoEngineHandle) -> Self {
+        self.engine_handle = Some(handle);
+        self
+    }
+
+    /// Install an [`OnRender`](picasso::prelude::OnRender) callback
+    /// (closure form).  Fires from the engine worker thread before
+    /// each Skia flush.  No default — omitting leaves the
+    /// engine slot empty.
+    pub fn on_render<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &str, &mut SkiaRenderer, &VideoFrame) + Send + Sync + 'static,
+    {
+        self.on_render = Some(Arc::new(f));
+        self
+    }
+
+    /// Install an [`OnGpuMat`](picasso::prelude::OnGpuMat) callback
+    /// (closure form).  Fires from the engine worker thread once
+    /// the destination [`SurfaceView`] is ready.  No default.
+    pub fn on_gpu_mat<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &str, &VideoFrame, &SurfaceView) + Send + Sync + 'static,
+    {
+        self.on_gpu_mat = Some(Arc::new(f));
+        self
+    }
+
+    /// Install an [`OnObjectDrawSpec`](picasso::prelude::OnObjectDrawSpec)
+    /// callback (closure form).  Returning `Some(spec)` overrides
+    /// the static draw spec for the object; returning `None` keeps
+    /// the resolved default.  No default.
+    pub fn on_object_draw_spec<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &str, &BorrowedVideoObject, Option<&ObjectDraw>) -> Option<ObjectDraw>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_object_draw_spec = Some(Arc::new(f));
+        self
+    }
+
+    /// Install an [`OnEviction`](picasso::prelude::OnEviction)
+    /// callback (closure form).  Returns the
+    /// [`EvictionDecision`](picasso::prelude::EvictionDecision) for
+    /// an idle source.  No default.
+    pub fn on_eviction<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &str) -> EvictionDecision + Send + Sync + 'static,
+    {
+        self.on_eviction = Some(Arc::new(f));
+        self
+    }
+
+    /// Install an [`OnStreamReset`](picasso::prelude::OnStreamReset)
+    /// callback (closure form).  Fires when the engine resets its
+    /// per-source encoder.  No default.
+    pub fn on_stream_reset<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&HookCtx, &str, StreamResetReason) + Send + Sync + 'static,
+    {
+        self.on_stream_reset = Some(Arc::new(f));
+        self
+    }
+
     /// Install a [`PicassoInbox`] bundle.  Omitting this call is
     /// equivalent to `.inbox(PicassoInbox::default())`, which
     /// wires every slot to the matching `Picasso::default_*`.
     pub fn inbox(mut self, i: PicassoInbox) -> Self {
         self.inbox = Some(i);
+        self
+    }
+
+    /// Install a [`PicassoResults`] bundle — the inbox-forward tee
+    /// (`forward_inbox_delivery`, `forward_inbox_source_eos`).
+    /// Omitting this call is equivalent to
+    /// `.results(PicassoResults::default())`, which wires both slots
+    /// to the matching `Picasso::default_forward_inbox_*` (debug-log
+    /// + drop).
+    pub fn results(mut self, r: PicassoResults) -> Self {
+        self.results = Some(r);
         self
     }
 
@@ -622,9 +1209,17 @@ impl PicassoBuilder {
             name,
             capacity,
             downstream,
+            forward_inbox_downstream,
             engine_factory,
             source_spec,
+            engine_handle,
+            on_render,
+            on_gpu_mat,
+            on_object_draw_spec,
+            on_eviction,
+            on_stream_reset,
             inbox,
+            results,
             common,
         } = self;
         let source_spec =
@@ -633,25 +1228,87 @@ impl PicassoBuilder {
             engine_factory.ok_or_else(|| anyhow!("Picasso: missing engine_factory"))?;
         let PicassoInbox {
             on_delivery,
-            src_rect,
+            on_crop_select,
         } = inbox.unwrap_or_default();
+        let PicassoResults {
+            on_encoded_frame,
+            on_encoded_source_eos,
+            forward_inbox_delivery,
+            forward_inbox_source_eos,
+        } = results.unwrap_or_default();
         let PicassoCommon {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
         Ok(ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
             .factory(move |bx| {
                 let router: Router<EncodedMsg> = bx.router(downstream.as_ref())?;
-                let engine = (engine_factory)(bx, router)?;
+                let forward_inbox: Router<PipelineMsg> =
+                    bx.router(forward_inbox_downstream.as_ref())?;
+                let spec = (engine_factory)(bx)?;
+                let ctx = bx.hook_ctx();
+
+                // Stage owns the OnEncodedFrame impl now — it
+                // delegates to the user closures stored in
+                // PicassoResults.  The encoded router and a HookCtx
+                // clone are moved into the sink so the worker
+                // thread doesn't need to touch any actor-thread
+                // state.
+                let encoded_sink = ClosureOnEncodedFrame {
+                    on_frame: on_encoded_frame,
+                    on_eos: on_encoded_source_eos,
+                    router,
+                    ctx: ctx.clone(),
+                };
+                let mut cb = Callbacks::builder().on_encoded_frame(encoded_sink);
+                if let Some(h) = on_render {
+                    cb = cb.on_render(ClosureOnRender {
+                        hook: h,
+                        ctx: ctx.clone(),
+                    });
+                }
+                if let Some(h) = on_gpu_mat {
+                    cb = cb.on_gpumat(ClosureOnGpuMat {
+                        hook: h,
+                        ctx: ctx.clone(),
+                    });
+                }
+                if let Some(h) = on_object_draw_spec {
+                    cb = cb.on_object_draw_spec(ClosureOnObjectDrawSpec {
+                        hook: h,
+                        ctx: ctx.clone(),
+                    });
+                }
+                if let Some(h) = on_eviction {
+                    cb = cb.on_eviction(ClosureOnEviction {
+                        hook: h,
+                        ctx: ctx.clone(),
+                    });
+                }
+                if let Some(h) = on_stream_reset {
+                    cb = cb.on_stream_reset(ClosureOnStreamReset {
+                        hook: h,
+                        ctx: ctx.clone(),
+                    });
+                }
+                let engine = Arc::new(PicassoEngine::new(spec, cb.build()));
+
+                if let Some(handle) = engine_handle.as_ref() {
+                    handle.bind(engine.clone());
+                }
+
                 Ok(Picasso {
                     engine,
                     source_spec,
                     on_delivery,
-                    src_rect,
+                    on_crop_select,
+                    forward_inbox,
+                    forward_inbox_delivery,
+                    forward_inbox_source_eos,
                     registered: HashSet::new(),
                     poll_timeout,
-                    stopping,
+                    on_stopping,
                     shutdown_done: false,
                 })
             }))
@@ -662,44 +1319,16 @@ impl PicassoBuilder {
 mod tests {
     use super::*;
     use crate::supervisor::{StageKind, StageName};
-    use picasso::prelude::{Callbacks, GeneralSpec, OnEncodedFrame, OutputMessage};
+    use picasso::prelude::GeneralSpec;
 
     fn dummy_spec(_sid: &str, _w: u32, _h: u32, _fn_: i32, _fd: i32) -> Result<SourceSpec> {
         Ok(SourceSpec::default())
     }
 
-    /// Smallest `OnEncodedFrame` impl that owns a router and does
-    /// its own sends — the shape users are expected to provide.
-    struct TestSink {
-        router: Router<EncodedMsg>,
-    }
-
-    impl OnEncodedFrame for TestSink {
-        fn call(&self, output: OutputMessage) {
-            match output {
-                OutputMessage::VideoFrame(frame) => {
-                    let _ = self.router.send(EncodedMsg::Frame {
-                        frame,
-                        payload: None,
-                    });
-                }
-                OutputMessage::EndOfStream(eos) => {
-                    let _ = self.router.send(EncodedMsg::SourceEos {
-                        source_id: eos.source_id,
-                    });
-                }
-            }
-        }
-    }
-
+    /// Builds a minimal [`GeneralSpec`].  The stage now owns
+    /// `Callbacks` lifecycle, so the factory only returns the spec.
     fn make_engine_factory() -> PicassoEngineFactory {
-        Box::new(|_bx, router| {
-            let callbacks = Callbacks::builder()
-                .on_encoded_frame(TestSink { router })
-                .build();
-            let general = GeneralSpec::builder().name("demo").build();
-            Ok(Arc::new(PicassoEngine::new(general, callbacks)))
-        })
+        Box::new(|_bx| Ok(GeneralSpec::builder().name("demo").build()))
     }
 
     #[test]
@@ -759,14 +1388,14 @@ mod tests {
             .source_spec_factory(dummy_spec)
             .inbox(
                 PicassoInbox::builder()
-                    .src_rect_for(|_sid, _frame| None)
-                    .on_delivery(|_pairs, _ctx| Ok(()))
+                    .on_crop_select(|_ctx, _frame| None)
+                    .on_delivery(|_ctx, _frame, _buffer| Ok(()))
                     .build(),
             )
             .common(
                 PicassoCommon::builder()
                     .poll_timeout(Duration::from_millis(50))
-                    .stopping(Picasso::default_stopping())
+                    .on_stopping(Picasso::default_on_stopping())
                     .build(),
             )
             .build()
@@ -789,7 +1418,7 @@ mod tests {
             .source_spec_factory(dummy_spec)
             .common(
                 PicassoCommon::builder()
-                    .stopping(move |_ctx| {
+                    .on_stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
                     .build(),
@@ -799,11 +1428,11 @@ mod tests {
         assert!(!flag.load(Ordering::SeqCst));
     }
 
-    /// Runtime invariant: the `on_delivery` and `src_rect` slots
-    /// are no longer `Option<_>`.  A minimal builder without any
-    /// `.inbox(...)` call still produces a runtime [`Picasso`]
-    /// whose `on_delivery` and `src_rect` are populated with the
-    /// matching no-op defaults.
+    /// Runtime invariant: the `on_delivery` and `on_crop_select`
+    /// slots are no longer `Option<_>`.  A minimal builder without
+    /// any `.inbox(...)` call still produces a runtime [`Picasso`]
+    /// whose `on_delivery` and `on_crop_select` are populated with
+    /// the matching no-op defaults.
     #[test]
     fn runtime_invariant_all_hooks_populated() {
         use crate::context::BuildCtx;
@@ -824,9 +1453,121 @@ mod tests {
         let pic = (parts.factory)(&bx).expect("factory resolves");
         let Picasso {
             on_delivery: _,
-            src_rect: _,
-            stopping: _,
+            on_crop_select: _,
+            forward_inbox: _,
+            forward_inbox_delivery: _,
+            forward_inbox_source_eos: _,
+            on_stopping: _,
             ..
         } = pic;
+    }
+
+    /// Builder accepts user-supplied inbox-forward hooks together
+    /// with an explicit `forward_inbox_downstream` peer.  Compile-only
+    /// check that the closure shapes match the published types and
+    /// that the [`PicassoResults`] bundle plumbs through cleanly.
+    #[test]
+    fn builder_accepts_forward_inbox_hooks() {
+        let name = StageName::unnamed(StageKind::Render);
+        let _ = Picasso::builder(name, 4)
+            .downstream(StageName::unnamed(StageKind::BitstreamSink))
+            .forward_inbox_downstream(StageName::unnamed(StageKind::Custom("inbox-tee")))
+            .engine_factory(make_engine_factory())
+            .source_spec_factory(dummy_spec)
+            .results(
+                PicassoResults::builder()
+                    .forward_inbox_delivery(|_ctx, _router, pairs| {
+                        let _ = pairs.len();
+                        Ok(())
+                    })
+                    .forward_inbox_source_eos(|_ctx, _router, _sid| Ok(()))
+                    .build(),
+            )
+            .build()
+            .unwrap();
+    }
+
+    /// Builder accepts user-supplied encoded result hooks alongside
+    /// the inbox-forward ones.  Compile-only verification of the
+    /// closure shapes; runtime behaviour is covered by integration
+    /// tests against the picasso engine.
+    #[test]
+    fn builder_accepts_encoded_result_hooks() {
+        let name = StageName::unnamed(StageKind::Render);
+        let _ = Picasso::builder(name, 4)
+            .downstream(StageName::unnamed(StageKind::BitstreamSink))
+            .engine_factory(make_engine_factory())
+            .source_spec_factory(dummy_spec)
+            .results(
+                PicassoResults::builder()
+                    .on_encoded_frame(|_ctx, router, frame| {
+                        let _ = router.send(EncodedMsg::Frame {
+                            frame,
+                            payload: None,
+                        });
+                    })
+                    .on_encoded_source_eos(|_ctx, router, eos| {
+                        let _ = router.send(EncodedMsg::SourceEos {
+                            source_id: eos.source_id,
+                        });
+                    })
+                    .build(),
+            )
+            .build()
+            .unwrap();
+    }
+
+    /// Builder accepts the five top-level engine-level callbacks as
+    /// closures.  No defaults — omitted callbacks leave their slot
+    /// on the engine empty.
+    #[test]
+    fn builder_accepts_engine_level_callbacks() {
+        use picasso::prelude::EvictionDecision;
+        let name = StageName::unnamed(StageKind::Render);
+        let _ = Picasso::builder(name, 4)
+            .engine_factory(make_engine_factory())
+            .source_spec_factory(dummy_spec)
+            .on_eviction(|_ctx, _sid| EvictionDecision::KeepFor(60))
+            .on_object_draw_spec(|_ctx, _sid, _obj, _current| None)
+            .on_stream_reset(|_ctx, _sid, _reason| {})
+            // on_render and on_gpu_mat reference the rendering /
+            // GPU-buffer surfaces; closures still type-check even
+            // without exercising them.
+            .build()
+            .unwrap();
+    }
+
+    /// `PicassoEngineHandle` starts unbound and becomes bound the
+    /// moment the actor's factory runs.  Cloning shares the bind
+    /// state across holders.
+    #[test]
+    fn engine_handle_binds_after_factory_runs() {
+        use crate::context::BuildCtx;
+        use crate::registry::Registry;
+        use crate::shared::SharedStore;
+
+        let handle = PicassoEngineHandle::new();
+        let observer = handle.clone();
+        assert!(observer.try_get().is_none());
+
+        let name = StageName::unnamed(StageKind::Render);
+        let ab = Picasso::builder(name.clone(), 4)
+            .engine_factory(make_engine_factory())
+            .source_spec_factory(dummy_spec)
+            .engine_handle(handle)
+            .build()
+            .unwrap();
+        let parts = ab.into_parts();
+        let reg = Arc::new(Registry::new());
+        let shared = Arc::new(SharedStore::new());
+        let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let _pic = (parts.factory)(&bx).expect("factory resolves");
+
+        // Same handle, observed through a clone.
+        assert!(
+            observer.try_get().is_some(),
+            "engine_handle must be bound after the factory runs"
+        );
     }
 }

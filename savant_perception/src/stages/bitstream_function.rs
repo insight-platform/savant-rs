@@ -107,11 +107,11 @@ use crate::{
 /// Closure type for `on_stream_info`.  Observes every
 /// [`StreamInfoPayload`] by shared reference.  Returning `Err`
 /// aborts the loop.
-pub type StreamInfoHook = Box<
+pub type OnStreamInfoHook = Box<
     dyn FnMut(
-            &StreamInfoPayload,
-            &Router<EncodedMsg>,
             &mut Context<BitstreamFunction>,
+            &Router<EncodedMsg>,
+            &StreamInfoPayload,
         ) -> Result<()>
         + Send
         + 'static,
@@ -120,16 +120,16 @@ pub type StreamInfoHook = Box<
 /// Closure type for `on_packet`.  Observes every
 /// [`PacketPayload`] by shared reference.  Returning `Err` aborts
 /// the loop.
-pub type PacketHook = Box<
-    dyn FnMut(&PacketPayload, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<()>
+pub type OnPacketHook = Box<
+    dyn FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &PacketPayload) -> Result<()>
         + Send
         + 'static,
 >;
 
 /// Closure type for `on_frame`.  Observes every [`FramePayload`]
 /// by shared reference.  Returning `Err` aborts the loop.
-pub type FrameHook = Box<
-    dyn FnMut(&FramePayload, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<()>
+pub type OnFrameHook = Box<
+    dyn FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &FramePayload) -> Result<()>
         + Send
         + 'static,
 >;
@@ -137,8 +137,8 @@ pub type FrameHook = Box<
 /// Closure type for `on_source_eos`.  Returning [`Flow::Stop`]
 /// exits the receive loop on that EOS; [`Flow::Cont`] keeps the
 /// function alive.
-pub type EosHook = Box<
-    dyn FnMut(&str, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<Flow>
+pub type OnSourceEosHook = Box<
+    dyn FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &str) -> Result<Flow>
         + Send
         + 'static,
 >;
@@ -165,12 +165,12 @@ pub type OnStoppingHook = Box<dyn FnMut(&mut Context<BitstreamFunction>) + Send 
 /// default when the user omits a setter.
 pub struct BitstreamFunction {
     router: Router<EncodedMsg>,
-    stream_info: StreamInfoHook,
-    packet: PacketHook,
-    frame: FrameHook,
-    source_eos: EosHook,
-    started: OnStartedHook,
-    stopping: OnStoppingHook,
+    stream_info: OnStreamInfoHook,
+    packet: OnPacketHook,
+    frame: OnFrameHook,
+    source_eos: OnSourceEosHook,
+    on_started: OnStartedHook,
+    on_stopping: OnStoppingHook,
     poll_timeout: Duration,
 }
 
@@ -184,39 +184,39 @@ impl BitstreamFunction {
     /// Default `on_stream_info` hook — drops every stream-info
     /// sentinel.
     pub fn default_on_stream_info() -> impl FnMut(
-        &StreamInfoPayload,
-        &Router<EncodedMsg>,
         &mut Context<BitstreamFunction>,
+        &Router<EncodedMsg>,
+        &StreamInfoPayload,
     ) -> Result<()>
            + Send
            + 'static {
-        |_payload, _router, _ctx| Ok(())
+        |_ctx, _router, _payload| Ok(())
     }
 
     /// Default `on_packet` hook — drops every packet.
     pub fn default_on_packet(
-    ) -> impl FnMut(&PacketPayload, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<()>
+    ) -> impl FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &PacketPayload) -> Result<()>
            + Send
            + 'static {
-        |_payload, _router, _ctx| Ok(())
+        |_ctx, _router, _payload| Ok(())
     }
 
     /// Default `on_frame` hook — drops every pre-built frame.
     pub fn default_on_frame(
-    ) -> impl FnMut(&FramePayload, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<()>
+    ) -> impl FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &FramePayload) -> Result<()>
            + Send
            + 'static {
-        |_payload, _router, _ctx| Ok(())
+        |_ctx, _router, _payload| Ok(())
     }
 
     /// Default `on_source_eos` hook — logs at `info` level and
     /// returns `Ok(Flow::Cont)` so the function stays alive through
     /// an arbitrary number of per-source drainages.
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<Flow>
+    ) -> impl FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &str) -> Result<Flow>
            + Send
            + 'static {
-        |source_id, _router, ctx| {
+        |ctx, _router, source_id| {
             log::info!("[{}] SourceEos {source_id}: continuing", ctx.own_name());
             Ok(Flow::Cont)
         }
@@ -233,7 +233,7 @@ impl BitstreamFunction {
     /// Default user shutdown hook — emits one info-level log line.
     /// The stage has no load-bearing built-in cleanup, so this
     /// hook body is the only work done on stop.
-    pub fn default_stopping() -> impl FnMut(&mut Context<BitstreamFunction>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<BitstreamFunction>) + Send + 'static {
         |ctx| {
             log::info!("[{}] bitstream function stopping", ctx.own_name());
         }
@@ -252,39 +252,39 @@ impl Actor for BitstreamFunction {
     }
 
     fn started(&mut self, ctx: &mut Context<Self>) -> Result<()> {
-        (self.started)(ctx);
+        (self.on_started)(ctx);
         Ok(())
     }
 
     fn stopping(&mut self, ctx: &mut Context<Self>) {
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
 impl Handler<StreamInfoPayload> for BitstreamFunction {
     fn handle(&mut self, msg: StreamInfoPayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.stream_info)(&msg, &self.router, ctx)?;
+        (self.stream_info)(ctx, &self.router, &msg)?;
         Ok(Flow::Cont)
     }
 }
 
 impl Handler<PacketPayload> for BitstreamFunction {
     fn handle(&mut self, msg: PacketPayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.packet)(&msg, &self.router, ctx)?;
+        (self.packet)(ctx, &self.router, &msg)?;
         Ok(Flow::Cont)
     }
 }
 
 impl Handler<FramePayload> for BitstreamFunction {
     fn handle(&mut self, msg: FramePayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.frame)(&msg, &self.router, ctx)?;
+        (self.frame)(ctx, &self.router, &msg)?;
         Ok(Flow::Cont)
     }
 }
 
 impl Handler<SourceEosPayload> for BitstreamFunction {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.source_eos)(&msg.source_id, &self.router, ctx)
+        (self.source_eos)(ctx, &self.router, &msg.source_id)
     }
 }
 
@@ -302,10 +302,10 @@ impl Handler<ShutdownPayload> for BitstreamFunction {}
 /// auto-install the matching `BitstreamFunction::default_on_*` at
 /// build time.
 pub struct BitstreamFunctionInbox {
-    stream_info: StreamInfoHook,
-    packet: PacketHook,
-    frame: FrameHook,
-    source_eos: EosHook,
+    stream_info: OnStreamInfoHook,
+    packet: OnPacketHook,
+    frame: OnFrameHook,
+    source_eos: OnSourceEosHook,
 }
 
 impl BitstreamFunctionInbox {
@@ -324,10 +324,10 @@ impl Default for BitstreamFunctionInbox {
 
 /// Fluent builder for [`BitstreamFunctionInbox`].
 pub struct BitstreamFunctionInboxBuilder {
-    stream_info: Option<StreamInfoHook>,
-    packet: Option<PacketHook>,
-    frame: Option<FrameHook>,
-    source_eos: Option<EosHook>,
+    stream_info: Option<OnStreamInfoHook>,
+    packet: Option<OnPacketHook>,
+    frame: Option<OnFrameHook>,
+    source_eos: Option<OnSourceEosHook>,
 }
 
 impl BitstreamFunctionInboxBuilder {
@@ -353,9 +353,9 @@ impl BitstreamFunctionInboxBuilder {
     pub fn on_stream_info<F>(mut self, f: F) -> Self
     where
         F: FnMut(
-                &StreamInfoPayload,
-                &Router<EncodedMsg>,
                 &mut Context<BitstreamFunction>,
+                &Router<EncodedMsg>,
+                &StreamInfoPayload,
             ) -> Result<()>
             + Send
             + 'static,
@@ -369,9 +369,9 @@ impl BitstreamFunctionInboxBuilder {
     pub fn on_packet<F>(mut self, f: F) -> Self
     where
         F: FnMut(
-                &PacketPayload,
-                &Router<EncodedMsg>,
                 &mut Context<BitstreamFunction>,
+                &Router<EncodedMsg>,
+                &PacketPayload,
             ) -> Result<()>
             + Send
             + 'static,
@@ -384,7 +384,7 @@ impl BitstreamFunctionInboxBuilder {
     /// [`EncodedMsg::Frame`].
     pub fn on_frame<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&FramePayload, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<()>
+        F: FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &FramePayload) -> Result<()>
             + Send
             + 'static,
     {
@@ -399,7 +399,7 @@ impl BitstreamFunctionInboxBuilder {
     /// (multiplexed pipelines).
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &Router<EncodedMsg>, &mut Context<BitstreamFunction>) -> Result<Flow>
+        F: FnMut(&mut Context<BitstreamFunction>, &Router<EncodedMsg>, &str) -> Result<Flow>
             + Send
             + 'static,
     {
@@ -437,8 +437,8 @@ impl Default for BitstreamFunctionInboxBuilder {
 /// Built through [`BitstreamFunctionCommon::builder`] and handed to
 /// [`BitstreamFunctionBuilder::common`].
 pub struct BitstreamFunctionCommon {
-    started: OnStartedHook,
-    stopping: OnStoppingHook,
+    on_started: OnStartedHook,
+    on_stopping: OnStoppingHook,
     poll_timeout: Duration,
 }
 
@@ -457,8 +457,8 @@ impl Default for BitstreamFunctionCommon {
 
 /// Fluent builder for [`BitstreamFunctionCommon`].
 pub struct BitstreamFunctionCommonBuilder {
-    started: Option<OnStartedHook>,
-    stopping: Option<OnStoppingHook>,
+    on_started: Option<OnStartedHook>,
+    on_stopping: Option<OnStoppingHook>,
     poll_timeout: Option<Duration>,
 }
 
@@ -473,8 +473,8 @@ impl BitstreamFunctionCommonBuilder {
     /// to [`Self::DEFAULT_POLL`].
     pub fn new() -> Self {
         Self {
-            started: None,
-            stopping: None,
+            on_started: None,
+            on_stopping: None,
             poll_timeout: None,
         }
     }
@@ -485,20 +485,20 @@ impl BitstreamFunctionCommonBuilder {
     where
         F: FnMut(&mut Context<BitstreamFunction>) + Send + 'static,
     {
-        self.started = Some(Box::new(f));
+        self.on_started = Some(Box::new(f));
         self
     }
 
     /// Install a custom `stopping` hook; the default
-    /// ([`BitstreamFunction::default_stopping`]) logs
+    /// ([`BitstreamFunction::default_on_stopping`]) logs
     /// `[{stage}] bitstream function stopping`.  The stage has
     /// no load-bearing built-in cleanup on [`Actor::stopping`], so
     /// this hook's body is the **only** work done on stop.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<BitstreamFunction>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -512,13 +512,13 @@ impl BitstreamFunctionCommonBuilder {
     /// setter.
     pub fn build(self) -> BitstreamFunctionCommon {
         let BitstreamFunctionCommonBuilder {
-            started,
-            stopping,
+            on_started,
+            on_stopping,
             poll_timeout,
         } = self;
         BitstreamFunctionCommon {
-            started: started.unwrap_or_else(|| Box::new(BitstreamFunction::default_on_started())),
-            stopping: stopping.unwrap_or_else(|| Box::new(BitstreamFunction::default_stopping())),
+            on_started: on_started.unwrap_or_else(|| Box::new(BitstreamFunction::default_on_started())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(BitstreamFunction::default_on_stopping())),
             poll_timeout: poll_timeout.unwrap_or(Self::DEFAULT_POLL),
         }
     }
@@ -611,8 +611,8 @@ impl BitstreamFunctionBuilder {
             source_eos,
         } = inbox.unwrap_or_default();
         let BitstreamFunctionCommon {
-            started,
-            stopping,
+            on_started,
+            on_stopping,
             poll_timeout,
         } = common.unwrap_or_default();
         // Hooks are owned by the actor and must be moved into the
@@ -620,12 +620,12 @@ impl BitstreamFunctionBuilder {
         // the `FnOnce`-style take-once move is obvious to the
         // reader and to the borrow checker (the factory closure
         // here is called once per registration).
-        let mut slots = Some((stream_info, packet, frame, source_eos, started, stopping));
+        let mut slots = Some((stream_info, packet, frame, source_eos, on_started, on_stopping));
         ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
             .factory(move |bx| {
                 let router: Router<EncodedMsg> = bx.router(downstream.as_ref())?;
-                let (stream_info, packet, frame, source_eos, started, stopping) = slots
+                let (stream_info, packet, frame, source_eos, on_started, on_stopping) = slots
                     .take()
                     .expect("BitstreamFunction factory invoked more than once");
                 Ok(BitstreamFunction {
@@ -634,8 +634,8 @@ impl BitstreamFunctionBuilder {
                     packet,
                     frame,
                     source_eos,
-                    started,
-                    stopping,
+                    on_started,
+                    on_stopping,
                     poll_timeout,
                 })
             })
@@ -699,7 +699,7 @@ mod tests {
                 BitstreamFunction::builder(StageName::unnamed(StageKind::BitstreamFunction), 4)
                     .inbox(
                         BitstreamFunctionInbox::builder()
-                            .on_source_eos(move |sid, _router, _ctx| {
+                            .on_source_eos(move |_ctx, _router, sid| {
                                 counter_clone.fetch_add(1, Ordering::Relaxed);
                                 let _ = sid;
                                 Ok(Flow::Stop)
@@ -729,16 +729,16 @@ mod tests {
             .downstream(StageName::unnamed(StageKind::BitstreamSink))
             .inbox(
                 BitstreamFunctionInbox::builder()
-                    .on_stream_info(|_pl, _router, _ctx| Ok(()))
-                    .on_packet(|_pl, _router, _ctx| Ok(()))
-                    .on_frame(|_pl, _router, _ctx| Ok(()))
-                    .on_source_eos(|_sid, _router, _ctx| Ok(Flow::Cont))
+                    .on_stream_info(|_ctx, _router, _pl| Ok(()))
+                    .on_packet(|_ctx, _router, _pl| Ok(()))
+                    .on_frame(|_ctx, _router, _pl| Ok(()))
+                    .on_source_eos(|_ctx, _router, _sid| Ok(Flow::Cont))
                     .build(),
             )
             .common(
                 BitstreamFunctionCommon::builder()
                     .on_started(|ctx| log::debug!("started {}", ctx.own_name()))
-                    .stopping(|ctx| log::debug!("stopping {}", ctx.own_name()))
+                    .on_stopping(|ctx| log::debug!("stopping {}", ctx.own_name()))
                     .poll_timeout(Duration::from_millis(50))
                     .build(),
             )
@@ -761,7 +761,7 @@ mod tests {
             .common(
                 BitstreamFunctionCommon::builder()
                     .on_started(BitstreamFunction::default_on_started())
-                    .stopping(BitstreamFunction::default_stopping())
+                    .on_stopping(BitstreamFunction::default_on_stopping())
                     .build(),
             )
             .build();
@@ -789,8 +789,8 @@ mod tests {
             packet: _,
             frame: _,
             source_eos: _,
-            started: _,
-            stopping: _,
+            on_started: _,
+            on_stopping: _,
             poll_timeout: _,
         } = func;
     }

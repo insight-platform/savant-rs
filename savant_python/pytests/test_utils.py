@@ -120,117 +120,123 @@ class TestVideoIdFunctions:
 
     The Rust module is exhaustively tested already; these tests cover
     the Python boundary: type coercion, the singleton state machine,
-    the optional ``wall_clock_ms`` argument, error paths, and that
+    the optional ``wall_clock_ns`` argument, error paths, and that
     minted ids are real RFC 9562 UUIDv8 values.
+
+    Layout reminder (high → low bits):
+      [127:80]  ts_ns_hi : 48
+      [79:76]   version  :  4 (= 8)
+      [75:64]   ts_ns_mid: 12
+      [63:62]   variant  :  2 (= 0b10)
+      [61:58]   ts_ns_lo :  4
+      [57:50]   epoch    :  8
+      [49:0]    pts      : 50
     """
 
     SOURCE = "pytest-video-id-source"
+    # 2024-01-01T00:00:00Z in ns -- comfortably inside u64 range.
+    BASE_NS = 1_700_000_000_000_000_000
 
     def setup_method(self):
-        # Each test starts with a clean per-source state.
         forget_video_id(self.SOURCE)
 
     def teardown_method(self):
         forget_video_id(self.SOURCE)
 
+    @staticmethod
+    def _as_int(s: str) -> int:
+        return int(s.replace("-", ""), 16)
+
+    @classmethod
+    def _epoch(cls, s: str) -> int:
+        # `epoch` lives at bits [57:50] of the u128.
+        return (cls._as_int(s) >> 50) & 0xFF
+
     def test_mint_returns_uuid_string(self):
-        s = mint_video_id(self.SOURCE, 0, True, 1_700_000_000_000)
+        s = mint_video_id(self.SOURCE, 0, True, self.BASE_NS)
         assert isinstance(s, str)
-        # Must parse as a real UUID and be UUIDv8.
         import uuid
 
         u = uuid.UUID(s)
         assert u.version == 8
-        # RFC 4122 variant maps to uuid.RFC_4122 in the stdlib.
         assert u.variant == uuid.RFC_4122
 
     def test_within_gop_sorts_by_pts(self):
-        ts = 1_700_000_000_000
-        i_frame = mint_video_id(self.SOURCE, 0, True, ts)
-        p_frame = mint_video_id(self.SOURCE, 100, False, ts + 1)
-        b_frame = mint_video_id(self.SOURCE, 50, False, ts + 2)
-        # u128 ordering = lexicographic UUID hex ordering (no hyphens).
-        as_int = lambda s: int(s.replace("-", ""), 16)
-        assert as_int(i_frame) < as_int(b_frame) < as_int(p_frame)
+        i_frame = mint_video_id(self.SOURCE, 0, True, self.BASE_NS)
+        p_frame = mint_video_id(self.SOURCE, 100, False, self.BASE_NS + 1)
+        b_frame = mint_video_id(self.SOURCE, 50, False, self.BASE_NS + 2)
+        a = self._as_int
+        assert a(i_frame) < a(b_frame) < a(p_frame)
 
     def test_cross_gop_sorts_by_keyframe_arrival(self):
-        early = mint_video_id(self.SOURCE, 0, True, 1_700_000_000_000)
-        _ = mint_video_id(self.SOURCE, 100, False, 1_700_000_000_001)
-        late = mint_video_id(self.SOURCE, 0, True, 1_700_000_000_500)
-        as_int = lambda s: int(s.replace("-", ""), 16)
-        assert as_int(early) < as_int(late)
+        early = mint_video_id(self.SOURCE, 0, True, self.BASE_NS)
+        _ = mint_video_id(self.SOURCE, 100, False, self.BASE_NS + 1)
+        late = mint_video_id(self.SOURCE, 0, True, self.BASE_NS + 500_000_000)
+        assert self._as_int(early) < self._as_int(late)
 
     def test_pts_reset_bumps_epoch(self):
-        # PTS regresses past the threshold (default 1_000_000) -> epoch++.
-        pre = mint_video_id(self.SOURCE, 10_000_000, True, 1_700_000_000_000)
-        post = mint_video_id(self.SOURCE, 0, True, 1_700_000_000_500)
-        as_int = lambda s: int(s.replace("-", ""), 16)
-        # Epoch byte sits at bits [47:40]. Extract it from the u128.
-        epoch = lambda s: (as_int(s) >> 40) & 0xFF
-        assert epoch(pre) == 0
-        assert epoch(post) == 1
+        pre = mint_video_id(self.SOURCE, 10_000_000, True, self.BASE_NS)
+        post = mint_video_id(self.SOURCE, 0, True, self.BASE_NS + 500_000_000)
+        assert self._epoch(pre) == 0
+        assert self._epoch(post) == 1
 
     def test_default_wall_clock_uses_system_time(self):
-        # Omitting wall_clock_ms should still produce a valid id.
         s = mint_video_id(self.SOURCE, 0, True)
         import uuid
 
         assert uuid.UUID(s).version == 8
 
     def test_forget_resets_state(self):
-        a = mint_video_id(self.SOURCE, 0, True, 1_700_000_000_000)
+        a = mint_video_id(self.SOURCE, 0, True, self.BASE_NS)
         forget_video_id(self.SOURCE)
-        # Same wall_clock_ms after forget — strict-monotonic only kicks
-        # in when state survives, so the same ts_ms is reused.
-        b = mint_video_id(self.SOURCE, 0, True, 1_700_000_000_000)
+        # Same wall_clock_ns after forget -- strict-monotonic only
+        # kicks in while state survives, so the same ts_ns is reused.
+        b = mint_video_id(self.SOURCE, 0, True, self.BASE_NS)
         assert a == b
 
     def test_relative_time_video_id_round_trip(self):
-        base = mint_video_id(self.SOURCE, 50, True, 1_700_000_000_000)
+        base = mint_video_id(self.SOURCE, 50, True, self.BASE_NS)
         later = relative_time_video_id(base, 250)
         assert isinstance(later, str)
         assert later != base
-        # Deterministic: same input -> same output.
         again = relative_time_video_id(base, 250)
         assert again == later
-        # Earlier than `base` should produce a different id sorting before.
         earlier = relative_time_video_id(base, -250)
-        as_int = lambda s: int(s.replace("-", ""), 16)
-        assert as_int(earlier) < as_int(base) < as_int(later)
+        a = self._as_int
+        assert a(earlier) < a(base) < a(later)
 
     def test_relative_time_video_id_invalid_string(self):
         with pytest.raises(ValueError):
             relative_time_video_id("not-a-uuid", 0)
 
     def test_relative_time_video_id_underflow(self):
-        early = video_id_lower_bound(self.SOURCE, 100)
+        early = video_id_lower_bound(100_000)  # 100 µs
         with pytest.raises(ValueError, match="underflow"):
-            relative_time_video_id(early, -10_000)
+            relative_time_video_id(early, -10_000)  # -10 s
 
     def test_bounds_bracket_minted_ids(self):
-        ts = 1_700_000_000_000
-        lo = video_id_lower_bound(self.SOURCE, ts)
-        hi = video_id_upper_bound(self.SOURCE, ts)
-        mid = mint_video_id(self.SOURCE, 50, True, ts)
-        as_int = lambda s: int(s.replace("-", ""), 16)
-        assert as_int(lo) <= as_int(mid) <= as_int(hi)
+        lo = video_id_lower_bound(self.BASE_NS)
+        hi = video_id_upper_bound(self.BASE_NS)
+        mid = mint_video_id(self.SOURCE, 50, True, self.BASE_NS)
+        a = self._as_int
+        assert a(lo) <= a(mid) <= a(hi)
 
     def test_bounds_are_uuidv8(self):
         import uuid
 
-        lo = video_id_lower_bound(self.SOURCE, 1_700_000_000_000)
-        hi = video_id_upper_bound(self.SOURCE, 1_700_000_000_000)
+        lo = video_id_lower_bound(self.BASE_NS)
+        hi = video_id_upper_bound(self.BASE_NS)
         assert uuid.UUID(lo).version == 8
         assert uuid.UUID(hi).version == 8
 
-    def test_distinct_sources_have_distinct_prefixes(self):
+    def test_distinct_sources_with_same_inputs_collide(self):
+        # Source identity is not encoded in the id; identical
+        # (ts_ns, epoch, pts) collide by design.
         forget_video_id("source-a")
         forget_video_id("source-b")
-        a = mint_video_id("source-a", 0, True, 1_700_000_000_000)
-        b = mint_video_id("source-b", 0, True, 1_700_000_000_000)
-        # Top 32 bits = crc32(source_id). They must differ for different sources.
-        as_int = lambda s: int(s.replace("-", ""), 16)
-        assert (as_int(a) >> 96) != (as_int(b) >> 96)
+        a = mint_video_id("source-a", 42, True, self.BASE_NS)
+        b = mint_video_id("source-b", 42, True, self.BASE_NS)
+        assert a == b
         forget_video_id("source-a")
         forget_video_id("source-b")
 

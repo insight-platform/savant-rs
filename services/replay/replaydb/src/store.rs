@@ -85,7 +85,7 @@ pub(crate) trait Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{best_ts, get_keyframe_boundary};
+    use crate::{best_ts, keyframe_lower_bound, keyframe_upper_bound};
     use savant_core::primitives::eos::EndOfStream;
 
     struct SampleStore {
@@ -176,8 +176,9 @@ mod tests {
             to: Option<u64>,
             _limit: usize,
         ) -> Result<Vec<Uuid>> {
-            let from_uuid = get_keyframe_boundary(from, 0);
-            let to_uuid = get_keyframe_boundary(to, u64::MAX);
+            let from_uuid = Uuid::from_u128(keyframe_lower_bound(from.unwrap_or(0)));
+            let to_uuid =
+                Uuid::from_u128(keyframe_upper_bound(to.unwrap_or(u64::MAX / 1_000_000_000)));
             Ok(self
                 .keyframes
                 .iter()
