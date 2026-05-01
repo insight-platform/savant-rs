@@ -16,7 +16,7 @@ use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
 use crate::utils::iter::fiter_map_with_control_flow;
-use crate::utils::uuid_v7::incremental_uuid_v7;
+use crate::utils::video_id;
 use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
@@ -174,11 +174,17 @@ const DEFAULT_OBJECTS_COUNT: usize = 64;
 
 impl Default for VideoFrameInner {
     fn default() -> Self {
+        // `uuid` is intentionally left at 0. Real frames must be
+        // constructed through `VideoFrame::new` (or a builder that
+        // mints explicitly via `video_id::mint`) so the id is derived
+        // from the actual `(source_id, pts, keyframe)` of the frame
+        // rather than the placeholder defaults below. See
+        // `crate::utils::video_id` for the migration target.
         Self {
             previous_frame_seq_id: None,
             previous_keyframe: None,
             source_id: String::new(),
-            uuid: incremental_uuid_v7().as_u128(),
+            uuid: 0,
             creation_timestamp_ns: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -946,7 +952,7 @@ impl VideoFrame {
             }
         }
 
-        Ok(VideoFrame::from_inner(VideoFrameInner {
+        let mut inner = VideoFrameInner {
             source_id: source_id.to_string(),
             pts,
             fps,
@@ -964,7 +970,16 @@ impl VideoFrame {
                 height as u64,
             )],
             ..Default::default()
-        }))
+        };
+        let wall_clock_ns = inner.creation_timestamp_ns as u64;
+        inner.uuid = video_id::mint(
+            source_id,
+            pts,
+            keyframe.unwrap_or(false),
+            wall_clock_ns,
+        )
+        .as_u128();
+        Ok(VideoFrame::from_inner(inner))
     }
 
     pub fn to_message(&self) -> Message {

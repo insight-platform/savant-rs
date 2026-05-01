@@ -98,24 +98,27 @@ pub use nvtracker::{
 };
 #[cfg(feature = "deepstream")]
 pub use picasso::{
-    DeliveryHook as PicassoDeliveryHook, OnStoppingHook as PicassoOnStoppingHook, Picasso,
-    PicassoBuilder, PicassoCommon, PicassoCommonBuilder, PicassoEngineFactory, PicassoInbox,
-    PicassoInboxBuilder, SourceSpecFactory, SrcRectProvider,
+    OnCropSelectHook, OnDeliveryHook as PicassoOnDeliveryHook, OnEncodedFrameHook,
+    OnEncodedSourceEosHook, OnEvictionHook, OnForwardInboxDeliveryHook,
+    OnForwardInboxSourceEosHook, OnGpuMatHook, OnObjectDrawSpecHook, OnRenderHook,
+    OnStoppingHook as PicassoOnStoppingHook, OnStreamResetHook, Picasso, PicassoBuilder,
+    PicassoCommon, PicassoCommonBuilder, PicassoEngineFactory, PicassoEngineHandle, PicassoInbox,
+    PicassoInboxBuilder, PicassoResults, PicassoResultsBuilder, SourceSpecFactory,
 };
 #[cfg(feature = "deepstream")]
 pub use sorter::{
     OnMessageHook as SorterOnMessageHook, OnSourceEosHook as SorterOnSourceEosHook,
-    OnStoppingHook as SorterOnStoppingHook, Sorter, SorterBuilder, SorterCommon,
-    SorterCommonBuilder, SorterInbox, SorterInboxBuilder, SorterRegistration, SorterResults,
-    SorterResultsBuilder, UnregisteredHook as SorterUnregisteredHook,
+    OnStoppingHook as SorterOnStoppingHook, OnUnregisteredHook as SorterOnUnregisteredHook,
+    Sorter, SorterBuilder, SorterCommon, SorterCommonBuilder, SorterInbox, SorterInboxBuilder,
+    SorterRegistration, SorterResults, SorterResultsBuilder,
 };
 pub use uri_demuxer::{
     OnStoppingHook as UriDemuxerOnStoppingHook, UriDemuxerBuilder, UriDemuxerCommon,
     UriDemuxerCommonBuilder, UriDemuxerResults, UriDemuxerResultsBuilder, UriDemuxerSource,
 };
 pub use zmq_sink::{
-    EosHook as ZmqSinkEosHook, FrameObserver as ZmqSinkFrameObserver,
-    OnSendErrorHook as ZmqSinkOnSendErrorHook, OnStoppingHook as ZmqSinkOnStoppingHook,
+    OnFrameHook as ZmqSinkOnFrameHook, OnSendErrorHook as ZmqSinkOnSendErrorHook,
+    OnSourceEosHook as ZmqSinkOnSourceEosHook, OnStoppingHook as ZmqSinkOnStoppingHook,
     OnWriterResultHook as ZmqSinkOnWriterResultHook, PayloadCarrier,
     TopicStrategy as ZmqSinkTopicStrategy, ZmqSink, ZmqSinkBuilder, ZmqSinkCommon,
     ZmqSinkCommonBuilder, ZmqSinkErrors, ZmqSinkErrorsBuilder, ZmqSinkInbox, ZmqSinkInboxBuilder,

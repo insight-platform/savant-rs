@@ -5,70 +5,72 @@
 //! Encoded as a fully RFC 9562 §5.8 (UUIDv8) compliant UUID — the
 //! version nibble at bits `[79:76]` is fixed at `0b1000` (= 8) and
 //! the variant bits at `[63:62]` are fixed at `0b10`. The remaining
-//! 122 application-defined bits hold our four fields:
+//! 122 application-defined bits hold three fields:
 //!
 //! ```text
-//!  127        96 95     80 79  76 75       64 63   62 61    48 47    40 39     0
-//! +------------+---------+------+-----------+------+--------+--------+---------+
-//! |   crc32    | ts_ms   | ver  |  ts_ms    | var  | ts_ms  | epoch  |   pts   |
-//! |   32 bits  | hi: 16  | =1000| mid: 12   | =10  | lo: 14 |  8 b   |  40 b   |
-//! +------------+---------+------+-----------+------+--------+--------+---------+
+//!  127        80 79  76 75       64 63   62 61   58 57    50 49     0
+//! +-------------+------+-----------+------+-------+--------+---------+
+//! |   ts_ns hi  | ver  |  ts_ns    | var  | ts_ns | epoch  |   pts   |
+//! |   48 bits   | =8   |  mid: 12  | =10  | lo: 4 |  8 b   |  50 b   |
+//! +-------------+------+-----------+------+-------+--------+---------+
 //! ```
 //!
-//! * `crc32` — `crc32(source_id)`. Same value for every frame of a
-//!   given source.
-//! * `ts_ms` — wall-clock ms of the GOP's keyframe at the demuxer.
-//!   42 bits total (≈ 139 years from epoch — wraps in year 2109),
-//!   stored across three slices that bracket the fixed
-//!   version/variant nibbles. Constant for every frame in the same
-//!   GOP. Strict-monotonic per source via the disorder-avoidance
-//!   pattern used by `incremental_uuid_v7`.
+//! * `ts_ns` — wall-clock **nanoseconds** of the GOP's keyframe at
+//!   the demuxer. Full 64 bits (≈ 584 years from 1970), stored across
+//!   three slices that bracket the fixed version/variant nibbles.
+//!   Constant for every frame in the same GOP. Strict-monotonic per
+//!   source via the disorder-avoidance pattern used by
+//!   `incremental_uuid_v7`.
 //! * `epoch` — bumps when the demuxer detects a PTS reset for the
 //!   source.
-//! * `pts` — frame PTS, low-order tail. 40 bits is enough for any
-//!   single GOP at common timebases.
+//! * `pts` — frame PTS, low-order tail. 50 bits is enough for any
+//!   single GOP at any common timebase.
 //!
-//! The version/variant bits are constant, so the u128 byte order
-//! still sorts as `(crc32, ts_ms, epoch, pts)` — the goals from the
-//! pre-v8 layout (within-GOP PTS-sort, cross-GOP keyframe-arrival
-//! sort, reset tolerance via wall-clock dominance) are preserved.
+//! Source identity is **not** encoded in the id. The `source_id` is
+//! used purely as the LRU-keyed accounting handle inside the
+//! [`VideoIdGenerator`] — different sources with overlapping
+//! `(ts_ns, epoch, pts)` will produce identical ids. Every existing
+//! consumer in this codebase (meta_merge merge_queue, replay
+//! RocksDB keyframe index, pipeline keyframe_tracking) already scopes
+//! lookups by `source_id` separately, so this is safe.
+//!
+//! Sort order on the u128 is `(ts_ns, epoch, pts)` — version and
+//! variant are constant and don't perturb comparisons. That preserves
+//! every property the design was built around: within-GOP PTS-sort,
+//! cross-GOP keyframe-arrival sort, reset tolerance via wall-clock
+//! dominance, wall-clock-time keyframe range scans.
 
 use std::num::NonZeroUsize;
 
-use crc32fast::Hasher as Crc32;
 use lazy_static::lazy_static;
 use lru::LruCache;
 use parking_lot::Mutex;
 use thiserror::Error;
 use uuid::Uuid;
 
-const CRC32_BITS: u32 = 32;
-const TS_MS_BITS: u32 = 42;
+const TS_NS_BITS: u32 = 64;
 const EPOCH_BITS: u32 = 8;
-const PTS_BITS: u32 = 40;
+const PTS_BITS: u32 = 50;
 const VERSION_BITS: u32 = 4;
 const VARIANT_BITS: u32 = 2;
 
-const TS_MS_MASK: u64 = (1u64 << TS_MS_BITS) - 1;
+const TS_NS_HI_BITS: u32 = 48;
+const TS_NS_MID_BITS: u32 = 12;
+const TS_NS_LO_BITS: u32 = 4;
+const _: () = assert!(TS_NS_HI_BITS + TS_NS_MID_BITS + TS_NS_LO_BITS == TS_NS_BITS);
+
 const PTS_MASK: u64 = (1u64 << PTS_BITS) - 1;
-
-const TS_MS_HI_BITS: u32 = 16;
-const TS_MS_MID_BITS: u32 = 12;
-const TS_MS_LO_BITS: u32 = 14;
-const _: () = assert!(TS_MS_HI_BITS + TS_MS_MID_BITS + TS_MS_LO_BITS == TS_MS_BITS);
-
-const TS_MS_HI_MASK: u64 = (1u64 << TS_MS_HI_BITS) - 1;
-const TS_MS_MID_MASK: u64 = (1u64 << TS_MS_MID_BITS) - 1;
-const TS_MS_LO_MASK: u64 = (1u64 << TS_MS_LO_BITS) - 1;
+const TS_NS_HI_MASK: u64 = (1u64 << TS_NS_HI_BITS) - 1;
+const TS_NS_MID_MASK: u64 = (1u64 << TS_NS_MID_BITS) - 1;
+const TS_NS_LO_MASK: u64 = (1u64 << TS_NS_LO_BITS) - 1;
 
 const PTS_SHIFT: u32 = 0;
 const EPOCH_SHIFT: u32 = PTS_BITS;
-const TS_MS_LO_SHIFT: u32 = 48;
+const TS_NS_LO_SHIFT: u32 = 58;
 const VARIANT_SHIFT: u32 = 62;
-const TS_MS_MID_SHIFT: u32 = 64;
+const TS_NS_MID_SHIFT: u32 = 64;
 const VERSION_SHIFT: u32 = 76;
-const TS_MS_HI_SHIFT: u32 = 80;
-const CRC32_SHIFT: u32 = 96;
+const TS_NS_HI_SHIFT: u32 = 80;
 
 /// UUIDv8 — RFC 9562 §5.8.
 pub const UUID_VERSION: u8 = 8;
@@ -78,25 +80,8 @@ pub const UUID_VARIANT: u8 = 0b10;
 const VERSION_VAL: u128 = UUID_VERSION as u128;
 const VARIANT_VAL: u128 = UUID_VARIANT as u128;
 
-const _: () = assert!(
-    CRC32_BITS + TS_MS_BITS + EPOCH_BITS + PTS_BITS + VERSION_BITS + VARIANT_BITS == 128
-);
-
-#[inline]
-fn pack_ts_ms(ts_ms: u64) -> u128 {
-    let hi = ((ts_ms >> (TS_MS_MID_BITS + TS_MS_LO_BITS)) & TS_MS_HI_MASK) as u128;
-    let mid = ((ts_ms >> TS_MS_LO_BITS) & TS_MS_MID_MASK) as u128;
-    let lo = (ts_ms & TS_MS_LO_MASK) as u128;
-    (hi << TS_MS_HI_SHIFT) | (mid << TS_MS_MID_SHIFT) | (lo << TS_MS_LO_SHIFT)
-}
-
-#[inline]
-fn unpack_ts_ms(v: u128) -> u64 {
-    let hi = ((v >> TS_MS_HI_SHIFT) as u64) & TS_MS_HI_MASK;
-    let mid = ((v >> TS_MS_MID_SHIFT) as u64) & TS_MS_MID_MASK;
-    let lo = ((v >> TS_MS_LO_SHIFT) as u64) & TS_MS_LO_MASK;
-    (hi << (TS_MS_MID_BITS + TS_MS_LO_BITS)) | (mid << TS_MS_LO_BITS) | lo
-}
+const _: () =
+    assert!(TS_NS_BITS + EPOCH_BITS + PTS_BITS + VERSION_BITS + VARIANT_BITS == 128);
 
 /// Default PTS-reset threshold in raw pts units. A keyframe whose
 /// PTS regresses by more than this from the previous keyframe is
@@ -111,12 +96,28 @@ pub const DEFAULT_SOURCE_CAPACITY: usize = 4096;
 
 #[derive(Debug, Error)]
 pub enum VideoIdError {
-    #[error("ts_ms component overflows 42 bits: {0}")]
-    TsMsOverflow(u64),
-    #[error("ts_ms component underflows when shifted by {offset_ms} ms")]
-    TsMsUnderflow { offset_ms: i64 },
-    #[error("ts_ms component overflows when shifted by {offset_ms} ms")]
-    TsMsAddOverflow { offset_ms: i64 },
+    #[error("pts component overflows {0} bits: {1}")]
+    PtsOverflow(u32, u64),
+    #[error("ts_ns underflows when shifted by {offset_ms} ms")]
+    TsNsUnderflow { offset_ms: i64 },
+    #[error("ts_ns overflows when shifted by {offset_ms} ms")]
+    TsNsAddOverflow { offset_ms: i64 },
+}
+
+#[inline]
+fn pack_ts_ns(ts_ns: u64) -> u128 {
+    let hi = ((ts_ns >> (TS_NS_MID_BITS + TS_NS_LO_BITS)) & TS_NS_HI_MASK) as u128;
+    let mid = ((ts_ns >> TS_NS_LO_BITS) & TS_NS_MID_MASK) as u128;
+    let lo = (ts_ns & TS_NS_LO_MASK) as u128;
+    (hi << TS_NS_HI_SHIFT) | (mid << TS_NS_MID_SHIFT) | (lo << TS_NS_LO_SHIFT)
+}
+
+#[inline]
+fn unpack_ts_ns(v: u128) -> u64 {
+    let hi = ((v >> TS_NS_HI_SHIFT) as u64) & TS_NS_HI_MASK;
+    let mid = ((v >> TS_NS_MID_SHIFT) as u64) & TS_NS_MID_MASK;
+    let lo = ((v >> TS_NS_LO_SHIFT) as u64) & TS_NS_LO_MASK;
+    (hi << (TS_NS_MID_BITS + TS_NS_LO_BITS)) | (mid << TS_NS_LO_BITS) | lo
 }
 
 /// Compact 128-bit composite frame identifier. See module-level docs
@@ -125,21 +126,19 @@ pub enum VideoIdError {
 pub struct VideoId(u128);
 
 impl VideoId {
-    pub fn from_parts(
-        crc32: u32,
-        ts_ms: u64,
-        epoch: u8,
-        pts: u64,
-    ) -> Result<Self, VideoIdError> {
-        if ts_ms > TS_MS_MASK {
-            return Err(VideoIdError::TsMsOverflow(ts_ms));
+    /// Construct from explicit components. Errors on `pts` overflow;
+    /// `ts_ns` and `epoch` always fit in their native widths so they
+    /// can't overflow.
+    pub fn from_parts(ts_ns: u64, epoch: u8, pts: u64) -> Result<Self, VideoIdError> {
+        if pts > PTS_MASK {
+            return Err(VideoIdError::PtsOverflow(PTS_BITS, pts));
         }
-        Ok(Self::from_parts_masked(crc32, ts_ms, epoch, pts))
+        Ok(Self::from_parts_masked(ts_ns, epoch, pts))
     }
 
-    pub fn from_parts_masked(crc32: u32, ts_ms: u64, epoch: u8, pts: u64) -> Self {
-        let v = ((crc32 as u128) << CRC32_SHIFT)
-            | pack_ts_ms(ts_ms & TS_MS_MASK)
+    /// Construct from explicit components, masking `pts` silently.
+    pub fn from_parts_masked(ts_ns: u64, epoch: u8, pts: u64) -> Self {
+        let v = pack_ts_ns(ts_ns)
             | (VERSION_VAL << VERSION_SHIFT)
             | (VARIANT_VAL << VARIANT_SHIFT)
             | ((epoch as u128) << EPOCH_SHIFT)
@@ -163,12 +162,8 @@ impl VideoId {
         Self(u.as_u128())
     }
 
-    pub fn crc32(&self) -> u32 {
-        (self.0 >> CRC32_SHIFT) as u32
-    }
-
-    pub fn ts_ms(&self) -> u64 {
-        unpack_ts_ms(self.0)
+    pub fn ts_ns(&self) -> u64 {
+        unpack_ts_ns(self.0)
     }
 
     pub fn epoch(&self) -> u8 {
@@ -191,40 +186,44 @@ impl VideoId {
         ((self.0 >> VARIANT_SHIFT) as u8) & 0x03
     }
 
-    /// Inclusive lower bound for a wall-clock-time range scan over
-    /// frames of `source_id` at `ts_ms`. Pair with [`Self::upper_bound`].
-    pub fn lower_bound(source_id: &str, ts_ms: u64) -> Self {
-        Self::from_parts_masked(crc32_of(source_id), ts_ms, 0, 0)
+    /// Inclusive lower bound of the keyframe range scan at `ts_ns`.
+    /// `epoch` and `pts` are zeroed so the result sorts at the bottom
+    /// of the requested ts.
+    pub fn lower_bound(ts_ns: u64) -> Self {
+        Self::from_parts_masked(ts_ns, 0, 0)
     }
 
-    /// Inclusive upper bound for a wall-clock-time range scan over
-    /// frames of `source_id` at `ts_ms`.
-    pub fn upper_bound(source_id: &str, ts_ms: u64) -> Self {
-        Self::from_parts_masked(crc32_of(source_id), ts_ms, u8::MAX, PTS_MASK)
+    /// Inclusive upper bound of the keyframe range scan at `ts_ns`.
+    /// `epoch` and `pts` are maxed so the result sorts at the top of
+    /// the requested ts.
+    pub fn upper_bound(ts_ns: u64) -> Self {
+        Self::from_parts_masked(ts_ns, u8::MAX, PTS_MASK)
     }
 
-    /// Return a copy of `self` with `ts_ms` shifted by `offset_ms`.
-    /// `crc32`, `epoch`, and `pts` are preserved unchanged.
+    /// Return a copy of `self` with `ts_ns` shifted by `offset_ms`
+    /// milliseconds. `epoch` and `pts` are preserved unchanged.
     ///
-    /// This is the deterministic migration target for
-    /// [`crate::utils::uuid_v7::relative_time_uuid_v7`]. Unlike the
-    /// UUIDv7 variant, the result is a pure function of the input —
-    /// no fresh entropy is mixed in.
+    /// Migration target for
+    /// [`crate::utils::uuid_v7::relative_time_uuid_v7`]. Deterministic
+    /// — no fresh entropy is mixed in.
     ///
-    /// For constructing range bounds use [`Self::lower_bound`] /
-    /// [`Self::upper_bound`] instead; they zero / max-out `epoch`
+    /// For range bounds use [`Self::lower_bound`] /
+    /// [`Self::upper_bound`] instead — they zero / max-out `epoch`
     /// and `pts` so the returned id sorts at the extreme of the
-    /// requested `ts_ms` rather than carrying over the source frame's
+    /// requested time rather than carrying over the source frame's
     /// pts.
     pub fn shift_time(&self, offset_ms: i64) -> Result<Self, VideoIdError> {
-        let ts = self.ts_ms() as i64;
-        let new_ts = ts
-            .checked_add(offset_ms)
-            .ok_or(VideoIdError::TsMsAddOverflow { offset_ms })?;
-        if new_ts < 0 {
-            return Err(VideoIdError::TsMsUnderflow { offset_ms });
+        let offset_ns = (offset_ms as i128).saturating_mul(1_000_000);
+        let new_ts_signed = (self.ts_ns() as i128)
+            .checked_add(offset_ns)
+            .ok_or(VideoIdError::TsNsAddOverflow { offset_ms })?;
+        if new_ts_signed < 0 {
+            return Err(VideoIdError::TsNsUnderflow { offset_ms });
         }
-        Self::from_parts(self.crc32(), new_ts as u64, self.epoch(), self.pts())
+        if new_ts_signed > u64::MAX as i128 {
+            return Err(VideoIdError::TsNsAddOverflow { offset_ms });
+        }
+        Self::from_parts(new_ts_signed as u64, self.epoch(), self.pts())
     }
 }
 
@@ -259,19 +258,12 @@ impl From<Uuid> for VideoId {
     }
 }
 
-pub fn crc32_of(source_id: &str) -> u32 {
-    let mut h = Crc32::new();
-    h.update(source_id.as_bytes());
-    h.finalize()
-}
-
 #[derive(Debug, Clone)]
 struct SourceState {
-    crc32: u32,
-    last_kf_ts_ms: u64,
+    last_kf_ts_ns: u64,
     last_kf_pts: i64,
     epoch: u8,
-    current_kf_ts_ms: u64,
+    current_kf_ts_ns: u64,
     has_keyframe: bool,
 }
 
@@ -318,58 +310,51 @@ impl VideoIdGenerator {
 
     /// Mint a [`VideoId`] for one frame.
     ///
-    /// `wall_clock_ms` is the demuxer's current wall clock in
-    /// milliseconds. Callers should derive it from a monotonic-clock
-    /// baseline so NTP step-backs cannot stall `ts_ms`.
+    /// `wall_clock_ns` is the demuxer's current wall clock in
+    /// nanoseconds. Callers should derive it from a monotonic-clock
+    /// baseline so NTP step-backs cannot stall `ts_ns`.
     ///
     /// `is_keyframe = true` updates the per-source keyframe anchor
     /// and may bump `epoch` on detected PTS reset. Frames received
-    /// before the first keyframe of a source anchor on `wall_clock_ms`
+    /// before the first keyframe of a source anchor on `wall_clock_ns`
     /// so they at least sort by arrival until a keyframe arrives.
     pub fn mint(
         &mut self,
         source_id: &str,
         pts: i64,
         is_keyframe: bool,
-        wall_clock_ms: u64,
+        wall_clock_ns: u64,
     ) -> VideoId {
         let state = self
             .sources
             .get_or_insert_mut(source_id.to_string(), || SourceState {
-                crc32: crc32_of(source_id),
-                last_kf_ts_ms: 0,
+                last_kf_ts_ns: 0,
                 last_kf_pts: 0,
                 epoch: 0,
-                current_kf_ts_ms: 0,
+                current_kf_ts_ns: 0,
                 has_keyframe: false,
             });
 
         if is_keyframe {
-            let raw = wall_clock_ms & TS_MS_MASK;
-            let ts = if state.has_keyframe && raw <= state.last_kf_ts_ms {
-                state.last_kf_ts_ms.saturating_add(1) & TS_MS_MASK
+            let ts = if state.has_keyframe && wall_clock_ns <= state.last_kf_ts_ns {
+                state.last_kf_ts_ns.saturating_add(1)
             } else {
-                raw
+                wall_clock_ns
             };
             if state.has_keyframe
                 && pts < state.last_kf_pts.saturating_sub(self.pts_reset_threshold)
             {
                 state.epoch = state.epoch.wrapping_add(1);
             }
-            state.last_kf_ts_ms = ts;
+            state.last_kf_ts_ns = ts;
             state.last_kf_pts = pts;
-            state.current_kf_ts_ms = ts;
+            state.current_kf_ts_ns = ts;
             state.has_keyframe = true;
         } else if !state.has_keyframe {
-            state.current_kf_ts_ms = wall_clock_ms & TS_MS_MASK;
+            state.current_kf_ts_ns = wall_clock_ns;
         }
 
-        VideoId::from_parts_masked(
-            state.crc32,
-            state.current_kf_ts_ms,
-            state.epoch,
-            pts as u64,
-        )
+        VideoId::from_parts_masked(state.current_kf_ts_ns, state.epoch, pts as u64)
     }
 
     /// Drop per-source state. Subsequent frames from the same source
@@ -395,10 +380,10 @@ lazy_static! {
 /// Mint a [`VideoId`] using the process-global generator. Mirror of
 /// [`crate::utils::uuid_v7::incremental_uuid_v7`] for migrated
 /// call sites that don't carry a generator handle.
-pub fn mint(source_id: &str, pts: i64, is_keyframe: bool, wall_clock_ms: u64) -> VideoId {
+pub fn mint(source_id: &str, pts: i64, is_keyframe: bool, wall_clock_ns: u64) -> VideoId {
     GLOBAL_GENERATOR
         .lock()
-        .mint(source_id, pts, is_keyframe, wall_clock_ms)
+        .mint(source_id, pts, is_keyframe, wall_clock_ns)
 }
 
 pub fn forget(source_id: &str) {
@@ -409,38 +394,38 @@ pub fn forget(source_id: &str) {
 mod tests {
     use super::*;
 
+    const SAMPLE_TS_NS: u64 = 0xABCD_EF01_2345_6789;
+    const SAMPLE_PTS: u64 = 0x3_FFFF_FFFF_FFFF; // 50 bits, max-1
+
     #[test]
     fn parts_round_trip() {
-        // ts_ms picked to exercise all three slices (hi/mid/lo) with
-        // distinctive non-zero bits.
-        let ts_ms = 0x2A_BCDE_F012u64;
-        assert!(ts_ms <= TS_MS_MASK);
-        let id = VideoId::from_parts(0xDEAD_BEEF, ts_ms, 0xCD, 0xABCDEF1234).unwrap();
-        assert_eq!(id.crc32(), 0xDEAD_BEEF);
-        assert_eq!(id.ts_ms(), ts_ms);
+        // ts_ns picked to exercise all three slices (hi/mid/lo) with
+        // distinctive non-zero bits in each.
+        let id = VideoId::from_parts(SAMPLE_TS_NS, 0xCD, SAMPLE_PTS).unwrap();
+        assert_eq!(id.ts_ns(), SAMPLE_TS_NS);
         assert_eq!(id.epoch(), 0xCD);
-        assert_eq!(id.pts(), 0xABCDEF1234);
+        assert_eq!(id.pts(), SAMPLE_PTS);
     }
 
     #[test]
-    fn ts_ms_max_value_round_trips() {
-        let id = VideoId::from_parts(0, TS_MS_MASK, 0, 0).unwrap();
-        assert_eq!(id.ts_ms(), TS_MS_MASK);
+    fn ts_ns_max_value_round_trips() {
+        let id = VideoId::from_parts(u64::MAX, 0, 0).unwrap();
+        assert_eq!(id.ts_ns(), u64::MAX);
     }
 
     #[test]
-    fn ts_ms_overflow_rejected() {
-        let too_big = 1u64 << TS_MS_BITS;
+    fn pts_overflow_rejected() {
+        let too_big = 1u64 << PTS_BITS;
         assert!(matches!(
-            VideoId::from_parts(0, too_big, 0, 0),
-            Err(VideoIdError::TsMsOverflow(_))
+            VideoId::from_parts(0, 0, too_big),
+            Err(VideoIdError::PtsOverflow(..))
         ));
     }
 
     #[test]
     fn ids_have_uuidv8_version_and_variant() {
         let mut g = VideoIdGenerator::new();
-        let id = g.mint("cam", 42, true, 1_700_000_000_000);
+        let id = g.mint("cam", 42, true, 1_700_000_000_000_000_000);
         assert_eq!(id.version(), UUID_VERSION);
         assert_eq!(id.variant(), UUID_VARIANT);
         // Strict-validation cross-check via the uuid crate.
@@ -452,10 +437,10 @@ mod tests {
     #[test]
     fn version_and_variant_constant_across_constructors() {
         let mut g = VideoIdGenerator::new();
-        let minted = g.mint("cam", 1, true, 1_700_000_000_000);
-        let lo = VideoId::lower_bound("cam", 1_700_000_000_000);
-        let hi = VideoId::upper_bound("cam", 1_700_000_000_000);
-        let parts = VideoId::from_parts(0, TS_MS_MASK, 0xFF, PTS_MASK).unwrap();
+        let minted = g.mint("cam", 1, true, 1_700_000_000_000_000_000);
+        let lo = VideoId::lower_bound(1_700_000_000_000_000_000);
+        let hi = VideoId::upper_bound(1_700_000_000_000_000_000);
+        let parts = VideoId::from_parts(u64::MAX, 0xFF, PTS_MASK).unwrap();
         for id in [minted, lo, hi, parts] {
             assert_eq!(id.version(), UUID_VERSION);
             assert_eq!(id.variant(), UUID_VARIANT);
@@ -465,9 +450,9 @@ mod tests {
     #[test]
     fn within_gop_sorts_by_pts() {
         let mut g = VideoIdGenerator::new();
-        let i_frame = g.mint("cam", 0, true, 1_000_000);
-        let p_frame = g.mint("cam", 100, false, 1_000_001);
-        let b_frame = g.mint("cam", 50, false, 1_000_002);
+        let i_frame = g.mint("cam", 0, true, 1_000_000_000_000);
+        let p_frame = g.mint("cam", 100, false, 1_000_000_000_001);
+        let b_frame = g.mint("cam", 50, false, 1_000_000_000_002);
         assert!(i_frame.as_u128() < b_frame.as_u128());
         assert!(b_frame.as_u128() < p_frame.as_u128());
     }
@@ -501,67 +486,66 @@ mod tests {
     }
 
     #[test]
-    fn ts_ms_strict_monotonic_on_tie() {
+    fn ts_ns_strict_monotonic_on_tie() {
         let mut g = VideoIdGenerator::new();
         let kf1 = g.mint("cam", 0, true, 100);
         let kf2 = g.mint("cam", 100_000, true, 100);
-        assert!(kf2.ts_ms() > kf1.ts_ms());
+        assert!(kf2.ts_ns() > kf1.ts_ns());
     }
 
     #[test]
-    fn ts_ms_strict_monotonic_on_backward_clock() {
+    fn ts_ns_strict_monotonic_on_backward_clock() {
         let mut g = VideoIdGenerator::new();
         let kf1 = g.mint("cam", 0, true, 1000);
         let kf2 = g.mint("cam", 100_000, true, 500);
-        assert!(kf2.ts_ms() > kf1.ts_ms());
+        assert!(kf2.ts_ns() > kf1.ts_ns());
     }
 
     #[test]
     fn wall_clock_bound_orders_correctly() {
-        let lo = VideoId::lower_bound("cam", 1000);
-        let hi = VideoId::upper_bound("cam", 1000);
+        let lo = VideoId::lower_bound(1_000_000_000);
+        let hi = VideoId::upper_bound(1_000_000_000);
         let mut g = VideoIdGenerator::new();
-        let id = g.mint("cam", 50, true, 1000);
+        let id = g.mint("cam", 50, true, 1_000_000_000);
         assert!(lo.as_u128() <= id.as_u128());
         assert!(id.as_u128() <= hi.as_u128());
     }
 
     #[test]
     fn shift_time_round_trip() {
-        let id = VideoId::lower_bound("cam", 10_000);
+        let id = VideoId::lower_bound(10_000_000_000);
         let later = id.shift_time(500).unwrap();
-        assert_eq!(later.ts_ms(), 10_500);
-        assert_eq!(later.crc32(), id.crc32());
+        // +500 ms == +500_000_000 ns
+        assert_eq!(later.ts_ns(), 10_500_000_000);
         assert_eq!(later.epoch(), id.epoch());
         assert_eq!(later.pts(), id.pts());
         let earlier = id.shift_time(-1000).unwrap();
-        assert_eq!(earlier.ts_ms(), 9_000);
+        assert_eq!(earlier.ts_ns(), 9_000_000_000);
     }
 
     #[test]
     fn shift_underflow_errors() {
-        let id = VideoId::lower_bound("cam", 100);
+        let id = VideoId::lower_bound(100_000);
         assert!(matches!(
-            id.shift_time(-1000),
-            Err(VideoIdError::TsMsUnderflow { .. })
+            id.shift_time(-10_000),
+            Err(VideoIdError::TsNsUnderflow { .. })
         ));
     }
 
     #[test]
     fn shift_preserves_non_time_components() {
-        let id = VideoId::from_parts(0xDEAD_BEEF, 10_000, 7, 0xABCDEF1234).unwrap();
+        let id = VideoId::from_parts(10_000_000_000, 7, 0xABCDEF1234).unwrap();
         let shifted = id.shift_time(250).unwrap();
-        assert_eq!(shifted.crc32(), id.crc32());
         assert_eq!(shifted.epoch(), id.epoch());
         assert_eq!(shifted.pts(), id.pts());
         assert_eq!(shifted.version(), UUID_VERSION);
         assert_eq!(shifted.variant(), UUID_VARIANT);
-        assert_eq!(shifted.ts_ms(), 10_250);
+        assert_eq!(shifted.ts_ns(), 10_250_000_000);
     }
 
     #[test]
     fn relative_time_free_fn_matches_method() {
-        let id = VideoId::from_parts(0xDEAD_BEEF, 10_000, 7, 0xABCDEF1234).unwrap();
+        let id = VideoId::from_parts(10_000_000_000, 7, 0xABCDEF1234).unwrap();
         let via_method = id.shift_time(250).unwrap();
         let via_free = relative_time_video_id(id, 250).unwrap();
         assert_eq!(via_method, via_free);
@@ -569,7 +553,7 @@ mod tests {
 
     #[test]
     fn relative_time_is_deterministic() {
-        let id = VideoId::from_parts(0xDEAD_BEEF, 10_000, 7, 0xABCDEF1234).unwrap();
+        let id = VideoId::from_parts(10_000_000_000, 7, 0xABCDEF1234).unwrap();
         let a = relative_time_video_id(id, 1000).unwrap();
         let b = relative_time_video_id(id, 1000).unwrap();
         assert_eq!(a, b);
@@ -601,61 +585,54 @@ mod tests {
     }
 
     #[test]
-    fn distinct_sources_have_distinct_crc32_prefixes() {
-        let a = crc32_of("cam-a");
-        let b = crc32_of("cam-b");
-        assert_ne!(a, b);
-    }
-
-    #[test]
     fn uuid_round_trip() {
-        let id = VideoId::from_parts(0x1122_3344, 0x2A_BCDE_F012, 0x42, 0xABCDEF1234).unwrap();
+        let id = VideoId::from_parts(SAMPLE_TS_NS, 0x42, 0xABCDEF1234).unwrap();
         let u: Uuid = id.into();
         let back = VideoId::from(u);
         assert_eq!(id, back);
     }
 
     #[test]
-    fn pts_within_40_bits_preserved() {
-        let pts = (1u64 << 40) - 1;
-        let id = VideoId::from_parts_masked(0, 0, 0, pts);
-        assert_eq!(id.pts(), pts);
+    fn pts_at_50_bit_max_round_trips() {
+        let id = VideoId::from_parts_masked(0, 0, PTS_MASK);
+        assert_eq!(id.pts(), PTS_MASK);
     }
 
     #[test]
-    fn pts_above_40_bits_masks() {
-        let id = VideoId::from_parts_masked(0, 0, 0, (1u64 << 41) | 7);
+    fn pts_above_50_bits_masks() {
+        let id = VideoId::from_parts_masked(0, 0, (1u64 << 51) | 7);
         assert_eq!(id.pts(), 7);
     }
 
     #[test]
     fn pre_first_keyframe_anchors_on_arrival() {
         let mut g = VideoIdGenerator::new();
-        let p = g.mint("cam", 50, false, 1000);
-        let q = g.mint("cam", 60, false, 1100);
-        let kf = g.mint("cam", 0, true, 1200);
+        let p = g.mint("cam", 50, false, 1_000_000_000);
+        let q = g.mint("cam", 60, false, 1_100_000_000);
+        let kf = g.mint("cam", 0, true, 1_200_000_000);
         assert!(p.as_u128() < q.as_u128());
         assert!(q.as_u128() < kf.as_u128());
     }
 
     #[test]
-    fn distinct_sources_do_not_share_state() {
+    fn distinct_sources_with_same_ts_pts_collide() {
+        // Source identity is no longer encoded in the id. With identical
+        // (ts_ns, epoch, pts), two different sources produce identical
+        // ids — by design. Per-source state still keeps each generator
+        // accounting separate.
         let mut g = VideoIdGenerator::new();
-        let a = g.mint("cam-a", 0, true, 1000);
-        let b = g.mint("cam-b", 0, true, 1000);
-        assert_ne!(a.crc32(), b.crc32());
-        assert_eq!(a.ts_ms(), b.ts_ms());
-        assert_eq!(a.epoch(), 0);
-        assert_eq!(b.epoch(), 0);
+        let a = g.mint("cam-a", 42, true, 1_000_000_000);
+        let b = g.mint("cam-b", 42, true, 1_000_000_000);
+        assert_eq!(a, b);
     }
 
     #[test]
     fn global_mint_is_consistent_with_generator() {
         forget("global-test-source");
-        let g1 = mint("global-test-source", 0, true, 5000);
-        let g2 = mint("global-test-source", 100, false, 5001);
+        let g1 = mint("global-test-source", 0, true, 5_000_000_000);
+        let g2 = mint("global-test-source", 100, false, 5_000_000_001);
         assert!(g1.as_u128() < g2.as_u128());
-        assert_eq!(g1.ts_ms(), g2.ts_ms());
+        assert_eq!(g1.ts_ns(), g2.ts_ns());
         forget("global-test-source");
     }
 }

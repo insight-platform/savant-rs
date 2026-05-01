@@ -24,7 +24,7 @@
 //!   without maintaining a per-`source_id` cache.  The standalone
 //!   [`EncodedMsg::StreamInfo`]
 //!   sentinel is still accepted and exposed to the user through the
-//!   [`StreamInfoObserver`] hook for stream-header-level
+//!   [`OnStreamInfoHook`] hook for stream-header-level
 //!   observability (stats, logging, domain signalling) but is not
 //!   required for decoding.
 //! * On
@@ -54,9 +54,9 @@
 //!   (`on_stream_info`).
 //! * [`DecoderResults`] — pool-callback-thread hooks
 //!   (`on_frame`, `on_source_eos`, `on_parameter_change`,
-//!   `on_skipped`, `on_orphan_frame`, `on_decoder_event`,
-//!   `on_decoder_error`).  `on_source_eos` returns
-//!   `Result<Flow>` and `on_decoder_error` returns
+//!   `on_skipped`, `on_orphan_frame`, `on_event`,
+//!   `on_error`).  `on_source_eos` returns
+//!   `Result<Flow>` and `on_error` returns
 //!   [`ErrorAction`], matching the
 //!   other stages' egress-hook contract.  Because these run off
 //!   the actor thread, a `Flow::Stop` or `ErrorAction::Fatal`
@@ -94,12 +94,12 @@
 //!   [`SkipReason`] at `debug` level.
 //! * [`Decoder::default_on_orphan_frame`] — logs at `debug`
 //!   level.
-//! * [`Decoder::default_on_decoder_event`] — no-op (GStreamer
+//! * [`Decoder::default_on_event`] — no-op (GStreamer
 //!   events without domain meaning are silently ignored).
-//! * [`Decoder::default_on_decoder_error`] — logs at `warn`
+//! * [`Decoder::default_on_error`] — logs at `warn`
 //!   level and returns [`ErrorAction::LogAndContinue`] so one
 //!   misbehaving stream does not necessarily tear the pipeline down.
-//! * [`Decoder::default_stopping`] — a no-op user shutdown hook.
+//! * [`Decoder::default_on_stopping`] — a no-op user shutdown hook.
 //!   The built-in `graceful_shutdown` always runs first; this hook
 //!   runs after.
 //!
@@ -111,7 +111,7 @@
 //!
 //! Every hook slot on the runtime [`Decoder`] struct and on the
 //! pool-callback hook bundle is a non-`Option` closure
-//! ([`StreamInfoObserver`] for the actor-thread observer,
+//! ([`OnStreamInfoHook`] for the actor-thread observer,
 //! `Arc<dyn Fn>` for the pool-callback-thread hooks). The bundle
 //! builders' `Option<...>` fields exist purely as internal "was
 //! the setter called?" markers — every bundle's `build()`
@@ -173,8 +173,8 @@ pub use super::demuxers::decode_frame::{make_decode_frame, FALLBACK_FPS_DEN, FAL
 /// in-band.  Use this observer purely for stream-header-level
 /// observability; see [`Decoder::default_on_stream_info`]
 /// for the no-op default installed when the setter is omitted.
-pub type StreamInfoObserver =
-    Box<dyn FnMut(&StreamInfoPayload, &mut Context<Decoder>) + Send + 'static>;
+pub type OnStreamInfoHook =
+    Box<dyn FnMut(&mut Context<Decoder>, &StreamInfoPayload) + Send + 'static>;
 
 /// Hook fired for [`FlexibleDecoderOutput::Frame`] — receives the
 /// sealed `(VideoFrame, SharedBuffer)` delivery together with
@@ -188,7 +188,7 @@ pub type StreamInfoObserver =
 /// The third parameter is the off-loop [`HookCtx`] for
 /// shared-state / registry access from the callback thread.
 pub type OnFrameHook =
-    Arc<dyn Fn(SealedDelivery, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static>;
+    Arc<dyn Fn(&HookCtx, &Router<PipelineMsg>, SealedDelivery) + Send + Sync + 'static>;
 
 /// Hook fired for [`FlexibleDecoderOutput::SourceEos`] — receives
 /// the `source_id`, the router, and the [`HookCtx`].  Typical use:
@@ -200,8 +200,8 @@ pub type OnFrameHook =
 /// the actor loop, a stop request translates into the dispatcher
 /// calling [`HookCtx::request_stop`] and aborting the default sink
 /// — the actor observes the cooperative intent on its next tick.
-pub type OnDecoderSourceEosHook =
-    Arc<dyn Fn(&str, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static>;
+pub type OnSourceEosHook =
+    Arc<dyn Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static>;
 
 /// User-supplied eviction decision callback — invoked when a
 /// per-`source_id` decoder slot exceeds
@@ -216,7 +216,7 @@ pub type EvictionCallback = Arc<dyn Fn(&str) -> EvictionDecision + Send + Sync +
 /// plus the router for optional downstream signalling.  Runs on the
 /// pool's output callback thread.
 pub type OnParameterChangeHook = Arc<
-    dyn Fn(&DecoderParameters, &DecoderParameters, &Router<PipelineMsg>, &HookCtx)
+    dyn Fn(&HookCtx, &Router<PipelineMsg>, &DecoderParameters, &DecoderParameters)
         + Send
         + Sync
         + 'static,
@@ -228,7 +228,7 @@ pub type OnParameterChangeHook = Arc<
 /// the reason, the router, and the [`HookCtx`].  Runs on the pool's
 /// output thread.
 pub type OnSkippedHook = Arc<
-    dyn Fn(&VideoFrame, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
+    dyn Fn(&HookCtx, &Router<PipelineMsg>, &VideoFrame, Option<&[u8]>, &SkipReason)
         + Send
         + Sync
         + 'static,
@@ -239,13 +239,13 @@ pub type OnSkippedHook = Arc<
 /// in the pool's frame map (typically a late delivery after a
 /// reset).  Runs on the pool's output thread.
 pub type OnOrphanFrameHook =
-    Arc<dyn Fn(&DecodedFrame, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static>;
+    Arc<dyn Fn(&HookCtx, &Router<PipelineMsg>, &DecodedFrame) + Send + Sync + 'static>;
 
 /// Hook fired for arbitrary [`gst::Event`]s captured on the decoder's
 /// output — useful for bridging custom upstream events to domain
 /// logic.  Runs on the pool's output thread.
-pub type OnDecoderEventHook =
-    Arc<dyn Fn(&gst::Event, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static>;
+pub type OnEventHook =
+    Arc<dyn Fn(&HookCtx, &Router<PipelineMsg>, &gst::Event) + Send + Sync + 'static>;
 
 /// Hook fired on [`FlexibleDecoderOutput::Error`].  Runs on the pool's
 /// output thread.  Returns an [`ErrorAction`] controlling the
@@ -261,8 +261,8 @@ pub type OnDecoderEventHook =
 /// misbehaving stream does not tear the pipeline down; override
 /// to return `Fatal` when errors on this stage should stop the
 /// whole pipeline.
-pub type OnDecoderErrorHook = Arc<
-    dyn Fn(&DecoderError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static,
+pub type OnErrorHook = Arc<
+    dyn Fn(&HookCtx, &Router<PipelineMsg>, &DecoderError) -> ErrorAction + Send + Sync + 'static,
 >;
 
 /// Hook fired for [`FlexibleDecoderOutput::Restarted`] — emitted
@@ -279,15 +279,15 @@ pub type OnDecoderErrorHook = Arc<
 /// Returns `Result<Flow>` so the hook can choose to keep running
 /// (`Ok(Flow::Cont)`) or escalate the restart into a cooperative pipeline
 /// stop (`Ok(Flow::Stop)` / `Err(_)`).  As with
-/// [`OnDecoderSourceEosHook`], a stop request translates into the
+/// [`OnSourceEosHook`], a stop request translates into the
 /// dispatcher calling [`HookCtx::request_stop`] and aborting the default
 /// sink — the actor observes the cooperative intent on its next tick.
 ///
-/// The default ([`Decoder::default_on_decoder_restart`]) is purely a
+/// The default ([`Decoder::default_on_restart`]) is purely a
 /// `warn!` log line and `Ok(Flow::Cont)`, so transient watchdog-induced
 /// restarts do not stop the pipeline by themselves.
-pub type OnDecoderRestartHook = Arc<
-    dyn Fn(&str, &str, usize, &Router<PipelineMsg>, &HookCtx) -> Result<Flow>
+pub type OnRestartHook = Arc<
+    dyn Fn(&HookCtx, &Router<PipelineMsg>, &str, &str, usize) -> Result<Flow>
         + Send
         + Sync
         + 'static,
@@ -314,8 +314,8 @@ pub type OnStoppingHook = Box<dyn FnMut(&mut Context<Decoder>) + Send + 'static>
 pub struct Decoder {
     decoder: FlexibleDecoderPool,
     poll_timeout: Duration,
-    on_stream_info: StreamInfoObserver,
-    stopping: OnStoppingHook,
+    on_stream_info: OnStreamInfoHook,
+    on_stopping: OnStoppingHook,
     graceful_done: bool,
 }
 
@@ -334,7 +334,7 @@ impl Decoder {
     /// the [`DecoderInbox`] setter simply means "don't add any
     /// user-level side-effect on top of the log line".
     pub fn default_on_stream_info(
-    ) -> impl FnMut(&StreamInfoPayload, &mut Context<Decoder>) + Send + 'static {
+    ) -> impl FnMut(&mut Context<Decoder>, &StreamInfoPayload) + Send + 'static {
         |_, _| {}
     }
 
@@ -344,8 +344,8 @@ impl Decoder {
     /// to observe the frame (e.g. stats ticks) or route by
     /// `source_id` via `router.send_to(...)`.
     pub fn default_on_frame(
-    ) -> impl Fn(SealedDelivery, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static {
-        |sealed, router, _ctx| {
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, SealedDelivery) + Send + Sync + 'static {
+        |_ctx, router, sealed| {
             if !router.send(PipelineMsg::Delivery(sealed)) {
                 log::warn!("decoder downstream closed; dropped a Delivery");
             }
@@ -360,8 +360,8 @@ impl Decoder {
     /// `source_id`, so the stream-aligned "EOS after last frame"
     /// invariant is preserved without application-level bookkeeping.
     pub fn default_on_source_eos(
-    ) -> impl Fn(&str, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static {
-        |source_id, router, _ctx| {
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static {
+        |_ctx, router, source_id| {
             if !router.send(PipelineMsg::SourceEos {
                 source_id: source_id.to_string(),
             }) {
@@ -377,11 +377,11 @@ impl Decoder {
     /// [`HookCtx`]).  No downstream message is forwarded (the
     /// caller can subscribe by overriding this hook).
     pub fn default_on_parameter_change(
-    ) -> impl Fn(&DecoderParameters, &DecoderParameters, &Router<PipelineMsg>, &HookCtx)
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &DecoderParameters, &DecoderParameters)
            + Send
            + Sync
            + 'static {
-        |old, new, _router, ctx| {
+        |ctx, _router, old, new| {
             log::info!("[{}] parameter change: {old:?} -> {new:?}", ctx.own_name());
         }
     }
@@ -390,11 +390,11 @@ impl Decoder {
     /// with the [`SkipReason`] prefixed by the stage name from
     /// the [`HookCtx`].
     pub fn default_on_skipped(
-    ) -> impl Fn(&VideoFrame, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &VideoFrame, Option<&[u8]>, &SkipReason)
            + Send
            + Sync
            + 'static {
-        |_frame, _data, reason, _router, ctx| {
+        |ctx, _router, _frame, _data, reason| {
             log::debug!("[{}] skipped: {reason:?}", ctx.own_name());
         }
     }
@@ -404,21 +404,21 @@ impl Decoder {
     /// Orphan frames usually signal a late delivery after a
     /// per-source reset and warrant observation but no forwarding.
     pub fn default_on_orphan_frame(
-    ) -> impl Fn(&DecodedFrame, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static {
-        |_decoded, _router, ctx| {
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &DecodedFrame) + Send + Sync + 'static {
+        |ctx, _router, _decoded| {
             log::debug!("[{}] orphan frame (source id mismatch?)", ctx.own_name());
         }
     }
 
-    /// Default `on_decoder_event` hook — a no-op.  GStreamer events
+    /// Default `on_event` hook — a no-op.  GStreamer events
     /// without domain meaning are silently ignored; override to
     /// bridge custom upstream events into domain logic.
-    pub fn default_on_decoder_event(
-    ) -> impl Fn(&gst::Event, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static {
-        |_ev, _router, _ctx| {}
+    pub fn default_on_event(
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &gst::Event) + Send + Sync + 'static {
+        |_ctx, _router, _ev| {}
     }
 
-    /// Default `on_decoder_error` logger — emits a single `warn!`
+    /// Default `on_error` logger — emits a single `warn!`
     /// line prefixed by the stage name pulled from the
     /// [`HookCtx`] and returns [`ErrorAction::LogAndContinue`].
     /// The error is swallowed so one misbehaving stream does not
@@ -427,16 +427,16 @@ impl Decoder {
     /// hook to return [`ErrorAction::Fatal`] (and to log at
     /// `error!` if desired) when the pipeline should stop on any
     /// decoder error.
-    pub fn default_on_decoder_error(
-    ) -> impl Fn(&DecoderError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static
+    pub fn default_on_error(
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &DecoderError) -> ErrorAction + Send + Sync + 'static
     {
-        |err, _router, ctx| {
+        |ctx, _router, err| {
             log::warn!("[{}] decoder error: {err}", ctx.own_name());
             ErrorAction::LogAndContinue
         }
     }
 
-    /// Default `on_decoder_restart` logger — emits a single `warn!` line
+    /// Default `on_restart` logger — emits a single `warn!` line
     /// reporting the affected `source_id`, the human-readable reason,
     /// and the number of in-flight frames lost, prefixed by the stage
     /// name pulled from the [`HookCtx`], and returns `Ok(Flow::Cont)`.
@@ -449,15 +449,15 @@ impl Decoder {
     /// tear the pipeline down — for example:
     ///
     /// ```ignore
-    /// .on_decoder_restart(|sid, reason, lost, _r, _ctx| {
+    /// .on_restart(|_ctx, _r, sid, reason, lost| {
     ///     log::error!("decoder {sid} restarted ({lost} frames lost): {reason} - aborting");
     ///     Ok(Flow::Stop)
     /// })
     /// ```
-    pub fn default_on_decoder_restart(
-    ) -> impl Fn(&str, &str, usize, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static
+    pub fn default_on_restart(
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &str, &str, usize) -> Result<Flow> + Send + Sync + 'static
     {
-        |source_id, reason, lost_frames, _router, ctx| {
+        |ctx, _router, source_id, reason, lost_frames| {
             log::warn!(
                 "[{}] decoder restart: source_id={source_id} lost {lost_frames} in-flight frame(s); reason={reason}",
                 ctx.own_name()
@@ -471,7 +471,7 @@ impl Decoder {
     /// [`FlexibleDecoderPool::graceful_shutdown`] before this hook
     /// fires, so omitting the [`DecoderCommon`] setter simply means
     /// "don't add any extra cleanup on top of the built-in drain".
-    pub fn default_stopping() -> impl FnMut(&mut Context<Decoder>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<Decoder>) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -507,7 +507,7 @@ impl Actor for Decoder {
             self.graceful_done = true;
         }
         log::info!("[{}] decoder stopping", ctx.own_name());
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
@@ -522,7 +522,7 @@ impl Handler<StreamInfoPayload> for Decoder {
             msg.info.framerate_num,
             msg.info.framerate_den
         );
-        (self.on_stream_info)(&msg, ctx);
+        (self.on_stream_info)(ctx, &msg);
         Ok(Flow::Cont)
     }
 }
@@ -581,7 +581,7 @@ impl Handler<ShutdownPayload> for Decoder {}
 /// Built through [`DecoderInbox::builder`] and handed to
 /// [`DecoderBuilder::inbox`].
 pub struct DecoderInbox {
-    on_stream_info: StreamInfoObserver,
+    on_stream_info: OnStreamInfoHook,
 }
 
 impl DecoderInbox {
@@ -600,7 +600,7 @@ impl Default for DecoderInbox {
 
 /// Fluent builder for [`DecoderInbox`].
 pub struct DecoderInboxBuilder {
-    on_stream_info: Option<StreamInfoObserver>,
+    on_stream_info: Option<OnStreamInfoHook>,
 }
 
 impl DecoderInboxBuilder {
@@ -619,7 +619,7 @@ impl DecoderInboxBuilder {
     /// accounting or dump-to-log invariants.
     pub fn on_stream_info<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&StreamInfoPayload, &mut Context<Decoder>) + Send + 'static,
+        F: FnMut(&mut Context<Decoder>, &StreamInfoPayload) + Send + 'static,
     {
         self.on_stream_info = Some(Box::new(f));
         self
@@ -646,18 +646,18 @@ impl Default for DecoderInboxBuilder {
 /// [`FlexibleDecoderOutput`] variant dispatched on the pool
 /// callback thread.  Built through [`DecoderResults::builder`] and
 /// handed to [`DecoderBuilder::results`].  `on_source_eos` returns
-/// `Result<Flow>`; `on_decoder_error` returns [`ErrorAction`] — see
+/// `Result<Flow>`; `on_error` returns [`ErrorAction`] — see
 /// the module docs for the dispatcher's translation to cooperative
 /// stop intents.
 pub struct DecoderResults {
     on_frame: OnFrameHook,
-    on_source_eos: OnDecoderSourceEosHook,
+    on_source_eos: OnSourceEosHook,
     on_parameter_change: OnParameterChangeHook,
     on_skipped: OnSkippedHook,
     on_orphan_frame: OnOrphanFrameHook,
-    on_decoder_event: OnDecoderEventHook,
-    on_decoder_error: OnDecoderErrorHook,
-    on_decoder_restart: OnDecoderRestartHook,
+    on_event: OnEventHook,
+    on_error: OnErrorHook,
+    on_restart: OnRestartHook,
 }
 
 impl DecoderResults {
@@ -677,13 +677,13 @@ impl Default for DecoderResults {
 /// Fluent builder for [`DecoderResults`].
 pub struct DecoderResultsBuilder {
     on_frame: Option<OnFrameHook>,
-    on_source_eos: Option<OnDecoderSourceEosHook>,
+    on_source_eos: Option<OnSourceEosHook>,
     on_parameter_change: Option<OnParameterChangeHook>,
     on_skipped: Option<OnSkippedHook>,
     on_orphan_frame: Option<OnOrphanFrameHook>,
-    on_decoder_event: Option<OnDecoderEventHook>,
-    on_decoder_error: Option<OnDecoderErrorHook>,
-    on_decoder_restart: Option<OnDecoderRestartHook>,
+    on_event: Option<OnEventHook>,
+    on_error: Option<OnErrorHook>,
+    on_restart: Option<OnRestartHook>,
 }
 
 impl DecoderResultsBuilder {
@@ -696,9 +696,9 @@ impl DecoderResultsBuilder {
             on_parameter_change: None,
             on_skipped: None,
             on_orphan_frame: None,
-            on_decoder_event: None,
-            on_decoder_error: None,
-            on_decoder_restart: None,
+            on_event: None,
+            on_error: None,
+            on_restart: None,
         }
     }
 
@@ -708,7 +708,7 @@ impl DecoderResultsBuilder {
     /// 'static` and non-blocking.
     pub fn on_frame<F>(mut self, f: F) -> Self
     where
-        F: Fn(SealedDelivery, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, SealedDelivery) + Send + Sync + 'static,
     {
         self.on_frame = Some(Arc::new(f));
         self
@@ -722,7 +722,7 @@ impl DecoderResultsBuilder {
     /// cooperative stop from the pool callback thread.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: Fn(&str, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static,
     {
         self.on_source_eos = Some(Arc::new(f));
         self
@@ -732,7 +732,7 @@ impl DecoderResultsBuilder {
     /// [`FlexibleDecoderOutput::ParameterChange`].
     pub fn on_parameter_change<F>(mut self, f: F) -> Self
     where
-        F: Fn(&DecoderParameters, &DecoderParameters, &Router<PipelineMsg>, &HookCtx)
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &DecoderParameters, &DecoderParameters)
             + Send
             + Sync
             + 'static,
@@ -745,7 +745,7 @@ impl DecoderResultsBuilder {
     /// [`FlexibleDecoderOutput::Skipped`].
     pub fn on_skipped<F>(mut self, f: F) -> Self
     where
-        F: Fn(&VideoFrame, Option<&[u8]>, &SkipReason, &Router<PipelineMsg>, &HookCtx)
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &VideoFrame, Option<&[u8]>, &SkipReason)
             + Send
             + Sync
             + 'static,
@@ -758,49 +758,49 @@ impl DecoderResultsBuilder {
     /// [`FlexibleDecoderOutput::OrphanFrame`].
     pub fn on_orphan_frame<F>(mut self, f: F) -> Self
     where
-        F: Fn(&DecodedFrame, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &DecodedFrame) + Send + Sync + 'static,
     {
         self.on_orphan_frame = Some(Arc::new(f));
         self
     }
 
-    /// Override the `on_decoder_event` hook — fired for
+    /// Override the `on_event` hook — fired for
     /// [`FlexibleDecoderOutput::Event`].
-    pub fn on_decoder_event<F>(mut self, f: F) -> Self
+    pub fn on_event<F>(mut self, f: F) -> Self
     where
-        F: Fn(&gst::Event, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &gst::Event) + Send + Sync + 'static,
     {
-        self.on_decoder_event = Some(Arc::new(f));
+        self.on_event = Some(Arc::new(f));
         self
     }
 
-    /// Override the `on_decoder_error` hook — fired for
+    /// Override the `on_error` hook — fired for
     /// [`FlexibleDecoderOutput::Error`].  Returns [`ErrorAction`];
     /// the default is [`ErrorAction::LogAndContinue`].  Return
     /// [`ErrorAction::Fatal`] to request a cooperative stop of the
     /// actor loop.
-    pub fn on_decoder_error<F>(mut self, f: F) -> Self
+    pub fn on_error<F>(mut self, f: F) -> Self
     where
-        F: Fn(&DecoderError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &DecoderError) -> ErrorAction + Send + Sync + 'static,
     {
-        self.on_decoder_error = Some(Arc::new(f));
+        self.on_error = Some(Arc::new(f));
         self
     }
 
-    /// Override the `on_decoder_restart` hook — fired for
+    /// Override the `on_restart` hook — fired for
     /// [`FlexibleDecoderOutput::Restarted`].  Returns `Result<Flow>`;
-    /// the default ([`Decoder::default_on_decoder_restart`]) logs at
+    /// the default ([`Decoder::default_on_restart`]) logs at
     /// `warn!` and returns `Ok(Flow::Cont)` so the pipeline keeps
     /// running.  Return `Ok(Flow::Stop)` / `Err(_)` to translate a
     /// watchdog-induced restart into a cooperative pipeline stop.
-    pub fn on_decoder_restart<F>(mut self, f: F) -> Self
+    pub fn on_restart<F>(mut self, f: F) -> Self
     where
-        F: Fn(&str, &str, usize, &Router<PipelineMsg>, &HookCtx) -> Result<Flow>
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &str, &str, usize) -> Result<Flow>
             + Send
             + Sync
             + 'static,
     {
-        self.on_decoder_restart = Some(Arc::new(f));
+        self.on_restart = Some(Arc::new(f));
         self
     }
 
@@ -813,9 +813,9 @@ impl DecoderResultsBuilder {
             on_parameter_change,
             on_skipped,
             on_orphan_frame,
-            on_decoder_event,
-            on_decoder_error,
-            on_decoder_restart,
+            on_event,
+            on_error,
+            on_restart,
         } = self;
         DecoderResults {
             on_frame: on_frame.unwrap_or_else(|| Arc::new(Decoder::default_on_frame())),
@@ -826,12 +826,12 @@ impl DecoderResultsBuilder {
             on_skipped: on_skipped.unwrap_or_else(|| Arc::new(Decoder::default_on_skipped())),
             on_orphan_frame: on_orphan_frame
                 .unwrap_or_else(|| Arc::new(Decoder::default_on_orphan_frame())),
-            on_decoder_event: on_decoder_event
-                .unwrap_or_else(|| Arc::new(Decoder::default_on_decoder_event())),
-            on_decoder_error: on_decoder_error
-                .unwrap_or_else(|| Arc::new(Decoder::default_on_decoder_error())),
-            on_decoder_restart: on_decoder_restart
-                .unwrap_or_else(|| Arc::new(Decoder::default_on_decoder_restart())),
+            on_event: on_event
+                .unwrap_or_else(|| Arc::new(Decoder::default_on_event())),
+            on_error: on_error
+                .unwrap_or_else(|| Arc::new(Decoder::default_on_error())),
+            on_restart: on_restart
+                .unwrap_or_else(|| Arc::new(Decoder::default_on_restart())),
         }
     }
 }
@@ -847,7 +847,7 @@ impl Default for DecoderResultsBuilder {
 /// [`DecoderBuilder::common`].
 pub struct DecoderCommon {
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl DecoderCommon {
@@ -867,7 +867,7 @@ impl Default for DecoderCommon {
 /// Fluent builder for [`DecoderCommon`].
 pub struct DecoderCommonBuilder {
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl DecoderCommonBuilder {
@@ -876,7 +876,7 @@ impl DecoderCommonBuilder {
     pub fn new() -> Self {
         Self {
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -892,11 +892,11 @@ impl DecoderCommonBuilder {
     /// [`FlexibleDecoderPool::graceful_shutdown`]) has completed.
     /// The built-in cleanup is **load-bearing** and always runs
     /// first; it cannot be skipped through this hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<Decoder>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -905,11 +905,11 @@ impl DecoderCommonBuilder {
     pub fn build(self) -> DecoderCommon {
         let DecoderCommonBuilder {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         DecoderCommon {
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(Decoder::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(Decoder::default_on_stopping())),
         }
     }
 }
@@ -1106,13 +1106,13 @@ impl DecoderBuilder {
             on_parameter_change,
             on_skipped,
             on_orphan_frame,
-            on_decoder_event,
-            on_decoder_error,
-            on_decoder_restart,
+            on_event,
+            on_error,
+            on_restart,
         } = results.unwrap_or_default();
         let DecoderCommon {
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
         let hooks = VariantHooks {
             on_frame,
@@ -1120,9 +1120,9 @@ impl DecoderBuilder {
             on_parameter_change,
             on_skipped,
             on_orphan_frame,
-            on_decoder_event,
-            on_decoder_error,
-            on_decoder_restart,
+            on_event,
+            on_error,
+            on_restart,
         };
         Ok(ActorBuilder::new(name.clone(), capacity)
             .poll_timeout(poll_timeout)
@@ -1142,7 +1142,7 @@ impl DecoderBuilder {
                     decoder,
                     poll_timeout,
                     on_stream_info,
-                    stopping,
+                    on_stopping,
                     graceful_done: false,
                 })
             }))
@@ -1157,20 +1157,20 @@ impl DecoderBuilder {
 #[derive(Clone)]
 struct VariantHooks {
     on_frame: OnFrameHook,
-    on_source_eos: OnDecoderSourceEosHook,
+    on_source_eos: OnSourceEosHook,
     on_parameter_change: OnParameterChangeHook,
     on_skipped: OnSkippedHook,
     on_orphan_frame: OnOrphanFrameHook,
-    on_decoder_event: OnDecoderEventHook,
-    on_decoder_error: OnDecoderErrorHook,
-    on_decoder_restart: OnDecoderRestartHook,
+    on_event: OnEventHook,
+    on_error: OnErrorHook,
+    on_restart: OnRestartHook,
 }
 
 /// Build the [`FlexibleDecoderPool`] with a callback that dispatches
 /// every [`FlexibleDecoderOutput`] variant to the corresponding user
 /// hook.  The callback never calls `router.send` itself — every send
 /// site lives inside user code.  `on_source_eos`'s `Result<Flow>`
-/// and `on_decoder_error`'s [`ErrorAction`] are translated into
+/// and `on_error`'s [`ErrorAction`] are translated into
 /// cooperative-stop intents via [`HookCtx::request_stop`] +
 /// [`Router::default_sink`]-abort, matching the egress-hook
 /// contract of the other stages.
@@ -1186,27 +1186,27 @@ fn build_pool(
     let on_output = move |mut out: FlexibleDecoderOutput| match &out {
         FlexibleDecoderOutput::Frame { .. } => {
             if let Some(sealed) = out.take_delivery() {
-                (hooks.on_frame)(sealed, &router, &hook_ctx);
+                (hooks.on_frame)(&hook_ctx, &router, sealed);
             }
         }
         FlexibleDecoderOutput::ParameterChange { old, new } => {
-            (hooks.on_parameter_change)(old, new, &router, &hook_ctx);
+            (hooks.on_parameter_change)(&hook_ctx, &router, old, new);
         }
         FlexibleDecoderOutput::Skipped {
             frame,
             data,
             reason,
         } => {
-            (hooks.on_skipped)(frame, data.as_deref(), reason, &router, &hook_ctx);
+            (hooks.on_skipped)(&hook_ctx, &router, frame, data.as_deref(), reason);
         }
         FlexibleDecoderOutput::OrphanFrame { decoded } => {
-            (hooks.on_orphan_frame)(decoded, &router, &hook_ctx);
+            (hooks.on_orphan_frame)(&hook_ctx, &router, decoded);
         }
         FlexibleDecoderOutput::SourceEos { source_id } => {
             log::info!(
                 "[{owner_cb}/cb] FlexibleDecoderOutput::SourceEos for source_id={source_id}"
             );
-            match (hooks.on_source_eos)(source_id, &router, &hook_ctx) {
+            match (hooks.on_source_eos)(&hook_ctx, &router, source_id) {
                 Ok(Flow::Cont) => {}
                 Ok(Flow::Stop) => {
                     log::info!(
@@ -1227,13 +1227,13 @@ fn build_pool(
             }
         }
         FlexibleDecoderOutput::Event(ev) => {
-            (hooks.on_decoder_event)(ev, &router, &hook_ctx);
+            (hooks.on_event)(&hook_ctx, &router, ev);
         }
         FlexibleDecoderOutput::Error(err) => {
-            match (hooks.on_decoder_error)(err, &router, &hook_ctx) {
+            match (hooks.on_error)(&hook_ctx, &router, err) {
                 ErrorAction::Fatal => {
                     log::error!(
-                    "[{owner_cb}/cb] on_decoder_error returned Fatal; cooperatively shutting down"
+                    "[{owner_cb}/cb] on_error returned Fatal; cooperatively shutting down"
                 );
                     hook_ctx.request_stop();
                     if let Some(sink) = router.default_sink() {
@@ -1248,11 +1248,11 @@ fn build_pool(
             reason,
             lost_frames,
         } => {
-            match (hooks.on_decoder_restart)(source_id, reason, *lost_frames, &router, &hook_ctx) {
+            match (hooks.on_restart)(&hook_ctx, &router, source_id, reason, *lost_frames) {
                 Ok(Flow::Cont) => {}
                 Ok(Flow::Stop) => {
                     log::info!(
-                        "[{owner_cb}/cb] on_decoder_restart requested stop; cooperatively shutting down"
+                        "[{owner_cb}/cb] on_restart requested stop; cooperatively shutting down"
                     );
                     hook_ctx.request_stop();
                     if let Some(sink) = router.default_sink() {
@@ -1260,7 +1260,7 @@ fn build_pool(
                     }
                 }
                 Err(e) => {
-                    log::error!("[{owner_cb}/cb] on_decoder_restart returned error: {e}");
+                    log::error!("[{owner_cb}/cb] on_restart returned error: {e}");
                     hook_ctx.request_stop();
                     if let Some(sink) = router.default_sink() {
                         sink.abort();
@@ -1356,10 +1356,10 @@ mod tests {
             .inbox(DecoderInbox::builder().on_stream_info(|_, _| {}).build())
             .results(
                 DecoderResults::builder()
-                    .on_frame(|sealed, router, _ctx| {
+                    .on_frame(|_ctx, router, sealed| {
                         let _ = router.send(PipelineMsg::Delivery(sealed));
                     })
-                    .on_source_eos(|sid, router, _ctx| {
+                    .on_source_eos(|_ctx, router, sid| {
                         let _ = router.send(PipelineMsg::SourceEos {
                             source_id: sid.to_string(),
                         });
@@ -1368,14 +1368,14 @@ mod tests {
                     .on_parameter_change(|_, _, _, _| {})
                     .on_skipped(|_, _, _, _, _| {})
                     .on_orphan_frame(|_, _, _| {})
-                    .on_decoder_event(|_, _, _| {})
-                    .on_decoder_error(|_, _, _| ErrorAction::LogAndContinue)
-                    .on_decoder_restart(|_, _, _, _, _| Ok(Flow::Cont))
+                    .on_event(|_, _, _| {})
+                    .on_error(|_, _, _| ErrorAction::LogAndContinue)
+                    .on_restart(|_, _, _, _, _| Ok(Flow::Cont))
                     .build(),
             )
             .common(
                 DecoderCommon::builder()
-                    .stopping(Decoder::default_stopping())
+                    .on_stopping(Decoder::default_on_stopping())
                     .build(),
             )
             .build()
@@ -1401,14 +1401,14 @@ mod tests {
                     .on_parameter_change(Decoder::default_on_parameter_change())
                     .on_skipped(Decoder::default_on_skipped())
                     .on_orphan_frame(Decoder::default_on_orphan_frame())
-                    .on_decoder_event(Decoder::default_on_decoder_event())
-                    .on_decoder_error(Decoder::default_on_decoder_error())
-                    .on_decoder_restart(Decoder::default_on_decoder_restart())
+                    .on_event(Decoder::default_on_event())
+                    .on_error(Decoder::default_on_error())
+                    .on_restart(Decoder::default_on_restart())
                     .build(),
             )
             .common(
                 DecoderCommon::builder()
-                    .stopping(Decoder::default_stopping())
+                    .on_stopping(Decoder::default_on_stopping())
                     .build(),
             )
             .build()
@@ -1431,7 +1431,7 @@ mod tests {
             .downstream(StageName::unnamed(StageKind::Infer))
             .common(
                 DecoderCommon::builder()
-                    .stopping(move |_ctx| {
+                    .on_stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
                     .build(),
@@ -1448,7 +1448,7 @@ mod tests {
         let hook = Decoder::default_on_source_eos();
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
-        let flow = hook("cam-1", &router, &ctx).expect("no error");
+        let flow = hook(&ctx, &router, "cam-1").expect("no error");
         assert!(matches!(flow, Flow::Cont));
         match rx.try_recv().expect("SourceEos should be forwarded") {
             PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
@@ -1457,15 +1457,15 @@ mod tests {
         assert!(rx.try_recv().is_err(), "exactly one message forwarded");
     }
 
-    /// `default_on_decoder_error` is log-only — it returns
+    /// `default_on_error` is log-only — it returns
     /// `LogAndContinue` and must not route anything downstream.
     #[test]
-    fn default_on_decoder_error_does_not_route() {
-        let hook = Decoder::default_on_decoder_error();
+    fn default_on_error_does_not_route() {
+        let hook = Decoder::default_on_error();
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
         let err = DecoderError::PipelineError("synthetic".to_string());
-        let action = hook(&err, &router, &ctx);
+        let action = hook(&ctx, &router, &err);
         assert!(matches!(action, ErrorAction::LogAndContinue));
         assert!(rx.try_recv().is_err(), "errors must not be routed");
     }
@@ -1482,7 +1482,7 @@ mod tests {
             width: 1920,
             height: 1080,
         };
-        hook(&params, &params, &router, &ctx);
+        hook(&ctx, &router, &params, &params);
         assert!(
             rx.try_recv().is_err(),
             "parameter-change log must not route"
@@ -1519,10 +1519,10 @@ mod tests {
         let _ = make_decode_frame("src", &pkt, &info);
     }
 
-    /// A `Fatal` `on_decoder_error` result flips the shared stop
+    /// A `Fatal` `on_error` result flips the shared stop
     /// flag so subsequent actor ticks observe cooperative shutdown.
     #[test]
-    fn on_decoder_error_fatal_requests_stop() {
+    fn on_error_fatal_requests_stop() {
         use std::sync::atomic::{AtomicBool, Ordering};
         // Exercise the dispatcher arm directly — we cannot
         // synthesise a real `FlexibleDecoderOutput::Error` inside
@@ -1536,10 +1536,10 @@ mod tests {
             Arc::new(crate::shared::SharedStore::new()),
             stop_flag.clone(),
         );
-        let hook: OnDecoderErrorHook = Arc::new(|_err, _router, _ctx| ErrorAction::Fatal);
+        let hook: OnErrorHook = Arc::new(|_err, _router, _ctx| ErrorAction::Fatal);
         let (router, _rx) = router_with_default_peer();
         let err = DecoderError::PipelineError("synthetic".to_string());
-        match hook(&err, &router, &ctx) {
+        match hook(&ctx, &router, &err) {
             ErrorAction::Fatal => {
                 ctx.request_stop();
                 if let Some(sink) = router.default_sink() {
@@ -1551,24 +1551,24 @@ mod tests {
         assert!(stop_flag.load(Ordering::SeqCst));
     }
 
-    /// `default_on_decoder_restart` is log-only — it returns
+    /// `default_on_restart` is log-only — it returns
     /// `Ok(Flow::Cont)` and must not route anything downstream so
     /// transient watchdog-induced restarts do not crash the pipeline.
     #[test]
-    fn default_on_decoder_restart_does_not_route() {
-        let hook = Decoder::default_on_decoder_restart();
+    fn default_on_restart_does_not_route() {
+        let hook = Decoder::default_on_restart();
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
-        let flow = hook("cam-1", "worker thread exited", 8, &router, &ctx).expect("no error");
+        let flow = hook(&ctx, &router, "cam-1", "worker thread exited", 8).expect("no error");
         assert!(matches!(flow, Flow::Cont));
         assert!(rx.try_recv().is_err(), "restarts must not be routed");
     }
 
-    /// A user `on_decoder_restart` returning `Ok(Flow::Stop)` flips the
+    /// A user `on_restart` returning `Ok(Flow::Stop)` flips the
     /// shared stop flag, mirroring the
-    /// [`on_decoder_error_fatal_requests_stop`] contract.
+    /// [`on_error_fatal_requests_stop`] contract.
     #[test]
-    fn on_decoder_restart_stop_requests_stop() {
+    fn on_restart_stop_requests_stop() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let stop_flag = Arc::new(AtomicBool::new(false));
         let ctx = HookCtx::new(
@@ -1577,10 +1577,10 @@ mod tests {
             Arc::new(crate::shared::SharedStore::new()),
             stop_flag.clone(),
         );
-        let hook: OnDecoderRestartHook =
+        let hook: OnRestartHook =
             Arc::new(|_sid, _reason, _lost, _router, _ctx| Ok(Flow::Stop));
         let (router, _rx) = router_with_default_peer();
-        match hook("cam-1", "worker thread exited", 4, &router, &ctx).expect("hook ok") {
+        match hook(&ctx, &router, "cam-1", "worker thread exited", 4).expect("hook ok") {
             Flow::Cont => {}
             Flow::Stop => {
                 ctx.request_stop();
@@ -1592,11 +1592,11 @@ mod tests {
         assert!(stop_flag.load(Ordering::SeqCst));
     }
 
-    /// A user `on_decoder_restart` returning `Err(_)` likewise flips
+    /// A user `on_restart` returning `Err(_)` likewise flips
     /// the shared stop flag — the dispatcher treats it identically to
     /// `Ok(Flow::Stop)`.
     #[test]
-    fn on_decoder_restart_err_requests_stop() {
+    fn on_restart_err_requests_stop() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let stop_flag = Arc::new(AtomicBool::new(false));
         let ctx = HookCtx::new(
@@ -1605,10 +1605,10 @@ mod tests {
             Arc::new(crate::shared::SharedStore::new()),
             stop_flag.clone(),
         );
-        let hook: OnDecoderRestartHook =
+        let hook: OnRestartHook =
             Arc::new(|_sid, _reason, _lost, _router, _ctx| Err(anyhow!("boom")));
         let (router, _rx) = router_with_default_peer();
-        match hook("cam-1", "worker thread exited", 0, &router, &ctx) {
+        match hook(&ctx, &router, "cam-1", "worker thread exited", 0) {
             Ok(Flow::Cont) => {}
             Ok(Flow::Stop) | Err(_) => {
                 ctx.request_stop();

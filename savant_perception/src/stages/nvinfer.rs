@@ -100,7 +100,7 @@
 //!   via `router.send(..)`.
 //! * [`NvInfer::default_on_error`] — logs the operator error at
 //!   `error` level, prefixed by the stage name.
-//! * [`NvInfer::default_stopping`] — a no-op user shutdown hook.
+//! * [`NvInfer::default_on_stopping`] — a no-op user shutdown hook.
 //!   See [`NvInferCommonBuilder::stopping`] for the composition
 //!   contract (built-in `graceful_shutdown` + drain-dispatch
 //!   always run first; the user hook runs after).
@@ -164,7 +164,7 @@ pub const DEFAULT_POLL_TIMEOUT: Duration = Duration::from_millis(100);
 /// is the off-loop [`HookCtx`] for shared-state / registry access
 /// from the operator callback thread.
 pub type OnInferenceHook =
-    Arc<dyn Fn(OperatorInferenceOutput, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static>;
+    Arc<dyn Fn(&HookCtx, &Router<PipelineMsg>, OperatorInferenceOutput) + Send + Sync + 'static>;
 
 /// Hook fired for every
 /// [`OperatorOutput::Eos`]
@@ -183,7 +183,7 @@ pub type OnInferenceHook =
 ///   equivalent to `Ok(Flow::Stop)` modulo the `error!` log line
 ///   emitted by the stage.
 pub type OnSourceEosHook =
-    Arc<dyn Fn(&str, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static>;
+    Arc<dyn Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static>;
 
 /// Hook fired for every
 /// [`OperatorOutput::Error`]
@@ -211,7 +211,7 @@ pub type OnSourceEosHook =
 /// stage name) *before* invoking the hook, so user code can focus
 /// on classification rather than logging.
 pub type OnErrorHook = Arc<
-    dyn Fn(&NvInferError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static,
+    dyn Fn(&HookCtx, &Router<PipelineMsg>, &NvInferError) -> ErrorAction + Send + Sync + 'static,
 >;
 
 /// User shutdown hook invoked from [`Actor::stopping`] *after* the
@@ -247,7 +247,7 @@ pub struct NvInfer {
     on_inference: OnInferenceHook,
     on_source_eos: OnSourceEosHook,
     on_error: OnErrorHook,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
     drain_timeout: Duration,
     poll_timeout: Duration,
     drain_done: bool,
@@ -298,9 +298,9 @@ impl NvInfer {
     /// not expose.  Exercise this path with an integration pipeline
     /// that drives real tensors through the stage.
     pub fn default_on_inference(
-    ) -> impl Fn(OperatorInferenceOutput, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, OperatorInferenceOutput) + Send + Sync + 'static
     {
-        |mut inf, router, ctx| {
+        |ctx, router, mut inf| {
             let ns = ctx.own_name().to_string();
             for frame_output in inf.frames() {
                 for element in &frame_output.elements {
@@ -365,8 +365,8 @@ impl NvInfer {
     /// [`OperatorOutput::Inference`]
     /// for the same `source_id`.
     pub fn default_on_source_eos(
-    ) -> impl Fn(&str, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static {
-        |source_id, router, _ctx| {
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static {
+        |_ctx, router, source_id| {
             log::info!("OperatorOutput::Eos for source_id={source_id}; propagating");
             if !router.send(PipelineMsg::SourceEos {
                 source_id: source_id.to_string(),
@@ -384,9 +384,9 @@ impl NvInfer {
     /// stage name *before* the hook fires, so this classifier has
     /// no I/O of its own.
     pub fn default_on_error(
-    ) -> impl Fn(&NvInferError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static
+    ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &NvInferError) -> ErrorAction + Send + Sync + 'static
     {
-        |_err, _router, _ctx| ErrorAction::LogAndContinue
+        |_ctx, _router, _err| ErrorAction::LogAndContinue
     }
 
     /// Default user shutdown hook — a no-op.  The stage's own
@@ -395,7 +395,7 @@ impl NvInfer {
     /// the drained outputs through the per-variant hooks before this
     /// hook fires, so omitting `.stopping(...)` simply means "don't
     /// add any extra cleanup on top of the built-in drain".
-    pub fn default_stopping() -> impl FnMut(&mut Context<NvInfer>) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&mut Context<NvInfer>) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -451,7 +451,7 @@ impl Actor for NvInfer {
         }
         self.drain_done = true;
         log::info!("[{}] nvinfer stopping", ctx.own_name());
-        (self.stopping)(ctx);
+        (self.on_stopping)(ctx);
     }
 }
 
@@ -534,8 +534,8 @@ fn dispatch_output(
     ctx: &HookCtx,
 ) {
     match out {
-        OperatorOutput::Inference(inf) => on_inference(inf, router, ctx),
-        OperatorOutput::Eos { source_id } => match on_source_eos(&source_id, router, ctx) {
+        OperatorOutput::Inference(inf) => on_inference(ctx, router, inf),
+        OperatorOutput::Eos { source_id } => match on_source_eos(ctx, router, &source_id) {
             Ok(Flow::Cont) => {}
             Ok(Flow::Stop) => {
                 log::info!(
@@ -554,7 +554,7 @@ fn dispatch_output(
         },
         OperatorOutput::Error(err) => {
             log::error!("[{}] operator error: {err}", ctx.own_name());
-            match on_error(&err, router, ctx) {
+            match on_error(ctx, router, &err) {
                 ErrorAction::LogAndContinue | ErrorAction::Swallow => {}
                 ErrorAction::Fatal => {
                     log::error!(
@@ -633,7 +633,7 @@ impl NvInferResultsBuilder {
     /// / registry access from the operator callback thread.
     pub fn on_inference<F>(mut self, f: F) -> Self
     where
-        F: Fn(OperatorInferenceOutput, &Router<PipelineMsg>, &HookCtx) + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, OperatorInferenceOutput) + Send + Sync + 'static,
     {
         self.on_inference = Some(Arc::new(f));
         self
@@ -650,7 +650,7 @@ impl NvInferResultsBuilder {
     /// error and also requests shutdown.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: Fn(&str, &Router<PipelineMsg>, &HookCtx) -> Result<Flow> + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static,
     {
         self.on_source_eos = Some(Arc::new(f));
         self
@@ -667,7 +667,7 @@ impl NvInferResultsBuilder {
     /// default sink and request cooperative shutdown.
     pub fn on_error<F>(mut self, f: F) -> Self
     where
-        F: Fn(&NvInferError, &Router<PipelineMsg>, &HookCtx) -> ErrorAction + Send + Sync + 'static,
+        F: Fn(&HookCtx, &Router<PipelineMsg>, &NvInferError) -> ErrorAction + Send + Sync + 'static,
     {
         self.on_error = Some(Arc::new(f));
         self
@@ -703,7 +703,7 @@ impl Default for NvInferResultsBuilder {
 pub struct NvInferCommon {
     drain_timeout: Duration,
     poll_timeout: Duration,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl NvInferCommon {
@@ -727,7 +727,7 @@ impl Default for NvInferCommon {
 pub struct NvInferCommonBuilder {
     drain_timeout: Option<Duration>,
     poll_timeout: Option<Duration>,
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl NvInferCommonBuilder {
@@ -738,7 +738,7 @@ impl NvInferCommonBuilder {
         Self {
             drain_timeout: None,
             poll_timeout: None,
-            stopping: None,
+            on_stopping: None,
         }
     }
 
@@ -767,11 +767,11 @@ impl NvInferCommonBuilder {
     /// operator state.  The built-in cleanup is **load-bearing**
     /// and always runs first; it cannot be skipped through this
     /// hook.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&mut Context<NvInfer>) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
@@ -781,12 +781,12 @@ impl NvInferCommonBuilder {
         let NvInferCommonBuilder {
             drain_timeout,
             poll_timeout,
-            stopping,
+            on_stopping,
         } = self;
         NvInferCommon {
             drain_timeout: drain_timeout.unwrap_or(DEFAULT_DRAIN_TIMEOUT),
             poll_timeout: poll_timeout.unwrap_or(DEFAULT_POLL_TIMEOUT),
-            stopping: stopping.unwrap_or_else(|| Box::new(NvInfer::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(NvInfer::default_on_stopping())),
         }
     }
 }
@@ -909,7 +909,7 @@ impl NvInferBuilder {
         let NvInferCommon {
             drain_timeout,
             poll_timeout,
-            stopping,
+            on_stopping,
         } = common.unwrap_or_default();
         Ok(ActorBuilder::new(name, capacity)
             .poll_timeout(poll_timeout)
@@ -939,7 +939,7 @@ impl NvInferBuilder {
                     on_inference,
                     on_source_eos,
                     on_error,
-                    stopping,
+                    on_stopping,
                     drain_timeout,
                     poll_timeout,
                     drain_done: false,
@@ -957,11 +957,11 @@ mod tests {
     use crate::supervisor::{StageKind, StageName};
     use crossbeam::channel::{bounded, Receiver};
 
-    fn noop_on_inference(_: OperatorInferenceOutput, _: &Router<PipelineMsg>, _: &HookCtx) {}
-    fn noop_on_source_eos(_: &str, _: &Router<PipelineMsg>, _: &HookCtx) -> Result<Flow> {
+    fn noop_on_inference(_: &HookCtx, _: &Router<PipelineMsg>, _: OperatorInferenceOutput) {}
+    fn noop_on_source_eos(_: &HookCtx, _: &Router<PipelineMsg>, _: &str) -> Result<Flow> {
         Ok(Flow::Cont)
     }
-    fn noop_on_error(_: &NvInferError, _: &Router<PipelineMsg>, _: &HookCtx) -> ErrorAction {
+    fn noop_on_error(_: &HookCtx, _: &Router<PipelineMsg>, _: &NvInferError) -> ErrorAction {
         ErrorAction::LogAndContinue
     }
 
@@ -1074,7 +1074,7 @@ mod tests {
             )
             .common(
                 NvInferCommon::builder()
-                    .stopping(NvInfer::default_stopping())
+                    .on_stopping(NvInfer::default_on_stopping())
                     .build(),
             )
             .build()
@@ -1097,7 +1097,7 @@ mod tests {
             .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
             .common(
                 NvInferCommon::builder()
-                    .stopping(move |_ctx| {
+                    .on_stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
                     .build(),
@@ -1117,7 +1117,7 @@ mod tests {
         let hook = NvInfer::default_on_source_eos();
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
-        let flow = hook("cam-1", &router, &ctx).expect("default hook is infallible");
+        let flow = hook(&ctx, &router, "cam-1").expect("default hook is infallible");
         assert_eq!(flow, Flow::Cont);
         match rx.try_recv().expect("SourceEos should be forwarded") {
             PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
@@ -1136,7 +1136,7 @@ mod tests {
         let (router, rx) = router_with_default_peer();
         let ctx = test_hook_ctx();
         let err = NvInferError::PipelineError("synthetic".to_string());
-        let action = hook(&err, &router, &ctx);
+        let action = hook(&ctx, &router, &err);
         assert_eq!(action, ErrorAction::LogAndContinue);
         assert!(rx.try_recv().is_err(), "errors must not be routed");
     }
@@ -1157,7 +1157,7 @@ mod tests {
         let on_inference: OnInferenceHook = Arc::new(noop_on_inference);
         let on_source_eos: OnSourceEosHook = Arc::new(noop_on_source_eos);
         let on_error: OnErrorHook = Arc::new(
-            |_err: &NvInferError, _r: &Router<PipelineMsg>, _c: &HookCtx| ErrorAction::Fatal,
+            |_c: &HookCtx, _r: &Router<PipelineMsg>, _err: &NvInferError| ErrorAction::Fatal,
         );
         dispatch_output(
             OperatorOutput::Error(NvInferError::PipelineError("boom".to_string())),
@@ -1184,7 +1184,7 @@ mod tests {
         let (router, _rx) = router_with_default_peer();
         let on_inference: OnInferenceHook = Arc::new(noop_on_inference);
         let on_source_eos: OnSourceEosHook =
-            Arc::new(|_sid: &str, _r: &Router<PipelineMsg>, _c: &HookCtx| Ok(Flow::Stop));
+            Arc::new(|_c: &HookCtx, _r: &Router<PipelineMsg>, _sid: &str| Ok(Flow::Stop));
         let on_error: OnErrorHook = Arc::new(noop_on_error);
         dispatch_output(
             OperatorOutput::Eos {

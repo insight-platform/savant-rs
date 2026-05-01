@@ -115,11 +115,11 @@ fn parse_video_id(s: &str) -> PyResult<savant_core::utils::video_id::VideoId> {
     Ok(savant_core::utils::video_id::VideoId::from_uuid(uuid))
 }
 
-fn current_wall_clock_ms() -> u64 {
+fn current_wall_clock_ns() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis() as u64
+        .as_nanos() as u64
 }
 
 /// Mint a new VideoId from the process-global generator and return
@@ -128,14 +128,16 @@ fn current_wall_clock_ms() -> u64 {
 /// Parameters
 /// ----------
 /// source_id : str
-///   Stream identifier the frame belongs to.
+///   Stream identifier the frame belongs to. Used purely as the
+///   per-source accounting key inside the global generator; not
+///   encoded in the returned id.
 /// pts : int
 ///   Frame PTS in stream timebase.
 /// is_keyframe : bool
 ///   `True` updates the per-source keyframe anchor and may bump the
 ///   `epoch` field if a PTS reset is detected.
-/// wall_clock_ms : int, optional
-///   Demuxer wall clock in milliseconds. Defaults to the current
+/// wall_clock_ns : int, optional
+///   Demuxer wall clock in nanoseconds. Defaults to the current
 ///   system time. Pass an explicit value when replaying or when
 ///   coordinating ids across processes.
 ///
@@ -145,14 +147,14 @@ fn current_wall_clock_ms() -> u64 {
 ///   The minted id, encoded in UUID hyphenated form.
 ///
 #[pyfunction]
-#[pyo3(signature = (source_id, pts, is_keyframe, wall_clock_ms = None))]
+#[pyo3(signature = (source_id, pts, is_keyframe, wall_clock_ns = None))]
 pub fn mint_video_id(
     source_id: &str,
     pts: i64,
     is_keyframe: bool,
-    wall_clock_ms: Option<u64>,
+    wall_clock_ns: Option<u64>,
 ) -> String {
-    let ts = wall_clock_ms.unwrap_or_else(current_wall_clock_ms);
+    let ts = wall_clock_ns.unwrap_or_else(current_wall_clock_ns);
     savant_core::utils::video_id::mint(source_id, pts, is_keyframe, ts)
         .as_uuid()
         .to_string()
@@ -166,7 +168,7 @@ pub fn forget_video_id(source_id: &str) {
     savant_core::utils::video_id::forget(source_id);
 }
 
-/// Return a copy of `id` with its `ts_ms` component shifted by
+/// Return a copy of `id` with its `ts_ns` component shifted by
 /// `offset_millis`. Migration target for
 /// :func:`relative_time_uuid_v7`. Deterministic — identical inputs
 /// always produce identical output.
@@ -176,7 +178,8 @@ pub fn forget_video_id(source_id: &str) {
 /// id : str
 ///   VideoId in UUID hyphenated form.
 /// offset_millis : int
-///   Signed shift applied to `ts_ms`.
+///   Signed shift applied to `ts_ns` (in milliseconds for ergonomic
+///   parity with the legacy ``relative_time_uuid_v7``).
 ///
 #[pyfunction]
 pub fn relative_time_video_id(id: &str, offset_millis: i64) -> PyResult<String> {
@@ -186,21 +189,20 @@ pub fn relative_time_video_id(id: &str, offset_millis: i64) -> PyResult<String> 
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// Inclusive lower bound for a wall-clock-time range scan over
-/// frames of `source_id` at `ts_ms`. Pair with
-/// :func:`video_id_upper_bound`.
+/// Inclusive lower bound for a wall-clock-time range scan at `ts_ns`.
+/// Pair with :func:`video_id_upper_bound`. Source identity is
+/// supplied by the caller's surrounding lookup, not by the boundary.
 #[pyfunction]
-pub fn video_id_lower_bound(source_id: &str, ts_ms: u64) -> String {
-    savant_core::utils::video_id::VideoId::lower_bound(source_id, ts_ms)
+pub fn video_id_lower_bound(ts_ns: u64) -> String {
+    savant_core::utils::video_id::VideoId::lower_bound(ts_ns)
         .as_uuid()
         .to_string()
 }
 
-/// Inclusive upper bound for a wall-clock-time range scan over
-/// frames of `source_id` at `ts_ms`.
+/// Inclusive upper bound for a wall-clock-time range scan at `ts_ns`.
 #[pyfunction]
-pub fn video_id_upper_bound(source_id: &str, ts_ms: u64) -> String {
-    savant_core::utils::video_id::VideoId::upper_bound(source_id, ts_ms)
+pub fn video_id_upper_bound(ts_ns: u64) -> String {
+    savant_core::utils::video_id::VideoId::upper_bound(ts_ns)
         .as_uuid()
         .to_string()
 }

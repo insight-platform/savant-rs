@@ -154,7 +154,7 @@ use savant_gstreamer::mp4_demuxer::{
 
 use crate::envelopes::EncodedMsg;
 use crate::router::Router;
-use crate::stages::demuxers::demux_input::{DemuxInputRequest, InputRequester};
+use crate::stages::demuxers::demux_input::{DemuxInput, DemuxInputRequest, InputRequester};
 use crate::supervisor::StageName;
 use crate::{ErrorAction, Flow, HookCtx, Source, SourceBuilder, SourceContext};
 
@@ -165,7 +165,7 @@ use crate::{ErrorAction, Flow, HookCtx, Source, SourceBuilder, SourceContext};
 /// sentinel.  Returning `Err(_)` is fatal and surfaces via
 /// [`Source::run`].
 pub type OnStreamInfoHook =
-    Box<dyn FnMut(VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()> + Send + 'static>;
+    Box<dyn FnMut(&HookCtx, &Router<EncodedMsg>, VideoInfo, &str) -> Result<()> + Send + 'static>;
 
 /// Closure type for `on_packet` — receives the input string
 /// (path / URI of the run currently in progress), the
@@ -189,12 +189,12 @@ pub type OnStreamInfoHook =
 /// Returning `Err(_)` is fatal.
 pub type OnPacketHook = Box<
     dyn FnMut(
-            &str,
-            &str,
+            &HookCtx,
+            &Router<EncodedMsg>,
+            DemuxInput<'_>,
+        &str,
             &VideoInfo,
             DemuxedPacket,
-            &Router<EncodedMsg>,
-            &HookCtx,
         ) -> Result<()>
         + Send
         + 'static,
@@ -219,7 +219,7 @@ pub type OnPacketHook = Box<
 ///   `Ok(Flow::Stop)`; the first-error latch records the message
 ///   so [`Source::run`] surfaces it in its exit `Result`.
 pub type OnSourceEosHook =
-    Box<dyn FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static>;
+    Box<dyn FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static>;
 
 /// Closure type for `on_error`: classify a GStreamer pipeline
 /// error.  The callback receives the structured
@@ -236,7 +236,7 @@ pub type OnSourceEosHook =
 /// errors into downstream control messages uniformly with other
 /// egress hooks; default closures ignore it.
 pub type OnErrorHook =
-    Box<dyn FnMut(&Mp4DemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static>;
+    Box<dyn FnMut(&HookCtx, &Router<EncodedMsg>, &Mp4DemuxerError) -> ErrorAction + Send + 'static>;
 
 /// User shutdown hook fired after the demuxer has completed
 /// ([`Source::run`]'s `demuxer.wait()` returned), whether
@@ -276,7 +276,7 @@ pub struct Mp4DemuxerSource {
     on_packet: OnPacketHook,
     on_source_eos: OnSourceEosHook,
     on_error: OnErrorHook,
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl Mp4DemuxerSource {
@@ -308,9 +308,9 @@ impl Mp4DemuxerSource {
     /// per-variant metrics wrap this forwarder in a closure that
     /// bumps counters before (or after) calling it.
     pub fn default_on_stream_info(
-    ) -> impl FnMut(VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()> + Send + 'static
+    ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, VideoInfo, &str) -> Result<()> + Send + 'static
     {
-        |info, source_id, router, _ctx| {
+        |_ctx, router, info, source_id| {
             router.send(EncodedMsg::StreamInfo {
                 source_id: source_id.to_string(),
                 info,
@@ -342,16 +342,16 @@ impl Mp4DemuxerSource {
     /// `router.send_to(&decoder_for(source_id), msg)` in your own
     /// closure.
     pub fn default_on_packet() -> impl FnMut(
-        &str,
+        &HookCtx,
+        &Router<EncodedMsg>,
+        DemuxInput<'_>,
         &str,
         &VideoInfo,
         DemuxedPacket,
-        &Router<EncodedMsg>,
-        &HookCtx,
     ) -> Result<()>
            + Send
            + 'static {
-        |_input, source_id, info, packet, router, _ctx| {
+        |_ctx, router, _input, source_id, info, packet| {
             router.send(EncodedMsg::Packet {
                 source_id: source_id.to_string(),
                 info: *info,
@@ -385,16 +385,16 @@ impl Mp4DemuxerSource {
     /// replace `router.send(msg)` with
     /// `router.send_to(&peer, msg)`.
     pub fn default_on_packet_as_frame() -> impl FnMut(
-        &str,
+        &HookCtx,
+        &Router<EncodedMsg>,
+        DemuxInput<'_>,
         &str,
         &VideoInfo,
         DemuxedPacket,
-        &Router<EncodedMsg>,
-        &HookCtx,
     ) -> Result<()>
            + Send
            + 'static {
-        |_input, source_id, info, packet, router, _ctx| {
+        |_ctx, router, _input, source_id, info, packet| {
             let frame = super::demuxers::decode_frame::make_decode_frame(source_id, &packet, info);
             let payload = Some(packet.data);
             router.send(EncodedMsg::Frame { frame, payload });
@@ -409,8 +409,8 @@ impl Mp4DemuxerSource {
     /// source completes naturally once the underlying demuxer
     /// reports EOS.
     pub fn default_on_source_eos(
-    ) -> impl FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static {
-        |source_id, router, _ctx| {
+    ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static {
+        |_ctx, router, source_id| {
             router.send(EncodedMsg::SourceEos {
                 source_id: source_id.to_string(),
             });
@@ -429,9 +429,9 @@ impl Mp4DemuxerSource {
     /// the other egress error hooks (Decoder / NvInfer / NvTracker)
     /// but the default ignores it.
     pub fn default_on_error(
-    ) -> impl FnMut(&Mp4DemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static
+    ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, &Mp4DemuxerError) -> ErrorAction + Send + 'static
     {
-        |_err, _router, _ctx| ErrorAction::Fatal
+        |_ctx, _router, _err| ErrorAction::Fatal
     }
 
     /// Default user shutdown hook — a no-op.  The stage's own
@@ -440,7 +440,7 @@ impl Mp4DemuxerSource {
     /// [`Mp4DemuxerCommonBuilder::stopping`] setter simply means
     /// "don't add any extra cleanup on top of the built-in
     /// sequence".
-    pub fn default_stopping() -> impl FnMut(&SourceContext) + Send + 'static {
+    pub fn default_on_stopping() -> impl FnMut(&SourceContext) + Send + 'static {
         |_ctx| {}
     }
 }
@@ -482,7 +482,7 @@ impl Source for Mp4DemuxerSource {
             on_packet,
             on_source_eos,
             on_error,
-            mut stopping,
+            mut on_stopping,
         } = self;
 
         let own_name = ctx.own_name().clone();
@@ -542,7 +542,7 @@ impl Source for Mp4DemuxerSource {
         // composition rule as the original single-shot path: the
         // hook observes the post-drain state and any error
         // surfacing is left to the outer Result.
-        (stopping)(&ctx);
+        (on_stopping)(&ctx);
 
         outcome
     }
@@ -636,7 +636,7 @@ fn run_one(
                 // the info.  `VideoInfo: Copy`, so this is free.
                 h.last_stream_info = Some(info);
                 if let Err(e) =
-                    (h.on_stream_info)(info, &source_id_cb, &router_cb, &hook_ctx_cb)
+                    (h.on_stream_info)(&hook_ctx_cb, &router_cb, info, &source_id_cb)
                 {
                     latch_error(&first_error_cb, format!("on_stream_info: {e}"));
                     if let Some(s) = default_sink_cb.as_ref() {
@@ -647,12 +647,12 @@ fn run_one(
             Mp4DemuxerOutput::Packet(pkt) => {
                 if let Some(info) = h.last_stream_info {
                     if let Err(e) = (h.on_packet)(
-                        &input_cb,
+                        &hook_ctx_cb,
+                        &router_cb,
+                        DemuxInput(&input_cb),
                         &source_id_cb,
                         &info,
                         pkt,
-                        &router_cb,
-                        &hook_ctx_cb,
                     ) {
                         latch_error(&first_error_cb, format!("on_packet: {e}"));
                         if let Some(s) = default_sink_cb.as_ref() {
@@ -671,7 +671,7 @@ fn run_one(
             }
             Mp4DemuxerOutput::Eos => {
                 log::info!("[{own_name_cb}] EOS (source_id={source_id_cb})");
-                match (h.on_source_eos)(&source_id_cb, &router_cb, &hook_ctx_cb) {
+                match (h.on_source_eos)(&hook_ctx_cb, &router_cb, &source_id_cb) {
                     Ok(Flow::Cont) => {}
                     Ok(Flow::Stop) => {
                         log::info!(
@@ -696,7 +696,7 @@ fn run_one(
             Mp4DemuxerOutput::Error(e) => {
                 let msg = e.to_string();
                 log::error!("[{own_name_cb}] pipeline error: {msg}");
-                let action = (h.on_error)(&e, &router_cb, &hook_ctx_cb);
+                let action = (h.on_error)(&hook_ctx_cb, &router_cb, &e);
                 match action {
                     ErrorAction::Fatal => {
                         latch_error(&first_error_cb, msg);
@@ -819,7 +819,7 @@ impl Mp4DemuxerResultsBuilder {
     /// `.on_stream_info(Mp4DemuxerSource::default_on_stream_info())`.
     pub fn on_stream_info<F>(mut self, f: F) -> Self
     where
-        F: FnMut(VideoInfo, &str, &Router<EncodedMsg>, &HookCtx) -> Result<()> + Send + 'static,
+        F: FnMut(&HookCtx, &Router<EncodedMsg>, VideoInfo, &str) -> Result<()> + Send + 'static,
     {
         self.on_stream_info = Some(Box::new(f));
         self
@@ -835,18 +835,18 @@ impl Mp4DemuxerResultsBuilder {
     /// Swap to [`Mp4DemuxerSource::default_on_packet`] for
     /// downstream frame construction.
     ///
-    /// Closure signature: `(input, source_id, info, pkt, router, ctx)`.
+    /// Closure signature: `(ctx, router, input, source_id, info, pkt)`.
     /// `input` is the path / URI returned by the
     /// [`InputRequester`] for the run currently in progress.
     pub fn on_packet<F>(mut self, f: F) -> Self
     where
         F: FnMut(
-                &str,
-                &str,
+                &HookCtx,
+                &Router<EncodedMsg>,
+                DemuxInput<'_>,
+        &str,
                 &VideoInfo,
                 DemuxedPacket,
-                &Router<EncodedMsg>,
-                &HookCtx,
             ) -> Result<()>
             + Send
             + 'static,
@@ -864,7 +864,7 @@ impl Mp4DemuxerResultsBuilder {
     /// latched, and also requests shutdown.
     pub fn on_source_eos<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&str, &Router<EncodedMsg>, &HookCtx) -> Result<Flow> + Send + 'static,
+        F: FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static,
     {
         self.on_source_eos = Some(Box::new(f));
         self
@@ -878,7 +878,7 @@ impl Mp4DemuxerResultsBuilder {
     /// is free to ignore the router.
     pub fn on_error<F>(mut self, f: F) -> Self
     where
-        F: FnMut(&Mp4DemuxerError, &Router<EncodedMsg>, &HookCtx) -> ErrorAction + Send + 'static,
+        F: FnMut(&HookCtx, &Router<EncodedMsg>, &Mp4DemuxerError) -> ErrorAction + Send + 'static,
     {
         self.on_error = Some(Box::new(f));
         self
@@ -916,7 +916,7 @@ impl Default for Mp4DemuxerResultsBuilder {
 /// [`Mp4DemuxerCommon::builder`] and handed to
 /// [`Mp4DemuxerBuilder::common`].
 pub struct Mp4DemuxerCommon {
-    stopping: OnStoppingHook,
+    on_stopping: OnStoppingHook,
 }
 
 impl Mp4DemuxerCommon {
@@ -935,13 +935,13 @@ impl Default for Mp4DemuxerCommon {
 
 /// Fluent builder for [`Mp4DemuxerCommon`].
 pub struct Mp4DemuxerCommonBuilder {
-    stopping: Option<OnStoppingHook>,
+    on_stopping: Option<OnStoppingHook>,
 }
 
 impl Mp4DemuxerCommonBuilder {
     /// Empty bundle — `stopping` defaults to a no-op.
     pub fn new() -> Self {
-        Self { stopping: None }
+        Self { on_stopping: None }
     }
 
     /// Override the user shutdown hook — fired once the demuxer
@@ -954,20 +954,20 @@ impl Mp4DemuxerCommonBuilder {
     /// first-error surfacing) is **load-bearing** and always runs
     /// after this hook; users who need to replace that entirely
     /// should implement [`Source`] directly on a bespoke struct.
-    pub fn stopping<F>(mut self, f: F) -> Self
+    pub fn on_stopping<F>(mut self, f: F) -> Self
     where
         F: FnMut(&SourceContext) + Send + 'static,
     {
-        self.stopping = Some(Box::new(f));
+        self.on_stopping = Some(Box::new(f));
         self
     }
 
     /// Finalise the bundle, substituting the no-op default for an
     /// omitted `stopping` setter.
     pub fn build(self) -> Mp4DemuxerCommon {
-        let Mp4DemuxerCommonBuilder { stopping } = self;
+        let Mp4DemuxerCommonBuilder { on_stopping } = self;
         Mp4DemuxerCommon {
-            stopping: stopping.unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_stopping())),
+            on_stopping: on_stopping.unwrap_or_else(|| Box::new(Mp4DemuxerSource::default_on_stopping())),
         }
     }
 }
@@ -1127,7 +1127,7 @@ impl Mp4DemuxerBuilder {
             on_source_eos,
             on_error,
         } = results.unwrap_or_default();
-        let Mp4DemuxerCommon { stopping } = common.unwrap_or_default();
+        let Mp4DemuxerCommon { on_stopping } = common.unwrap_or_default();
         Ok(SourceBuilder::new(name).factory(move |_bx| {
             Ok(Mp4DemuxerSource {
                 request_input,
@@ -1136,7 +1136,7 @@ impl Mp4DemuxerBuilder {
                 on_packet,
                 on_source_eos,
                 on_error,
-                stopping,
+                on_stopping,
             })
         }))
     }
@@ -1180,14 +1180,14 @@ mod tests {
             .downstream(StageName::unnamed(StageKind::Decoder))
             .results(
                 Mp4DemuxerResults::builder()
-                    .on_stream_info(|info, sid, router, _ctx| {
+                    .on_stream_info(|_ctx, router, info, sid| {
                         router.send(EncodedMsg::StreamInfo {
                             source_id: sid.to_string(),
                             info,
                         });
                         Ok(())
                     })
-                    .on_packet(|input, sid, info, pkt, router, _ctx| {
+                    .on_packet(|_ctx, router, input, sid, info, pkt| {
                         let _ = input;
                         router.send(EncodedMsg::Packet {
                             source_id: sid.to_string(),
@@ -1196,14 +1196,14 @@ mod tests {
                         });
                         Ok(())
                     })
-                    .on_source_eos(|sid, router, _ctx| {
+                    .on_source_eos(|_ctx, router, sid| {
                         router.send(EncodedMsg::SourceEos {
                             source_id: sid.to_string(),
                         });
                         Ok(Flow::Cont)
                     })
                     .on_error(
-                        |_err: &Mp4DemuxerError, _router: &Router<EncodedMsg>, _ctx: &HookCtx| {
+                        |_ctx: &HookCtx, _router: &Router<EncodedMsg>, _err: &Mp4DemuxerError| {
                             ErrorAction::Fatal
                         },
                     )
@@ -1272,7 +1272,7 @@ mod tests {
             .downstream(StageName::unnamed(StageKind::Decoder))
             .common(
                 Mp4DemuxerCommon::builder()
-                    .stopping(move |_ctx| {
+                    .on_stopping(move |_ctx| {
                         flag_hook.store(true, Ordering::SeqCst);
                     })
                     .build(),
@@ -1324,7 +1324,7 @@ mod tests {
             on_packet: _,
             on_source_eos: _,
             on_error: _,
-            stopping: _,
+            on_stopping: _,
         } = src;
     }
 
