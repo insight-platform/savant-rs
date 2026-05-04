@@ -662,33 +662,19 @@ pub fn run_pipeline(
                 .on_inference({
                     let converter = converter.clone();
                     move |ctx, router: &Router<PipelineMsg>, inf| {
-                        let frame_count = inf.frames().len() as u64;
                         let infer_stats = ctx.shared::<InferStats>();
-                        let det_before = infer_stats.as_ref().map(|s| s.detections()).unwrap_or(0);
                         // Pure transform: decode tensors, attach
-                        // detections, tick `InferStats`.  Wraps the
-                        // postprocessing in a user-space tracing span
-                        // and records per-class object counts as OTel
-                        // attributes — see `process_infer_output` for
-                        // the instrumentation pattern.  No I/O inside
-                        // the processor.
+                        // detections, tick `InferStats`.  Per-stage
+                        // frame / object counters are auto-tracked
+                        // by the framework on the receiving
+                        // tracker actor's loop driver, so no manual
+                        // tick site here.
                         let sealed = process_infer_output(
                             inf,
                             converter.as_ref(),
                             infer_stats.as_deref(),
                             ctx,
                         );
-                        // Routing decision lives here — the hook
-                        // body is the single send site.  Per-stage
-                        // frame / object counters are auto-tracked
-                        // by the framework on the receiving
-                        // tracker actor's loop driver, so no manual
-                        // tick site here.  Sample-specific
-                        // detection bookkeeping (cumulative
-                        // detections produced by this stage) stays
-                        // in [`InferStats`].
-                        let _ = det_before;
-                        let _ = frame_count;
                         if let Some(sealed) = sealed {
                             if !router.send(PipelineMsg::deliveries(sealed)) {
                                 log::warn!(
@@ -753,11 +739,12 @@ pub fn run_pipeline(
                 .on_tracking({
                     let sorter_peer = sorter_name.clone();
                     move |ctx, router: &Router<PipelineMsg>, tracking| {
-                        let frame_count = tracking.frames().len() as u64;
                         let tracker_stats = ctx.shared::<TrackerStats>();
                         // Pure transform: reconcile tracker updates
                         // onto frame metadata, tick `TrackerStats`.
-                        // No I/O inside the processor.
+                        // No I/O inside the processor.  Per-stage
+                        // tracker counters are auto-tracked by the
+                        // framework on the next stage's loop driver.
                         let sealed = process_tracker_output(
                             tracking,
                             tracker_stats.as_deref(),
@@ -775,10 +762,6 @@ pub fn run_pipeline(
                                 );
                             }
                         }
-                        // Per-stage tracker counters auto-tracked
-                        // by the framework on the next stage's
-                        // loop driver.
-                        let _ = frame_count;
                     }
                 })
                 .on_source_eos({

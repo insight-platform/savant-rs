@@ -52,17 +52,23 @@ use savant_core::primitives::frame::VideoFrame;
 /// sites can therefore push, stamp attributes, end and pop
 /// without `is_valid()` ceremony: every operation on a noop span
 /// is itself a noop.
+///
+/// The returned context is built explicitly off `parent` (or
+/// [`OtelContext::default`] when none is supplied), **not** off
+/// the thread-local `OtelContext::current()`.  This matches the
+/// framework's "no thread-local current" invariant: callers that
+/// chain a series of `open_child` invocations across threads or
+/// async boundaries get a clean lineage rooted at `parent`,
+/// without any baggage bleeding in from whatever the calling
+/// thread happened to have attached at the moment.
 pub fn open_child(
     name: impl Into<Cow<'static, str>>,
     parent: Option<&OtelContext>,
 ) -> OtelContext {
     let tracer = savant_core::get_tracer();
-    let builder = SpanBuilder::from_name(name);
-    let span = match parent {
-        Some(p) => tracer.build_with_context(builder, p),
-        None => tracer.build_with_context(builder, &OtelContext::default()),
-    };
-    OtelContext::current_with_span(span)
+    let parent_ctx = parent.cloned().unwrap_or_default();
+    let span = tracer.build_with_context(SpanBuilder::from_name(name), &parent_ctx);
+    parent_ctx.with_span(span)
 }
 
 /// RAII handle that:

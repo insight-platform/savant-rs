@@ -134,9 +134,17 @@ impl<M: Envelope> Router<M> {
     /// not through the envelope or the router — there is nothing to
     /// inject here.
     pub fn send(&self, msg: M) -> bool {
-        self.record_egress(&msg);
+        // Record egress (consumes the per-frame ingress markers
+        // and pushes a frame-latency sample) **only after** we
+        // know the message has a destination.  Otherwise — no
+        // default peer configured — the message is dropped on
+        // the floor and the latency would be a phantom sample
+        // that never reflected actual cross-stage processing.
         match self.0.default.as_ref() {
-            Some(sink) => sink.send(msg),
+            Some(sink) => {
+                self.record_egress(&msg);
+                sink.send(msg)
+            }
             None => {
                 if !self.0.warned_missing_default.swap(true, Ordering::Relaxed) {
                     log::warn!(
@@ -164,8 +172,14 @@ impl<M: Envelope> Router<M> {
     /// * `Err(_)`    — `peer` is not registered, or the registered
     ///   entry has a different envelope type than `M`.
     pub fn send_to(&self, peer: &StageName, msg: M) -> Result<bool> {
-        self.record_egress(&msg);
+        // Resolve first — if `peer` is not registered or the
+        // registered entry has the wrong envelope type, returning
+        // an error here means we never consumed the per-frame
+        // ingress markers nor recorded a latency sample.  That
+        // keeps frame-latency clean of phantom samples for
+        // never-delivered messages.
         let sink = self.resolve(peer)?;
+        self.record_egress(&msg);
         Ok(sink.send(msg))
     }
 
