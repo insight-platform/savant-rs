@@ -35,6 +35,8 @@ use savant_core::transport::zeromq::{NonBlockingReader, ReaderConfig, ReaderResu
 use crate::envelopes::EncodedMsg;
 use crate::router::Router;
 use crate::supervisor::StageName;
+
+use opentelemetry::trace::TraceContextExt;
 use crate::{ErrorAction, Flow, HookCtx, Source, SourceBuilder, SourceContext};
 
 /// Default maximum in-flight receive results buffered by
@@ -112,6 +114,23 @@ impl ZmqSource {
     ///
     /// The runtime guarantees this hook is invoked only when
     /// [`Message::is_video_frame`] is `true`.
+    ///
+    /// # Cross-process trace continuation
+    ///
+    /// The wire [`Message`]'s `span_context` (a W3C-style
+    /// [`PropagatedContext`](savant_core::otlp::PropagatedContext)
+    /// populated by an upstream sink via the same hook on the
+    /// other end of the wire) is extracted into an
+    /// [`opentelemetry::Context`] and installed on the
+    /// reconstructed [`VideoFrame`].  The frame's RAII span guard
+    /// then bounds the local trace tree exactly as if the frame had
+    /// been produced in-process — no special handling required by
+    /// downstream stages.
+    ///
+    /// Frames whose inbound message carried no propagated context
+    /// arrive with `otel_ctx = None` and remain untraced locally;
+    /// the framework's stage / callback span sites collapse to
+    /// no-ops on the unsampled path.
     #[allow(clippy::type_complexity)]
     pub fn default_on_message(
     ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, String, Box<Message>, Vec<Vec<u8>>) -> Result<()>
@@ -121,6 +140,16 @@ impl ZmqSource {
             let mut frame = message
                 .as_video_frame()
                 .ok_or_else(|| anyhow!("ZmqSource::default_on_message: not a video_frame"))?;
+            // Cross-process trace continuation: lift the wire span
+            // context onto the frame so the local trace tree
+            // continues from the producer side.
+            let propagated = message.get_span_context();
+            if !propagated.0.is_empty() {
+                let extracted = propagated.extract();
+                if extracted.span().span_context().is_valid() {
+                    frame.set_otel_ctx(extracted);
+                }
+            }
             let payload = if let Some(first) = data.into_iter().next() {
                 if first.is_empty() {
                     None
@@ -133,7 +162,7 @@ impl ZmqSource {
             } else {
                 None
             };
-            router.send(EncodedMsg::Frame { frame, payload });
+            router.send(EncodedMsg::frame(frame, payload));
             Ok(())
         }
     }
@@ -198,9 +227,7 @@ impl ZmqSource {
     pub fn default_on_source_eos(
     ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static {
         |_ctx, router, source_id| {
-            router.send(EncodedMsg::SourceEos {
-                source_id: source_id.to_string(),
-            });
+            router.send(EncodedMsg::source_eos(source_id));
             Ok(Flow::Cont)
         }
     }
@@ -264,6 +291,7 @@ impl Source for ZmqSource {
                 }
                 Some(Err(e)) => {
                     log::error!("[{own_name}] reader.receive: {e}");
+                    // No frame on a receive error — no span.
                     let action = on_receive_error(&hook_ctx, &e);
                     match action {
                         ErrorAction::Fatal => {
@@ -288,6 +316,17 @@ impl Source for ZmqSource {
 
                     if msg.is_video_frame() {
                         let boxed = Box::new(msg);
+                        // Source-side metrics: count one outbound
+                        // frame per video-frame message read off
+                        // the wire.
+                        hook_ctx.stage_metrics().record_message(1, 0, 0);
+                        // The user hook materialises a `VideoFrame`
+                        // from the wire message; before that call
+                        // there is no frame context to parent
+                        // against, so no span here.  The hook's
+                        // default impl calls `frame.set_otel_ctx`
+                        // with the extracted W3C parent — downstream
+                        // stages take it from there.
                         if let Err(e) = on_message(&hook_ctx, &router, topic_str, boxed, data) {
                             log::error!("[{own_name}] on_message: {e}");
                             latched.get_or_insert_with(|| format!("on_message: {e}"));
@@ -298,6 +337,7 @@ impl Source for ZmqSource {
                             .as_end_of_stream()
                             .map(|eos| eos.source_id.clone())
                             .unwrap_or(topic_str);
+                        // No frame on a SourceEos — no span.
                         match on_source_eos(&hook_ctx, &router, &source_id) {
                             Ok(Flow::Cont) => {}
                             Ok(Flow::Stop) => {
@@ -314,6 +354,7 @@ impl Source for ZmqSource {
                         }
                     } else {
                         let boxed = Box::new(msg);
+                        // Service messages don't carry a video frame — no span.
                         if let Err(e) =
                             on_service_message(&hook_ctx, &router, topic_str, boxed, data)
                         {
@@ -325,6 +366,7 @@ impl Source for ZmqSource {
                 }
                 Some(Ok(other)) => {
                     log::warn!("[{own_name}] protocol error: {other:?}");
+                    // Protocol error has no frame — no span.
                     let action = on_protocol_error(&hook_ctx, &other);
                     match action {
                         ErrorAction::Fatal => {
@@ -772,7 +814,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let src = (parts.factory)(&bx).expect("factory resolves");
         let ZmqSource {
             config: _,

@@ -238,7 +238,9 @@ mod tests {
         let reg = std::sync::Arc::new(Registry::new());
         let shared = std::sync::Arc::new(SharedStore::new());
         let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: std::sync::Arc<str> = std::sync::Arc::from("test-pipeline");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let actor = (parts.factory)(&bx).unwrap();
         let _ = actor;
     }
@@ -268,9 +270,18 @@ mod tests {
         let reg = std::sync::Arc::new(Registry::new());
         let shared = std::sync::Arc::new(SharedStore::new());
         let stop_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: std::sync::Arc<str> = std::sync::Arc::from("test-pipeline");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let s = (parts.factory)(&bx).unwrap();
-        s.run(SourceContext::new(parts.name, reg, shared, stop_flag))
+        s.run(SourceContext::new(
+            parts.name,
+            pn,
+            reg,
+            shared,
+            stop_flag,
+            crate::stage_metrics::StageMetrics::new("test"),
+        ))
             .unwrap();
     }
 }

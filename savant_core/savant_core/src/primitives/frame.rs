@@ -131,7 +131,7 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
     }
 }
 
-#[derive(Debug, Clone, Builder)]
+#[derive(Debug, Builder)]
 pub struct VideoFrameInner {
     #[builder(setter(skip))]
     pub previous_frame_seq_id: Option<i64>,
@@ -166,6 +166,63 @@ pub struct VideoFrameInner {
     pub(crate) max_object_id: i64,
     #[builder(setter(skip))]
     pub(crate) misc_tracks: Vec<MiscTrackData>,
+    /// Stack of OpenTelemetry contexts owning this frame's nested
+    /// spans.  Bottom of the stack is the **root** span set by the
+    /// producing stage (via [`VideoFrame::set_otel_ctx`]); each
+    /// [`VideoFrame::push_otel_ctx`] adds a layer on top, and
+    /// [`VideoFrame::pop_otel_ctx`] removes the top layer
+    /// (ending its span via the displaced [`OtelSpanGuard`]'s
+    /// [`Drop`]).
+    ///
+    /// The stack carries the framework's hierarchical span model
+    /// across thread boundaries without thread-local state:
+    ///
+    /// ```text
+    /// [Root]                   # bottom; producer-set; lives until frame drop
+    /// [Stage]                  # loop driver / dispatch arm
+    /// [Callback]               # framework wrapper around a user hook
+    /// [User-level...]          # user-opened nested children
+    /// ```
+    ///
+    /// Cleared on [`Clone`] (a clone is a logically distinct frame
+    /// and gets no auto-inherited spans).  Any spans still on the
+    /// stack when the last [`Arc`] reference to this inner drops
+    /// are ended via [`OtelSpanGuard`]'s [`Drop`] — bounded by frame
+    /// lifetime regardless of pipeline shape, no central registry.
+    #[builder(setter(skip), default)]
+    pub(crate) otel_stack: Vec<OtelSpanGuard>,
+}
+
+/// RAII handle for the OpenTelemetry root span attached to a
+/// [`VideoFrame`].  Wrapped around an [`opentelemetry::Context`] so
+/// that ending the span happens through field-drop rather than a
+/// `Drop` impl on [`VideoFrameInner`] itself — the latter would
+/// disallow `..Default::default()` struct-update syntax used in the
+/// frame constructors.
+#[derive(Debug)]
+pub struct OtelSpanGuard(opentelemetry::Context);
+
+impl OtelSpanGuard {
+    /// Wrap an OpenTelemetry context.  No checks: callers are
+    /// expected to pass a context whose span they want ended on
+    /// drop.  Construct via [`VideoFrame::set_otel_ctx`] instead of
+    /// directly when possible.
+    pub fn new(ctx: opentelemetry::Context) -> Self {
+        Self(ctx)
+    }
+
+    /// Borrow the underlying context (e.g. to use as parent for a
+    /// child span).
+    pub fn ctx(&self) -> &opentelemetry::Context {
+        &self.0
+    }
+}
+
+impl Drop for OtelSpanGuard {
+    fn drop(&mut self) {
+        use opentelemetry::trace::TraceContextExt;
+        self.0.span().end();
+    }
 }
 
 const DEFAULT_TRANSFORMATIONS_COUNT: usize = 4;
@@ -205,6 +262,43 @@ impl Default for VideoFrameInner {
             objects: HashMap::with_capacity(DEFAULT_OBJECTS_COUNT),
             max_object_id: 0,
             misc_tracks: Vec::new(),
+            otel_stack: Vec::new(),
+        }
+    }
+}
+
+impl Clone for VideoFrameInner {
+    /// Deep-clone everything *except* the OpenTelemetry context.  A
+    /// clone is a logically distinct frame: forwarding the original's
+    /// [`OtelSpanGuard`] would double-end the span on drop, and the
+    /// cloned frame's trace decisions belong to whatever code
+    /// produced the clone (e.g. [`VideoFrame::smart_copy`]).  Set
+    /// the cloned frame's context explicitly via
+    /// [`VideoFrame::set_otel_ctx`] when a trace is desired.
+    fn clone(&self) -> Self {
+        Self {
+            previous_frame_seq_id: self.previous_frame_seq_id,
+            previous_keyframe: self.previous_keyframe,
+            source_id: self.source_id.clone(),
+            uuid: self.uuid,
+            creation_timestamp_ns: self.creation_timestamp_ns,
+            fps: self.fps,
+            width: self.width,
+            height: self.height,
+            transcoding_method: self.transcoding_method.clone(),
+            codec: self.codec,
+            keyframe: self.keyframe,
+            time_base: self.time_base,
+            pts: self.pts,
+            dts: self.dts,
+            duration: self.duration,
+            content: Arc::clone(&self.content),
+            transformations: self.transformations.clone(),
+            attributes: self.attributes.clone(),
+            objects: self.objects.clone(),
+            max_object_id: self.max_object_id,
+            misc_tracks: self.misc_tracks.clone(),
+            otel_stack: Vec::new(),
         }
     }
 }
@@ -402,13 +496,104 @@ impl VideoFrame {
         inner.exclude_all_temporary_attributes()
     }
 
-    pub(crate) fn get_object_count(&self) -> usize {
+    /// Number of objects currently attached to this frame.  Cheap
+    /// snapshot under the inner read lock.
+    pub fn get_object_count(&self) -> usize {
         let inner = trace!(self.0.read_recursive());
         inner.objects.len()
     }
 
     pub fn memory_handle(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Install the OpenTelemetry **root** context owning this
+    /// frame's trace span.  Pushes onto the frame's empty span
+    /// stack as the bottom (root) layer.  Calling this on a frame
+    /// that already has a span stack is a programming error —
+    /// producers call it once per frame.
+    ///
+    /// Mechanically equivalent to [`Self::push_otel_ctx`]; kept as
+    /// a distinct entry point so the producer-side intent ("this
+    /// frame's trace starts here") is grep-friendly.  The span
+    /// ends automatically when the last [`VideoFrame`] clone of
+    /// this logical frame is dropped (the stack is dropped with
+    /// the inner; each [`OtelSpanGuard`]'s [`Drop`] ends its span).
+    ///
+    /// Frames whose stack is empty are not traced.  Sampling is
+    /// the producer's responsibility — typically by passing
+    /// [`opentelemetry::Context::default`] (a noop context) when
+    /// the frame is not selected for tracing.  The OTel SDK
+    /// produces a noop span for a noop parent, so call sites that
+    /// always push without checking validity remain correct: noop
+    /// spans don't reach the collector.
+    pub fn set_otel_ctx(&self, ctx: opentelemetry::Context) {
+        let mut inner = trace!(self.0.write());
+        inner.otel_stack.push(OtelSpanGuard::new(ctx));
+    }
+
+    /// Push a new span context onto the frame's span stack.  The
+    /// pushed span becomes the frame's *current* context — what
+    /// [`Self::otel_ctx_clone`] returns until a matching
+    /// [`Self::pop_otel_ctx`] runs.
+    ///
+    /// Used by the framework to add layered spans (stage / callback
+    /// / framework-managed nesting) without thread-local state.
+    /// The new span typically has the previous top as its parent
+    /// — open it via
+    /// `tracer.build_with_context(builder, &frame.otel_ctx_clone())`.
+    ///
+    /// Call sites push unconditionally — when the parent isn't
+    /// traced the span constructor builds a noop span that doesn't
+    /// reach the collector, so wrapping the call in an `is_valid`
+    /// check would just be extra ceremony for no behaviour change.
+    ///
+    /// The pushed [`OtelSpanGuard`] ends the span when popped or
+    /// when the frame's last clone drops (whichever comes first).
+    pub fn push_otel_ctx(&self, ctx: opentelemetry::Context) {
+        let mut inner = trace!(self.0.write());
+        inner.otel_stack.push(OtelSpanGuard::new(ctx));
+    }
+
+    /// Pop the top span off the frame's stack and return its
+    /// [`OtelSpanGuard`].  The returned guard's [`Drop`] ends the
+    /// span — typically the caller drops it immediately.  Returns
+    /// `None` when the stack is empty.
+    ///
+    /// Pop is permissive: it pops the top regardless of which
+    /// layer (root / stage / callback) is at the top.  Calling
+    /// pop without a matching push elsewhere is a programming
+    /// error that will end someone else's span; framework code
+    /// pushes and pops in matched pairs scoped to the lifetime of
+    /// the inserting site.
+    pub fn pop_otel_ctx(&self) -> Option<OtelSpanGuard> {
+        let mut inner = trace!(self.0.write());
+        inner.otel_stack.pop()
+    }
+
+    /// Borrow the frame's *current* [`opentelemetry::Context`] (the
+    /// top of the span stack) under the inner read lock and pass it
+    /// to `f`.  Returns whatever `f` returns.
+    ///
+    /// Hooks that want to open a child span should use
+    /// [`Self::otel_ctx_clone`] instead — cloning out the `Context`
+    /// releases the lock for the duration of the user's span work.
+    pub fn with_otel_ctx<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Option<&opentelemetry::Context>) -> R,
+    {
+        let inner = trace!(self.0.read_recursive());
+        f(inner.otel_stack.last().map(|g| g.ctx()))
+    }
+
+    /// Cheap clone of the frame's *current* [`opentelemetry::Context`]
+    /// (the top of the span stack), if any.  `Context` is internally
+    /// ref-counted, so the clone is nearly free.  Cloning the
+    /// `Context` does *not* extend the span's lifetime — the span
+    /// still ends when the frame's owning [`OtelSpanGuard`] drops.
+    pub fn otel_ctx_clone(&self) -> Option<opentelemetry::Context> {
+        let inner = trace!(self.0.read_recursive());
+        inner.otel_stack.last().map(|g| g.ctx().clone())
     }
 
     /// Low-level: apply a list of bbox operations to every object in the

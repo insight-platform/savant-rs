@@ -33,6 +33,7 @@ use super::operator_sink::OperatorSink;
 use super::registry::Registry;
 use super::router::Router;
 use super::shared::SharedStore;
+use super::stage_metrics::StageMetrics;
 use super::supervisor::{StageKind, StageName};
 
 /// Construction-time context handed to every actor factory.
@@ -50,9 +51,11 @@ use super::supervisor::{StageKind, StageName};
 /// inside the actor value itself.
 pub struct BuildCtx<'a> {
     own_name: &'a StageName,
+    pipeline_name: &'a Arc<str>,
     registry: &'a Arc<Registry>,
     shared: &'a Arc<SharedStore>,
     stop_flag: &'a Arc<AtomicBool>,
+    stage_metrics: &'a Arc<StageMetrics>,
 }
 
 impl<'a> BuildCtx<'a> {
@@ -73,16 +76,28 @@ impl<'a> BuildCtx<'a> {
     /// via [`HookCtx::request_stop`].
     pub fn new(
         own_name: &'a StageName,
+        pipeline_name: &'a Arc<str>,
         registry: &'a Arc<Registry>,
         shared: &'a Arc<SharedStore>,
         stop_flag: &'a Arc<AtomicBool>,
+        stage_metrics: &'a Arc<StageMetrics>,
     ) -> Self {
         Self {
             own_name,
+            pipeline_name,
             registry,
             shared,
             stop_flag,
+            stage_metrics,
         }
+    }
+
+    /// The pipeline's identifier (set on [`System`](super::system::System)
+    /// at construction).  Carried as the `pipeline.name` attribute
+    /// on every framework-emitted span and surfaced here so user
+    /// code can include it in its own spans / logs.
+    pub fn pipeline_name(&self) -> &str {
+        self.pipeline_name
     }
 
     /// Clone out the `Arc<SharedStore>` for callers that need to
@@ -133,6 +148,7 @@ impl<'a> BuildCtx<'a> {
             self.own_name.clone(),
             self.registry.clone(),
             default_sink,
+            Arc::clone(self.stage_metrics),
         ))
     }
 
@@ -180,9 +196,11 @@ impl<'a> BuildCtx<'a> {
     pub fn hook_ctx(&self) -> HookCtx {
         HookCtx {
             own_name: self.own_name.clone(),
+            pipeline_name: Arc::clone(self.pipeline_name),
             registry: Arc::clone(self.registry),
             shared: Arc::clone(self.shared),
             stop_flag: Arc::clone(self.stop_flag),
+            stage_metrics: Arc::clone(self.stage_metrics),
         }
     }
 }
@@ -228,9 +246,11 @@ impl<'a> BuildCtx<'a> {
 #[derive(Clone)]
 pub struct HookCtx {
     own_name: StageName,
+    pipeline_name: Arc<str>,
     registry: Arc<Registry>,
     shared: Arc<SharedStore>,
     stop_flag: Arc<AtomicBool>,
+    stage_metrics: Arc<StageMetrics>,
 }
 
 impl HookCtx {
@@ -246,15 +266,19 @@ impl HookCtx {
     /// graceful exit from worker threads.
     pub fn new(
         own_name: StageName,
+        pipeline_name: Arc<str>,
         registry: Arc<Registry>,
         shared: Arc<SharedStore>,
         stop_flag: Arc<AtomicBool>,
+        stage_metrics: Arc<StageMetrics>,
     ) -> Self {
         Self {
             own_name,
+            pipeline_name,
             registry,
             shared,
             stop_flag,
+            stage_metrics,
         }
     }
 
@@ -262,6 +286,31 @@ impl HookCtx {
     pub fn own_name(&self) -> &StageName {
         &self.own_name
     }
+
+    /// The pipeline's identifier — see [`BuildCtx::pipeline_name`]
+    /// for the contract.
+    pub fn pipeline_name(&self) -> &str {
+        &self.pipeline_name
+    }
+
+    /// Borrow this stage's metrics handle.  Used by source stage
+    /// internals at frame-emission sites; not exposed in user
+    /// surface.
+    pub(crate) fn stage_metrics(&self) -> &Arc<StageMetrics> {
+        &self.stage_metrics
+    }
+
+    // `span()` / `child_span()` were removed: they relied on the
+    // thread-local `OtelContext::current()`, which is unreliable in
+    // an interleaved-execution framework (worker callbacks fire on
+    // threads that have no parent attached).  Open child spans
+    // explicitly off a frame:
+    //
+    //   use savant_perception::instrument::{open_child, SpanGuard};
+    //   let _g = SpanGuard::enter(open_child(
+    //       "user.work",
+    //       frame.otel_ctx_clone().as_ref(),
+    //   ));
 
     /// Singleton shared-state look-up.  Returns `None` if no
     /// singleton of `T` was published.
@@ -352,12 +401,20 @@ impl HookCtx {
 /// code rarely needs to touch them directly.
 pub struct Context<A: Actor> {
     own_name: StageName,
+    pipeline_name: Arc<str>,
     registry: Arc<Registry>,
     shared: Arc<SharedStore>,
     stop_flag: Arc<AtomicBool>,
     deadline: Option<Instant>,
     break_now: bool,
     tick_deadline: Option<Instant>,
+    /// This stage's metric instruments — recorded per inbound
+    /// message (`record_message`) and per handle invocation
+    /// (`record_handle_latency`) by the loop driver, plus per
+    /// downstream send (`record_frame_latency`) by the
+    /// stage's [`Router`](crate::Router).  Crate-internal: not
+    /// exposed in user-facing surface.
+    pub(crate) stage_metrics: Arc<StageMetrics>,
     _marker: PhantomData<fn() -> A>,
 }
 
@@ -377,18 +434,22 @@ impl<A: Actor> Context<A> {
     /// runtime.
     pub fn new(
         own_name: StageName,
+        pipeline_name: Arc<str>,
         registry: Arc<Registry>,
         shared: Arc<SharedStore>,
         stop_flag: Arc<AtomicBool>,
+        stage_metrics: Arc<StageMetrics>,
     ) -> Self {
         Self {
             own_name,
+            pipeline_name,
             registry,
             shared,
             stop_flag,
             deadline: None,
             break_now: false,
             tick_deadline: None,
+            stage_metrics,
             _marker: PhantomData,
         }
     }
@@ -397,6 +458,23 @@ impl<A: Actor> Context<A> {
     pub fn own_name(&self) -> &StageName {
         &self.own_name
     }
+
+    /// The pipeline's identifier — see [`BuildCtx::pipeline_name`].
+    pub fn pipeline_name(&self) -> &str {
+        &self.pipeline_name
+    }
+
+    // `span()` / `child_span()` were removed: they relied on the
+    // thread-local `OtelContext::current()`, which is unreliable
+    // in this interleaved-execution framework (worker callbacks
+    // fire on threads that have no parent attached).  Open child
+    // spans explicitly off the frame:
+    //
+    //   use savant_perception::instrument::{open_child, SpanGuard};
+    //   let _g = SpanGuard::enter(open_child(
+    //       "user.work",
+    //       frame.otel_ctx_clone().as_ref(),
+    //   ));
 
     /// Resolve the [`Addr<M>`] registered under `peer` at runtime.
     ///
@@ -426,6 +504,7 @@ impl<A: Actor> Context<A> {
             self.own_name.clone(),
             self.registry.clone(),
             default_sink,
+            Arc::clone(&self.stage_metrics),
         ))
     }
 
@@ -558,9 +637,11 @@ impl<A: Actor> Context<A> {
 /// the hot path, etc.).
 pub struct SourceContext {
     own_name: StageName,
+    pipeline_name: Arc<str>,
     registry: Arc<Registry>,
     shared: Arc<SharedStore>,
     stop_flag: Arc<AtomicBool>,
+    stage_metrics: Arc<StageMetrics>,
 }
 
 impl SourceContext {
@@ -575,15 +656,19 @@ impl SourceContext {
     /// drive a [`Source`] from a custom runtime.
     pub fn new(
         own_name: StageName,
+        pipeline_name: Arc<str>,
         registry: Arc<Registry>,
         shared: Arc<SharedStore>,
         stop_flag: Arc<AtomicBool>,
+        stage_metrics: Arc<StageMetrics>,
     ) -> Self {
         Self {
             own_name,
+            pipeline_name,
             registry,
             shared,
             stop_flag,
+            stage_metrics,
         }
     }
 
@@ -591,6 +676,16 @@ impl SourceContext {
     pub fn own_name(&self) -> &StageName {
         &self.own_name
     }
+
+    /// The pipeline's identifier — see [`BuildCtx::pipeline_name`].
+    pub fn pipeline_name(&self) -> &str {
+        &self.pipeline_name
+    }
+
+    // `span()` / `child_span()` were removed — see the same note
+    // on `Context<A>` (above).  Use
+    // `instrument::open_child(name, &parent)` with an explicit
+    // parent (typically `frame.otel_ctx_clone()`).
 
     /// Resolve the [`Addr<M>`] registered under `peer`.
     pub fn resolve<M: Envelope>(&self, peer: &StageName) -> Result<Addr<M>> {
@@ -616,6 +711,7 @@ impl SourceContext {
             self.own_name.clone(),
             self.registry.clone(),
             default_sink,
+            Arc::clone(&self.stage_metrics),
         ))
     }
 
@@ -651,9 +747,11 @@ impl SourceContext {
     pub fn hook_ctx(&self) -> HookCtx {
         HookCtx {
             own_name: self.own_name.clone(),
+            pipeline_name: Arc::clone(&self.pipeline_name),
             registry: Arc::clone(&self.registry),
             shared: Arc::clone(&self.shared),
             stop_flag: Arc::clone(&self.stop_flag),
+            stage_metrics: Arc::clone(&self.stage_metrics),
         }
     }
 }
@@ -681,12 +779,22 @@ mod tests {
         }
     }
 
+    fn pipeline() -> Arc<str> {
+        Arc::<str>::from("test-pipeline")
+    }
+
+    fn test_metrics(name: &str) -> Arc<crate::stage_metrics::StageMetrics> {
+        crate::stage_metrics::StageMetrics::new(name)
+    }
+
     fn ctx() -> Context<DummyActor> {
         Context::new(
             StageName::unnamed(StageKind::Infer),
+            pipeline(),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            test_metrics("test"),
         )
     }
 
@@ -741,7 +849,9 @@ mod tests {
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(AtomicBool::new(false));
         let self_name = StageName::unnamed(StageKind::Tracker);
-        let bx = BuildCtx::new(&self_name, &reg, &shared, &stop_flag);
+        let pn = pipeline();
+        let sm = test_metrics("test");
+        let bx = BuildCtx::new(&self_name, &pn, &reg, &shared, &stop_flag, &sm);
         let a: Addr<DummyEnv> = bx.addr(&name).unwrap();
         assert_eq!(a.name(), &name);
         assert!(bx
@@ -768,7 +878,9 @@ mod tests {
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(AtomicBool::new(false));
         let self_name = StageName::unnamed(StageKind::Infer);
-        let bx = BuildCtx::new(&self_name, &reg, &shared, &stop_flag);
+        let pn = pipeline();
+        let sm = test_metrics("test");
+        let bx = BuildCtx::new(&self_name, &pn, &reg, &shared, &stop_flag, &sm);
 
         let router = bx.router::<DummyEnv>(Some(&default_name)).unwrap();
         assert_eq!(router.default_peer(), Some(&default_name));
@@ -786,9 +898,11 @@ mod tests {
     fn source_context_stop_flag_round_trip() {
         let sc = SourceContext::new(
             StageName::unnamed(StageKind::BitstreamSource),
+            pipeline(),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            test_metrics("source-test"),
         );
         assert!(!sc.is_stopping());
         sc.stop_flag().store(true, Ordering::Relaxed);
@@ -800,9 +914,11 @@ mod tests {
         let stop_flag = Arc::new(AtomicBool::new(false));
         let hc = HookCtx::new(
             StageName::unnamed(StageKind::Infer),
+            pipeline(),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::clone(&stop_flag),
+            test_metrics("hook-test"),
         );
         assert!(!hc.stop_requested());
         assert!(!stop_flag.load(Ordering::Relaxed));
@@ -817,15 +933,19 @@ mod tests {
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(AtomicBool::new(false));
         let name = StageName::unnamed(StageKind::Infer);
-        let bx = BuildCtx::new(&name, &reg, &shared, &stop_flag);
+        let pn = pipeline();
+        let sm = test_metrics("test");
+        let bx = BuildCtx::new(&name, &pn, &reg, &shared, &stop_flag, &sm);
         let hc = bx.hook_ctx();
         // Simulate the actor loop's runtime Context consuming the
         // same stop flag.
         let actor_ctx: Context<DummyActor> = Context::new(
             name.clone(),
+            Arc::clone(&pn),
             Arc::clone(&reg),
             Arc::clone(&shared),
             Arc::clone(&stop_flag),
+            test_metrics("hook-ctx-test"),
         );
         assert!(!actor_ctx.should_quit());
         // Off-thread hook flips the flag; the actor loop
@@ -839,9 +959,11 @@ mod tests {
     fn hook_ctx_from_source_context_shares_stop_flag() {
         let sc = SourceContext::new(
             StageName::unnamed(StageKind::BitstreamSource),
+            pipeline(),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            test_metrics("source-test"),
         );
         let hc = sc.hook_ctx();
         assert!(!sc.is_stopping());

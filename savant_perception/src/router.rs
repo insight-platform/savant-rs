@@ -44,6 +44,7 @@ use anyhow::Result;
 use super::envelope::Envelope;
 use super::operator_sink::OperatorSink;
 use super::registry::Registry;
+use super::stage_metrics::{monotonic_ns, StageMetrics};
 use super::supervisor::StageName;
 
 struct RouterInner<M: Envelope> {
@@ -56,6 +57,14 @@ struct RouterInner<M: Envelope> {
     /// silently.  Mirrors the abort flag on [`OperatorSink`] so the
     /// callback thread never spams logs.
     warned_missing_default: AtomicBool,
+    /// Owner stage's [`StageMetrics`] handle.  Each
+    /// [`Router::send`] / [`Router::send_to`] calls
+    /// [`Envelope::take_stage_latencies`] on the outbound message
+    /// and feeds each duration into
+    /// [`StageMetrics::record_frame_latency`] — closes the
+    /// per-frame ingress→egress timing window opened by the loop
+    /// driver on the inbound side.
+    stage_metrics: Arc<StageMetrics>,
 }
 
 /// Name-routed send handle.  See module docs for the full contract.
@@ -63,21 +72,28 @@ pub struct Router<M: Envelope>(Arc<RouterInner<M>>);
 
 impl<M: Envelope> Router<M> {
     /// Construct a router owned by `owner` that draws on `registry`
-    /// for name resolution.  `default` is the optional pre-bound
-    /// sink used by [`send`](Router::send).
+    /// for name resolution and records per-frame egress latency on
+    /// the owning stage's `stage_metrics` handle.  `default` is the
+    /// optional pre-bound sink used by [`send`](Router::send).
     ///
     /// First-party pipeline code should obtain routers via
     /// [`BuildCtx::router`](super::context::BuildCtx::router),
     /// [`Context::router`](super::context::Context::router), or
-    /// [`SourceContext::router`](super::context::SourceContext::router).
+    /// [`SourceContext::router`](super::context::SourceContext::router)
+    /// — those threads use the stage's pre-allocated `StageMetrics`
+    /// so per-frame ingress→egress latency tracking lights up
+    /// without any user wiring.
     ///
     /// Public so that 3rd-party crates can construct routers in
     /// their own unit tests or in custom runtimes that don't go
-    /// through [`System`](super::system::System).
+    /// through [`System`](super::system::System); pass any
+    /// `Arc<StageMetrics>` (e.g. `StageMetrics::new("test")` for
+    /// unit tests).
     pub fn new(
         owner: StageName,
         registry: Arc<Registry>,
         default: Option<OperatorSink<M>>,
+        stage_metrics: Arc<StageMetrics>,
     ) -> Self {
         Self(Arc::new(RouterInner {
             owner,
@@ -85,6 +101,7 @@ impl<M: Envelope> Router<M> {
             default,
             cache: Mutex::new(HashMap::new()),
             warned_missing_default: AtomicBool::new(false),
+            stage_metrics,
         }))
     }
 
@@ -111,7 +128,13 @@ impl<M: Envelope> Router<M> {
     ///   before the latch flips);
     /// * the default peer's inbox is closed or has already been
     ///   flagged as aborted (see [`OperatorSink::send`]).
+    ///
+    /// Trace context propagation between stages happens through the
+    /// frame's [`OtelSpanGuard`](savant_core::primitives::frame::OtelSpanGuard),
+    /// not through the envelope or the router — there is nothing to
+    /// inject here.
     pub fn send(&self, msg: M) -> bool {
+        self.record_egress(&msg);
         match self.0.default.as_ref() {
             Some(sink) => sink.send(msg),
             None => {
@@ -141,8 +164,25 @@ impl<M: Envelope> Router<M> {
     /// * `Err(_)`    — `peer` is not registered, or the registered
     ///   entry has a different envelope type than `M`.
     pub fn send_to(&self, peer: &StageName, msg: M) -> Result<bool> {
+        self.record_egress(&msg);
         let sink = self.resolve(peer)?;
         Ok(sink.send(msg))
+    }
+
+    /// Close the per-frame ingress→egress timing window for every
+    /// frame the envelope carries.  Reads the ingress markers
+    /// stamped by the loop driver as temporary
+    /// [`STAGE_INGRESS_NS`](crate::envelope::STAGE_INGRESS_NS)
+    /// attributes, removes them from the frames, and records the
+    /// resulting `t_out − t_in` durations into the stage's
+    /// frame-latency stream.  No-op when no [`StageMetrics`] is
+    /// wired (hand-built test routers) or when the message
+    /// carries no frames (sentinel envelopes).
+    fn record_egress(&self, msg: &M) {
+        let stage = self.0.owner.to_string();
+        for dur in msg.take_stage_latencies(&stage, monotonic_ns()) {
+            self.0.stage_metrics.record_frame_latency(dur);
+        }
     }
 
     /// Resolve (or reuse) the cached [`OperatorSink<M>`] for `peer`.
@@ -232,6 +272,10 @@ mod tests {
         StageName::unnamed(StageKind::Infer)
     }
 
+    fn test_metrics() -> Arc<StageMetrics> {
+        StageMetrics::new("router-test")
+    }
+
     fn register<M: Envelope>(
         reg: &mut Registry,
         name: StageName,
@@ -248,7 +292,7 @@ mod tests {
         let (tracker, rx) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Tracker), 2);
         let addr: Addr<MsgA> = reg.get::<MsgA>(&tracker).unwrap();
         let default = OperatorSink::new(owner_name(), addr);
-        let r = Router::new(owner_name(), Arc::new(reg), Some(default));
+        let r = Router::new(owner_name(), Arc::new(reg), Some(default), test_metrics());
         assert!(r.has_default());
         assert_eq!(r.default_peer(), Some(&tracker));
         assert!(r.send(MsgA(1)));
@@ -258,7 +302,7 @@ mod tests {
     #[test]
     fn send_without_default_warns_once_and_returns_false() {
         let reg = Registry::new();
-        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
+        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None, test_metrics());
         assert!(!r.has_default());
         assert!(!r.send(MsgA(1)));
         assert!(!r.send(MsgA(2)), "subsequent sends also return false");
@@ -274,7 +318,7 @@ mod tests {
         let (picasso, rx1) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Render), 2);
         let (blackhole, rx2) =
             register::<MsgA>(&mut reg, StageName::unnamed(StageKind::DeepStreamFunction), 2);
-        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
+        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None, test_metrics());
 
         assert!(r.send_to(&picasso, MsgA(1)).unwrap());
         assert_eq!(rx1.try_recv().unwrap(), MsgA(1));
@@ -299,7 +343,7 @@ mod tests {
     #[test]
     fn send_to_unknown_peer_errors() {
         let reg = Registry::new();
-        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
+        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None, test_metrics());
         let err = r
             .send_to(&StageName::unnamed(StageKind::Render), MsgA(1))
             .unwrap_err();
@@ -310,7 +354,7 @@ mod tests {
     fn send_to_wrong_envelope_type_errors() {
         let mut reg = Registry::new();
         let (name, _rx) = register::<MsgB>(&mut reg, StageName::unnamed(StageKind::Render), 1);
-        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
+        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None, test_metrics());
         let err = r.send_to(&name, MsgA(1)).unwrap_err();
         assert!(err.to_string().contains("different message type"));
     }
@@ -321,7 +365,7 @@ mod tests {
         let (tracker, rx) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Tracker), 2);
         let addr: Addr<MsgA> = reg.get::<MsgA>(&tracker).unwrap();
         let default = OperatorSink::new(owner_name(), addr);
-        let r = Router::new(owner_name(), Arc::new(reg), Some(default));
+        let r = Router::new(owner_name(), Arc::new(reg), Some(default), test_metrics());
         let r2 = r.clone();
 
         drop(rx);
@@ -336,7 +380,7 @@ mod tests {
     fn clone_shares_resolved_cache() {
         let mut reg = Registry::new();
         let (picasso, rx) = register::<MsgA>(&mut reg, StageName::unnamed(StageKind::Render), 2);
-        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None);
+        let r: Router<MsgA> = Router::new(owner_name(), Arc::new(reg), None, test_metrics());
         let r2 = r.clone();
 
         r.send_to(&picasso, MsgA(1)).unwrap();

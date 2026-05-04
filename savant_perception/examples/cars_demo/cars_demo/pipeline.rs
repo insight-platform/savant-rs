@@ -66,13 +66,12 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ::picasso::GeneralSpec;
 use anyhow::{anyhow, bail, Context, Result};
 use deepstream_buffers::cuda_init;
 use deepstream_buffers::sealed::Sealed;
-use savant_core::pipeline::stats::{StageStats, Stats};
 use savant_core::primitives::frame::VideoFrameContent;
 use savant_core::transport::zeromq::{ReaderConfig, WriterConfig};
 use savant_core::utils::release_seal::ReleaseSeal;
@@ -90,7 +89,7 @@ use self::tracker::{
     build_batch_formation as build_tracker_batch_formation, build_tracker_config,
     process_tracker_output, TrackerStats,
 };
-use crate::cars_demo::stats::{make_stage, stage_frames, stage_objects, tick_stage, PipelineStats};
+use crate::cars_demo::stats::PipelineStats;
 use crate::cars_demo::warmup::prepare_nvinfer_operator;
 use crate::cli::{InputSource, ResolvedCli};
 use savant_perception::envelopes::{EncodedMsg, PipelineMsg};
@@ -116,8 +115,6 @@ const SOURCE_ID: &str = "cars-demo";
 /// readable when the pipeline idles between input streams; the final
 /// stats are always emitted on shutdown regardless of the period.
 pub const DEFAULT_STATS_PERIOD_SECS: u64 = 30;
-/// Retained history length for [`Stats`].
-const STATS_HISTORY_LEN: usize = 100;
 
 /// Pipeline head — the input source.
 ///
@@ -240,20 +237,6 @@ pub enum ShutdownPolicy {
     /// Only Ctrl+C triggers shutdown.
     CtrlCOnly,
 }
-
-// ── Shared-state role keys ──────────────────────────────────────────────
-//
-// Stage-role names used as [`SharedStore`] keys for the per-stage
-// [`StageStats`] handles.  Looked up from egress hooks via
-// `HookCtx::shared_as::<StageStats>(role)` — the demo's whole
-// point is to show that hook bodies don't need any per-closure
-// state capture beyond the framework's shared-state lookup.
-const ROLE_DECODER: &str = "decoder";
-const ROLE_INFER: &str = "infer";
-const ROLE_TRACKER: &str = "track";
-const ROLE_SORTER: &str = "sorter";
-const ROLE_TAIL: &str = "tail";
-const ROLE_PICASSO: &str = "picasso";
 
 /// Run the cars-tracking pipeline end-to-end (legacy `cars-demo`
 /// entry point).  Blocks until the input MP4 is fully processed and
@@ -412,45 +395,25 @@ pub fn run_pipeline(
     );
 
     // ── Shared state ────────────────────────────────────────────────────
+    //
+    // Per-stage frame / object / batch counters are tracked
+    // automatically by the framework: every `register_actor` slot
+    // gets a `StageStats` registered with `System`'s built-in
+    // `Stats` collector, and the loop driver bumps the counters
+    // on every inbound frame-bearing envelope.  No manual
+    // `make_stage` / `tick_stage` / `core_stats.kick_off` /
+    // `log_final_fps` work needed here.  See
+    // [`System::stats_period`] for the period knob (configured
+    // below via `.stats_period(None, Some(stats_period_ms))`).
+    //
+    // [`PipelineStats`] still carries the demo-specific atomics
+    // that don't map onto a per-stage counter:
+    //
+    // * `demux_packets` — bumped from the demuxer's `on_packet`
+    //   hook (sources don't get an auto `StageStats`).
+    // * `encoded_bytes` — bumped from the tail's `on_encoded_frame`
+    //   hook (the framework counts frames, not their byte sizes).
     let stats = PipelineStats::new();
-    let core_stats = Arc::new(Stats::new(
-        STATS_HISTORY_LEN,
-        None,
-        Some(knobs.stats_period_ms),
-    ));
-    let decoder_stage = make_stage("decoder");
-    let infer_stage = make_stage("infer");
-    let track_stage = make_stage("track");
-    // Sorter sits between the tracker and the tail (or between
-    // the tracker and picasso when picasso is enabled).  Always
-    // present in this demo regardless of `picasso_enabled`, so the
-    // stage handle is unconditional — the 📊 line includes a
-    // `sorter` row alongside every other actor stage.  Tick site
-    // is the `SorterResults::on_message` hook below.
-    let sorter_stage = make_stage("sorter");
-    let tail_stage_name = match &tail {
-        PipelineTail::Mp4Mux { .. } => "encode",
-        PipelineTail::Bitstream => "bitstream",
-        PipelineTail::Function => "function",
-        PipelineTail::Zmq { .. } => "zmq_sink",
-    };
-    let tail_stage = make_stage(tail_stage_name);
-    // Picasso lives between the sorter and the tail when it is
-    // enabled; we register a dedicated `picasso` `StageStats` so the
-    // 📊 line shows whether the encoder is actually receiving frames.
-    // The tick site is the `PicassoInbox::on_delivery` hook below — we
-    // intentionally do **not** also bump `core.register_frame(...)`
-    // there, that aggregator is owned by the tail.
-    let picasso_stage = knobs.picasso_enabled.then(|| make_stage("picasso"));
-    core_stats.add_stage_stats(decoder_stage.clone());
-    core_stats.add_stage_stats(infer_stage.clone());
-    core_stats.add_stage_stats(track_stage.clone());
-    core_stats.add_stage_stats(sorter_stage.clone());
-    if let Some(s) = picasso_stage.as_ref() {
-        core_stats.add_stage_stats(s.clone());
-    }
-    core_stats.add_stage_stats(tail_stage.clone());
-
     let infer_stats = Arc::new(InferStats::new());
     let tracker_stats = Arc::new(TrackerStats::new());
 
@@ -465,8 +428,8 @@ pub fn run_pipeline(
         | PipelineHead::Zmq { .. } => StageName::unnamed(StageKind::BitstreamSource),
     };
     let decoder_name = StageName::unnamed(StageKind::Decoder);
-    let infer_name = StageName::unnamed(StageKind::Infer);
-    let tracker_name = StageName::unnamed(StageKind::Tracker);
+    let infer_name = StageName::new(StageKind::Infer, "yolo");
+    let tracker_name = StageName::new(StageKind::Tracker, "nvdcf");
     let sorter_name = StageName::unnamed(StageKind::Sorter);
     let picasso_name = StageName::unnamed(StageKind::Render);
     // Tail-actor name is selected from the chosen tail variant so
@@ -496,30 +459,23 @@ pub fn run_pipeline(
     // serves both `cars-demo` (terminus exit broadcasts) and
     // `cars-demo-zmq pipeline` (only Ctrl+C broadcasts; the
     // pipeline runs forever otherwise).
-    let mut sys = System::new().on_shutdown(match shutdown_policy {
-        ShutdownPolicy::TerminusBroadcast => cars_shutdown_handler,
-        ShutdownPolicy::CtrlCOnly => ctrlc_only_shutdown_handler,
-    });
+    let mut sys = System::new()
+        .stats_period(Duration::from_millis(knobs.stats_period_ms.max(0) as u64))
+        .on_shutdown(match shutdown_policy {
+            ShutdownPolicy::TerminusBroadcast => cars_shutdown_handler,
+            ShutdownPolicy::CtrlCOnly => ctrlc_only_shutdown_handler,
+        });
 
     // ── Publish shared state ────────────────────────────────────────────
     //
-    // The demo hooks consume these handles via
-    // [`HookCtx::shared`] / [`HookCtx::shared_as`] instead of
-    // capturing them by closure — showcasing the framework's
-    // [`SharedStore`] as the canonical hand-off point for
-    // cross-stage counters in end-user pipelines.
+    // Demo-specific aggregates (`PipelineStats`, `InferStats`,
+    // `TrackerStats`) are still hand-published — they're the bits
+    // the framework can't infer.  Per-stage `StageStats` and the
+    // system-wide `Stats` are now owned by `System` itself and
+    // need no shared-store wiring.
     sys.insert_shared_arc::<PipelineStats>(stats.clone());
-    sys.insert_shared_arc::<Stats>(core_stats.clone());
     sys.insert_shared_arc::<InferStats>(infer_stats.clone());
     sys.insert_shared_arc::<TrackerStats>(tracker_stats.clone());
-    sys.insert_shared_as::<StageStats>(ROLE_DECODER, decoder_stage.clone());
-    sys.insert_shared_as::<StageStats>(ROLE_INFER, infer_stage.clone());
-    sys.insert_shared_as::<StageStats>(ROLE_TRACKER, track_stage.clone());
-    sys.insert_shared_as::<StageStats>(ROLE_SORTER, sorter_stage.clone());
-    sys.insert_shared_as::<StageStats>(ROLE_TAIL, tail_stage.clone());
-    if let Some(s) = picasso_stage.as_ref() {
-        sys.insert_shared_as::<StageStats>(ROLE_PICASSO, s.clone());
-    }
 
     // ── Source / head ───────────────────────────────────────────────────
     //
@@ -549,10 +505,7 @@ pub fn run_pipeline(
                                 stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                             }
                             let frame = make_decode_frame(source_id, &pkt, info);
-                            router.send(EncodedMsg::Frame {
-                                frame,
-                                payload: Some(pkt.data),
-                            });
+                            router.send(EncodedMsg::frame(frame, Some(pkt.data)));
                             Ok(())
                         })
                         .build(),
@@ -576,10 +529,7 @@ pub fn run_pipeline(
                                 stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                             }
                             let frame = make_decode_frame(source_id, &pkt, info);
-                            router.send(EncodedMsg::Frame {
-                                frame,
-                                payload: Some(pkt.data),
-                            });
+                            router.send(EncodedMsg::frame(frame, Some(pkt.data)));
                             Ok(())
                         })
                         .build(),
@@ -646,12 +596,10 @@ pub fn run_pipeline(
                         }
                         // Forward the sealed delivery to the
                         // route's first stage (infer = default
-                        // peer).
-                        if router.send(PipelineMsg::Delivery(sealed)) {
-                            if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_DECODER) {
-                                tick_stage(&stage, 1, 0);
-                            }
-                        }
+                        // peer).  Per-stage frame / object counters
+                        // are bumped automatically by the framework
+                        // on each downstream actor's loop driver.
+                        let _ = router.send(PipelineMsg::delivery(sealed));
                     }
                 })
                 .on_source_eos({
@@ -671,9 +619,7 @@ pub fn run_pipeline(
                         // depend on observing the sentinel
                         // directly, so it must continue to emit it
                         // even after registering with the sorter.
-                        if !router.send(PipelineMsg::SourceEos {
-                            source_id: source_id.to_string(),
-                        }) {
+                        if !router.send(PipelineMsg::source_eos(source_id)) {
                             log::warn!("[{}] downstream closed; dropping SourceEos({source_id})", ctx.own_name());
                         }
                         Ok(Flow::Cont)
@@ -697,9 +643,10 @@ pub fn run_pipeline(
     let gpu = knobs.gpu;
     let infer = NvInfer::builder(infer_name.clone(), knobs.channel_cap)
         .downstream(tracker_name.clone())
-        .operator_factory(move |_bx, result_cb| {
+        .batch_formation(infer_batch_cb)
+        .operator_factory(move |_bx, batch_formation, result_cb| {
             let (op, _elapsed) =
-                prepare_nvinfer_operator(gpu, infer_cfg, infer_batch_cb, result_cb)?;
+                prepare_nvinfer_operator(gpu, infer_cfg, batch_formation, result_cb)?;
             Ok(op)
         })
         // Only the Inference branch needs sample-specific code — YOLO
@@ -719,32 +666,34 @@ pub fn run_pipeline(
                         let infer_stats = ctx.shared::<InferStats>();
                         let det_before = infer_stats.as_ref().map(|s| s.detections()).unwrap_or(0);
                         // Pure transform: decode tensors, attach
-                        // detections, tick `InferStats`.  No I/O
-                        // inside the processor.
+                        // detections, tick `InferStats`.  Wraps the
+                        // postprocessing in a user-space tracing span
+                        // and records per-class object counts as OTel
+                        // attributes — see `process_infer_output` for
+                        // the instrumentation pattern.  No I/O inside
+                        // the processor.
                         let sealed = process_infer_output(
                             inf,
                             converter.as_ref(),
                             infer_stats.as_deref(),
-                            ctx.own_name(),
+                            ctx,
                         );
                         // Routing decision lives here — the hook
-                        // body is the single send site.
+                        // body is the single send site.  Per-stage
+                        // frame / object counters are auto-tracked
+                        // by the framework on the receiving
+                        // tracker actor's loop driver, so no manual
+                        // tick site here.  Sample-specific
+                        // detection bookkeeping (cumulative
+                        // detections produced by this stage) stays
+                        // in [`InferStats`].
+                        let _ = det_before;
+                        let _ = frame_count;
                         if let Some(sealed) = sealed {
-                            if !router.send(PipelineMsg::Deliveries(sealed)) {
+                            if !router.send(PipelineMsg::deliveries(sealed)) {
                                 log::warn!(
                                     "[{}] result receiver closed; dropping sealed batch",
                                     ctx.own_name()
-                                );
-                            }
-                        }
-                        if frame_count > 0 {
-                            let det_after =
-                                infer_stats.as_ref().map(|s| s.detections()).unwrap_or(0);
-                            if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_INFER) {
-                                tick_stage(
-                                    &stage,
-                                    frame_count as usize,
-                                    det_after.saturating_sub(det_before) as usize,
                                 );
                             }
                         }
@@ -771,13 +720,14 @@ pub fn run_pipeline(
     let tracker_cfg = build_tracker_config(knobs.gpu)?;
     let tracker_batch_cb = build_tracker_batch_formation();
     let tracker = NvTracker::builder(tracker_name.clone(), knobs.channel_cap)
-        .operator_factory(move |_bx, result_cb| {
+        .batch_formation(tracker_batch_cb)
+        .operator_factory(move |_bx, batch_formation, result_cb| {
             // NvDCF comes up in well under a second, so no heartbeat
             // wrapper is warranted here — unlike the nvinfer path,
             // which may spend minutes rebuilding the TensorRT plan.
             deepstream_nvtracker::NvTrackerBatchingOperator::new(
                 tracker_cfg,
-                tracker_batch_cb,
+                batch_formation,
                 result_cb,
             )
             .map_err(|e| anyhow::anyhow!("build NvTrackerBatchingOperator: {e}"))
@@ -817,7 +767,7 @@ pub fn run_pipeline(
                         // sorter dissolves the batch and forwards
                         // each frame in registration order.
                         if let Some(sealed) = sealed {
-                            let msg = PipelineMsg::Deliveries(sealed);
+                            let msg = PipelineMsg::deliveries(sealed);
                             if !router.send_to(&sorter_peer, msg).unwrap_or(false) {
                                 log::warn!(
                                     "[{}] sorter closed; dropping sealed batch",
@@ -825,11 +775,10 @@ pub fn run_pipeline(
                                 );
                             }
                         }
-                        if frame_count > 0 {
-                            if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_TRACKER) {
-                                tick_stage(&stage, frame_count as usize, 0);
-                            }
-                        }
+                        // Per-stage tracker counters auto-tracked
+                        // by the framework on the next stage's
+                        // loop driver.
+                        let _ = frame_count;
                     }
                 })
                 .on_source_eos({
@@ -853,9 +802,7 @@ pub fn run_pipeline(
                         // per-source EOS contract is driven by the
                         // [`Sorter::register_eos`] entries the
                         // *decoder* emits via `MessageEx`.
-                        let msg = PipelineMsg::SourceEos {
-                            source_id: source_id.to_string(),
-                        };
+                        let msg = PipelineMsg::source_eos(source_id);
                         if !router.send_to(&sorter_peer, msg).unwrap_or(false) {
                             log::warn!("downstream closed; dropping SourceEos({source_id})");
                         }
@@ -899,11 +846,7 @@ pub fn run_pipeline(
                     let seal = Arc::new(ReleaseSeal::new());
                     let sealed = Sealed::new((frame, buffer), Arc::clone(&seal));
                     seal.release();
-                    if router.send(PipelineMsg::Delivery(sealed)) {
-                        if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_SORTER) {
-                            tick_stage(&stage, 1, 0);
-                        }
-                    } else {
+                    if !router.send(PipelineMsg::delivery(sealed)) {
                         log::warn!(
                             "[{}] downstream closed; dropping ordered frame",
                             ctx.own_name()
@@ -953,17 +896,10 @@ pub fn run_pipeline(
                                     log::warn!("attach_frame_id_overlay failed: {e}");
                                 }
                             }
-                            // Per-stage 📊 counter — bump once per frame
-                            // delivered into Picasso (i.e. per pair),
-                            // matching how decoder/infer/track tick on
-                            // their own egress hooks.  The tail stage's
-                            // tick happens later inside
-                            // `on_encoded_frame`, so picasso ≠ tail
-                            // in the stats lines (frames in = picasso,
-                            // frames out = tail).
-                            if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_PICASSO) {
-                                tick_stage(&stage, 1, 0);
-                            }
+                            // Per-stage 📊 counter is bumped
+                            // automatically by the framework on
+                            // Picasso's loop driver.
+                            let _ = ctx;
                             Ok(())
                         }
                     })
@@ -983,12 +919,9 @@ pub fn run_pipeline(
                                 return;
                             }
                         };
-                        if let Some(stage) = ctx.shared_as::<StageStats>(ROLE_TAIL) {
-                            tick_stage(&stage, 1, 0);
-                        }
-                        if let Some(core) = ctx.shared::<Stats>() {
-                            core.register_frame(0);
-                        }
+                        // Sample-specific encoded-byte counter; the
+                        // framework's per-stage frame counter is
+                        // auto-bumped on the tail actor's loop.
                         if let Some(stats) = ctx.shared::<PipelineStats>() {
                             stats
                                 .encoded_bytes
@@ -1000,10 +933,7 @@ pub fn run_pipeline(
                             frame.get_source_id(),
                             frame.get_pts(),
                         );
-                        let _ = router.send(EncodedMsg::Frame {
-                            frame,
-                            payload: None,
-                        });
+                        let _ = router.send(EncodedMsg::frame(frame, None));
                     })
                     .on_encoded_source_eos(|ctx, router, eos| {
                         log::info!(
@@ -1011,9 +941,7 @@ pub fn run_pipeline(
                             ctx.own_name(),
                             eos.source_id
                         );
-                        let _ = router.send(EncodedMsg::SourceEos {
-                            source_id: eos.source_id,
-                        });
+                        let _ = router.send(EncodedMsg::source_eos(eos.source_id));
                     })
                     .build(),
             )
@@ -1139,15 +1067,10 @@ pub fn run_pipeline(
         let function = DeepStreamFunction::builder(function_name.clone(), knobs.channel_cap)
             .inbox(
                 DeepStreamFunctionInbox::builder()
-                    .on_delivery(|ctx, _router, _frame, _buffer| {
-                        let tail = ctx.shared_as::<StageStats>(ROLE_TAIL);
-                        let core = ctx.shared::<Stats>();
-                        if let Some(stage) = tail.as_deref() {
-                            tick_stage(stage, 1, 0);
-                        }
-                        if let Some(core) = core.as_deref() {
-                            core.register_frame(0);
-                        }
+                    .on_delivery(|_ctx, _router, _frame, _buffer| {
+                        // Per-stage frame / object counts are
+                        // auto-tracked by the framework on this
+                        // actor's loop driver — no manual ticks.
                         Ok(())
                     })
                     .on_source_eos(move |ctx, _router, source_id| {
@@ -1171,36 +1094,26 @@ pub fn run_pipeline(
         sys.register_actor(function)?;
     }
 
-    // ── Kick off FPS reporter + run ─────────────────────────────────────
-    core_stats.kick_off();
+    // ── Run ────────────────────────────────────────────────────────────
+    //
+    // The framework owns the system-wide `Stats` lifecycle:
+    // kick_off fires automatically inside `System::run`, periodic
+    // 📊 reports go through the configured `stats_period`, and a
+    // closing `log_final_fps` runs on shutdown.  Sample-level
+    // wrap-up below logs the demo-specific aggregates the
+    // framework can't infer (encoded bytes, tracker
+    // unique-track / unmatched-update counts, etc.).
     let pipeline_t0 = Instant::now();
 
     let report = sys.run()?;
 
-    // ── Summary ─────────────────────────────────────────────────────────
-    core_stats.log_final_fps();
-
     let pipeline_elapsed = pipeline_t0.elapsed();
-    let tail_frames = stage_frames(&tail_stage);
-    let pipeline_fps = if pipeline_elapsed.as_secs_f64() > 0.0 {
-        tail_frames as f64 / pipeline_elapsed.as_secs_f64()
-    } else {
-        0.0
-    };
     log::info!(
-        "cars-demo done: pipeline_runtime={:.2}s avg_fps={:.1} demux_packets={} decoded={} infer_frames={} detections={} track_frames={} unique_tracks={} unmatched_updates={} sorter_frames={} {}={} bytes={}",
+        "cars-demo done: pipeline_runtime={:.2}s demux_packets={} unique_tracks={} unmatched_updates={} bytes={}",
         pipeline_elapsed.as_secs_f64(),
-        pipeline_fps,
         stats.demux_packets.load(Ordering::Relaxed),
-        stage_frames(&decoder_stage),
-        stage_frames(&infer_stage),
-        stage_objects(&infer_stage),
-        stage_frames(&track_stage),
         tracker_stats.unique_tracks(),
         tracker_stats.unmatched_updates(),
-        stage_frames(&sorter_stage),
-        tail_stage_name,
-        tail_frames,
         stats.encoded_bytes.load(Ordering::Relaxed),
     );
     log::debug!(
@@ -1208,7 +1121,6 @@ pub fn run_pipeline(
         infer_stats.frames(),
         infer_stats.detections()
     );
-    drop(core_stats);
 
     report.into_result()
 }

@@ -134,6 +134,7 @@ pub use deepstream_decoders::DecoderError;
 pub use deepstream_inputs::flexible_decoder::DecodedFrame;
 
 use crate::envelopes::{EncodedMsg, FramePayload, PacketPayload, PipelineMsg, StreamInfoPayload};
+use crate::instrument::enter_callback_span;
 use crate::router::Router;
 use crate::supervisor::StageName;
 use crate::{
@@ -346,7 +347,7 @@ impl Decoder {
     pub fn default_on_frame(
     ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, SealedDelivery) + Send + Sync + 'static {
         |_ctx, router, sealed| {
-            if !router.send(PipelineMsg::Delivery(sealed)) {
+            if !router.send(PipelineMsg::delivery(sealed)) {
                 log::warn!("decoder downstream closed; dropped a Delivery");
             }
         }
@@ -362,9 +363,7 @@ impl Decoder {
     pub fn default_on_source_eos(
     ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static {
         |_ctx, router, source_id| {
-            if !router.send(PipelineMsg::SourceEos {
-                source_id: source_id.to_string(),
-            }) {
+            if !router.send(PipelineMsg::source_eos(source_id)) {
                 log::warn!("decoder downstream closed; dropping SourceEos({source_id})");
             }
             Ok(Flow::Cont)
@@ -522,6 +521,7 @@ impl Handler<StreamInfoPayload> for Decoder {
             msg.info.framerate_num,
             msg.info.framerate_den
         );
+        // StreamInfo carries no frame — no span.
         (self.on_stream_info)(ctx, &msg);
         Ok(Flow::Cont)
     }
@@ -826,12 +826,9 @@ impl DecoderResultsBuilder {
             on_skipped: on_skipped.unwrap_or_else(|| Arc::new(Decoder::default_on_skipped())),
             on_orphan_frame: on_orphan_frame
                 .unwrap_or_else(|| Arc::new(Decoder::default_on_orphan_frame())),
-            on_event: on_event
-                .unwrap_or_else(|| Arc::new(Decoder::default_on_event())),
-            on_error: on_error
-                .unwrap_or_else(|| Arc::new(Decoder::default_on_error())),
-            on_restart: on_restart
-                .unwrap_or_else(|| Arc::new(Decoder::default_on_restart())),
+            on_event: on_event.unwrap_or_else(|| Arc::new(Decoder::default_on_event())),
+            on_error: on_error.unwrap_or_else(|| Arc::new(Decoder::default_on_error())),
+            on_restart: on_restart.unwrap_or_else(|| Arc::new(Decoder::default_on_restart())),
         }
     }
 }
@@ -1184,12 +1181,28 @@ fn build_pool(
 ) -> FlexibleDecoderPool {
     let owner_cb = owner.clone();
     let on_output = move |mut out: FlexibleDecoderOutput| match &out {
-        FlexibleDecoderOutput::Frame { .. } => {
+        FlexibleDecoderOutput::Frame { frame, .. } => {
+            // Cross-thread span propagation: this callback fires
+            // on the decoder's worker thread.  Push an `on_frame`
+            // callback span onto the frame's stack BEFORE invoking
+            // the user hook so user code reading
+            // `frame.otel_ctx_clone()` sees the right parent.  The
+            // returned guard pops the frame's stack on Drop at
+            // end-of-arm — RAII handles unwind even though `out`
+            // (and its borrow of `frame`) is consumed by
+            // `take_delivery` mid-arm.
+            let _span = enter_callback_span(
+                frame,
+                "on_frame",
+                hook_ctx.pipeline_name(),
+                &hook_ctx.own_name().to_string(),
+            );
             if let Some(sealed) = out.take_delivery() {
                 (hooks.on_frame)(&hook_ctx, &router, sealed);
             }
         }
         FlexibleDecoderOutput::ParameterChange { old, new } => {
+            // No frame — no parent context, no span.
             (hooks.on_parameter_change)(&hook_ctx, &router, old, new);
         }
         FlexibleDecoderOutput::Skipped {
@@ -1197,15 +1210,23 @@ fn build_pool(
             data,
             reason,
         } => {
+            let _span = enter_callback_span(
+                frame,
+                "on_skipped",
+                hook_ctx.pipeline_name(),
+                &hook_ctx.own_name().to_string(),
+            );
             (hooks.on_skipped)(&hook_ctx, &router, frame, data.as_deref(), reason);
         }
         FlexibleDecoderOutput::OrphanFrame { decoded } => {
+            // No frame (only a stranded GPU buffer) — no span.
             (hooks.on_orphan_frame)(&hook_ctx, &router, decoded);
         }
         FlexibleDecoderOutput::SourceEos { source_id } => {
             log::info!(
                 "[{owner_cb}/cb] FlexibleDecoderOutput::SourceEos for source_id={source_id}"
             );
+            // No frame on a SourceEos — no span.
             match (hooks.on_source_eos)(&hook_ctx, &router, source_id) {
                 Ok(Flow::Cont) => {}
                 Ok(Flow::Stop) => {
@@ -1227,14 +1248,16 @@ fn build_pool(
             }
         }
         FlexibleDecoderOutput::Event(ev) => {
+            // No frame on a generic gst event — no span.
             (hooks.on_event)(&hook_ctx, &router, ev);
         }
         FlexibleDecoderOutput::Error(err) => {
+            // Decoder-level error, no frame — no span.
             match (hooks.on_error)(&hook_ctx, &router, err) {
                 ErrorAction::Fatal => {
                     log::error!(
-                    "[{owner_cb}/cb] on_error returned Fatal; cooperatively shutting down"
-                );
+                        "[{owner_cb}/cb] on_error returned Fatal; cooperatively shutting down"
+                    );
                     hook_ctx.request_stop();
                     if let Some(sink) = router.default_sink() {
                         sink.abort();
@@ -1248,6 +1271,7 @@ fn build_pool(
             reason,
             lost_frames,
         } => {
+            // No frame on a restart event — no span.
             match (hooks.on_restart)(&hook_ctx, &router, source_id, reason, *lost_frames) {
                 Ok(Flow::Cont) => {}
                 Ok(Flow::Stop) => {
@@ -1276,7 +1300,6 @@ fn build_pool(
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1299,7 +1322,12 @@ mod tests {
         let addr: Addr<PipelineMsg> = reg.get::<PipelineMsg>(&peer).unwrap();
         let owner = StageName::unnamed(StageKind::Decoder);
         let default = OperatorSink::new(owner.clone(), addr);
-        let router = Router::new(owner, Arc::new(reg), Some(default));
+        let router = Router::new(
+            owner,
+            Arc::new(reg),
+            Some(default),
+            crate::stage_metrics::StageMetrics::new("decoder-test"),
+        );
         (router, rx)
     }
 
@@ -1357,12 +1385,10 @@ mod tests {
             .results(
                 DecoderResults::builder()
                     .on_frame(|_ctx, router, sealed| {
-                        let _ = router.send(PipelineMsg::Delivery(sealed));
+                        let _ = router.send(PipelineMsg::delivery(sealed));
                     })
                     .on_source_eos(|_ctx, router, sid| {
-                        let _ = router.send(PipelineMsg::SourceEos {
-                            source_id: sid.to_string(),
-                        });
+                        let _ = router.send(PipelineMsg::source_eos(sid));
                         Ok(Flow::Cont)
                     })
                     .on_parameter_change(|_, _, _, _| {})
@@ -1451,7 +1477,7 @@ mod tests {
         let flow = hook(&ctx, &router, "cam-1").expect("no error");
         assert!(matches!(flow, Flow::Cont));
         match rx.try_recv().expect("SourceEos should be forwarded") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
+            PipelineMsg::SourceEos { source_id, .. } => assert_eq!(source_id, "cam-1"),
             other => panic!("expected SourceEos, got {other:?}"),
         }
         assert!(rx.try_recv().is_err(), "exactly one message forwarded");
@@ -1494,9 +1520,11 @@ mod tests {
     fn test_hook_ctx() -> HookCtx {
         HookCtx::new(
             StageName::unnamed(StageKind::Decoder),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("decoder-test"),
         )
     }
 
@@ -1532,9 +1560,11 @@ mod tests {
         let stop_flag = Arc::new(AtomicBool::new(false));
         let ctx = HookCtx::new(
             StageName::unnamed(StageKind::Decoder),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             stop_flag.clone(),
+            crate::stage_metrics::StageMetrics::new("decoder-test"),
         );
         let hook: OnErrorHook = Arc::new(|_err, _router, _ctx| ErrorAction::Fatal);
         let (router, _rx) = router_with_default_peer();
@@ -1573,12 +1603,13 @@ mod tests {
         let stop_flag = Arc::new(AtomicBool::new(false));
         let ctx = HookCtx::new(
             StageName::unnamed(StageKind::Decoder),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             stop_flag.clone(),
+            crate::stage_metrics::StageMetrics::new("decoder-test"),
         );
-        let hook: OnRestartHook =
-            Arc::new(|_sid, _reason, _lost, _router, _ctx| Ok(Flow::Stop));
+        let hook: OnRestartHook = Arc::new(|_sid, _reason, _lost, _router, _ctx| Ok(Flow::Stop));
         let (router, _rx) = router_with_default_peer();
         match hook(&ctx, &router, "cam-1", "worker thread exited", 4).expect("hook ok") {
             Flow::Cont => {}
@@ -1601,9 +1632,11 @@ mod tests {
         let stop_flag = Arc::new(AtomicBool::new(false));
         let ctx = HookCtx::new(
             StageName::unnamed(StageKind::Decoder),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             stop_flag.clone(),
+            crate::stage_metrics::StageMetrics::new("decoder-test"),
         );
         let hook: OnRestartHook =
             Arc::new(|_sid, _reason, _lost, _router, _ctx| Err(anyhow!("boom")));

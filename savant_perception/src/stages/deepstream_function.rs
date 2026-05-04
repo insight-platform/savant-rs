@@ -88,6 +88,7 @@ use std::time::Duration;
 use anyhow::Result;
 
 use crate::envelopes::{BatchDelivery, PipelineMsg, SingleDelivery};
+use crate::instrument::enter_callback_span;
 use crate::router::Router;
 use crate::supervisor::StageName;
 use crate::{
@@ -226,8 +227,14 @@ impl Actor for DeepStreamFunction {
 
 impl Handler<SingleDelivery> for DeepStreamFunction {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
-        let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
+        let pairs = PipelineMsg::delivery(msg.0).into_pairs();
         for (frame, buffer) in &pairs {
+            let _g = enter_callback_span(
+                frame,
+                "on_delivery",
+                ctx.pipeline_name(),
+                &ctx.own_name().to_string(),
+            );
             (self.delivery)(ctx, &self.router, frame, buffer)?;
         }
         Ok(Flow::Cont)
@@ -238,6 +245,12 @@ impl Handler<BatchDelivery> for DeepStreamFunction {
     fn handle(&mut self, msg: BatchDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
         let pairs = msg.0.unseal();
         for (frame, buffer) in &pairs {
+            let _g = enter_callback_span(
+                frame,
+                "on_delivery",
+                ctx.pipeline_name(),
+                &ctx.own_name().to_string(),
+            );
             (self.delivery)(ctx, &self.router, frame, buffer)?;
         }
         Ok(Flow::Cont)
@@ -246,6 +259,7 @@ impl Handler<BatchDelivery> for DeepStreamFunction {
 
 impl Handler<SourceEosPayload> for DeepStreamFunction {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        // No frame on a SourceEos — nothing to parent under, no span.
         (self.source_eos)(ctx, &self.router, &msg.source_id)
     }
 }
@@ -585,10 +599,7 @@ mod tests {
             .register_actor(DeepStreamFunction::builder(StageName::unnamed(StageKind::DeepStreamFunction), 4).build())
             .unwrap();
 
-        addr.send(PipelineMsg::SourceEos {
-            source_id: "s1".into(),
-        })
-        .unwrap();
+        addr.send(PipelineMsg::source_eos("s1")).unwrap();
 
         addr.send(PipelineMsg::Shutdown {
             grace: None,
@@ -624,10 +635,7 @@ mod tests {
             )
             .unwrap();
 
-        addr.send(PipelineMsg::SourceEos {
-            source_id: "s1".into(),
-        })
-        .unwrap();
+        addr.send(PipelineMsg::source_eos("s1")).unwrap();
 
         let report = sys.run().unwrap();
         assert_eq!(counter.load(Ordering::Relaxed), 1);
@@ -672,7 +680,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let func = (parts.factory)(&bx).expect("factory resolves");
         let DeepStreamFunction {
             router: _,

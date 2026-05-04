@@ -23,7 +23,8 @@
 //! ```ignore
 //! NvTracker::builder(name, 16)
 //!     .downstream(picasso)
-//!     .operator_factory(|bx, cb| { /* ... */ })
+//!     .batch_formation(my_tracker_batch_formation_cb)
+//!     .operator_factory(|bx, batch_formation, cb| { /* ... */ })
 //!     .results(
 //!         NvTrackerResults::builder()
 //!             .on_source_eos(|sid, router, ctx| { /* ... */ Ok(Flow::Cont) })
@@ -86,19 +87,22 @@
 //! default.
 
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use deepstream_nvtracker::{
-    NvTrackerBatchingOperator, NvTrackerError, TrackerOperatorOutput,
-    TrackerOperatorResultCallback, TrackerOperatorTrackingOutput,
+    NvTrackerBatchingOperator, NvTrackerError, TrackerBatchFormationCallback,
+    TrackerOperatorOutput, TrackerOperatorResultCallback, TrackerOperatorTrackingOutput,
 };
 use parking_lot::Mutex;
 
 use crate::addr::Addr;
 use crate::envelope::Envelope;
 use crate::envelopes::{BatchDelivery, PipelineMsg, SingleDelivery};
+use crate::instrument::{enter_callback_span, push_stage_span, CallbackSpanGuard};
+use crate::stage_metrics::PHASE_E2E_START;
 use crate::router::Router;
+use crate::stage_metrics::{monotonic_ns, stamp_phase, take_phase, PHASE_INFER_START};
 use crate::supervisor::StageName;
 use crate::{
     Actor, ActorBuilder, BuildCtx, Context, Dispatch, ErrorAction, Flow, Handler, HookCtx,
@@ -309,11 +313,18 @@ pub type OnErrorHook = Arc<
 /// on a bespoke struct.
 pub type OnStoppingHook = Box<dyn FnMut(&mut Context<NvTracker>) + Send + 'static>;
 
-/// Factory closure — receives the wired
-/// [`TrackerOperatorResultCallback`] and returns a ready
+/// Factory closure — receives the framework-wrapped
+/// [`TrackerBatchFormationCallback`] (whose invocation is timed
+/// as the per-batch preproc latency, see
+/// [`NvTrackerBuilder::batch_formation`]) plus the wired
+/// [`TrackerOperatorResultCallback`], and returns a ready
 /// [`NvTrackerBatchingOperator`].
 pub type NvTrackerOperatorFactory = Box<
-    dyn FnOnce(&BuildCtx, TrackerOperatorResultCallback) -> Result<NvTrackerBatchingOperator>
+    dyn FnOnce(
+            &BuildCtx,
+            TrackerBatchFormationCallback,
+            TrackerOperatorResultCallback,
+        ) -> Result<NvTrackerBatchingOperator>
         + Send,
 >;
 
@@ -371,7 +382,7 @@ impl NvTracker {
             }
             if let Some(sealed) = tracking.take_deliveries() {
                 drop(tracking);
-                if !router.send(PipelineMsg::Deliveries(sealed)) {
+                if !router.send(PipelineMsg::deliveries(sealed)) {
                     log::warn!("[{ns}] downstream closed; dropping sealed batch");
                 }
             }
@@ -393,9 +404,7 @@ impl NvTracker {
     {
         |_ctx, router, source_id| {
             log::info!("TrackerOperatorOutput::Eos for source_id={source_id}; propagating");
-            if !router.send(PipelineMsg::SourceEos {
-                source_id: source_id.to_string(),
-            }) {
+            if !router.send(PipelineMsg::source_eos(source_id)) {
                 log::warn!("downstream closed; dropping SourceEos({source_id})");
             }
             Ok(Flow::Cont)
@@ -486,15 +495,37 @@ impl Actor for NvTracker {
 
 impl Handler<SingleDelivery> for NvTracker {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
-        let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
-        submit_pairs(&self.operator, pairs, ctx.own_name())
+        let e2e_start_ns = monotonic_ns();
+        let pairs = PipelineMsg::delivery(msg.0).into_pairs();
+        let stage = ctx.own_name().to_string();
+        let pipeline_name = ctx.pipeline_name().to_string();
+        // Stage span and e2e_start — see [`super::nvinfer::Handler`]
+        // for the narrative.  Preproc latency is **not** measured
+        // here — the actor body just stamps + enqueues; the real
+        // preprocessing duration is the user's batch-formation
+        // callback (registered via
+        // [`NvTrackerBuilder::batch_formation`]) running on the
+        // operator's worker thread, which the framework wraps
+        // with timing internally.
+        for (frame, _) in &pairs {
+            stamp_phase(frame, &stage, PHASE_E2E_START, e2e_start_ns);
+            push_stage_span(frame, "tracker.stage", &pipeline_name, &stage);
+        }
+        submit_pairs(&self.operator, pairs, ctx.own_name(), &stage)
     }
 }
 
 impl Handler<BatchDelivery> for NvTracker {
     fn handle(&mut self, msg: BatchDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
+        let e2e_start_ns = monotonic_ns();
         let pairs = msg.0.unseal();
-        submit_pairs(&self.operator, pairs, ctx.own_name())
+        let stage = ctx.own_name().to_string();
+        let pipeline_name = ctx.pipeline_name().to_string();
+        for (frame, _) in &pairs {
+            stamp_phase(frame, &stage, PHASE_E2E_START, e2e_start_ns);
+            push_stage_span(frame, "tracker.stage", &pipeline_name, &stage);
+        }
+        submit_pairs(&self.operator, pairs, ctx.own_name(), &stage)
     }
 }
 
@@ -548,9 +579,15 @@ fn submit_pairs(
         deepstream_buffers::SharedBuffer,
     )>,
     stage: &StageName,
+    stage_str: &str,
 ) -> Result<Flow> {
     let op = operator.lock();
     for (frame, buffer) in pairs {
+        // Mark the moment the frame leaves the actor thread for the
+        // operator queue.  The result callback reads this stamp
+        // back via `take_phase` to compute the per-frame tracker
+        // turnaround duration cross-thread.
+        stamp_phase(&frame, stage_str, PHASE_INFER_START, monotonic_ns());
         if let Err(e) = op.add_frame(frame, buffer) {
             log::error!("[{stage}] add_frame failed: {e}");
             return Err(anyhow!("track add_frame: {e}"));
@@ -584,26 +621,80 @@ fn dispatch_output(
     ctx: &NvTrackerHookCtx,
 ) {
     match out {
-        TrackerOperatorOutput::Tracking(tracking) => on_tracking(ctx, router, tracking),
-        TrackerOperatorOutput::Eos { source_id } => match on_source_eos(ctx, router, &source_id) {
-            Ok(Flow::Cont) => {}
-            Ok(Flow::Stop) => {
-                log::info!(
-                    "[{}] on_source_eos({source_id}) requested stop",
-                    ctx.own_name()
-                );
-                ctx.request_stop();
+        TrackerOperatorOutput::Tracking(tracking) => {
+            // Per-frame work — same shape as nvinfer's Inference
+            // arm.  Push an `on_tracking` callback span onto each
+            // frame's span stack before invoking the user hook;
+            // pop after the hook returns.  See
+            // [`super::nvinfer::dispatch_output`] for the narrative.
+            let now_ns = monotonic_ns();
+            let stage_str = ctx.own_name().to_string();
+            let pipeline_name = ctx.as_hook_ctx().pipeline_name().to_string();
+            // Cheap Arc clones so we can read `e2e_start` after
+            // `tracking` is consumed by the user hook.
+            let frames_for_e2e: Vec<savant_core::primitives::frame::VideoFrame> =
+                tracking.frames().iter().map(|fo| fo.frame.clone()).collect();
+            // Drop order (reverse declaration): callback guards
+            // pop `on_tracking` first, stage guards then pop the
+            // `tracker.stage` pushed in `Handler::handle`.
+            let _stage_pops: Vec<CallbackSpanGuard> = frames_for_e2e
+                .iter()
+                .map(|f| CallbackSpanGuard::pop_at_drop(f.clone()))
+                .collect();
+            let _callback_spans: Vec<CallbackSpanGuard> = tracking
+                .frames()
+                .iter()
+                .map(|fo| {
+                    if let Some(start_ns) =
+                        take_phase(&fo.frame, &stage_str, PHASE_INFER_START)
+                    {
+                        let delta = (now_ns - start_ns).max(0) as u64;
+                        ctx.as_hook_ctx()
+                            .stage_metrics()
+                            .record_inference_latency(Duration::from_nanos(delta));
+                    }
+                    enter_callback_span(&fo.frame, "on_tracking", &pipeline_name, &stage_str)
+                })
+                .collect();
+            let postproc_start = Instant::now();
+            on_tracking(ctx, router, tracking);
+            ctx.as_hook_ctx()
+                .stage_metrics()
+                .record_postproc_latency(postproc_start.elapsed());
+            // Per-frame e2e: handle entry → here.
+            let e2e_now_ns = monotonic_ns();
+            for frame in &frames_for_e2e {
+                if let Some(start_ns) = take_phase(frame, &stage_str, PHASE_E2E_START) {
+                    let delta = (e2e_now_ns - start_ns).max(0) as u64;
+                    ctx.as_hook_ctx()
+                        .stage_metrics()
+                        .record_e2e_latency(Duration::from_nanos(delta));
+                }
             }
-            Err(e) => {
-                log::error!(
-                    "[{}] on_source_eos({source_id}) returned error: {e}; requesting stop",
-                    ctx.own_name()
-                );
-                ctx.request_stop();
+        }
+        TrackerOperatorOutput::Eos { source_id } => {
+            // No frame on EOS — no span.
+            match on_source_eos(ctx, router, &source_id) {
+                Ok(Flow::Cont) => {}
+                Ok(Flow::Stop) => {
+                    log::info!(
+                        "[{}] on_source_eos({source_id}) requested stop",
+                        ctx.own_name()
+                    );
+                    ctx.request_stop();
+                }
+                Err(e) => {
+                    log::error!(
+                        "[{}] on_source_eos({source_id}) returned error: {e}; requesting stop",
+                        ctx.own_name()
+                    );
+                    ctx.request_stop();
+                }
             }
-        },
+        }
         TrackerOperatorOutput::Error(err) => {
             log::error!("[{}] operator error: {err}", ctx.own_name());
+            // No frame on an operator error — no span.
             match on_error(ctx, router, &err) {
                 ErrorAction::LogAndContinue | ErrorAction::Swallow => {}
                 ErrorAction::Fatal => {
@@ -868,6 +959,7 @@ pub struct NvTrackerBuilder {
     name: StageName,
     capacity: usize,
     downstream: Option<StageName>,
+    batch_formation: Option<TrackerBatchFormationCallback>,
     operator_factory: Option<NvTrackerOperatorFactory>,
     results: Option<NvTrackerResults>,
     common: Option<NvTrackerCommon>,
@@ -880,14 +972,15 @@ impl NvTrackerBuilder {
     /// Every per-variant hook defaults to its
     /// `NvTracker::default_on_*` equivalent; loop-level knobs
     /// default to [`DEFAULT_DRAIN_TIMEOUT`] /
-    /// [`DEFAULT_POLL_TIMEOUT`].  The user only needs to supply an
-    /// `operator_factory`; `results` / `common` are optional and
-    /// composable.
+    /// [`DEFAULT_POLL_TIMEOUT`].  The user only needs to supply
+    /// `batch_formation` and `operator_factory`; `results` /
+    /// `common` are optional and composable.
     pub fn new(name: StageName, capacity: usize) -> Self {
         Self {
             name,
             capacity,
             downstream: None,
+            batch_formation: None,
             operator_factory: None,
             results: None,
             common: None,
@@ -904,12 +997,31 @@ impl NvTrackerBuilder {
         self
     }
 
+    /// Required: per-batch formation callback handed to the
+    /// underlying [`NvTrackerBatchingOperator`].  The framework
+    /// wraps the supplied callback with a per-batch
+    /// [`StageMetrics::record_preproc_latency`](crate::stage_metrics::StageMetrics::record_preproc_latency)
+    /// timing shim before passing it through to the
+    /// [`operator_factory`](Self::operator_factory) — same
+    /// semantics as
+    /// [`NvInferBuilder::batch_formation`](super::nvinfer::NvInferBuilder::batch_formation).
+    pub fn batch_formation(mut self, cb: TrackerBatchFormationCallback) -> Self {
+        self.batch_formation = Some(cb);
+        self
+    }
+
     /// Required: factory that builds the
-    /// [`NvTrackerBatchingOperator`] given the already-wired result
-    /// callback.
+    /// [`NvTrackerBatchingOperator`] given the framework-wrapped
+    /// batch-formation callback (see
+    /// [`batch_formation`](Self::batch_formation)) and the wired
+    /// result callback.
     pub fn operator_factory<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(&BuildCtx, TrackerOperatorResultCallback) -> Result<NvTrackerBatchingOperator>
+        F: FnOnce(
+                &BuildCtx,
+                TrackerBatchFormationCallback,
+                TrackerOperatorResultCallback,
+            ) -> Result<NvTrackerBatchingOperator>
             + Send
             + 'static,
     {
@@ -941,20 +1053,24 @@ impl NvTrackerBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if `operator_factory` is missing.  All three
-    /// per-variant hooks and all loop knobs have defaults
-    /// auto-installed when the matching `results` / `common`
-    /// bundle is omitted.  `downstream` is optional — callers that
-    /// route via [`Router::send_to`] exclusively may omit it.
+    /// Returns `Err` if `batch_formation` or `operator_factory`
+    /// is missing.  All three per-variant hooks and all loop
+    /// knobs have defaults auto-installed when the matching
+    /// `results` / `common` bundle is omitted.  `downstream` is
+    /// optional — callers that route via [`Router::send_to`]
+    /// exclusively may omit it.
     pub fn build(self) -> Result<ActorBuilder<NvTracker>> {
         let NvTrackerBuilder {
             name,
             capacity,
             downstream,
+            batch_formation,
             operator_factory,
             results,
             common,
         } = self;
+        let batch_formation =
+            batch_formation.ok_or_else(|| anyhow!("NvTracker: missing batch_formation"))?;
         let operator_factory =
             operator_factory.ok_or_else(|| anyhow!("NvTracker: missing operator_factory"))?;
         let NvTrackerResults {
@@ -1001,7 +1117,20 @@ impl NvTrackerBuilder {
                         &hook_ctx_cb,
                     );
                 });
-                let operator = (operator_factory)(bx, result_cb)?;
+                // Wrap the user's batch-formation callback with
+                // preproc-latency timing.  Same shape as the
+                // wrapper in `NvInferBuilder::build`.
+                let preproc_metrics = hook_ctx.as_hook_ctx().stage_metrics().clone();
+                let user_batch_formation = batch_formation;
+                let wrapped_batch_formation: TrackerBatchFormationCallback =
+                    Arc::new(move |frames| {
+                        let start = Instant::now();
+                        let result = (user_batch_formation)(frames);
+                        preproc_metrics.record_preproc_latency(start.elapsed());
+                        result
+                    });
+                let operator =
+                    (operator_factory)(bx, wrapped_batch_formation, result_cb)?;
                 let operator: SharedOperator = Arc::new(Mutex::new(operator));
                 let _ = operator_slot.set(Arc::clone(&operator));
                 Ok(NvTracker {
@@ -1029,6 +1158,13 @@ mod tests {
     use crate::supervisor::{StageKind, StageName};
     use crossbeam::channel::{bounded, Receiver};
 
+    fn noop_batch_formation() -> TrackerBatchFormationCallback {
+        Arc::new(|_| deepstream_nvtracker::TrackerBatchFormationResult {
+            ids: Vec::new(),
+            rois: Vec::new(),
+        })
+    }
+
     fn noop_on_tracking(
         _: &NvTrackerHookCtx,
         _: &Router<PipelineMsg>,
@@ -1053,9 +1189,11 @@ mod tests {
         NvTrackerHookCtx {
             base: HookCtx::new(
                 StageName::unnamed(StageKind::Tracker),
+                Arc::from("test"),
                 Arc::new(Registry::new()),
                 Arc::new(crate::shared::SharedStore::new()),
                 Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                crate::stage_metrics::StageMetrics::new("tracker-test"),
             ),
             operator: Arc::new(OnceLock::new()),
         }
@@ -1072,14 +1210,30 @@ mod tests {
         let addr: Addr<PipelineMsg> = reg.get::<PipelineMsg>(&peer).unwrap();
         let owner = StageName::unnamed(StageKind::Tracker);
         let default = OperatorSink::new(owner.clone(), addr);
-        let router = Router::new(owner, Arc::new(reg), Some(default));
+        let router = Router::new(
+            owner,
+            Arc::new(reg),
+            Some(default),
+            crate::stage_metrics::StageMetrics::new("tracker-test"),
+        );
         (router, rx)
+    }
+
+    #[test]
+    fn builder_requires_batch_formation() {
+        let name = StageName::unnamed(StageKind::Tracker);
+        let err = NvTracker::builder(name.clone(), 4).build().err().unwrap();
+        assert!(err.to_string().contains("missing batch_formation"));
     }
 
     #[test]
     fn builder_requires_operator_factory() {
         let name = StageName::unnamed(StageKind::Tracker);
-        let err = NvTracker::builder(name.clone(), 4).build().err().unwrap();
+        let err = NvTracker::builder(name.clone(), 4)
+            .batch_formation(noop_batch_formation())
+            .build()
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("missing operator_factory"));
     }
 
@@ -1089,7 +1243,8 @@ mod tests {
     fn builder_without_downstream_is_accepted() {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()
                     .on_tracking(noop_on_tracking)
@@ -1116,7 +1271,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Render))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()
                     .on_tracking(noop_on_tracking)
@@ -1143,7 +1299,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Render))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .build()
             .unwrap();
     }
@@ -1155,7 +1312,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name.clone(), 4)
             .downstream(StageName::unnamed(StageKind::Render))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()
                     .on_tracking(NvTracker::default_on_tracking())
@@ -1183,7 +1341,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Render))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .common(
                 NvTrackerCommon::builder()
                     .on_stopping(move |_ctx| {
@@ -1207,7 +1366,7 @@ mod tests {
         let flow = hook(&ctx, &router, "cam-1").expect("default hook is infallible");
         assert!(matches!(flow, Flow::Cont));
         match rx.try_recv().expect("SourceEos should be forwarded") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
+            PipelineMsg::SourceEos { source_id, .. } => assert_eq!(source_id, "cam-1"),
             other => panic!("expected SourceEos, got {other:?}"),
         }
         assert!(rx.try_recv().is_err(), "exactly one message forwarded");
@@ -1273,9 +1432,11 @@ mod tests {
         let ctx = NvTrackerHookCtx {
             base: HookCtx::new(
                 StageName::unnamed(StageKind::Tracker),
+                Arc::from("test"),
                 Arc::new(reg),
                 Arc::new(shared),
                 Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                crate::stage_metrics::StageMetrics::new("tracker-test"),
             ),
             operator: Arc::new(OnceLock::new()),
         };
@@ -1297,7 +1458,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Tracker);
         let _ = NvTracker::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Render))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvTrackerResults::builder()
                     .on_tracking(noop_on_tracking)
@@ -1318,9 +1480,11 @@ mod tests {
         let ctx = NvTrackerHookCtx {
             base: HookCtx::new(
                 StageName::unnamed(StageKind::Tracker),
+                Arc::from("test"),
                 Arc::new(Registry::new()),
                 Arc::new(crate::shared::SharedStore::new()),
                 flag.clone(),
+                crate::stage_metrics::StageMetrics::new("tracker-test"),
             ),
             operator: Arc::new(OnceLock::new()),
         };
@@ -1353,9 +1517,11 @@ mod tests {
         let ctx = NvTrackerHookCtx {
             base: HookCtx::new(
                 StageName::unnamed(StageKind::Tracker),
+                Arc::from("test"),
                 Arc::new(Registry::new()),
                 Arc::new(crate::shared::SharedStore::new()),
                 flag.clone(),
+                crate::stage_metrics::StageMetrics::new("tracker-test"),
             ),
             operator: Arc::new(OnceLock::new()),
         };

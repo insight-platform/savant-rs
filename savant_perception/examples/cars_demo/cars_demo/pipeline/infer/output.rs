@@ -25,10 +25,10 @@
 //!   summary.
 
 use deepstream_nvinfer::{OperatorInferenceOutput, SealedDeliveries};
+use opentelemetry::trace::TraceContextExt;
+use opentelemetry::KeyValue;
 use savant_core::converters::{NmsKind, YoloDetectionConverter, YoloFormat};
-use savant_core::primitives::object::{
-    IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
-};
+use savant_core::primitives::object::{IdCollisionResolutionPolicy, VideoObjectBuilder};
 use savant_core::primitives::RBBox;
 // `HashMap`/`HashSet` here must be `std::collections::*` because they
 // are handed to `YoloDetectionConverter::new`, which is a boundary API
@@ -38,7 +38,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::model::{vehicle_label, DETECTION_NAMESPACE, VEHICLE_CLASS_IDS, YOLO_NUM_CLASSES};
-use savant_perception::supervisor::StageName;
+use savant_perception::HookCtx;
 
 /// Confidence threshold used by the post-processing.  Reference
 /// default — the CLI supplies the runtime value.
@@ -96,32 +96,81 @@ pub fn process_infer_output(
     mut inf: OperatorInferenceOutput,
     converter: &YoloDetectionConverter,
     stats: Option<&InferStats>,
-    stage: &StageName,
+    ctx: &HookCtx,
 ) -> Option<SealedDeliveries> {
-    let detections_before = count_detection_objects(&inf);
-    attach_detections(&inf, converter);
-    let detections_after = count_detection_objects(&inf);
-    let new_detections = detections_after.saturating_sub(detections_before);
+    let stage = ctx.own_name();
     let frame_count = inf.frames().len() as u64;
+    // ─── User-side OpenTelemetry instrumentation ────────────────────────
+    //
+    // The framework has already pushed an `on_inference` callback
+    // span onto every frame's span stack BEFORE this hook is
+    // invoked, with `pipeline.name` and `stage` attributes already
+    // stamped — see [`NvInfer::dispatch_output`] for the wiring.
+    // User code only adds the *domain-specific* attributes the
+    // framework can't infer (per-class detection counts below).
+
+    // `attach_detections` returns the per-frame class counts it
+    // just attached — no before/after diff against frame state.
+    let per_frame_counts = attach_detections(&inf, converter);
+    let new_detections: u64 = per_frame_counts.iter().map(|c| c.total()).sum();
     log::debug!("[{stage}] attached {new_detections} detection(s) across {frame_count} frame(s)");
+
+    // Per-frame class counts emitted as span attributes on each
+    // frame's `on_inference` span — collectors can filter by
+    // `objects.<class>` without parsing the span name.
+    for (fo, counts) in inf.frames().iter().zip(&per_frame_counts) {
+        // Noop spans absorb attribute writes harmlessly — no
+        // `is_valid()` gating.
+        if let Some(active) = fo.frame.otel_ctx_clone() {
+            active
+                .span()
+                .set_attribute(KeyValue::new("objects.car", counts.car as i64));
+            active
+                .span()
+                .set_attribute(KeyValue::new("objects.motorbike", counts.motorbike as i64));
+            active
+                .span()
+                .set_attribute(KeyValue::new("objects.bus", counts.bus as i64));
+            active
+                .span()
+                .set_attribute(KeyValue::new("objects.truck", counts.truck as i64));
+            active
+                .span()
+                .set_attribute(KeyValue::new("objects.total", counts.total() as i64));
+        }
+    }
+
     if let Some(s) = stats {
         s.record_batch(frame_count, new_detections as u64);
     }
     inf.take_deliveries()
 }
 
-fn count_detection_objects(output: &deepstream_nvinfer::OperatorInferenceOutput) -> usize {
-    output
-        .frames()
-        .iter()
-        .map(|fo| {
-            fo.frame
-                .get_all_objects()
-                .into_iter()
-                .filter(|o| o.get_namespace() == DETECTION_NAMESPACE)
-                .count()
-        })
-        .sum()
+/// Per-class detection tallies emitted as span attributes by
+/// [`process_infer_output`].  Class set mirrors
+/// [`super::model::VEHICLE_CLASS_IDS`].
+#[derive(Default)]
+struct ClassCounts {
+    car: u64,
+    motorbike: u64,
+    bus: u64,
+    truck: u64,
+}
+
+impl ClassCounts {
+    fn total(&self) -> u64 {
+        self.car + self.motorbike + self.bus + self.truck
+    }
+
+    fn bump(&mut self, label: &str) {
+        match label {
+            "car" => self.car += 1,
+            "motorbike" => self.motorbike += 1,
+            "bus" => self.bus += 1,
+            "truck" => self.truck += 1,
+            _ => {}
+        }
+    }
 }
 
 /// Aggregate counters tracked across the inference stage.
@@ -158,93 +207,111 @@ impl InferStats {
     }
 }
 
+/// Decode YOLO output tensors and attach detection objects to
+/// each frame.  Returns one [`ClassCounts`] per frame (in
+/// `output.frames()` order) summarising how many objects of each
+/// vehicle class were successfully attached on that frame —
+/// **only successful attaches are counted**, decode/build/attach
+/// errors are logged and skipped.
 fn attach_detections(
     output: &deepstream_nvinfer::OperatorInferenceOutput,
     converter: &YoloDetectionConverter,
-) {
-    for frame_out in output.frames() {
-        if frame_out.elements.is_empty() {
+) -> Vec<ClassCounts> {
+    output
+        .frames()
+        .iter()
+        .map(|frame_out| attach_detections_one(frame_out, converter))
+        .collect()
+}
+
+fn attach_detections_one(
+    frame_out: &deepstream_nvinfer::OperatorFrameOutput,
+    converter: &YoloDetectionConverter,
+) -> ClassCounts {
+    let mut counts = ClassCounts::default();
+    if frame_out.elements.is_empty() {
+        log::warn!(
+            "inference frame {} had no element outputs",
+            frame_out.frame.get_source_id()
+        );
+        return counts;
+    }
+    let elem = &frame_out.elements[0];
+    let tensor = match elem.tensors.iter().find(|t| t.name == "output0") {
+        Some(t) => t,
+        None => {
             log::warn!(
-                "inference frame {} had no element outputs",
+                "missing output0 tensor for frame {}",
                 frame_out.frame.get_source_id()
             );
-            continue;
+            return counts;
         }
-        let elem = &frame_out.elements[0];
-        let tensor = match elem.tensors.iter().find(|t| t.name == "output0") {
-            Some(t) => t,
-            None => {
-                log::warn!(
-                    "missing output0 tensor for frame {}",
-                    frame_out.frame.get_source_id()
-                );
-                continue;
-            }
-        };
-        let data = match tensor.to_f32_vec() {
-            Ok(data) if !data.is_empty() => data,
-            Ok(_) => continue,
-            Err(err) => {
-                log::error!(
-                    "unable to read YOLO output tensor for frame {}: {err}",
-                    frame_out.frame.get_source_id()
-                );
-                continue;
-            }
-        };
-        let raw_shape: Vec<usize> = tensor.dims.dimensions.iter().map(|&d| d as usize).collect();
-        let shape: Vec<usize> = if raw_shape.len() == 3 && raw_shape[0] == 1 {
-            raw_shape[1..].to_vec()
-        } else {
-            raw_shape
-        };
+    };
+    let data = match tensor.to_f32_vec() {
+        Ok(data) if !data.is_empty() => data,
+        Ok(_) => return counts,
+        Err(err) => {
+            log::error!(
+                "unable to read YOLO output tensor for frame {}: {err}",
+                frame_out.frame.get_source_id()
+            );
+            return counts;
+        }
+    };
+    let raw_shape: Vec<usize> = tensor.dims.dimensions.iter().map(|&d| d as usize).collect();
+    let shape: Vec<usize> = if raw_shape.len() == 3 && raw_shape[0] == 1 {
+        raw_shape[1..].to_vec()
+    } else {
+        raw_shape
+    };
 
-        let decoded = match converter.decode(&[(&data[..], &shape[..])]) {
-            Ok(decoded) => decoded,
-            Err(err) => {
-                log::warn!(
-                    "YOLO decode failed for frame {}: {err}",
-                    frame_out.frame.get_source_id()
-                );
-                continue;
-            }
-        };
+    let decoded = match converter.decode(&[(&data[..], &shape[..])]) {
+        Ok(decoded) => decoded,
+        Err(err) => {
+            log::warn!(
+                "YOLO decode failed for frame {}: {err}",
+                frame_out.frame.get_source_id()
+            );
+            return counts;
+        }
+    };
 
-        let scaler = elem.coordinate_scaler();
-        let frame = frame_out.frame.clone();
-        for (class_id, detections) in decoded {
-            let Some(label) = vehicle_label(class_id) else {
-                continue;
-            };
-            for (confidence, bbox) in detections {
-                let scaled = scaler.scale_rbbox(&bbox);
-                let obj = match VideoObjectBuilder::default()
-                    .id(0)
-                    .namespace(DETECTION_NAMESPACE.into())
-                    .label(label.into())
-                    .detection_box(RBBox::new(
-                        scaled.get_xc(),
-                        scaled.get_yc(),
-                        scaled.get_width(),
-                        scaled.get_height(),
-                        None,
-                    ))
-                    .confidence(Some(confidence))
-                    .build()
-                {
-                    Ok(obj) => obj,
-                    Err(err) => {
-                        log::warn!("failed to build detection object: {err}");
-                        continue;
-                    }
-                };
-                if let Err(err) = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId)
-                {
-                    log::warn!("failed to attach detection object: {err}");
+    let scaler = elem.coordinate_scaler();
+    let frame = frame_out.frame.clone();
+    for (class_id, detections) in decoded {
+        let Some(label) = vehicle_label(class_id) else {
+            continue;
+        };
+        for (confidence, bbox) in detections {
+            let scaled = scaler.scale_rbbox(&bbox);
+            let obj = match VideoObjectBuilder::default()
+                .id(0)
+                .namespace(DETECTION_NAMESPACE.into())
+                .label(label.into())
+                .detection_box(RBBox::new(
+                    scaled.get_xc(),
+                    scaled.get_yc(),
+                    scaled.get_width(),
+                    scaled.get_height(),
+                    None,
+                ))
+                .confidence(Some(confidence))
+                .build()
+            {
+                Ok(obj) => obj,
+                Err(err) => {
+                    log::warn!("failed to build detection object: {err}");
+                    continue;
                 }
+            };
+            if let Err(err) = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId) {
+                log::warn!("failed to attach detection object: {err}");
+                continue;
             }
+            counts.bump(label);
         }
     }
+    counts
 }
 
 #[cfg(test)]

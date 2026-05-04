@@ -330,6 +330,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrameInner {
                 .iter()
                 .map(misc_track_data_from_pb)
                 .collect::<Result<Vec<_>, _>>()?,
+            otel_stack: Vec::new(),
         })
     }
 }

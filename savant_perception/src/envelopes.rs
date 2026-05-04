@@ -63,7 +63,44 @@ use deepstream_inputs::prelude::SealedDelivery;
 use savant_core::primitives::frame::VideoFrame;
 use savant_gstreamer::mp4_demuxer::{DemuxedPacket, VideoInfo};
 
+use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use savant_core::primitives::WithAttributes;
+
+use super::envelope::STAGE_INGRESS_NS;
 use super::{Dispatch, Envelope, Flow, Handler, ShutdownHint};
+
+/// Stamp `ingress_ns` onto `frame` as a temporary, hidden
+/// attribute under [`STAGE_INGRESS_NS`] / `stage`.  Cheap: a
+/// single Arc clone (the frame's inner is `Arc`-shared) plus a
+/// write-lock on the inner attribute vec.
+fn stamp_ingress(frame: &VideoFrame, stage: &str, ingress_ns: i64) {
+    let mut frame = frame.clone();
+    frame.set_temporary_attribute(
+        STAGE_INGRESS_NS,
+        stage,
+        &None,
+        true,
+        vec![AttributeValue::integer(ingress_ns, None)],
+    );
+}
+
+/// Read and remove `frame`'s ingress marker for `stage`,
+/// returning the egress-side latency in a single-element vec
+/// (or empty if no marker is present).
+fn take_one_latency(frame: &VideoFrame, stage: &str, egress_ns: i64) -> Vec<Duration> {
+    let mut frame = frame.clone();
+    let Some(attr) = frame.delete_attribute(STAGE_INGRESS_NS, stage) else {
+        return Vec::new();
+    };
+    let Some(value) = attr.values.first() else {
+        return Vec::new();
+    };
+    let AttributeValueVariant::Integer(ingress_ns) = value.value else {
+        return Vec::new();
+    };
+    let dur_ns = egress_ns.saturating_sub(ingress_ns).max(0) as u64;
+    vec![Duration::from_nanos(dur_ns)]
+}
 
 #[doc(inline)]
 pub use super::{ShutdownPayload, SourceEosPayload};
@@ -123,9 +160,24 @@ pub enum PipelineMsg {
 
 #[cfg(feature = "deepstream")]
 impl PipelineMsg {
+    /// Sender-side sugar for [`PipelineMsg::Delivery`].
+    pub fn delivery(delivery: SealedDelivery) -> Self {
+        PipelineMsg::Delivery(delivery)
+    }
+
+    /// Sender-side sugar for [`PipelineMsg::Deliveries`].
+    pub fn deliveries(deliveries: SealedDeliveries) -> Self {
+        PipelineMsg::Deliveries(deliveries)
+    }
+
+    /// Sender-side sugar for [`PipelineMsg::SourceEos`].
+    pub fn source_eos(source_id: impl Into<String>) -> Self {
+        PipelineMsg::SourceEos {
+            source_id: source_id.into(),
+        }
+    }
+
     /// Sender-side sugar for the [`PipelineMsg::MessageEx`] variant.
-    /// Equivalent to
-    /// `PipelineMsg::MessageEx(MessageExPayload::new(value))`.
     pub fn message_ex<T: std::any::Any + Send>(value: T) -> Self {
         PipelineMsg::MessageEx(super::message_ex::MessageExPayload::new(value))
     }
@@ -302,9 +354,36 @@ pub enum EncodedMsg {
 }
 
 impl EncodedMsg {
+    /// Sender-side sugar for [`EncodedMsg::StreamInfo`].
+    pub fn stream_info(source_id: impl Into<String>, info: VideoInfo) -> Self {
+        EncodedMsg::StreamInfo {
+            source_id: source_id.into(),
+            info,
+        }
+    }
+
+    /// Sender-side sugar for [`EncodedMsg::Packet`].
+    pub fn packet(source_id: impl Into<String>, info: VideoInfo, packet: DemuxedPacket) -> Self {
+        EncodedMsg::Packet {
+            source_id: source_id.into(),
+            info,
+            packet,
+        }
+    }
+
+    /// Sender-side sugar for [`EncodedMsg::Frame`].
+    pub fn frame(frame: VideoFrame, payload: Option<Vec<u8>>) -> Self {
+        EncodedMsg::Frame { frame, payload }
+    }
+
+    /// Sender-side sugar for [`EncodedMsg::SourceEos`].
+    pub fn source_eos(source_id: impl Into<String>) -> Self {
+        EncodedMsg::SourceEos {
+            source_id: source_id.into(),
+        }
+    }
+
     /// Sender-side sugar for the [`EncodedMsg::MessageEx`] variant.
-    /// Equivalent to
-    /// `EncodedMsg::MessageEx(MessageExPayload::new(value))`.
     pub fn message_ex<T: std::any::Any + Send>(value: T) -> Self {
         EncodedMsg::MessageEx(super::message_ex::MessageExPayload::new(value))
     }
@@ -428,6 +507,46 @@ impl Envelope for PipelineMsg {
     fn build_shutdown(grace: Option<Duration>, reason: Cow<'static, str>) -> Option<Self> {
         Some(PipelineMsg::Shutdown { grace, reason })
     }
+
+    /// One entry per [`VideoFrame`] in the envelope.
+    ///
+    /// * [`PipelineMsg::Delivery`] — single-element vec with the
+    ///   frame's object count.
+    /// * [`PipelineMsg::Deliveries`] — one entry per frame in the
+    ///   sealed batch.
+    /// * Sentinels / extensibility variants — empty.
+    fn frame_object_counts(&self) -> Vec<usize> {
+        match self {
+            PipelineMsg::Delivery(d) => vec![d.peek_frame().get_object_count()],
+            PipelineMsg::Deliveries(b) => {
+                b.peek_frames().map(|f| f.get_object_count()).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn record_stage_ingress(&self, stage: &str, ingress_ns: i64) {
+        match self {
+            PipelineMsg::Delivery(d) => stamp_ingress(d.peek_frame(), stage, ingress_ns),
+            PipelineMsg::Deliveries(b) => {
+                for f in b.peek_frames() {
+                    stamp_ingress(f, stage, ingress_ns);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn take_stage_latencies(&self, stage: &str, egress_ns: i64) -> Vec<Duration> {
+        match self {
+            PipelineMsg::Delivery(d) => take_one_latency(d.peek_frame(), stage, egress_ns),
+            PipelineMsg::Deliveries(b) => b
+                .peek_frames()
+                .flat_map(|f| take_one_latency(f, stage, egress_ns))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
 }
 
 #[cfg(feature = "deepstream")]
@@ -440,6 +559,11 @@ where
         + Handler<ShutdownPayload>,
 {
     fn dispatch(self, actor: &mut A, ctx: &mut super::Context<A>) -> anyhow::Result<Flow> {
+        // Dispatch is a thin variant→handler router.  No span is
+        // opened here: the per-frame `on_*` spans inside each
+        // handler are parented explicitly off the frame they're
+        // working on (no thread-local current) and carry the real
+        // trace signal.
         match self {
             PipelineMsg::Delivery(d) => {
                 <A as Handler<SingleDelivery>>::handle(actor, SingleDelivery(d), ctx)
@@ -476,6 +600,29 @@ impl Envelope for EncodedMsg {
     fn build_shutdown(grace: Option<Duration>, reason: Cow<'static, str>) -> Option<Self> {
         Some(EncodedMsg::Shutdown { grace, reason })
     }
+
+    /// Single-element vec with the frame's object count for
+    /// [`EncodedMsg::Frame`]; empty for every other variant
+    /// (`StreamInfo`, `Packet`, sentinels, etc.).
+    fn frame_object_counts(&self) -> Vec<usize> {
+        match self {
+            EncodedMsg::Frame { frame, .. } => vec![frame.get_object_count()],
+            _ => Vec::new(),
+        }
+    }
+
+    fn record_stage_ingress(&self, stage: &str, ingress_ns: i64) {
+        if let EncodedMsg::Frame { frame, .. } = self {
+            stamp_ingress(frame, stage, ingress_ns);
+        }
+    }
+
+    fn take_stage_latencies(&self, stage: &str, egress_ns: i64) -> Vec<Duration> {
+        match self {
+            EncodedMsg::Frame { frame, .. } => take_one_latency(frame, stage, egress_ns),
+            _ => Vec::new(),
+        }
+    }
 }
 
 impl<A> Dispatch<A> for EncodedMsg
@@ -488,6 +635,8 @@ where
         + Handler<ShutdownPayload>,
 {
     fn dispatch(self, actor: &mut A, ctx: &mut super::Context<A>) -> anyhow::Result<Flow> {
+        // Same rationale as `PipelineMsg::dispatch`: thin
+        // variant→handler router; no span opened here.
         match self {
             EncodedMsg::StreamInfo { source_id, info } => {
                 <A as Handler<StreamInfoPayload>>::handle(
@@ -571,9 +720,7 @@ mod tests {
             }
             other => panic!("unexpected hint: {other:?}"),
         }
-        let eos = PipelineMsg::SourceEos {
-            source_id: "s".into(),
-        };
+        let eos = PipelineMsg::source_eos("s");
         assert!(eos.as_shutdown().is_none());
     }
 
@@ -593,9 +740,7 @@ mod tests {
             }
             other => panic!("unexpected hint: {other:?}"),
         }
-        let eos = EncodedMsg::SourceEos {
-            source_id: "s".into(),
-        };
+        let eos = EncodedMsg::source_eos("s");
         assert!(eos.as_shutdown().is_none());
     }
 
@@ -650,9 +795,11 @@ mod tests {
         let mut actor = CaptureActor { received: None };
         let mut ctx = crate::Context::<CaptureActor>::new(
             StageName::unnamed(StageKind::DeepStreamFunction),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("test"),
         );
         let msg = EncodedMsg::message_ex(MyPayload { counter: 7 });
         msg.dispatch(&mut actor, &mut ctx).unwrap();
@@ -710,9 +857,11 @@ mod tests {
         let mut actor = CaptureActor { received: None };
         let mut ctx = crate::Context::<CaptureActor>::new(
             StageName::unnamed(StageKind::DeepStreamFunction),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("test"),
         );
         let msg = PipelineMsg::message_ex(MyPayload { tag: "via-dispatch" });
         msg.dispatch(&mut actor, &mut ctx).unwrap();

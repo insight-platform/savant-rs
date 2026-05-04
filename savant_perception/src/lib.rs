@@ -63,6 +63,7 @@ pub mod envelope;
 pub mod envelopes;
 pub mod errors;
 pub mod handler;
+pub mod instrument;
 pub mod loop_driver;
 pub mod message_ex;
 pub mod messages;
@@ -71,6 +72,7 @@ pub mod registry;
 pub mod router;
 pub mod shared;
 pub mod shutdown;
+pub mod stage_metrics;
 pub mod stages;
 pub mod supervisor;
 pub mod system;
@@ -98,7 +100,7 @@ pub use shutdown::{
     ShutdownWave,
 };
 pub use supervisor::{ExitReceiver, ExitSender, StageExit, StageExitGuard, StageKind, StageName};
-pub use system::{System, SystemReport, DEFAULT_QUIESCENCE_GRACE};
+pub use system::{System, SystemReport, DEFAULT_PIPELINE_NAME, DEFAULT_QUIESCENCE_GRACE};
 
 /// Framework-level traits for actors and message sources, grouped
 /// for convenient `use` imports.

@@ -156,9 +156,11 @@ mod tests {
     fn hook_ctx() -> HookCtx {
         HookCtx::new(
             StageName::unnamed(StageKind::BitstreamSource),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("demux-test"),
         )
     }
 

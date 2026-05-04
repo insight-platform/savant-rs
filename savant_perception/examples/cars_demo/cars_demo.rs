@@ -50,4 +50,5 @@
 
 pub mod pipeline;
 pub mod stats;
+pub mod telemetry;
 pub mod warmup;
