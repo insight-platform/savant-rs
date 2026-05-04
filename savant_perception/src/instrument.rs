@@ -62,7 +62,9 @@ pub fn open_child(
         Some(p) => tracer.build_with_context(builder, p),
         None => tracer.build_with_context(builder, &OtelContext::default()),
     };
-    OtelContext::current_with_span(span)
+    parent
+        .unwrap_or(&OtelContext::default())
+        .with_span(span)
 }
 
 /// RAII handle that:

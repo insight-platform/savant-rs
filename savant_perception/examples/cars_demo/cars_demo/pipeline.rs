@@ -662,9 +662,7 @@ pub fn run_pipeline(
                 .on_inference({
                     let converter = converter.clone();
                     move |ctx, router: &Router<PipelineMsg>, inf| {
-                        let frame_count = inf.frames().len() as u64;
                         let infer_stats = ctx.shared::<InferStats>();
-                        let det_before = infer_stats.as_ref().map(|s| s.detections()).unwrap_or(0);
                         // Pure transform: decode tensors, attach
                         // detections, tick `InferStats`.  Wraps the
                         // postprocessing in a user-space tracing span
@@ -687,8 +685,6 @@ pub fn run_pipeline(
                         // detection bookkeeping (cumulative
                         // detections produced by this stage) stays
                         // in [`InferStats`].
-                        let _ = det_before;
-                        let _ = frame_count;
                         if let Some(sealed) = sealed {
                             if !router.send(PipelineMsg::deliveries(sealed)) {
                                 log::warn!(
@@ -753,7 +749,6 @@ pub fn run_pipeline(
                 .on_tracking({
                     let sorter_peer = sorter_name.clone();
                     move |ctx, router: &Router<PipelineMsg>, tracking| {
-                        let frame_count = tracking.frames().len() as u64;
                         let tracker_stats = ctx.shared::<TrackerStats>();
                         // Pure transform: reconcile tracker updates
                         // onto frame metadata, tick `TrackerStats`.
@@ -778,7 +773,6 @@ pub fn run_pipeline(
                         // Per-stage tracker counters auto-tracked
                         // by the framework on the next stage's
                         // loop driver.
-                        let _ = frame_count;
                     }
                 })
                 .on_source_eos({

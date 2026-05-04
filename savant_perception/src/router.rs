@@ -134,9 +134,11 @@ impl<M: Envelope> Router<M> {
     /// not through the envelope or the router — there is nothing to
     /// inject here.
     pub fn send(&self, msg: M) -> bool {
-        self.record_egress(&msg);
         match self.0.default.as_ref() {
-            Some(sink) => sink.send(msg),
+            Some(sink) => {
+                self.record_egress(&msg);
+                sink.send(msg)
+            }
             None => {
                 if !self.0.warned_missing_default.swap(true, Ordering::Relaxed) {
                     log::warn!(
@@ -164,8 +166,8 @@ impl<M: Envelope> Router<M> {
     /// * `Err(_)`    — `peer` is not registered, or the registered
     ///   entry has a different envelope type than `M`.
     pub fn send_to(&self, peer: &StageName, msg: M) -> Result<bool> {
-        self.record_egress(&msg);
         let sink = self.resolve(peer)?;
+        self.record_egress(&msg);
         Ok(sink.send(msg))
     }
 
