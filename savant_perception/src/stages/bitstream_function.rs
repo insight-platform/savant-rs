@@ -98,6 +98,7 @@ use std::time::Duration;
 use anyhow::Result;
 
 use crate::envelopes::{EncodedMsg, FramePayload, PacketPayload, StreamInfoPayload};
+use crate::instrument::enter_callback_span;
 use crate::router::Router;
 use crate::supervisor::StageName;
 use crate::{
@@ -263,6 +264,7 @@ impl Actor for BitstreamFunction {
 
 impl Handler<StreamInfoPayload> for BitstreamFunction {
     fn handle(&mut self, msg: StreamInfoPayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        // StreamInfo carries no frame — no parent context, no span.
         (self.stream_info)(ctx, &self.router, &msg)?;
         Ok(Flow::Cont)
     }
@@ -270,6 +272,7 @@ impl Handler<StreamInfoPayload> for BitstreamFunction {
 
 impl Handler<PacketPayload> for BitstreamFunction {
     fn handle(&mut self, msg: PacketPayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        // Packets are pre-decode bitstream — no frame, no span.
         (self.packet)(ctx, &self.router, &msg)?;
         Ok(Flow::Cont)
     }
@@ -277,6 +280,12 @@ impl Handler<PacketPayload> for BitstreamFunction {
 
 impl Handler<FramePayload> for BitstreamFunction {
     fn handle(&mut self, msg: FramePayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        let _g = enter_callback_span(
+            &msg.frame,
+            "on_frame",
+            ctx.pipeline_name(),
+            &ctx.own_name().to_string(),
+        );
         (self.frame)(ctx, &self.router, &msg)?;
         Ok(Flow::Cont)
     }
@@ -284,6 +293,7 @@ impl Handler<FramePayload> for BitstreamFunction {
 
 impl Handler<SourceEosPayload> for BitstreamFunction {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        // No frame on a SourceEos — no span.
         (self.source_eos)(ctx, &self.router, &msg.source_id)
     }
 }
@@ -671,10 +681,7 @@ mod tests {
             )
             .unwrap();
 
-        addr.send(EncodedMsg::SourceEos {
-            source_id: "s1".into(),
-        })
-        .unwrap();
+        addr.send(EncodedMsg::source_eos("s1")).unwrap();
 
         addr.send(EncodedMsg::Shutdown {
             grace: None,
@@ -710,10 +717,7 @@ mod tests {
             )
             .unwrap();
 
-        addr.send(EncodedMsg::SourceEos {
-            source_id: "s1".into(),
-        })
-        .unwrap();
+        addr.send(EncodedMsg::source_eos("s1")).unwrap();
 
         let report = sys.run().unwrap();
         assert_eq!(counter.load(Ordering::Relaxed), 1);
@@ -781,7 +785,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let func = (parts.factory)(&bx).expect("factory resolves");
         let BitstreamFunction {
             router: _,

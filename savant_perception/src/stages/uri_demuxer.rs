@@ -238,10 +238,7 @@ impl UriDemuxerSource {
     ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, VideoInfo, &str) -> Result<()> + Send + 'static
     {
         |_ctx, router, info, source_id| {
-            router.send(EncodedMsg::StreamInfo {
-                source_id: source_id.to_string(),
-                info,
-            });
+            router.send(EncodedMsg::stream_info(source_id, info));
             Ok(())
         }
     }
@@ -274,11 +271,7 @@ impl UriDemuxerSource {
            + Send
            + 'static {
         |_ctx, router, _uri, source_id, info, packet| {
-            router.send(EncodedMsg::Packet {
-                source_id: source_id.to_string(),
-                info: *info,
-                packet,
-            });
+            router.send(EncodedMsg::packet(source_id, *info, packet));
             Ok(())
         }
     }
@@ -307,7 +300,7 @@ impl UriDemuxerSource {
         |_ctx, router, _uri, source_id, info, packet| {
             let frame = super::demuxers::decode_frame::make_decode_frame(source_id, &packet, info);
             let payload = Some(packet.data);
-            router.send(EncodedMsg::Frame { frame, payload });
+            router.send(EncodedMsg::frame(frame, payload));
             Ok(())
         }
     }
@@ -321,9 +314,7 @@ impl UriDemuxerSource {
     pub fn default_on_source_eos(
     ) -> impl FnMut(&HookCtx, &Router<EncodedMsg>, &str) -> Result<Flow> + Send + 'static {
         |_ctx, router, source_id| {
-            router.send(EncodedMsg::SourceEos {
-                source_id: source_id.to_string(),
-            });
+            router.send(EncodedMsg::source_eos(source_id));
             Ok(Flow::Cont)
         }
     }
@@ -526,6 +517,9 @@ fn run_one(
                     info.codec
                 );
                 h.last_stream_info = Some(info);
+                // Source-side hook on the gst callback thread: no
+                // parent context yet (frames are minted inside the
+                // user's `on_packet`), so no span here.
                 if let Err(e) =
                     (h.on_stream_info)(&hook_ctx_cb, &router_cb, info, &source_id_cb)
                 {
@@ -537,6 +531,11 @@ fn run_one(
             }
             UriDemuxerOutput::Packet(pkt) => {
                 if let Some(info) = h.last_stream_info {
+                    // Source-side metrics: see mp4_demuxer for the
+                    // contract.
+                    hook_ctx_cb.stage_metrics().record_message(1, 0, 0);
+                    // No frame yet (built inside on_packet); the hook
+                    // can call `frame.set_otel_ctx` once it has one.
                     if let Err(e) = (h.on_packet)(
                         &hook_ctx_cb,
                         &router_cb,
@@ -562,6 +561,7 @@ fn run_one(
             }
             UriDemuxerOutput::Eos => {
                 log::info!("[{own_name_cb}] EOS (source_id={source_id_cb})");
+                // No frame on EOS — no span.
                 match (h.on_source_eos)(&hook_ctx_cb, &router_cb, &source_id_cb) {
                     Ok(Flow::Cont) => {}
                     Ok(Flow::Stop) => {
@@ -587,6 +587,7 @@ fn run_one(
             UriDemuxerOutput::Error(e) => {
                 let msg = e.to_string();
                 log::error!("[{own_name_cb}] pipeline error: {msg}");
+                // No frame on a pipeline error — no span.
                 let action = (h.on_error)(&hook_ctx_cb, &router_cb, &e);
                 match action {
                     ErrorAction::Fatal => {
@@ -1054,25 +1055,16 @@ mod tests {
             .results(
                 UriDemuxerResults::builder()
                     .on_stream_info(|_ctx, router, info, sid| {
-                        router.send(EncodedMsg::StreamInfo {
-                            source_id: sid.to_string(),
-                            info,
-                        });
+                        router.send(EncodedMsg::stream_info(sid, info));
                         Ok(())
                     })
                     .on_packet(|_ctx, router, uri, sid, info, pkt| {
                         let _ = uri;
-                        router.send(EncodedMsg::Packet {
-                            source_id: sid.to_string(),
-                            info: *info,
-                            packet: pkt,
-                        });
+                        router.send(EncodedMsg::packet(sid, *info, pkt));
                         Ok(())
                     })
                     .on_source_eos(|_ctx, router, sid| {
-                        router.send(EncodedMsg::SourceEos {
-                            source_id: sid.to_string(),
-                        });
+                        router.send(EncodedMsg::source_eos(sid));
                         Ok(Flow::Cont)
                     })
                     .on_error(
@@ -1175,7 +1167,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let src = (parts.factory)(&bx).expect("factory resolves");
         // Pattern-match proves every hook is non-`Option`.
         let UriDemuxerSource {
@@ -1213,7 +1207,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let mut src = (parts.factory)(&bx).unwrap();
         let hc = bx.hook_ctx();
         match (src.request_input)(&hc) {
@@ -1238,7 +1234,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let mut src = (parts.factory)(&bx).unwrap();
         let hc = bx.hook_ctx();
         for _ in 0..3 {

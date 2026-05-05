@@ -52,6 +52,7 @@ ctrlc = { workspace = true }
 gstreamer = { workspace = true }
 hashbrown = { workspace = true }
 parking_lot = { workspace = true }
+opentelemetry = { workspace = true }
 
 [features]
 default = ["deepstream"]
@@ -76,3 +77,5 @@ deepstream = [
 clap = { workspace = true }
 env_logger = { workspace = true }
 serial_test = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-stdout = { workspace = true }

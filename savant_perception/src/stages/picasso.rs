@@ -114,6 +114,7 @@ use savant_core::primitives::frame::VideoFrame;
 use savant_core::primitives::object::BorrowedVideoObject;
 
 use crate::envelopes::{BatchDelivery, EncodedMsg, PipelineMsg, SingleDelivery};
+use crate::instrument::enter_callback_span;
 use crate::router::Router;
 use crate::supervisor::StageName;
 use crate::{
@@ -332,9 +333,23 @@ impl OnEncodedFrame for ClosureOnEncodedFrame {
     fn call(&self, output: OutputMessage) {
         match output {
             OutputMessage::VideoFrame(frame) => {
-                (self.on_frame)(&self.ctx, &self.router, frame)
+                // Cross-thread propagation: encoder callback runs
+                // on a worker thread.  `enter_callback_span` clones
+                // the frame internally (cheap Arc clone), so the
+                // guard's pop runs even after the user hook
+                // consumes `frame`.
+                let _span = enter_callback_span(
+                    &frame,
+                    "on_encoded_frame",
+                    self.ctx.pipeline_name(),
+                    &self.ctx.own_name().to_string(),
+                );
+                (self.on_frame)(&self.ctx, &self.router, frame);
             }
-            OutputMessage::EndOfStream(eos) => (self.on_eos)(&self.ctx, &self.router, eos),
+            OutputMessage::EndOfStream(eos) => {
+                // No frame on EOS — no span.
+                (self.on_eos)(&self.ctx, &self.router, eos)
+            }
         }
     }
 }
@@ -345,6 +360,12 @@ struct ClosureOnRender {
 }
 impl OnRender for ClosureOnRender {
     fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrame) {
+        let _g = enter_callback_span(
+            frame,
+            "on_render",
+            self.ctx.pipeline_name(),
+            &self.ctx.own_name().to_string(),
+        );
         (self.hook)(&self.ctx, source_id, renderer, frame)
     }
 }
@@ -355,6 +376,12 @@ struct ClosureOnGpuMat {
 }
 impl OnGpuMat for ClosureOnGpuMat {
     fn call(&self, source_id: &str, frame: &VideoFrame, view: &SurfaceView) {
+        let _g = enter_callback_span(
+            frame,
+            "on_gpu_mat",
+            self.ctx.pipeline_name(),
+            &self.ctx.own_name().to_string(),
+        );
         (self.hook)(&self.ctx, source_id, frame, view)
     }
 }
@@ -370,6 +397,7 @@ impl OnObjectDrawSpec for ClosureOnObjectDrawSpec {
         object: &BorrowedVideoObject,
         current_spec: Option<&ObjectDraw>,
     ) -> Option<ObjectDraw> {
+        // Operates on a single object — no frame in scope, no span.
         (self.hook)(&self.ctx, source_id, object, current_spec)
     }
 }
@@ -380,6 +408,7 @@ struct ClosureOnEviction {
 }
 impl OnEviction for ClosureOnEviction {
     fn call(&self, source_id: &str) -> EvictionDecision {
+        // No frame — no span.
         (self.hook)(&self.ctx, source_id)
     }
 }
@@ -390,6 +419,7 @@ struct ClosureOnStreamReset {
 }
 impl OnStreamReset for ClosureOnStreamReset {
     fn call(&self, source_id: &str, reason: StreamResetReason) {
+        // No frame — no span.
         (self.hook)(&self.ctx, source_id, reason)
     }
 }
@@ -494,10 +524,7 @@ impl Picasso {
     pub fn default_on_encoded_frame(
     ) -> impl Fn(&HookCtx, &Router<EncodedMsg>, VideoFrame) + Send + Sync + 'static {
         |_ctx, router, frame| {
-            let _ = router.send(EncodedMsg::Frame {
-                frame,
-                payload: None,
-            });
+            let _ = router.send(EncodedMsg::frame(frame, None));
         }
     }
 
@@ -506,9 +533,7 @@ impl Picasso {
     pub fn default_on_encoded_source_eos(
     ) -> impl Fn(&HookCtx, &Router<EncodedMsg>, EndOfStream) + Send + Sync + 'static {
         |_ctx, router, eos| {
-            let _ = router.send(EncodedMsg::SourceEos {
-                source_id: eos.source_id,
-            });
+            let _ = router.send(EncodedMsg::source_eos(eos.source_id));
         }
     }
 
@@ -568,7 +593,7 @@ impl Actor for Picasso {
 
 impl Handler<SingleDelivery> for Picasso {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
-        let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
+        let pairs = PipelineMsg::delivery(msg.0).into_pairs();
         self.send_pairs(pairs, ctx)
     }
 }
@@ -590,9 +615,8 @@ impl Handler<SourceEosPayload> for Picasso {
         if let Err(e) = self.engine.send_eos(&msg.source_id) {
             log::warn!("[{}] send_eos({}): {e}", ctx.own_name(), msg.source_id);
         }
-        if let Err(e) =
-            (self.forward_inbox_source_eos)(ctx, &self.forward_inbox, &msg.source_id)
-        {
+        // No frame on a SourceEos — no span.
+        if let Err(e) = (self.forward_inbox_source_eos)(ctx, &self.forward_inbox, &msg.source_id) {
             log::warn!(
                 "[{}] forward_inbox_source_eos({}) failed: {e}",
                 ctx.own_name(),
@@ -671,6 +695,8 @@ impl Picasso {
         // a downstream stage that also wants the batch is not held
         // behind picasso's rendering.  Errors are logged but
         // non-fatal: a failed forward must not drop the frame.
+        // The hook receives all pairs at once; per-frame nesting
+        // happens through the per-pair `on_delivery` span below.
         if let Err(e) = (self.forward_inbox_delivery)(ctx, &self.forward_inbox, &pairs) {
             log::warn!("[{}] forward_inbox_delivery failed: {e}", ctx.own_name());
         }
@@ -679,13 +705,31 @@ impl Picasso {
             // User per-pair hook — fires before the engine feed.
             // Errors are logged but non-fatal so a failed observer
             // does not drop the frame by default.
-            if let Err(e) = (self.on_delivery)(ctx, &frame, &buffer) {
-                log::warn!("[{}] on_delivery failed: {e}", ctx.own_name());
+            let pipeline_name = ctx.pipeline_name().to_string();
+            let stage_name = ctx.own_name().to_string();
+            {
+                let _g = enter_callback_span(
+                    &frame,
+                    "on_delivery",
+                    &pipeline_name,
+                    &stage_name,
+                );
+                if let Err(e) = (self.on_delivery)(ctx, &frame, &buffer) {
+                    log::warn!("[{}] on_delivery failed: {e}", ctx.own_name());
+                }
             }
             let sid = frame.get_source_id();
             let view = SurfaceView::from_buffer(&buffer, 0)
                 .map_err(|e| anyhow!("SurfaceView::from_buffer: {e}"))?;
-            let crop = (self.on_crop_select)(ctx, &frame);
+            let crop = {
+                let _g = enter_callback_span(
+                    &frame,
+                    "on_crop_select",
+                    &pipeline_name,
+                    &stage_name,
+                );
+                (self.on_crop_select)(ctx, &frame)
+            };
             if let Err(e) = self.engine.send_frame(&sid, frame, view, crop) {
                 log::error!("[{}] send_frame failed: {e}", ctx.own_name());
                 return Err(anyhow!("picasso send_frame: {e}"));
@@ -1449,7 +1493,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let pic = (parts.factory)(&bx).expect("factory resolves");
         let Picasso {
             on_delivery: _,
@@ -1501,15 +1547,10 @@ mod tests {
             .results(
                 PicassoResults::builder()
                     .on_encoded_frame(|_ctx, router, frame| {
-                        let _ = router.send(EncodedMsg::Frame {
-                            frame,
-                            payload: None,
-                        });
+                        let _ = router.send(EncodedMsg::frame(frame, None));
                     })
                     .on_encoded_source_eos(|_ctx, router, eos| {
-                        let _ = router.send(EncodedMsg::SourceEos {
-                            source_id: eos.source_id,
-                        });
+                        let _ = router.send(EncodedMsg::source_eos(eos.source_id));
                     })
                     .build(),
             )
@@ -1561,7 +1602,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let _pic = (parts.factory)(&bx).expect("factory resolves");
 
         // Same handle, observed through a clone.

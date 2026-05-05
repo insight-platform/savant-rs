@@ -59,6 +59,7 @@ use super::envelope::Envelope;
 use super::loop_driver::run_actor;
 use super::registry::Registry;
 use super::shared::SharedStore;
+use super::stage_metrics::{StageMetrics, StageReporter};
 use super::shutdown::{
     DefaultShutdownHandler, ShutdownAction, ShutdownCause, ShutdownCtx, ShutdownHandler,
 };
@@ -79,10 +80,16 @@ type ThreadLauncher = Box<dyn FnOnce(BuildArgs) -> Result<JoinHandle<Result<()>>
 /// Arguments threaded into each [`ThreadLauncher`] when
 /// [`System::run`](System::run) starts the stage.
 struct BuildArgs {
+    pipeline_name: Arc<str>,
     registry: Arc<Registry>,
     shared: Arc<SharedStore>,
     stop_flag: Arc<AtomicBool>,
     exit_tx: ExitSender,
+    /// Per-stage metrics handle — pre-allocated at registration
+    /// for both actors and sources so the framework's
+    /// [`StageReporter`] can register every stage before any
+    /// worker thread starts.
+    stage_metrics: Arc<StageMetrics>,
 }
 
 /// Default quiescence grace period applied by the
@@ -101,9 +108,22 @@ struct BuildArgs {
 /// that want immediate broadcast.
 pub const DEFAULT_QUIESCENCE_GRACE: Duration = Duration::from_secs(1);
 
+/// Default pipeline name applied when [`System::name`] is not
+/// called.  Surfaced as the `pipeline.name` attribute on every
+/// framework-emitted span.
+pub const DEFAULT_PIPELINE_NAME: &str = "savant-perception";
+
+/// Default cadence for the per-stage `📊` console reporter.  Every
+/// minute the framework wakes up, snapshots each registered actor's
+/// [`StageMetrics`] atomics, and logs one summary line per stage
+/// (frames / FPS / objects / OPS / queue depth / latency
+/// min/avg/max).  Override with [`System::stats_period`].
+pub const DEFAULT_STATS_PERIOD: Duration = Duration::from_secs(60);
+
 /// Top-level pipeline builder / runner.  See the module docs for
 /// the full usage pattern.
 pub struct System {
+    pipeline_name: Arc<str>,
     shared: SharedStore,
     registry: Registry,
     launchers: Vec<PendingLaunch>,
@@ -111,11 +131,19 @@ pub struct System {
     shutdown_handler: Option<Box<dyn ShutdownHandler>>,
     quiescence: Duration,
     install_ctrlc: bool,
+    stats_period: Duration,
 }
 
 struct PendingLaunch {
     name: StageName,
     launcher: ThreadLauncher,
+    /// Per-stage metrics handle pre-allocated at registration so the
+    /// system can register every stage with the runtime
+    /// [`StageReporter`] before any worker thread starts.  Allocated
+    /// for both actors and sources — the source's per-emission
+    /// `record_message` calls populate the same console reporter
+    /// row.
+    stage_metrics: Arc<StageMetrics>,
 }
 
 impl Default for System {
@@ -127,10 +155,12 @@ impl Default for System {
 impl System {
     /// Empty system with defaults: no shutdown handler (i.e.
     /// [`DefaultShutdownHandler`] will be used), Ctrl+C handler
-    /// installation *enabled*, and the default quiescence grace
-    /// period.
+    /// installation *enabled*, the default quiescence grace
+    /// period, and a [`DEFAULT_PIPELINE_NAME`] identifier on every
+    /// emitted span.
     pub fn new() -> Self {
         Self {
+            pipeline_name: Arc::<str>::from(DEFAULT_PIPELINE_NAME),
             shared: SharedStore::new(),
             registry: Registry::new(),
             launchers: Vec::new(),
@@ -138,7 +168,37 @@ impl System {
             shutdown_handler: None,
             quiescence: DEFAULT_QUIESCENCE_GRACE,
             install_ctrlc: true,
+            stats_period: DEFAULT_STATS_PERIOD,
         }
+    }
+
+    /// Override the cadence of the per-stage `📊` console reporter.
+    ///
+    /// Each registered actor automatically contributes a
+    /// [`StageMetrics`] handle.  Every `period` the framework
+    /// snapshots each stage's atomic counters and logs one summary
+    /// line — frames / FPS / objects / OPS / queue depth / latency
+    /// (min / avg / max over the interval).
+    ///
+    /// Independent of any [`opentelemetry::metrics::MeterProvider`]
+    /// the host may have wired: those instruments are recorded in
+    /// parallel and exported through whatever exporter the host
+    /// configured (OTLP, stdout, …); the in-process console
+    /// reporter is the framework's standalone debugging surface.
+    /// Default [`DEFAULT_STATS_PERIOD`] (60 seconds).
+    pub fn stats_period(mut self, period: Duration) -> Self {
+        self.stats_period = period;
+        self
+    }
+
+    /// Override the pipeline identifier surfaced as `pipeline.name`
+    /// on every framework-emitted span.  Use a stable value (not a
+    /// per-run id) so multi-pipeline backends can group / filter
+    /// traces by pipeline.  See [`DEFAULT_PIPELINE_NAME`] for the
+    /// fallback.
+    pub fn name(mut self, name: impl Into<Arc<str>>) -> Self {
+        self.pipeline_name = name.into();
+        self
     }
 
     /// Override the quiescence grace period applied by the
@@ -232,23 +292,46 @@ impl System {
         });
         self.shutdown_senders.insert(name.clone(), shutdown_sender);
 
+        // Pre-allocate this stage's metrics handle.  Registered
+        // with the framework's [`StageReporter`] in `run()` so the
+        // per-stage console line lights up from the first periodic
+        // tick.  OpenTelemetry instruments inside `StageMetrics`
+        // are bound to whatever global `MeterProvider` is wired up
+        // — when no provider is installed they're noop.
+        let stage_metrics = StageMetrics::new(name.to_string());
+
         let factory = parts.factory;
         let poll_override = parts.poll_timeout;
         let launcher_name = name.clone();
         let launcher: ThreadLauncher =
             Box::new(move |args: BuildArgs| -> Result<JoinHandle<Result<()>>> {
                 let BuildArgs {
+                    pipeline_name,
                     registry,
                     shared,
                     stop_flag,
                     exit_tx,
+                    stage_metrics,
                 } = args;
-                let bx = BuildCtx::new(&launcher_name, &registry, &shared, &stop_flag);
+                let bx = BuildCtx::new(
+                    &launcher_name,
+                    &pipeline_name,
+                    &registry,
+                    &shared,
+                    &stop_flag,
+                    &stage_metrics,
+                );
                 let actor: A = factory(&bx)
                     .with_context(|| format!("actor factory for [{launcher_name}] failed"))?;
                 let _ = poll_override; // reserved for future per-instance overrides
-                let ctx: Context<A> =
-                    Context::new(launcher_name.clone(), registry, shared, stop_flag);
+                let ctx: Context<A> = Context::new(
+                    launcher_name.clone(),
+                    pipeline_name,
+                    registry,
+                    shared,
+                    stop_flag,
+                    stage_metrics,
+                );
                 let thread_name = format!("actor-{launcher_name}");
                 let stage_for_guard = launcher_name.clone();
                 let handle = thread::Builder::new()
@@ -260,7 +343,11 @@ impl System {
                     .map_err(|e| anyhow!("failed to spawn actor thread [{launcher_name}]: {e}"))?;
                 Ok(handle)
             });
-        self.launchers.push(PendingLaunch { name, launcher });
+        self.launchers.push(PendingLaunch {
+            name,
+            launcher,
+            stage_metrics,
+        });
         Ok(addr)
     }
 
@@ -287,20 +374,47 @@ impl System {
         // dummy `Addr<()>`.  To keep the `Envelope` bound honest
         // we skip the registry insert and track presence via a
         // separate set of source names.
+
+        // Pre-allocate the source's metrics handle.  Sources have
+        // no inbox (so `queue_length` stays at 0) and the framework
+        // can't measure per-frame handler latency from the outside,
+        // but the framework's source-stage internals (mp4 demuxer,
+        // uri demuxer, zmq source) call `record_message(1, 0, 0)`
+        // at every frame-emission site so the periodic 📊 reporter
+        // shows the source's outbound FPS alongside every actor's
+        // inbound FPS.
+        let stage_metrics = StageMetrics::new(name.to_string());
+
         let factory = parts.factory;
         let launcher_name = name.clone();
         let launcher: ThreadLauncher =
             Box::new(move |args: BuildArgs| -> Result<JoinHandle<Result<()>>> {
                 let BuildArgs {
+                    pipeline_name,
                     registry,
                     shared,
                     stop_flag,
                     exit_tx,
+                    stage_metrics,
                 } = args;
-                let bx = BuildCtx::new(&launcher_name, &registry, &shared, &stop_flag);
+                let bx = BuildCtx::new(
+                    &launcher_name,
+                    &pipeline_name,
+                    &registry,
+                    &shared,
+                    &stop_flag,
+                    &stage_metrics,
+                );
                 let src: S = factory(&bx)
                     .with_context(|| format!("source factory for [{launcher_name}] failed"))?;
-                let sc = SourceContext::new(launcher_name.clone(), registry, shared, stop_flag);
+                let sc = SourceContext::new(
+                    launcher_name.clone(),
+                    pipeline_name,
+                    registry,
+                    shared,
+                    stop_flag,
+                    stage_metrics,
+                );
                 let thread_name = format!("source-{launcher_name}");
                 let stage_for_guard = launcher_name.clone();
                 let handle = thread::Builder::new()
@@ -312,7 +426,11 @@ impl System {
                     .map_err(|e| anyhow!("failed to spawn source thread [{launcher_name}]: {e}"))?;
                 Ok(handle)
             });
-        self.launchers.push(PendingLaunch { name, launcher });
+        self.launchers.push(PendingLaunch {
+            name,
+            launcher,
+            stage_metrics,
+        });
         Ok(())
     }
 
@@ -351,6 +469,7 @@ impl System {
     ///    per-stage results.
     pub fn run(self) -> Result<SystemReport> {
         let Self {
+            pipeline_name,
             shared,
             registry,
             launchers,
@@ -358,6 +477,7 @@ impl System {
             shutdown_handler,
             quiescence,
             install_ctrlc,
+            stats_period,
         } = self;
 
         if launchers.is_empty() {
@@ -373,6 +493,16 @@ impl System {
         let shared = Arc::new(shared);
         let stop_flag = Arc::new(AtomicBool::new(false));
         let (exit_tx, exit_rx) = exit_channel();
+
+        // Build the per-stage console reporter before any worker
+        // thread starts so the periodic 📊 line lights up from the
+        // first interval after the first frame lands.  All
+        // [`StageMetrics`] handles pre-allocated at registration
+        // (actors and sources alike) are pulled in here.
+        let reporter_stages: Vec<Arc<StageMetrics>> =
+            launchers.iter().map(|p| p.stage_metrics.clone()).collect();
+        let mut reporter = StageReporter::new(stats_period, reporter_stages);
+        reporter.start();
 
         // Ctrl+C handler must use a clone of the exit sender; the
         // handler lives for the process lifetime.
@@ -394,12 +524,18 @@ impl System {
             Vec::with_capacity(launchers.len());
         let mut pending_factory_errors: Vec<(StageName, anyhow::Error)> = Vec::new();
         for launch in launchers {
-            let PendingLaunch { name, launcher } = launch;
+            let PendingLaunch {
+                name,
+                launcher,
+                stage_metrics,
+            } = launch;
             let args = BuildArgs {
+                pipeline_name: Arc::clone(&pipeline_name),
                 registry: registry.clone(),
                 shared: shared.clone(),
                 stop_flag: stop_flag.clone(),
                 exit_tx: exit_tx.clone(),
+                stage_metrics,
             };
             match launcher(args) {
                 Ok(handle) => handles.push((name, handle)),
@@ -458,6 +594,12 @@ impl System {
         for (name, err) in pending_factory_errors {
             stage_results.push((name, Err(err)));
         }
+
+        // Final per-stage flush — emits a closing 📊 line for each
+        // stage covering any frames that arrived after the last
+        // periodic report, then joins the reporter thread.
+        reporter.report_now();
+        reporter.shutdown();
 
         Ok(SystemReport {
             stage_results,

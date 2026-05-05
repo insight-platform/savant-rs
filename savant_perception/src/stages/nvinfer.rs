@@ -57,7 +57,8 @@
 //! ```ignore
 //! NvInfer::builder(name, cap)
 //!     .downstream(tracker_name)
-//!     .operator_factory(|_bx, cb| { /* build operator */ })
+//!     .batch_formation(my_batch_formation_cb)
+//!     .operator_factory(|_bx, batch_formation, cb| { /* build operator */ })
 //!     .results(
 //!         NvInferResults::builder()
 //!             .on_inference(|inf, router, ctx| { /* custom post */ })
@@ -122,18 +123,23 @@
 //! by a user-supplied closure or by the auto-installed default.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use deepstream_nvinfer::prelude::NvInferBatchingOperator;
 use deepstream_nvinfer::{
-    NvInferError, OperatorInferenceOutput, OperatorOutput, OperatorResultCallback,
+    BatchFormationCallback, NvInferError, OperatorInferenceOutput, OperatorOutput,
+    OperatorResultCallback,
 };
 use savant_core::primitives::attribute_value::AttributeValue;
 use savant_core::primitives::WithAttributes;
 
 use crate::envelopes::{BatchDelivery, PipelineMsg, SingleDelivery};
+use crate::instrument::{enter_callback_span, push_stage_span, CallbackSpanGuard};
 use crate::router::Router;
+use crate::stage_metrics::{
+    monotonic_ns, stamp_phase, take_phase, PHASE_E2E_START, PHASE_INFER_START,
+};
 use crate::supervisor::StageName;
 use crate::{
     Actor, ActorBuilder, BuildCtx, Context, Dispatch, ErrorAction, Flow, Handler, HookCtx,
@@ -229,14 +235,28 @@ pub type OnErrorHook = Arc<
 pub type OnStoppingHook = Box<dyn FnMut(&mut Context<NvInfer>) + Send + 'static>;
 
 /// Factory closure: builds the [`NvInferBatchingOperator`] once
-/// the stage has wired the result callback.  Invoked once
+/// the stage has wired the result callback and the
+/// preproc-instrumented batch-formation callback.  Invoked once
 /// when [`System::run`](super::super::system::System::run)
 /// constructs the [`NvInfer`] actor; it receives the
 /// fully-populated [`BuildCtx`] so it can resolve sibling stages
 /// and shared state (e.g. cached converters) without capturing
 /// them from the builder's definition site.
-pub type NvInferOperatorFactory =
-    Box<dyn FnOnce(&BuildCtx, OperatorResultCallback) -> Result<NvInferBatchingOperator> + Send>;
+///
+/// The framework supplies the `batch_formation` parameter — it's
+/// a wrapper around the user-supplied callback registered via
+/// [`NvInferBuilder::batch_formation`] that times the callback's
+/// invocation and records the duration as the per-batch preproc
+/// latency.  The factory passes it straight through to
+/// [`NvInferBatchingOperator`]'s constructor.
+pub type NvInferOperatorFactory = Box<
+    dyn FnOnce(
+            &BuildCtx,
+            BatchFormationCallback,
+            OperatorResultCallback,
+        ) -> Result<NvInferBatchingOperator>
+        + Send,
+>;
 
 /// `PipelineMsg` → `PipelineMsg` actor stage wrapping an
 /// [`NvInferBatchingOperator`].
@@ -347,7 +367,7 @@ impl NvInfer {
             }
             if let Some(sealed) = inf.take_deliveries() {
                 drop(inf);
-                if !router.send(PipelineMsg::Deliveries(sealed)) {
+                if !router.send(PipelineMsg::deliveries(sealed)) {
                     log::warn!("[{ns}] downstream closed; dropping sealed batch");
                 }
             }
@@ -368,9 +388,7 @@ impl NvInfer {
     ) -> impl Fn(&HookCtx, &Router<PipelineMsg>, &str) -> Result<Flow> + Send + Sync + 'static {
         |_ctx, router, source_id| {
             log::info!("OperatorOutput::Eos for source_id={source_id}; propagating");
-            if !router.send(PipelineMsg::SourceEos {
-                source_id: source_id.to_string(),
-            }) {
+            if !router.send(PipelineMsg::source_eos(source_id)) {
                 log::warn!("downstream closed; dropping SourceEos({source_id})");
             }
             Ok(Flow::Cont)
@@ -457,15 +475,43 @@ impl Actor for NvInfer {
 
 impl Handler<SingleDelivery> for NvInfer {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
-        let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
-        submit_pairs(&mut self.operator, pairs, ctx.own_name())
+        let e2e_start_ns = monotonic_ns();
+        let pairs = PipelineMsg::delivery(msg.0).into_pairs();
+        let stage = ctx.own_name().to_string();
+        let pipeline_name = ctx.pipeline_name().to_string();
+        // Open the per-frame **stage span** and stamp the
+        // `e2e_start` marker here — frames are first observed by
+        // this stage at this entry point.  The stage span lives
+        // across the async boundary into the operator callback;
+        // `dispatch_output` pops it (and reads `e2e_start`) after
+        // the user hook returns.
+        //
+        // Preproc latency is **not** measured here — the actor
+        // body just stamps + enqueues, which is microseconds.
+        // The real preprocessing duration is the user's
+        // batch-formation callback (registered via
+        // [`NvInferBuilder::batch_formation`]) running on the
+        // operator's worker thread; the framework times that
+        // wrapper internally.
+        for (frame, _) in &pairs {
+            stamp_phase(frame, &stage, PHASE_E2E_START, e2e_start_ns);
+            push_stage_span(frame, "infer.stage", &pipeline_name, &stage);
+        }
+        submit_pairs(&mut self.operator, pairs, ctx.own_name(), &stage)
     }
 }
 
 impl Handler<BatchDelivery> for NvInfer {
     fn handle(&mut self, msg: BatchDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
+        let e2e_start_ns = monotonic_ns();
         let pairs = msg.0.unseal();
-        submit_pairs(&mut self.operator, pairs, ctx.own_name())
+        let stage = ctx.own_name().to_string();
+        let pipeline_name = ctx.pipeline_name().to_string();
+        for (frame, _) in &pairs {
+            stamp_phase(frame, &stage, PHASE_E2E_START, e2e_start_ns);
+            push_stage_span(frame, "infer.stage", &pipeline_name, &stage);
+        }
+        submit_pairs(&mut self.operator, pairs, ctx.own_name(), &stage)
     }
 }
 
@@ -498,8 +544,14 @@ fn submit_pairs(
         deepstream_buffers::SharedBuffer,
     )>,
     stage: &StageName,
+    stage_str: &str,
 ) -> Result<Flow> {
     for (frame, buffer) in pairs {
+        // Mark the moment the frame leaves the actor thread for the
+        // operator queue.  The result callback reads this stamp
+        // back via `take_phase` to compute the per-frame inference
+        // (operator turnaround) duration cross-thread.
+        stamp_phase(&frame, stage_str, PHASE_INFER_START, monotonic_ns());
         if let Err(e) = operator.add_frame(frame, buffer) {
             log::error!("[{stage}] add_frame failed: {e}");
             return Err(anyhow!("infer add_frame: {e}"));
@@ -534,26 +586,92 @@ fn dispatch_output(
     ctx: &HookCtx,
 ) {
     match out {
-        OperatorOutput::Inference(inf) => on_inference(ctx, router, inf),
-        OperatorOutput::Eos { source_id } => match on_source_eos(ctx, router, &source_id) {
-            Ok(Flow::Cont) => {}
-            Ok(Flow::Stop) => {
-                log::info!(
-                    "[{}] on_source_eos requested stop (source_id={source_id})",
-                    ctx.own_name()
-                );
-                ctx.request_stop();
+        OperatorOutput::Inference(inf) => {
+            // Per-frame work:
+            //   1. Read `infer_start` stamp set on the actor thread
+            //      by `submit_pairs` and record per-frame inference
+            //      (operator-turnaround) latency.  Frames arriving
+            //      without a stamp (drained on shutdown, or user code
+            //      that injected frames bypassing `handle()`)
+            //      contribute no sample.
+            //   2. Push an `on_inference` callback span onto each
+            //      frame's span stack BEFORE the user hook runs, so
+            //      user code that reads `frame.otel_ctx_clone()`
+            //      sees this span as the current parent.  Frame
+            //      clones (cheap Arc clones — same underlying inner)
+            //      are retained so we can pop after the hook
+            //      returns even though `inf` is consumed by the
+            //      hook.
+            let now_ns = monotonic_ns();
+            let stage_str = ctx.own_name().to_string();
+            let pipeline_name = ctx.pipeline_name().to_string();
+            // Cheap Arc clones of the frames so we can read the
+            // `e2e_start` stamp after `inf` is consumed by the
+            // user hook.  Same Arc clone is also held by
+            // `_stage_pops` for the matching pop.
+            let frames_for_e2e: Vec<savant_core::primitives::frame::VideoFrame> =
+                inf.frames().iter().map(|fo| fo.frame.clone()).collect();
+            // Two layers of per-frame guards.  Variables drop in
+            // **reverse** declaration order, so on scope exit:
+            //   1. `_callback_spans` drops first → pops `on_inference`
+            //   2. `_stage_pops` drops second → pops `infer.stage`
+            //      (matching the push in `Handler::handle`)
+            let _stage_pops: Vec<CallbackSpanGuard> = frames_for_e2e
+                .iter()
+                .map(|f| CallbackSpanGuard::pop_at_drop(f.clone()))
+                .collect();
+            let _callback_spans: Vec<CallbackSpanGuard> = inf
+                .frames()
+                .iter()
+                .map(|fo| {
+                    if let Some(start_ns) =
+                        take_phase(&fo.frame, &stage_str, PHASE_INFER_START)
+                    {
+                        let delta = (now_ns - start_ns).max(0) as u64;
+                        ctx.stage_metrics()
+                            .record_inference_latency(Duration::from_nanos(delta));
+                    }
+                    enter_callback_span(&fo.frame, "on_inference", &pipeline_name, &stage_str)
+                })
+                .collect();
+            let postproc_start = Instant::now();
+            on_inference(ctx, router, inf);
+            ctx.stage_metrics()
+                .record_postproc_latency(postproc_start.elapsed());
+            // Per-frame e2e: handle entry → here (after the user
+            // hook returned and did all its postprocessing).
+            let e2e_now_ns = monotonic_ns();
+            for frame in &frames_for_e2e {
+                if let Some(start_ns) = take_phase(frame, &stage_str, PHASE_E2E_START) {
+                    let delta = (e2e_now_ns - start_ns).max(0) as u64;
+                    ctx.stage_metrics()
+                        .record_e2e_latency(Duration::from_nanos(delta));
+                }
             }
-            Err(e) => {
-                log::error!(
-                    "[{}] on_source_eos error (source_id={source_id}): {e}",
-                    ctx.own_name()
-                );
-                ctx.request_stop();
+        }
+        OperatorOutput::Eos { source_id } => {
+            // No frame on EOS — no span.
+            match on_source_eos(ctx, router, &source_id) {
+                Ok(Flow::Cont) => {}
+                Ok(Flow::Stop) => {
+                    log::info!(
+                        "[{}] on_source_eos requested stop (source_id={source_id})",
+                        ctx.own_name()
+                    );
+                    ctx.request_stop();
+                }
+                Err(e) => {
+                    log::error!(
+                        "[{}] on_source_eos error (source_id={source_id}): {e}",
+                        ctx.own_name()
+                    );
+                    ctx.request_stop();
+                }
             }
-        },
+        }
         OperatorOutput::Error(err) => {
             log::error!("[{}] operator error: {err}", ctx.own_name());
+            // No frame on an operator error — no span.
             match on_error(ctx, router, &err) {
                 ErrorAction::LogAndContinue | ErrorAction::Swallow => {}
                 ErrorAction::Fatal => {
@@ -809,6 +927,7 @@ pub struct NvInferBuilder {
     name: StageName,
     capacity: usize,
     downstream: Option<StageName>,
+    batch_formation: Option<BatchFormationCallback>,
     operator_factory: Option<NvInferOperatorFactory>,
     results: Option<NvInferResults>,
     common: Option<NvInferCommon>,
@@ -829,6 +948,7 @@ impl NvInferBuilder {
             name,
             capacity,
             downstream: None,
+            batch_formation: None,
             operator_factory: None,
             results: None,
             common: None,
@@ -846,14 +966,40 @@ impl NvInferBuilder {
         self
     }
 
+    /// Required: per-batch formation callback handed to the
+    /// underlying [`NvInferBatchingOperator`].  This is the
+    /// "on-batch-complete" callback that the operator invokes
+    /// from its worker thread once a batch is fully assembled
+    /// — the user-controlled preprocessing step.
+    ///
+    /// The framework wraps the supplied callback in a thin
+    /// timing shim before handing it to the
+    /// [`operator_factory`](Self::operator_factory): every
+    /// invocation is bracketed by `Instant::now()` and
+    /// [`StageMetrics::record_preproc_latency`](crate::stage_metrics::StageMetrics::record_preproc_latency),
+    /// so the per-batch preproc histogram lights up without any
+    /// user-side instrumentation.  The factory receives the
+    /// wrapped callback as its second parameter and passes it
+    /// straight through to the operator's constructor.
+    pub fn batch_formation(mut self, cb: BatchFormationCallback) -> Self {
+        self.batch_formation = Some(cb);
+        self
+    }
+
     /// Required: factory that builds the
-    /// [`NvInferBatchingOperator`] given the already-wired result
-    /// callback.  Invoked once by
+    /// [`NvInferBatchingOperator`] given the framework-wrapped
+    /// batch-formation callback (see
+    /// [`batch_formation`](Self::batch_formation)) and the wired
+    /// result callback.  Invoked once by
     /// [`System::run`](super::super::system::System::run) when the
     /// [`NvInfer`] actor is constructed.
     pub fn operator_factory<F>(mut self, f: F) -> Self
     where
-        F: FnOnce(&BuildCtx, OperatorResultCallback) -> Result<NvInferBatchingOperator>
+        F: FnOnce(
+                &BuildCtx,
+                BatchFormationCallback,
+                OperatorResultCallback,
+            ) -> Result<NvInferBatchingOperator>
             + Send
             + 'static,
     {
@@ -885,20 +1031,24 @@ impl NvInferBuilder {
     ///
     /// # Errors
     ///
-    /// Returns `Err` if `operator_factory` is missing.  All three
-    /// per-variant hooks and all loop knobs have defaults
-    /// auto-installed when the matching `results` / `common`
-    /// bundle is omitted.  `downstream` is optional — callers that
-    /// route via [`Router::send_to`] exclusively may omit it.
+    /// Returns `Err` if `batch_formation` or `operator_factory` is
+    /// missing.  All three per-variant hooks and all loop knobs
+    /// have defaults auto-installed when the matching `results` /
+    /// `common` bundle is omitted.  `downstream` is optional —
+    /// callers that route via [`Router::send_to`] exclusively may
+    /// omit it.
     pub fn build(self) -> Result<ActorBuilder<NvInfer>> {
         let NvInferBuilder {
             name,
             capacity,
             downstream,
+            batch_formation,
             operator_factory,
             results,
             common,
         } = self;
+        let batch_formation =
+            batch_formation.ok_or_else(|| anyhow!("NvInfer: missing batch_formation"))?;
         let operator_factory =
             operator_factory.ok_or_else(|| anyhow!("NvInfer: missing operator_factory"))?;
         let NvInferResults {
@@ -931,7 +1081,25 @@ impl NvInferBuilder {
                         &hook_ctx_cb,
                     );
                 });
-                let operator = (operator_factory)(bx, result_cb)?;
+                // Wrap the user's batch-formation callback with
+                // preproc-latency timing.  The wrapper is invoked
+                // by the operator from its worker thread once a
+                // batch has been fully assembled — the per-batch
+                // preproc duration is the wall-clock time of the
+                // user's closure.  `Arc<StageMetrics>` is
+                // Send + Sync, so the move-into-Arc<dyn Fn> is
+                // safe across the operator's thread.
+                let preproc_metrics = hook_ctx.stage_metrics().clone();
+                let user_batch_formation = batch_formation;
+                let wrapped_batch_formation: BatchFormationCallback =
+                    Arc::new(move |frames| {
+                        let start = Instant::now();
+                        let result = (user_batch_formation)(frames);
+                        preproc_metrics.record_preproc_latency(start.elapsed());
+                        result
+                    });
+                let operator =
+                    (operator_factory)(bx, wrapped_batch_formation, result_cb)?;
                 Ok(NvInfer {
                     operator,
                     router,
@@ -957,6 +1125,13 @@ mod tests {
     use crate::supervisor::{StageKind, StageName};
     use crossbeam::channel::{bounded, Receiver};
 
+    fn noop_batch_formation() -> BatchFormationCallback {
+        Arc::new(|_| deepstream_nvinfer::BatchFormationResult {
+            ids: Vec::new(),
+            rois: Vec::new(),
+        })
+    }
+
     fn noop_on_inference(_: &HookCtx, _: &Router<PipelineMsg>, _: OperatorInferenceOutput) {}
     fn noop_on_source_eos(_: &HookCtx, _: &Router<PipelineMsg>, _: &str) -> Result<Flow> {
         Ok(Flow::Cont)
@@ -972,9 +1147,11 @@ mod tests {
     fn test_hook_ctx() -> HookCtx {
         HookCtx::new(
             StageName::unnamed(StageKind::Infer),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("infer-test"),
         )
     }
 
@@ -989,14 +1166,30 @@ mod tests {
         let addr: Addr<PipelineMsg> = reg.get::<PipelineMsg>(&peer).unwrap();
         let owner = StageName::unnamed(StageKind::Infer);
         let default = OperatorSink::new(owner.clone(), addr);
-        let router = Router::new(owner, Arc::new(reg), Some(default));
+        let router = Router::new(
+            owner,
+            Arc::new(reg),
+            Some(default),
+            crate::stage_metrics::StageMetrics::new("infer-test"),
+        );
         (router, rx)
+    }
+
+    #[test]
+    fn builder_requires_batch_formation() {
+        let name = StageName::unnamed(StageKind::Infer);
+        let err = NvInfer::builder(name.clone(), 4).build().err().unwrap();
+        assert!(err.to_string().contains("missing batch_formation"));
     }
 
     #[test]
     fn builder_requires_operator_factory() {
         let name = StageName::unnamed(StageKind::Infer);
-        let err = NvInfer::builder(name.clone(), 4).build().err().unwrap();
+        let err = NvInfer::builder(name.clone(), 4)
+            .batch_formation(noop_batch_formation())
+            .build()
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("missing operator_factory"));
     }
 
@@ -1005,7 +1198,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Infer);
         let _ = NvInfer::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Tracker))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvInferResults::builder()
                     .on_inference(noop_on_inference)
@@ -1031,7 +1225,8 @@ mod tests {
     fn builder_without_downstream_is_accepted() {
         let name = StageName::unnamed(StageKind::Infer);
         let _ = NvInfer::builder(name, 4)
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvInferResults::builder()
                     .on_inference(noop_on_inference)
@@ -1052,7 +1247,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Infer);
         let _ = NvInfer::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Tracker))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .build()
             .unwrap();
     }
@@ -1064,7 +1260,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Infer);
         let _ = NvInfer::builder(name.clone(), 4)
             .downstream(StageName::unnamed(StageKind::Tracker))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .results(
                 NvInferResults::builder()
                     .on_inference(NvInfer::default_on_inference())
@@ -1094,7 +1291,8 @@ mod tests {
         let name = StageName::unnamed(StageKind::Infer);
         let _ = NvInfer::builder(name, 4)
             .downstream(StageName::unnamed(StageKind::Tracker))
-            .operator_factory(|_bx, _cb| unreachable!("not invoked in this test"))
+            .batch_formation(noop_batch_formation())
+            .operator_factory(|_bx, _batch, _cb| unreachable!("not invoked in this test"))
             .common(
                 NvInferCommon::builder()
                     .on_stopping(move |_ctx| {
@@ -1120,7 +1318,7 @@ mod tests {
         let flow = hook(&ctx, &router, "cam-1").expect("default hook is infallible");
         assert_eq!(flow, Flow::Cont);
         match rx.try_recv().expect("SourceEos should be forwarded") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-1"),
+            PipelineMsg::SourceEos { source_id, .. } => assert_eq!(source_id, "cam-1"),
             other => panic!("expected SourceEos, got {other:?}"),
         }
         assert!(rx.try_recv().is_err(), "exactly one message forwarded");
@@ -1149,9 +1347,11 @@ mod tests {
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ctx = HookCtx::new(
             StageName::unnamed(StageKind::Infer),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             Arc::clone(&stop_flag),
+            crate::stage_metrics::StageMetrics::new("infer-test"),
         );
         let (router, _rx) = router_with_default_peer();
         let on_inference: OnInferenceHook = Arc::new(noop_on_inference);
@@ -1177,9 +1377,11 @@ mod tests {
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let ctx = HookCtx::new(
             StageName::unnamed(StageKind::Infer),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(crate::shared::SharedStore::new()),
             Arc::clone(&stop_flag),
+            crate::stage_metrics::StageMetrics::new("infer-test"),
         );
         let (router, _rx) = router_with_default_peer();
         let on_inference: OnInferenceHook = Arc::new(noop_on_inference);

@@ -30,11 +30,14 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
+use opentelemetry::trace::TraceContextExt;
 use savant_core::message::Message;
+use savant_core::otlp::PropagatedContext;
 use savant_core::primitives::frame::VideoFrameContent;
 use savant_core::transport::zeromq::{NonBlockingWriter, WriterConfig, WriterResult};
 
 use crate::envelopes::{EncodedMsg, FramePayload, PacketPayload, StreamInfoPayload};
+use crate::instrument::enter_callback_span;
 use crate::supervisor::StageName;
 use crate::{
     Actor, ActorBuilder, Context, Dispatch, ErrorAction, Flow, Handler, ShutdownPayload,
@@ -160,6 +163,8 @@ impl ZmqSink {
     }
 
     fn classify_send_error(&mut self, err: anyhow::Error, ctx: &mut Context<Self>) -> Result<Flow> {
+        // Error classifier — frame already moved into the writer
+        // and not in scope; no parent context, no span.
         match (self.on_send_error)(ctx, &err) {
             ErrorAction::Fatal => Err(anyhow!("fatal send error: {err}")),
             ErrorAction::LogAndContinue => {
@@ -175,6 +180,7 @@ impl ZmqSink {
         wr: WriterResult,
         ctx: &mut Context<Self>,
     ) -> Result<Flow> {
+        // Same as `classify_send_error` — frame is gone; no span.
         match (self.on_writer_result)(ctx, &wr) {
             ErrorAction::Fatal => Err(anyhow!("fatal writer result: {wr:?}")),
             ErrorAction::LogAndContinue => {
@@ -232,7 +238,15 @@ impl Actor for ZmqSink {
 
 impl Handler<FramePayload> for ZmqSink {
     fn handle(&mut self, msg: FramePayload, ctx: &mut Context<Self>) -> Result<Flow> {
-        (self.on_frame)(ctx, &msg)?;
+        {
+            let _g = enter_callback_span(
+                &msg.frame,
+                "on_frame",
+                ctx.pipeline_name(),
+                &ctx.own_name().to_string(),
+            );
+            (self.on_frame)(ctx, &msg)?;
+        }
 
         let topic = (self.topic_strategy)(&msg);
 
@@ -263,7 +277,18 @@ impl Handler<FramePayload> for ZmqSink {
             }
         }
 
-        let message = Message::video_frame(&frame_for_message);
+        let mut message = Message::video_frame(&frame_for_message);
+        // Cross-process trace continuation: inject the frame's
+        // OpenTelemetry context (if any) into the wire message's
+        // `span_context` so the receiving sink can re-attach it via
+        // `ZmqSource::default_on_message`.  When the frame carries
+        // no context (untraced producer / sampled out), this is a
+        // no-op and the wire message has an empty `PropagatedContext`.
+        if let Some(otel_ctx) = msg.frame.otel_ctx_clone() {
+            if otel_ctx.span().span_context().is_valid() {
+                message.set_span_context(PropagatedContext::inject(&otel_ctx));
+            }
+        }
 
         let Some(writer) = self.writer.as_ref() else {
             bail!(
@@ -289,6 +314,7 @@ impl Handler<FramePayload> for ZmqSink {
 
 impl Handler<SourceEosPayload> for ZmqSink {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        // No frame on a SourceEos — no span.
         let flow = (self.on_source_eos)(ctx, &msg.source_id)?;
         if let Some(writer) = self.writer.as_ref() {
             let op = match writer.send_eos(&msg.source_id) {
@@ -802,7 +828,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let sink = (parts.factory)(&bx).expect("factory resolves");
         let ZmqSink {
             on_source_eos: _,

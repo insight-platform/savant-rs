@@ -133,6 +133,7 @@ use savant_core::primitives::frame::VideoFrame;
 use savant_core::utils::release_seal::ReleaseSeal;
 
 use crate::envelopes::{BatchDelivery, PipelineMsg, SingleDelivery};
+use crate::instrument::enter_callback_span;
 use crate::message_ex::MessageExPayload;
 use crate::router::Router;
 use crate::supervisor::StageName;
@@ -365,7 +366,7 @@ impl Sorter {
             let seal = Arc::new(ReleaseSeal::new());
             let sealed = Sealed::new((frame, buffer), Arc::clone(&seal));
             seal.release();
-            if !router.send(PipelineMsg::Delivery(sealed)) {
+            if !router.send(PipelineMsg::delivery(sealed)) {
                 log::warn!(
                     "[{}] downstream closed; dropping ordered frame",
                     ctx.own_name()
@@ -386,9 +387,7 @@ impl Sorter {
                 "[{}] SourceEos {source_id}: forwarding (registered)",
                 ctx.own_name()
             );
-            if !router.send(PipelineMsg::SourceEos {
-                source_id: source_id.to_string(),
-            }) {
+            if !router.send(PipelineMsg::source_eos(source_id)) {
                 log::warn!(
                     "[{}] downstream closed; dropping SourceEos({source_id})",
                     ctx.own_name()
@@ -492,9 +491,18 @@ impl Sorter {
             };
             let flow = match ready {
                 Ready::Frame(frame, buffer) => {
+                    let _g = enter_callback_span(
+                        &frame,
+                        "on_message",
+                        ctx.pipeline_name(),
+                        &ctx.own_name().to_string(),
+                    );
                     (self.on_message)(ctx, &self.router, frame, buffer)?
                 }
-                Ready::Eos => (self.on_source_eos)(ctx, &self.router, source_id)?,
+                Ready::Eos => {
+                    // No frame on EOS — no span.
+                    (self.on_source_eos)(ctx, &self.router, source_id)?
+                }
             };
             if matches!(flow, Flow::Stop) {
                 return Ok(Flow::Stop);
@@ -519,6 +527,12 @@ impl Sorter {
             .map(|e| e.expected_uuids.contains(&uuid))
             .unwrap_or(false);
         if !registered {
+            let _g = enter_callback_span(
+                &frame,
+                "on_unregistered",
+                ctx.pipeline_name(),
+                &ctx.own_name().to_string(),
+            );
             (self.on_unregistered)(ctx, &self.router, frame, buffer)?;
             return Ok(Flow::Cont);
         }
@@ -597,7 +611,7 @@ impl Actor for Sorter {
 
 impl Handler<SingleDelivery> for Sorter {
     fn handle(&mut self, msg: SingleDelivery, ctx: &mut Context<Self>) -> Result<Flow> {
-        let pairs = PipelineMsg::Delivery(msg.0).into_pairs();
+        let pairs = PipelineMsg::delivery(msg.0).into_pairs();
         for (frame, buffer) in pairs {
             if matches!(self.ingest_pair(frame, buffer, ctx)?, Flow::Stop) {
                 return Ok(Flow::Stop);
@@ -972,7 +986,9 @@ mod tests {
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(AtomicBool::new(false));
         let name = StageName::unnamed(StageKind::Sorter);
-        let bx = crate::context::BuildCtx::new(&name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new("sorter-test");
+        let bx = crate::context::BuildCtx::new(&name, &pn, &reg, &shared, &stop_flag, &sm);
 
         let parts = Sorter::builder(name.clone(), 16)
             .downstream(downstream)
@@ -985,9 +1001,11 @@ mod tests {
     fn make_ctx() -> Context<Sorter> {
         Context::new(
             StageName::unnamed(StageKind::Sorter),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("test"),
         )
     }
 
@@ -1008,7 +1026,7 @@ mod tests {
     fn register_frame_constructor_round_trips_through_message_ex() {
         let msg = Sorter::register_frame("cam-0", 42u128);
         let payload = match msg {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             other => panic!("expected MessageEx, got {other:?}"),
         };
         let reg = payload
@@ -1027,7 +1045,7 @@ mod tests {
     fn register_eos_constructor_round_trips_through_message_ex() {
         let msg = Sorter::register_eos("cam-1");
         let payload = match msg {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             other => panic!("expected MessageEx, got {other:?}"),
         };
         let reg = payload
@@ -1084,7 +1102,7 @@ mod tests {
         assert!(matches!(flow, Flow::Cont));
 
         match rx.try_recv().expect("EOS must reach downstream") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-0"),
+            PipelineMsg::SourceEos { source_id, .. } => assert_eq!(source_id, "cam-0"),
             other => panic!("expected SourceEos, got {other:?}"),
         }
         assert!(
@@ -1120,12 +1138,12 @@ mod tests {
         let (mut sorter, rx) = make_sorter();
         let mut ctx = make_ctx();
         let payload = match Sorter::register_eos("cam-7") {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             other => panic!("expected MessageEx, got {other:?}"),
         };
         sorter.handle_message_ex(payload, &mut ctx).unwrap();
         match rx.try_recv().expect("EOS must reach downstream") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-7"),
+            PipelineMsg::SourceEos { source_id, .. } => assert_eq!(source_id, "cam-7"),
             other => panic!("expected SourceEos, got {other:?}"),
         }
     }
@@ -1150,11 +1168,11 @@ mod tests {
         let mut ctx = make_ctx();
 
         let p1 = match Sorter::register_frame("cam-0", 11u128) {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             _ => unreachable!(),
         };
         let p2 = match Sorter::register_frame("cam-0", 11u128) {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             _ => unreachable!(),
         };
         sorter.handle_message_ex(p1, &mut ctx).unwrap();
@@ -1171,7 +1189,7 @@ mod tests {
     fn unregister_frame_constructor_round_trips_through_message_ex() {
         let msg = Sorter::unregister_frame("cam-0", 99u128);
         let payload = match msg {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             other => panic!("expected MessageEx, got {other:?}"),
         };
         let reg = payload
@@ -1199,7 +1217,7 @@ mod tests {
         register_frame_direct(&mut sorter, "cam-0", 3);
 
         let payload = match Sorter::unregister_frame("cam-0", 2u128) {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             _ => unreachable!(),
         };
         sorter.handle_message_ex(payload, &mut ctx).unwrap();
@@ -1231,7 +1249,7 @@ mod tests {
         let mut ctx = make_ctx();
 
         let payload = match Sorter::unregister_frame("ghost", 42u128) {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             _ => unreachable!(),
         };
         let flow = sorter.handle_message_ex(payload, &mut ctx).unwrap();
@@ -1255,7 +1273,7 @@ mod tests {
         register_eos_direct(&mut sorter, "cam-0");
 
         let payload = match Sorter::unregister_frame("cam-0", 1u128) {
-            PipelineMsg::MessageEx(p) => p,
+            PipelineMsg::MessageEx(payload) => payload,
             _ => unreachable!(),
         };
         sorter.handle_message_ex(payload, &mut ctx).unwrap();
@@ -1263,7 +1281,7 @@ mod tests {
         // The retraction's drain pass advanced past the now-empty
         // slot to fire the EOS hook downstream.
         match rx.try_recv().expect("EOS must reach downstream") {
-            PipelineMsg::SourceEos { source_id } => assert_eq!(source_id, "cam-0"),
+            PipelineMsg::SourceEos { source_id, .. } => assert_eq!(source_id, "cam-0"),
             other => panic!("expected SourceEos, got {other:?}"),
         }
         assert!(

@@ -26,11 +26,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossbeam::channel::{Receiver, RecvTimeoutError};
-
 use super::actor::Actor;
 use super::context::Context;
 use super::envelope::{Envelope, ShutdownHint};
 use super::handler::Flow;
+use super::stage_metrics::monotonic_ns;
 
 /// Drive `actor` on the current thread to completion.
 ///
@@ -63,11 +63,24 @@ where
     A: Actor,
     F: FnMut(&mut A, A::Msg, &mut Context<A>) -> Result<Flow>,
 {
-    let started = actor.started(ctx);
-    if let Err(e) = started {
+    // Lifecycle callbacks (`started` / `on_tick` / `stopping`) are
+    // intentionally not span-wrapped: they have no frame, so there
+    // is no natural parent context and the framework would have to
+    // create a fresh root span per call — high-volume noise that
+    // very few users actually want.  Anything user-installed (e.g.
+    // `on_started` / `on_stopping` hooks) runs without a current
+    // OTel span; user code that needs lifecycle traces can open its
+    // own root span explicitly.
+    if let Err(e) = actor.started(ctx) {
         actor.stopping(ctx);
         return Err(e);
     }
+
+    // Stage name is constant for this actor's lifetime — render it
+    // once outside the receive loop so the per-frame ingress stamp
+    // doesn't allocate a fresh `String` for every message.  The
+    // stamp helper takes `&str`.
+    let stage_name = ctx.own_name().to_string();
 
     let mut loop_result: Result<()> = Ok(());
     'outer: loop {
@@ -87,7 +100,49 @@ where
                         }
                     }
                 }
-                match handle(actor, msg, ctx) {
+                // Per-stage metrics — the framework reads object
+                // counts off any [`VideoFrame`] the envelope
+                // carries (via [`Envelope::frame_object_counts`])
+                // and records them through the OpenTelemetry
+                // instruments held by [`StageMetrics`], plus
+                // sidecar atomics that drive the framework's
+                // periodic 📊 console reporter.  No-op for sentinel
+                // envelopes that carry no frames (`SourceEos`,
+                // `Shutdown`, `MessageEx`, `StreamInfo`, `Packet`).
+                //
+                // Per-frame ingress timestamps are stamped onto
+                // each frame as a temporary attribute under the
+                // `telemetry.tracing` namespace; the stage's
+                // [`Router`](crate::Router) reads + clears them
+                // on send to compute the real `t_out − t_in`
+                // frame latency.  Lifetime is bounded by the
+                // frame's [`Drop`] — when the frame's last clone
+                // dies, the attribute dies too, so no side-table
+                // can bloat under user code that drops or retains
+                // frames without forwarding.
+                let object_counts = msg.frame_object_counts();
+                if !object_counts.is_empty() {
+                    let total_frames = object_counts.len();
+                    let total_objects: usize = object_counts.iter().sum();
+                    ctx.stage_metrics
+                        .record_message(total_frames, total_objects, inbox.len());
+                    msg.record_stage_ingress(&stage_name, monotonic_ns());
+                }
+
+                // No per-message `<stage>.recv` span is opened
+                // here: per-frame spans (`on_delivery`, `on_frame`,
+                // etc.) inside the handlers carry the trace signal
+                // and are parented explicitly off each frame's
+                // current context, sidestepping any reliance on the
+                // thread-local `OtelContext::current()` that
+                // interleaved-execution paths can't honour.  The
+                // wall-clock duration of the handler call is still
+                // captured via the stage metrics histogram.
+                let handle_t0 = Instant::now();
+                let result = handle(actor, msg, ctx);
+                let handle_elapsed = handle_t0.elapsed();
+                ctx.stage_metrics.record_handle_latency(handle_elapsed);
+                match result {
                     Ok(Flow::Cont) => {}
                     Ok(Flow::Stop) => break 'outer,
                     Err(e) => {
@@ -102,7 +157,8 @@ where
                     .map(|d| Instant::now() >= d)
                     .unwrap_or(true)
                 {
-                    match actor.on_tick(ctx) {
+                    let r = actor.on_tick(ctx);
+                    match r {
                         Ok(Flow::Cont) => {}
                         Ok(Flow::Stop) => break 'outer,
                         Err(e) => {
@@ -212,9 +268,11 @@ mod tests {
     fn ctx() -> Context<Counter> {
         Context::new(
             StageName::unnamed(StageKind::DeepStreamFunction),
+            Arc::from("test"),
             Arc::new(Registry::new()),
             Arc::new(SharedStore::new()),
             Arc::new(AtomicBool::new(false)),
+            crate::stage_metrics::StageMetrics::new("test"),
         )
     }
 

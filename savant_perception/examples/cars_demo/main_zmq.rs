@@ -66,7 +66,8 @@ mod cli;
 #[allow(dead_code)]
 mod cli_zmq;
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -98,6 +99,20 @@ fn main() -> Result<()> {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
         .init();
+
+    // Wire OTel before any framework code runs so spans flow
+    // through the stdout exporter on every shell where the operator
+    // sets `--trace-stdout`.  Service name distinguishes producer /
+    // pipeline / consumer in the resource attributes the exporter
+    // prints alongside each span.
+    if cli.trace_stdout {
+        let service_name = match &cli.subcommand {
+            Subcommand::Producer(_) => "cars-demo-zmq.producer",
+            Subcommand::Pipeline(_) => "cars-demo-zmq.pipeline",
+            Subcommand::Consumer(_) => "cars-demo-zmq.consumer",
+        };
+        cars_demo::telemetry::init_stdout_tracer(service_name);
+    }
 
     match cli.subcommand {
         Subcommand::Producer(args) => run_producer(args),
@@ -196,18 +211,42 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
 
     let source_id = args.source_id.clone();
     let loop_input = args.loop_input;
+    // `--trace-frequency N` (0 = off).  Counter is shared across
+    // every demux callback invocation in this run; the frame
+    // creator here is the only place that decides whether a frame
+    // gets a root OTel context, so per-frame sampling lives here.
+    let trace_freq = args.trace_frequency;
+    let trace_counter = Arc::new(AtomicU64::new(0));
+    if trace_freq > 0 {
+        log::info!(
+            "cars-demo-zmq producer: tracing every {trace_freq}-th frame as a fresh OTel root span"
+        );
+    }
     match input {
         InputSource::Path(path) => {
+            let trace_counter_cb = Arc::clone(&trace_counter);
             let mut results = Mp4DemuxerResults::builder().on_packet(
-                |ctx, router, _input, source_id, info, pkt| {
+                move |ctx, router, _input, source_id, info, pkt| {
                     if let Some(stats) = ctx.shared::<PipelineStats>() {
                         stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                     }
                     let frame = make_decode_frame(source_id, &pkt, info);
-                    router.send(EncodedMsg::Frame {
-                        frame,
-                        payload: Some(pkt.data),
-                    });
+                    if trace_freq > 0 {
+                        let n = trace_counter_cb.fetch_add(1, Ordering::Relaxed);
+                        if n % trace_freq == 0 {
+                            // Fresh root span pushed onto the
+                            // frame's stack — every framework
+                            // callback span downstream (`on_frame`,
+                            // `on_inference`, `on_tracking`,
+                            // `on_encoded_frame`, …) auto-parents
+                            // under it via the frame's stack
+                            // (`VideoFrame::otel_ctx_clone`).
+                            frame.set_otel_ctx(cars_demo::telemetry::fresh_root_context(
+                                "frame",
+                            ));
+                        }
+                    }
+                    router.send(EncodedMsg::frame(frame, Some(pkt.data)));
                     Ok(())
                 },
             );
@@ -234,16 +273,22 @@ fn run_producer(args: ProducerArgs) -> Result<()> {
             sys.register_source(demux_src)?;
         }
         InputSource::Uri(uri) => {
+            let trace_counter_cb = Arc::clone(&trace_counter);
             let mut results = UriDemuxerResults::builder().on_packet(
-                |ctx, router, _uri, source_id, info, pkt| {
+                move |ctx, router, _uri, source_id, info, pkt| {
                     if let Some(stats) = ctx.shared::<PipelineStats>() {
                         stats.demux_packets.fetch_add(1, Ordering::Relaxed);
                     }
                     let frame = make_decode_frame(source_id, &pkt, info);
-                    router.send(EncodedMsg::Frame {
-                        frame,
-                        payload: Some(pkt.data),
-                    });
+                    if trace_freq > 0 {
+                        let n = trace_counter_cb.fetch_add(1, Ordering::Relaxed);
+                        if n % trace_freq == 0 {
+                            frame.set_otel_ctx(cars_demo::telemetry::fresh_root_context(
+                                "frame",
+                            ));
+                        }
+                    }
+                    router.send(EncodedMsg::frame(frame, Some(pkt.data)));
                     Ok(())
                 },
             );
@@ -356,9 +401,7 @@ fn run_consumer(args: ConsumerArgs) -> Result<()> {
             ZmqSourceResults::builder()
                 .on_source_eos(|_ctx, router, source_id| {
                     log::info!("[zmq_source] EOS source_id={source_id}; consumer stopping");
-                    router.send(EncodedMsg::SourceEos {
-                        source_id: source_id.to_string(),
-                    });
+                    router.send(EncodedMsg::source_eos(source_id));
                     Ok(Flow::Stop)
                 })
                 .build(),

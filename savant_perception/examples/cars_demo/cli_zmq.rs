@@ -48,6 +48,22 @@ pub struct CliZmq {
     #[arg(long, global = true, default_value_t = false)]
     pub debug: bool,
 
+    /// Initialise OpenTelemetry with a stdout span exporter so the
+    /// framework's auto-opened spans (per-callback `on_<hook>`
+    /// spans on every stage, plus `infer.stage` / `tracker.stage`
+    /// spans on the async batching stages) and any user spans
+    /// (e.g. `nvinfer.postproc`) are pretty-printed to stdout
+    /// when they end.  Combined with `producer --trace-frequency
+    /// N` this produces a complete per-frame trace tree,
+    /// including cross-process continuation through ZMQ
+    /// source/sink.
+    ///
+    /// Off by default — leaves OTel's no-op tracer in place so spans
+    /// collapse to ~zero overhead.  Subcommand-independent: set on
+    /// every shell that should log spans (typically all three).
+    #[arg(long = "trace-stdout", global = true, default_value_t = false)]
+    pub trace_stdout: bool,
+
     #[command(subcommand)]
     pub subcommand: Subcommand,
 }
@@ -130,6 +146,26 @@ pub struct ProducerArgs {
     /// against a pipeline that cannot be re-started easily.
     #[arg(long = "loop", default_value_t = false)]
     pub loop_input: bool,
+
+    /// Sampled OpenTelemetry tracing — install a fresh root span
+    /// (named `frame`) on every Nth produced frame via
+    /// [`VideoFrame::set_otel_ctx`](savant_core::primitives::frame::VideoFrame::set_otel_ctx),
+    /// leaving every other frame untraced.
+    ///
+    /// * `0` (default) — no tracing at all.  No spans, zero
+    ///   overhead.
+    /// * `1` — every frame gets a root span (densest trace).
+    /// * `N` — one in `N` frames gets a root span.
+    ///
+    /// The root span propagates cross-process through ZMQ
+    /// (`ZmqSink` injects, `ZmqSource` extracts), so a `pipeline`
+    /// or `consumer` shell that also has `--trace-stdout` set will
+    /// log the producer's root span as the parent of its local
+    /// stage / callback spans.  See the top-level
+    /// [`--trace-stdout`](CliZmq::trace_stdout) flag for span
+    /// logging.
+    #[arg(long = "trace-frequency", default_value_t = 0)]
+    pub trace_frequency: u64,
 }
 
 /// Consumer subcommand arguments.

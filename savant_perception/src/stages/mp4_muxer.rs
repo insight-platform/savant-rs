@@ -65,6 +65,7 @@ use savant_core::primitives::video_codec::VideoCodec;
 use savant_gstreamer::mp4_muxer::Mp4Muxer as GstMp4Muxer;
 
 use crate::envelopes::{EncodedMsg, FramePayload, PacketPayload, StreamInfoPayload};
+use crate::instrument::enter_callback_span;
 use crate::supervisor::StageName;
 use crate::{
     Actor, ActorBuilder, Context, Dispatch, Flow, Handler, ShutdownPayload, SourceEosPayload,
@@ -191,6 +192,12 @@ impl Actor for Mp4Muxer {
 
 impl Handler<FramePayload> for Mp4Muxer {
     fn handle(&mut self, msg: FramePayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        let _g = enter_callback_span(
+            &msg.frame,
+            "on_frame",
+            ctx.pipeline_name(),
+            &ctx.own_name().to_string(),
+        );
         (self.on_frame)(ctx, &msg)?;
         let FramePayload { frame, payload } = msg;
         let Some(muxer) = self.muxer.as_mut() else {
@@ -227,6 +234,7 @@ impl Handler<FramePayload> for Mp4Muxer {
 
 impl Handler<SourceEosPayload> for Mp4Muxer {
     fn handle(&mut self, msg: SourceEosPayload, ctx: &mut Context<Self>) -> Result<Flow> {
+        // No frame on a SourceEos — no span.
         (self.on_source_eos)(ctx, &msg.source_id)
     }
 }
@@ -618,7 +626,9 @@ mod tests {
         let reg = Arc::new(Registry::new());
         let shared = Arc::new(SharedStore::new());
         let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let bx = BuildCtx::new(&parts.name, &reg, &shared, &stop_flag);
+        let pn: Arc<str> = Arc::from("test");
+        let sm = crate::stage_metrics::StageMetrics::new(parts.name.to_string());
+        let bx = BuildCtx::new(&parts.name, &pn, &reg, &shared, &stop_flag, &sm);
         let mx = (parts.factory)(&bx).expect("factory resolves");
         let Mp4Muxer {
             on_frame: _,

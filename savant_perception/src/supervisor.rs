@@ -179,7 +179,10 @@ impl fmt::Display for StageKind {
 ///   field is empty, display is just the kind (e.g.
 ///   `"mp4_demux"`).
 /// * [`StageName::new`] — named instance, display is
-///   `"{kind}[{instance}]"` (e.g. `"infer[yolo11n]"`).
+///   `"{kind}[{instance}]"` (e.g. `"infer[yolo11n]"`).  Stats
+///   labels extend this with a dotted phase suffix
+///   (`"infer[yolo11n].e2e"`, `"infer[yolo11n].preproc"`,
+///   `"infer[yolo11n].infer"`, `"infer[yolo11n].postproc"`).
 ///
 /// `instance` is a [`Cow<'static, str>`] so callers can pass either
 /// a static literal (zero-copy) or an owned `String` at no API

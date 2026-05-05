@@ -25,6 +25,49 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
+
+/// OpenTelemetry-style attribute namespace under which the
+/// framework stamps per-stage timing markers on every
+/// [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
+/// flowing through the pipeline.  Two key shapes share the
+/// namespace:
+///
+/// * **Ingress markers** — attribute name is the stage's own
+///   [`StageName`](super::supervisor::StageName) (e.g.
+///   `"infer[yolo]"`).  Stamped by the loop driver at receive
+///   ([`Envelope::record_stage_ingress`]), read by the stage's
+///   [`Router`](super::router::Router) at send
+///   ([`Envelope::take_stage_latencies`]) to compute the
+///   per-frame ingress→egress latency the stage spent on each
+///   forwarded frame.
+/// * **Phase markers** — attribute name is `<stage>.<phase>`
+///   (e.g. `"infer[yolo].infer_start"`,
+///   `"infer[yolo].e2e_start"`).  Stamped by async batching
+///   stages (nvinfer, nvtracker) on the actor thread; read on
+///   the operator's worker thread to compute cross-thread
+///   per-frame timings (operator turnaround → `inference`
+///   stream, handle-entry-to-last-callback → `e2e` stream).  See
+///   [`stamp_phase`](crate::stage_metrics::stamp_phase) /
+///   [`take_phase`](crate::stage_metrics::take_phase) and the
+///   `PHASE_*` constants alongside them.
+///
+/// Stored as a *temporary, hidden* attribute so it neither shows
+/// up in the user-visible `get_attributes()` listing nor crosses
+/// serialization boundaries (zmq sink etc.).  The `<stage>`
+/// prefix is the unique
+/// [`StageName`](super::supervisor::StageName), so multiple
+/// stages of the same kind (e.g. `infer[yolo]` and
+/// `infer[plate_ocr]`) stamp the same frame independently without
+/// collision; same for different phases on the same stage.
+///
+/// Lifetime is tied to the frame: when the frame's last clone is
+/// dropped (RAII via [`OtelSpanGuard`](savant_core::primitives::frame::OtelSpanGuard)
+/// and the inner `Box`'s `Drop`), every attribute under this
+/// namespace is freed too — no side-table that could bloat under
+/// user hooks that drop frames or stages that consume frames
+/// without forwarding.
+pub const STAGE_INGRESS_NS: &str = "telemetry.tracing";
+
 /// Per-message hint surfaced to the receive-loop driver so it can
 /// honour cooperative-shutdown semantics without knowing the shape
 /// of the envelope.
@@ -127,6 +170,61 @@ pub trait Envelope: Send + 'static {
     {
         let _ = (grace, reason);
         None
+    }
+
+    /// Per-frame object counts for stats integration — one entry
+    /// per [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
+    /// carried by this envelope.
+    ///
+    /// The framework's loop driver reads this on every inbound
+    /// envelope and feeds the counts into the stage's
+    /// [`StageMetrics`](crate::stage_metrics::StageMetrics), so the
+    /// host application gets per-stage frame / object / batch
+    /// counters and FPS / OPS reporting for free — no per-stage
+    /// instrumentation in user code.
+    ///
+    /// Default returns an empty vec so envelopes that don't carry
+    /// frames (sentinels, stream-info, etc.) contribute nothing.
+    fn frame_object_counts(&self) -> Vec<usize> {
+        Vec::new()
+    }
+
+    /// Stamp `ingress_ns` (a process-monotonic nanosecond
+    /// timestamp — see [`monotonic_ns`](crate::stage_metrics::monotonic_ns))
+    /// onto every [`VideoFrame`](savant_core::primitives::frame::VideoFrame)
+    /// the envelope carries, as a temporary, hidden attribute
+    /// under namespace [`STAGE_INGRESS_NS`] with attribute name
+    /// `stage`.  Default no-op for envelopes that carry no
+    /// frames.
+    ///
+    /// The attribute lives on the frame's Arc-shared inner state,
+    /// so it propagates through the in-process clone chain that
+    /// each frame travels (envelope → router → channel → next
+    /// stage).  It is dropped automatically when the last clone
+    /// of the frame is dropped — **bounded memory regardless of
+    /// what user hooks do**.
+    fn record_stage_ingress(&self, stage: &str, ingress_ns: i64) {
+        let _ = (stage, ingress_ns);
+    }
+
+    /// Read the ingress timestamps stamped by
+    /// [`record_stage_ingress`] for `stage`, **delete them from
+    /// the frame**, and return the per-frame latencies
+    /// (`egress_ns − ingress_ns`).  Frames missing the marker
+    /// (e.g. arrived without ingress, or marker already taken on
+    /// a previous send) are skipped — the returned vec only
+    /// contains successful pairings.
+    ///
+    /// Called from every send path on the stage's
+    /// [`Router`](crate::Router); each successfully paired
+    /// duration is recorded into the stage's
+    /// [`StageMetrics`](crate::stage_metrics::StageMetrics)'s
+    /// frame-latency stream.
+    ///
+    /// Default returns an empty vec.
+    fn take_stage_latencies(&self, stage: &str, egress_ns: i64) -> Vec<Duration> {
+        let _ = (stage, egress_ns);
+        Vec::new()
     }
 }
 
