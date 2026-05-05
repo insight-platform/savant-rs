@@ -76,6 +76,7 @@ where
         return Err(e);
     }
 
+    let own_name_str = ctx.own_name().to_string();
     let mut loop_result: Result<()> = Ok(());
     'outer: loop {
         if ctx.should_quit() {
@@ -120,12 +121,7 @@ where
                     let total_objects: usize = object_counts.iter().sum();
                     ctx.stage_metrics
                         .record_message(total_frames, total_objects, inbox.len());
-                    // `to_string()` only on the frame-bearing path
-                    // — sentinels (SourceEos / Shutdown / MessageEx
-                    // / StreamInfo / Packet) skip the allocation
-                    // entirely.
-                    let stage_name = ctx.own_name().to_string();
-                    msg.record_stage_ingress(&stage_name, monotonic_ns());
+                    msg.record_stage_ingress(&own_name_str, monotonic_ns());
                 }
 
                 // No per-message `<stage>.recv` span is opened
