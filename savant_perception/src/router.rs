@@ -49,6 +49,12 @@ use super::supervisor::StageName;
 
 struct RouterInner<M: Envelope> {
     owner: StageName,
+    /// `owner.to_string()` cached once at construction.  Used as
+    /// the per-frame ingress-marker key in [`Router::record_egress`]
+    /// — the stage name is fixed for the router's lifetime so we
+    /// allocate the `String` once instead of per-send on the hot
+    /// path (every frame-bearing send for an actor that forwards).
+    owner_str: String,
     registry: Arc<Registry>,
     default: Option<OperatorSink<M>>,
     cache: Mutex<HashMap<StageName, OperatorSink<M>>>,
@@ -95,8 +101,10 @@ impl<M: Envelope> Router<M> {
         default: Option<OperatorSink<M>>,
         stage_metrics: Arc<StageMetrics>,
     ) -> Self {
+        let owner_str = owner.to_string();
         Self(Arc::new(RouterInner {
             owner,
+            owner_str,
             registry,
             default,
             cache: Mutex::new(HashMap::new()),
@@ -193,8 +201,7 @@ impl<M: Envelope> Router<M> {
     /// wired (hand-built test routers) or when the message
     /// carries no frames (sentinel envelopes).
     fn record_egress(&self, msg: &M) {
-        let stage = self.0.owner.to_string();
-        for dur in msg.take_stage_latencies(&stage, monotonic_ns()) {
+        for dur in msg.take_stage_latencies(&self.0.owner_str, monotonic_ns()) {
             self.0.stage_metrics.record_frame_latency(dur);
         }
     }

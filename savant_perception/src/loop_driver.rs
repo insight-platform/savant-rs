@@ -76,6 +76,12 @@ where
         return Err(e);
     }
 
+    // Stage name is constant for this actor's lifetime — render it
+    // once outside the receive loop so the per-frame ingress stamp
+    // doesn't allocate a fresh `String` for every message.  The
+    // stamp helper takes `&str`.
+    let stage_name = ctx.own_name().to_string();
+
     let mut loop_result: Result<()> = Ok(());
     'outer: loop {
         if ctx.should_quit() {
@@ -120,11 +126,6 @@ where
                     let total_objects: usize = object_counts.iter().sum();
                     ctx.stage_metrics
                         .record_message(total_frames, total_objects, inbox.len());
-                    // `to_string()` only on the frame-bearing path
-                    // — sentinels (SourceEos / Shutdown / MessageEx
-                    // / StreamInfo / Packet) skip the allocation
-                    // entirely.
-                    let stage_name = ctx.own_name().to_string();
                     msg.record_stage_ingress(&stage_name, monotonic_ns());
                 }
 
