@@ -701,6 +701,8 @@ impl Drop for StageReporter {
 }
 
 fn run_reporter(state: Arc<ReporterState>, period: Duration) {
+    let min_period = Duration::from_secs(1);
+    let period = period.max(min_period);
     // Sleep in short chunks so shutdown isn't blocked by a long
     // outstanding wait on the very first interval.
     let chunk = Duration::from_millis(50);
