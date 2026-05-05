@@ -872,7 +872,7 @@ pub fn run_pipeline(
                         // as a stable monotonically-increasing
                         // value across closure reinvocations.
                         let frame_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
-                        move |ctx, frame, _buffer| {
+                        move |_ctx, frame, _buffer| {
                             if draw_enabled {
                                 let cnt = frame_counter.fetch_add(1, Ordering::Relaxed);
                                 if let Err(e) = attach_frame_id_overlay(frame, cnt) {
@@ -882,7 +882,6 @@ pub fn run_pipeline(
                             // Per-stage 📊 counter is bumped
                             // automatically by the framework on
                             // Picasso's loop driver.
-                            let _ = ctx;
                             Ok(())
                         }
                     })
