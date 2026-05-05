@@ -114,13 +114,17 @@ where
                 // dies, the attribute dies too, so no side-table
                 // can bloat under user code that drops or retains
                 // frames without forwarding.
-                let stage_name = ctx.own_name().to_string();
                 let object_counts = msg.frame_object_counts();
                 if !object_counts.is_empty() {
                     let total_frames = object_counts.len();
                     let total_objects: usize = object_counts.iter().sum();
                     ctx.stage_metrics
                         .record_message(total_frames, total_objects, inbox.len());
+                    // `to_string()` only on the frame-bearing path
+                    // — sentinels (SourceEos / Shutdown / MessageEx
+                    // / StreamInfo / Packet) skip the allocation
+                    // entirely.
+                    let stage_name = ctx.own_name().to_string();
                     msg.record_stage_ingress(&stage_name, monotonic_ns());
                 }
 
