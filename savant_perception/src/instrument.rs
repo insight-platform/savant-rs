@@ -153,14 +153,7 @@ pub fn enter_callback_span(
     pipeline_name: &str,
     stage_name: &str,
 ) -> CallbackSpanGuard {
-    let span_ctx = open_child(name, frame.otel_ctx_clone().as_ref());
-    span_ctx
-        .span()
-        .set_attribute(KeyValue::new("pipeline.name", pipeline_name.to_string()));
-    span_ctx
-        .span()
-        .set_attribute(KeyValue::new("stage", stage_name.to_string()));
-    frame.push_otel_ctx(span_ctx);
+    push_stage_span(frame, name, pipeline_name, stage_name);
     CallbackSpanGuard {
         frame: frame.clone(),
     }
