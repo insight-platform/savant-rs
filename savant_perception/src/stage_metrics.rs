@@ -658,11 +658,20 @@ impl StageReporter {
         }
     }
 
-    /// Spawn the reporter thread.  No-op when the reporter has no
-    /// stages registered (avoids a useless heartbeat thread for
-    /// systems that only run sources).
+    /// Spawn the reporter thread.  No-op when:
+    ///
+    /// * the reporter has no stages registered (avoids a useless
+    ///   heartbeat thread for systems that only run sources), or
+    /// * the configured `period` is [`Duration::ZERO`] — periodic
+    ///   reporting is **disabled**.  The final
+    ///   [`Self::report_now`] flush from
+    ///   [`System::run`](crate::System::run) still emits the
+    ///   closing snapshot, so a host that wants only the final
+    ///   summary can pass `Duration::ZERO`.  Without this guard
+    ///   the inner sleep loop in `run_reporter` would never make
+    ///   progress and burn 100 % of a CPU core.
     pub fn start(&mut self) {
-        if self.state.stages.is_empty() {
+        if self.state.stages.is_empty() || self.period.is_zero() {
             return;
         }
         let state = Arc::clone(&self.state);
@@ -701,9 +710,22 @@ impl Drop for StageReporter {
 }
 
 fn run_reporter(state: Arc<ReporterState>, period: Duration) {
+    // Defensive: refuse `Duration::ZERO`.  The inner
+    // `while elapsed < period` would otherwise never sleep and
+    // the outer loop would call `report_once` on a tight spin,
+    // pegging a CPU core.  `StageReporter::start` already
+    // skips the spawn when `period.is_zero()`, but bare
+    // invocations (tests, direct callers) deserve the same
+    // safety.
+    if period.is_zero() {
+        return;
+    }
     // Sleep in short chunks so shutdown isn't blocked by a long
-    // outstanding wait on the very first interval.
-    let chunk = Duration::from_millis(50);
+    // outstanding wait on the very first interval.  Cap the chunk
+    // at `period` so very short reporting intervals (sub-chunk)
+    // still report at roughly their requested rate instead of
+    // every 50 ms.
+    let chunk = Duration::from_millis(50).min(period);
     loop {
         let mut elapsed = Duration::ZERO;
         while elapsed < period {

@@ -528,8 +528,10 @@ impl VideoFrame {
     /// always push without checking validity remain correct: noop
     /// spans don't reach the collector.
     pub fn set_otel_ctx(&self, ctx: opentelemetry::Context) {
-        let mut inner = trace!(self.0.write());
-        inner.otel_stack.push(OtelSpanGuard::new(ctx));
+        // Mechanically a single push.  Kept as a delegate (rather
+        // than a duplicate body) so a future change to the push
+        // logic stays in one place.
+        self.push_otel_ctx(ctx);
     }
 
     /// Push a new span context onto the frame's span stack.  The
