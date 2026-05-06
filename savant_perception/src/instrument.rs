@@ -153,6 +153,25 @@ pub fn enter_callback_span(
     pipeline_name: &str,
     stage_name: &str,
 ) -> CallbackSpanGuard {
+    push_framework_span(frame, name, pipeline_name, stage_name);
+    CallbackSpanGuard {
+        frame: frame.clone(),
+    }
+}
+
+/// Open a span as a child of `frame`'s current OTel context,
+/// stamp the standard framework attributes (`pipeline.name`,
+/// `stage`), and push it onto the frame's span stack.  Shared
+/// implementation behind [`enter_callback_span`] (RAII variant)
+/// and [`push_stage_span`] (no-RAII cross-thread variant) — the
+/// only thing the two public entry points add on top is whether
+/// they hand the caller a [`CallbackSpanGuard`] or not.
+fn push_framework_span(
+    frame: &VideoFrame,
+    name: impl Into<Cow<'static, str>>,
+    pipeline_name: &str,
+    stage_name: &str,
+) {
     let span_ctx = open_child(name, frame.otel_ctx_clone().as_ref());
     span_ctx
         .span()
@@ -161,9 +180,6 @@ pub fn enter_callback_span(
         .span()
         .set_attribute(KeyValue::new("stage", stage_name.to_string()));
     frame.push_otel_ctx(span_ctx);
-    CallbackSpanGuard {
-        frame: frame.clone(),
-    }
 }
 
 /// RAII guard returned by [`enter_callback_span`].  Pops the
@@ -211,12 +227,5 @@ pub fn push_stage_span(
     pipeline_name: &str,
     stage_name: &str,
 ) {
-    let span_ctx = open_child(name, frame.otel_ctx_clone().as_ref());
-    span_ctx
-        .span()
-        .set_attribute(KeyValue::new("pipeline.name", pipeline_name.to_string()));
-    span_ctx
-        .span()
-        .set_attribute(KeyValue::new("stage", stage_name.to_string()));
-    frame.push_otel_ctx(span_ctx);
+    push_framework_span(frame, name, pipeline_name, stage_name);
 }
