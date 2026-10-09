@@ -68,6 +68,7 @@ use savant_core_py::*;
 pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CounterFamily>()?;
     m.add_class::<GaugeFamily>()?;
+    m.add_class::<HistogramFamily>()?;
     m.add_function(wrap_pyfunction!(delete_metric_family, m)?)?;
     m.add_function(wrap_pyfunction!(set_extra_labels, m)?)?;
     Ok(())

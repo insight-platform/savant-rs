@@ -30,6 +30,22 @@ gauge = GaugeFamily.get_or_create_gauge_family(
     unit=None,
 )
 
+histogram = HistogramFamily.get_or_create_histogram_family(
+    name="histogram",
+    description="histogram description",
+    label_names=["label1", "label2"],
+    buckets=[0.1, 1.0, 10.0],
+    unit="seconds",
+)
+
+histogram.observe(0.5, ["value1", "value2"])
+histogram.observe(5.0, ["value1", "value2"])
+assert histogram.get(["value1", "value2"]) == (
+    5.5,
+    2,
+    [(0.1, 0), (1.0, 1), (10.0, 2), (float("inf"), 2)],
+)  # bucket counts are cumulative
+
 assert counter.set(1, ["value1", "value2"]) == 1  # new value returns the same value
 assert gauge.set(1.0, ["value1", "value2"]) == 1.0  # new value returns the same value
 assert (
@@ -66,6 +82,8 @@ assert response.status_code == 200
 print(response.text)
 assert "counter_unit_total" in response.text
 assert "gauge" in response.text
+assert "# TYPE histogram_seconds histogram" in response.text
+assert "histogram_seconds_bucket" in response.text
 
 response = requests.post("http://localhost:8080/shutdown/shutdown/signal")
 assert response.status_code == 200
@@ -77,3 +95,4 @@ assert gauge.delete(["value1", "value2"]) == 2.0
 
 delete_metric_family("counter")
 delete_metric_family("gauge")
+delete_metric_family("histogram")

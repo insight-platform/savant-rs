@@ -549,7 +549,7 @@ mod tests {
     use crate::get_or_init_async_runtime;
     use crate::metrics::{
         delete_metric_family, get_or_create_counter_family, get_or_create_gauge_family,
-        set_extra_labels,
+        get_or_create_histogram_family, set_extra_labels,
     };
     use crate::pipeline::implementation::create_test_pipeline;
     use crate::test::gen_frame;
@@ -693,6 +693,17 @@ mod tests {
 
         g.lock().set(unix_time_now, &["value3", "value4"])?;
 
+        let h = get_or_create_histogram_family(
+            "metric_histogram",
+            Some("Histogram for metrics"),
+            &["label5"],
+            Some(&[0.1, 1.0]),
+            Some(Unit::Seconds),
+        )?;
+        h.lock().observe(0.05, &["value5"])?;
+        h.lock().observe(0.5, &["value5"])?;
+        h.lock().observe(5.0, &["value5"])?;
+
         let client = reqwest::Client::new();
         let r = rt.block_on(client.get("http://localhost:8888/metrics").send())?;
         assert_eq!(r.status(), 200);
@@ -701,8 +712,36 @@ mod tests {
         assert!(text.contains("metric_gauge_Time"));
         assert!(text.contains("hello"));
         assert!(text.contains("stage_object_counter_total"));
+        assert!(text.contains("# TYPE metric_histogram_seconds histogram"));
+        assert!(
+            text.contains(
+                "metric_histogram_seconds_bucket{le=\"0.1\",label5=\"value5\",hello=\"there\"} 1"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "metric_histogram_seconds_bucket{le=\"1.0\",label5=\"value5\",hello=\"there\"} 2"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "metric_histogram_seconds_bucket{le=\"+Inf\",label5=\"value5\",hello=\"there\"} 3"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("metric_histogram_seconds_sum{label5=\"value5\",hello=\"there\"} 5.55"),
+            "{text}"
+        );
+        assert!(
+            text.contains("metric_histogram_seconds_count{label5=\"value5\",hello=\"there\"} 3"),
+            "{text}"
+        );
         delete_metric_family("metric_counter");
         delete_metric_family("metric_gauge");
+        delete_metric_family("metric_histogram");
         stop_webserver();
         drop(pipeline);
         Ok(())

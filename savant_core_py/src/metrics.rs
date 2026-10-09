@@ -231,6 +231,175 @@ impl GaugeFamily {
     }
 }
 
+/// Histogram state as returned to Python: ``(sum, count, buckets)``, where
+/// ``buckets`` is a list of ``(upper_bound, cumulative_count)`` and the last
+/// upper bound is ``inf``.
+type PyHistogramValue = (f64, u64, Vec<(f64, u64)>);
+
+fn to_py_histogram_value(value: savant_core::metrics::HistogramValue) -> PyHistogramValue {
+    (value.sum, value.count, value.cumulative_buckets())
+}
+
+#[pyclass]
+pub struct HistogramFamily(pub(crate) savant_core::metrics::SharedHistogramFamily);
+
+#[pymethods]
+impl HistogramFamily {
+    /// Records a value in the histogram with the given labels.
+    ///
+    /// Parameters
+    /// ----------
+    /// value : float
+    ///   The observed value.
+    /// label_values : List[str]
+    ///   The list of label values.
+    ///
+    /// Raises
+    /// ------
+    /// PyValueError
+    ///   If the labels do not match the label names or the value is not finite
+    ///   (NaN or infinity).
+    ///
+    #[pyo3(signature = (value, label_values=vec![]))]
+    pub fn observe(&self, value: f64, label_values: Vec<String>) -> PyResult<()> {
+        let l_ref = label_values
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
+        self.0
+            .lock()
+            .observe(value, &l_ref)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Returns the state of the histogram with the given labels.
+    ///
+    /// Parameters
+    /// ----------
+    /// label_values : List[str]
+    ///   The list of label values.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[float, int, List[Tuple[float, int]]]]
+    ///   ``(sum, count, buckets)``, where ``buckets`` holds
+    ///   ``(upper_bound, cumulative_count)`` pairs and ends with ``inf``.
+    ///
+    #[pyo3(signature = (label_values=vec![]))]
+    pub fn get(&self, label_values: Vec<String>) -> PyResult<Option<PyHistogramValue>> {
+        let l_ref = label_values
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
+        self.0
+            .lock()
+            .get(&l_ref)
+            .map(|v| v.map(to_py_histogram_value))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Deletes the histogram with the given labels.
+    ///
+    /// Parameters
+    /// ----------
+    /// label_values : List[str]
+    ///   The list of label values.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[float, int, List[Tuple[float, int]]]]
+    ///   The deleted state, in the same form as :py:meth:`get`.
+    ///
+    #[pyo3(signature = (label_values=vec![]))]
+    pub fn delete(&self, label_values: Vec<String>) -> PyResult<Option<PyHistogramValue>> {
+        let l_ref = label_values
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
+        self.0
+            .lock()
+            .delete(&l_ref)
+            .map(|v| v.map(to_py_histogram_value))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// The bucket upper bounds, without the implicit ``+Inf`` bucket.
+    ///
+    #[getter]
+    pub fn buckets(&self) -> Vec<f64> {
+        self.0.lock().get_buckets().to_vec()
+    }
+
+    /// Creates or returns a histogram with the given name.
+    ///
+    /// Parameters
+    /// ----------
+    /// name : str
+    ///   The name of the histogram.
+    /// description : str, optional
+    ///   The description of the histogram.
+    /// label_names : List[str], optional
+    ///   The list of label names. ``le`` is reserved.
+    /// buckets : List[float], optional
+    ///   Finite, strictly increasing bucket upper bounds below the maximum
+    ///   float (it is reserved for ``+Inf``). Defaults to the
+    ///   Prometheus defaults ``[0.005, 0.01, ..., 10.0]``. Ignored if the
+    ///   histogram already exists.
+    /// unit : str, optional
+    ///   The unit of the histogram.
+    ///
+    /// Returns
+    /// -------
+    /// HistogramFamily
+    ///   The histogram.
+    ///
+    /// Raises
+    /// ------
+    /// PyValueError
+    ///   If the buckets or label names are invalid.
+    ///
+    #[staticmethod]
+    #[pyo3(signature = (name, description=None, label_names=vec![], buckets=None, unit=None))]
+    pub fn get_or_create_histogram_family(
+        name: &str,
+        description: Option<&str>,
+        label_names: Vec<String>,
+        buckets: Option<Vec<f64>>,
+        unit: Option<String>,
+    ) -> PyResult<HistogramFamily> {
+        let ln_ref = label_names
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
+        savant_core::metrics::get_or_create_histogram_family(
+            name,
+            description,
+            &ln_ref,
+            buckets.as_deref(),
+            unit.map(Unit::Other),
+        )
+        .map(HistogramFamily)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Returns a histogram with the given name.
+    ///
+    /// Parameters
+    /// ----------
+    /// name : str
+    ///   The name of the histogram.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[HistogramFamily]
+    ///   The histogram.
+    ///
+    #[staticmethod]
+    pub fn get_histogram_family(name: &str) -> Option<HistogramFamily> {
+        savant_core::metrics::get_histogram_family(name).map(HistogramFamily)
+    }
+}
+
 /// Deletes a counter with the given name.
 ///
 /// Parameters

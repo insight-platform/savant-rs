@@ -32,6 +32,15 @@ impl Collector for SystemMetricCollector {
                     )?;
                     g.encode(metric_encoder)?;
                 }
+                ConstMetric::Histogram(h) => {
+                    let metric_encoder = encoder.encode_descriptor(
+                        &name,
+                        &desc_str,
+                        unit.as_ref(),
+                        MetricType::Histogram,
+                    )?;
+                    h.encode(metric_encoder)?;
+                }
             }
         }
         Ok(())
