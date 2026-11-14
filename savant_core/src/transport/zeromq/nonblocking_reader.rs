@@ -160,6 +160,33 @@ mod tests {
         Ok(())
     }
 
+    // issue: https://github.com/insight-platform/savant-rs/issues/321
+    #[test]
+    fn test_blacklist_does_not_wait_for_receive() -> anyhow::Result<()> {
+        let conf = ReaderConfig::new()
+            .url("router+bind:ipc:///tmp/test/nonblocking-reader-blacklist")?
+            .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+            .with_receive_timeout(2000)?
+            .build()?;
+        let mut reader = super::NonBlockingReader::new(&conf, 1)?;
+        reader.start()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while !reader.reader.as_ref().unwrap().is_receiving() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "receive never took the reader lock"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let started = std::time::Instant::now();
+        reader.blacklist_source(b"topic");
+        assert!(reader.is_blacklisted(b"topic"));
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
+        reader.shutdown()?;
+        Ok(())
+    }
+
     #[test]
     fn test_shutdown() -> anyhow::Result<()> {
         let conf = ReaderConfig::new()
