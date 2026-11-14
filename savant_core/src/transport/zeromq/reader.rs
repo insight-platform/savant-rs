@@ -4,6 +4,7 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
 use std::str::from_utf8;
+use std::sync::Arc;
 use zmq::Context;
 
 use crate::message::{Message, SeqStore};
@@ -19,8 +20,78 @@ pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
     config: ReaderConfig,
     socket: Mutex<Option<Socket<R>>>,
     routing_id_filter: Mutex<RoutingIdFilter>,
-    source_blacklist_cache: Mutex<LruCache<Vec<u8>, u64>>,
+    source_blacklist: Arc<SourceBlacklist>,
     phony: std::marker::PhantomData<P>,
+}
+
+/// Sources whose messages a reader rejects until their blacklist entry expires.
+///
+/// It has its own lock and can be shared (see [`Reader::source_blacklist`]), so
+/// a wrapper that serializes access to the reader can still answer blacklist
+/// queries while a `receive` call is in progress.
+pub struct SourceBlacklist {
+    endpoint: String,
+    ttl: u64,
+    cache: Mutex<LruCache<Vec<u8>, u64>>,
+}
+
+impl SourceBlacklist {
+    fn new(config: &ReaderConfig) -> anyhow::Result<Self> {
+        Ok(Self {
+            endpoint: config.endpoint().clone(),
+            ttl: *config.source_blacklist_ttl(),
+            cache: Mutex::new(LruCache::new(
+                NonZeroUsize::new(*config.source_blacklist_size() as usize).ok_or(
+                    anyhow::anyhow!("Source blacklist cache size must be greater than 0"),
+                )?,
+            )),
+        })
+    }
+
+    pub fn blacklist_source(&self, source: &[u8]) {
+        info!(
+            target: "savant_rs::zeromq::reader::blacklist_source",
+            "Blacklisting source '{}' for endpoint '{}'",
+            from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
+            self.endpoint
+        );
+        let black_list_until = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + self.ttl;
+        self.cache.lock().put(source.to_vec(), black_list_until);
+    }
+
+    pub fn is_blacklisted(&self, source: &[u8]) -> bool {
+        debug!(
+            target: "savant_rs::zeromq::reader::is_blacklisted",
+            "Checking if source '{}' is blacklisted for endpoint '{}'",
+            from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
+            self.endpoint
+        );
+        let mut source_blacklist_cache_bind = self.cache.lock();
+        let val = source_blacklist_cache_bind.get(&source.to_vec());
+        if let Some(val) = val {
+            if val
+                > &std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            {
+                debug!(
+                    target: "savant_rs::zeromq::reader::is_blacklisted",
+                    "Source '{}' is blacklisted for endpoint '{}'",
+                    from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
+                    self.endpoint
+                );
+                return true;
+            } else {
+                source_blacklist_cache_bind.pop(&source.to_vec());
+            }
+        }
+        false
+    }
 }
 
 impl From<&ReaderSocketType> for zmq::SocketType {
@@ -146,11 +217,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             config: config.clone(),
             socket: Mutex::new(Some(socket)),
             routing_id_filter: Mutex::new(RoutingIdFilter::new(*config.routing_cache_size())?),
-            source_blacklist_cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(*config.source_blacklist_size() as usize).ok_or(
-                    anyhow::anyhow!("Source blacklist cache size must be greater than 0"),
-                )?,
-            )),
+            source_blacklist: Arc::new(SourceBlacklist::new(config)?),
             phony: std::marker::PhantomData,
         })
     }
@@ -176,50 +243,17 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
     }
 
     pub fn blacklist_source(&self, source: &[u8]) {
-        info!(
-            target: "savant_rs::zeromq::reader::blacklist_source",
-            "Blacklisting source '{}' for endpoint '{}'",
-            from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
-            self.config.endpoint()
-        );
-        let black_list_until = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + *self.config.source_blacklist_ttl();
-        self.source_blacklist_cache
-            .lock()
-            .put(source.to_vec(), black_list_until);
+        self.source_blacklist.blacklist_source(source);
     }
 
     pub fn is_blacklisted(&self, source: &[u8]) -> bool {
-        debug!(
-            target: "savant_rs::zeromq::reader::is_blacklisted",
-            "Checking if source '{}' is blacklisted for endpoint '{}'",
-            from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
-            self.config.endpoint()
-        );
-        let mut source_blacklist_cache_bind = self.source_blacklist_cache.lock();
-        let val = source_blacklist_cache_bind.get(&source.to_vec());
-        if let Some(val) = val {
-            if val
-                > &std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-            {
-                debug!(
-                    target: "savant_rs::zeromq::reader::is_blacklisted",
-                    "Source '{}' is blacklisted for endpoint '{}'",
-                    from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
-                    self.config.endpoint()
-                );
-                return true;
-            } else {
-                source_blacklist_cache_bind.pop(&source.to_vec());
-            }
-        }
-        false
+        self.source_blacklist.is_blacklisted(source)
+    }
+
+    /// The reader's source blacklist, which can be queried and updated without
+    /// access to the reader itself.
+    pub fn source_blacklist(&self) -> Arc<SourceBlacklist> {
+        self.source_blacklist.clone()
     }
 
     pub fn receive(&mut self) -> anyhow::Result<ReaderResult> {
